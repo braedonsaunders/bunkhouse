@@ -90,7 +90,7 @@ export function ObservatoryList({ rows }: { rows: ObservatoryRunRow[] }) {
           {children}
         </Link>
       )}
-      onRowClick={(row) => router.push(`/runs/${row.id}`)}
+      onRowClick={(row) => router.push(`/runs/${row.id}?from=observatory`)}
       empty={{
         title: 'Nothing on the floor yet',
         description: 'Runs appear here the moment a hand starts working — from mail, duties, chat, or delegation.',

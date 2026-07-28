@@ -44,8 +44,15 @@ function describeTrigger(trigger: Record<string, unknown>): string {
   }
 }
 
-export default async function RunPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function RunPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ from?: string }>
+}) {
   const { id } = await params
+  const { from } = await searchParams
   const tenantId = await resolveTenantId()
   const app = db()
 
@@ -158,7 +165,11 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
   return (
     <PageContainer className="space-y-6">
       <DetailHeader
-        back={hand ? { href: `/people/${hand.id}`, label: hand.name } : { href: '/observatory', label: 'Observatory' }}
+        back={
+          from === 'person' && hand
+            ? { href: `/people?person=${hand.id}`, label: hand.name }
+            : { href: '/observatory', label: 'Observatory' }
+        }
         title={run.summary ?? describeTrigger(run.trigger)}
         subtitle={`${hand ? `${hand.name} · ${hand.title} · ` : ''}${describeTrigger(run.trigger)} · started ${run.startedAt.toISOString().slice(0, 16).replace('T', ' ')}`}
         badge={<Badge variant={STATUS_BADGES[run.status] ?? 'outline'}>{run.status.replace('_', ' ')}</Badge>}
