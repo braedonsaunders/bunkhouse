@@ -1,6 +1,8 @@
 'use server'
 
 import { redirect } from 'next/navigation'
+import { revalidatePath } from 'next/cache'
+import { eq } from 'drizzle-orm'
 import { getRolePack } from '@bunkhouse/roles'
 import { autonomySettings, duties, memories, people, procedures, procedureRevisions } from '../../db/schema'
 import { db } from '../../db/client'
@@ -121,4 +123,66 @@ export async function hireHand(formData: FormData): Promise<void> {
   })
 
   redirect(`/people/${personId}`)
+}
+
+/** Set one category on a hand's autonomy dial. Upsert keeps the dial complete. */
+export async function setAutonomy(formData: FormData): Promise<void> {
+  const personId = String(formData.get('personId') ?? '')
+  const category = String(formData.get('category') ?? '') as (typeof ACTION_CATEGORIES)[number]
+  const level = String(formData.get('level') ?? '') as 'forbidden' | 'approval' | 'notify' | 'trusted'
+  if (!personId || !ACTION_CATEGORIES.includes(category)) throw new Error('Invalid dial update.')
+  if (!['forbidden', 'approval', 'notify', 'trusted'].includes(level)) throw new Error('Invalid level.')
+
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await app.db
+      .insert(autonomySettings)
+      .values({ tenantId, personId, category, level })
+      .onConflictDoUpdate({
+        target: [autonomySettings.tenantId, autonomySettings.personId, autonomySettings.category],
+        set: { level, updatedAt: new Date() },
+      })
+  })
+  revalidatePath(`/people/${personId}`)
+}
+
+/** Add a human-authored note to a hand's memory. */
+export async function addMemoryNote(formData: FormData): Promise<void> {
+  const personId = String(formData.get('personId') ?? '')
+  const title = String(formData.get('title') ?? '').trim()
+  const body = String(formData.get('body') ?? '').trim()
+  if (!personId || !title || !body) throw new Error('A note needs a title and a body.')
+
+  const tenantId = await resolveTenantId()
+  const app = db()
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
+  await app.withTenant(tenantId, async () => {
+    await app.db
+      .insert(memories)
+      .values({ tenantId, scope: 'hand', personId, slug: slug || 'note', title, body })
+      .onConflictDoUpdate({
+        target: [memories.tenantId, memories.scope, memories.personId, memories.slug],
+        set: { title, body, status: 'active', updatedAt: new Date() },
+      })
+  })
+  revalidatePath(`/people/${personId}`)
+}
+
+/** Remove a memory note — the human-editable-memory doctrine in action. */
+export async function deleteMemoryNote(formData: FormData): Promise<void> {
+  const personId = String(formData.get('personId') ?? '')
+  const memoryId = String(formData.get('memoryId') ?? '')
+  if (!memoryId) throw new Error('memoryId is required')
+
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await app.db.delete(memories).where(eq(memories.id, memoryId))
+  })
+  revalidatePath(`/people/${personId}`)
 }

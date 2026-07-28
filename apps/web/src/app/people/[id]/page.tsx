@@ -3,6 +3,7 @@ import { asc, eq } from 'drizzle-orm'
 import {
   Avatar,
   Badge,
+  Button,
   Card,
   CardContent,
   CardDescription,
@@ -10,17 +11,23 @@ import {
   CardTitle,
   DetailHeader,
   EmptyState,
+  Input,
   PageContainer,
+  Select,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
+  Textarea,
 } from '@appkit/ui'
 import { autonomySettings, duties, memories, people } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
+import { addMemoryNote, deleteMemoryNote, setAutonomy } from '../actions'
+
+const AUTONOMY_LEVELS = ['forbidden', 'approval', 'notify', 'trusted'] as const
 
 export const dynamic = 'force-dynamic'
 
@@ -159,16 +166,32 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
               <CardTitle>Autonomy dial</CardTitle>
               <CardDescription>Enforced by the runtime, per action category.</CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-wrap gap-2">
-              {dial.length === 0 ? (
-                <p className="text-sm text-fg-muted">No dial configured — everything defaults to approval.</p>
-              ) : (
-                dial.map((setting) => (
-                  <Badge key={setting.id} variant={LEVEL_BADGES[setting.level] ?? 'outline'}>
-                    {CATEGORY_LABELS[setting.category] ?? setting.category}: {setting.level}
-                  </Badge>
-                ))
-              )}
+            <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {Object.entries(CATEGORY_LABELS).map(([category, label]) => {
+                const current = dial.find((s) => s.category === category)?.level ?? 'approval'
+                return (
+                  <form key={category} action={setAutonomy} className="space-y-1">
+                    <input type="hidden" name="personId" value={person.id} />
+                    <input type="hidden" name="category" value={category} />
+                    <p className="flex items-center gap-2 text-xs text-fg-muted">
+                      {label}
+                      <Badge variant={LEVEL_BADGES[current] ?? 'outline'}>{current}</Badge>
+                    </p>
+                    <div className="flex items-center gap-1">
+                      <Select name="level" defaultValue={current}>
+                        {AUTONOMY_LEVELS.map((level) => (
+                          <option key={level} value={level}>
+                            {level}
+                          </option>
+                        ))}
+                      </Select>
+                      <Button type="submit" variant="outline" size="sm">
+                        Set
+                      </Button>
+                    </div>
+                  </form>
+                )
+              })}
             </CardContent>
           </Card>
 
@@ -219,12 +242,29 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
                 <EmptyState title="Nothing remembered yet" description="Notes appear here as this hand works." />
               ) : (
                 notes.map((note) => (
-                  <div key={note.id} className="rounded-md border border-border p-3">
-                    <p className="text-sm font-medium">{note.title}</p>
-                    <p className="text-sm text-fg-muted">{note.body}</p>
+                  <div key={note.id} className="flex items-start justify-between gap-3 rounded-md border border-border p-3">
+                    <div>
+                      <p className="text-sm font-medium">{note.title}</p>
+                      <p className="text-sm text-fg-muted">{note.body}</p>
+                    </div>
+                    <form action={deleteMemoryNote}>
+                      <input type="hidden" name="personId" value={person.id} />
+                      <input type="hidden" name="memoryId" value={note.id} />
+                      <Button type="submit" variant="outline" size="sm">
+                        Forget
+                      </Button>
+                    </form>
                   </div>
                 ))
               )}
+              <form action={addMemoryNote} className="space-y-2 rounded-md border border-dashed border-border p-3">
+                <input type="hidden" name="personId" value={person.id} />
+                <Input name="title" placeholder="Note title (e.g. Preferred vendor for tires)" required />
+                <Textarea name="body" rows={2} placeholder="Something this hand should always know." required />
+                <Button type="submit" variant="outline" size="sm">
+                  Add to memory
+                </Button>
+              </form>
             </CardContent>
           </Card>
         </>
