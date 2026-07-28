@@ -1,0 +1,22 @@
+{
+  "name": "@bunkhouse/runtime",
+  "version": "0.1.0",
+  "description": "The bunkhouse employee loop: model-agnostic hands with governed abilities, procedures, memory, and budget metering.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@appkit/ai": "0.2.0",
+    "@modelcontextprotocol/sdk": "^1.21.0",
+    "ai": "^6.0.224",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
