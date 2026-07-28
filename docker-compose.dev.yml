@@ -6,16 +6,61 @@
 # LiveKit is the voice/media plane (browser calls join rooms here; the
 # voice agent worker registers against it). --dev mode fixes the API key
 # pair to devkey/secret — matching LIVEKIT_* in .env.local.
+# livekit-sip is the SIP ingress for the phone system: a tenant's PBX (or
+# carrier) points a SIP trunk at <docker-host>:5060 (UDP/TCP); inbound calls
+# become LiveKit rooms via the dispatch rules the app provisions. The SIP
+# service and the LiveKit server coordinate over Redis, so both attach to
+# the dedicated media-redis below (media infrastructure only — the shared
+# application Redis at 10.0.0.90 is intentionally NOT used here). No new
+# .env entries are needed: the app reaches SIP provisioning through the
+# existing LIVEKIT_URL/LIVEKIT_API_KEY/LIVEKIT_API_SECRET. When deploying
+# beyond the LAN, announce the host's public address to remote SIP peers by
+# adding `use_external_ip: true` (or `nat_1_to_1_ip: <public-ip>`) to
+# SIP_CONFIG_BODY and widening the RTP range.
 services:
   livekit:
     image: livekit/livekit-server:latest
     container_name: bunkhouse-livekit
     restart: unless-stopped
-    command: '--dev --bind 0.0.0.0'
+    command: '--dev --bind 0.0.0.0 --redis-host media-redis:6379'
+    depends_on:
+      - media-redis
     ports:
       - '7880:7880'
       - '7881:7881'
       - '7882:7882/udp'
+
+  # Dedicated Redis for the media plane (LiveKit server ↔ SIP RPC bus).
+  # Published on 6390 locally so it never collides with an app Redis.
+  media-redis:
+    image: redis:7-alpine
+    container_name: bunkhouse-media-redis
+    restart: unless-stopped
+    ports:
+      - '6390:6379'
+
+  livekit-sip:
+    image: livekit/sip:latest
+    container_name: bunkhouse-livekit-sip
+    restart: unless-stopped
+    depends_on:
+      - livekit
+      - media-redis
+    environment:
+      SIP_CONFIG_BODY: |
+        api_key: devkey
+        api_secret: secret
+        ws_url: ws://livekit:7880
+        redis:
+          address: media-redis:6379
+        sip_port: 5060
+        rtp_port: 10000-10100
+        logging:
+          level: info
+    ports:
+      - '5060:5060/udp'
+      - '5060:5060/tcp'
+      - '10000-10100:10000-10100/udp'
 
   mailpit:
     image: axllent/mailpit:latest
