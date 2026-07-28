@@ -14,6 +14,7 @@ import {
   type RecordColumn,
 } from '@appkit/ui'
 import { hireHand } from '../app/people/actions'
+import { cronToHuman } from '../lib/schedule'
 
 export type RoleRow = {
   slug: string
@@ -102,7 +103,7 @@ export function HireView({ roles, roster }: { roles: RoleRow[]; roster: RosterOp
                   {selected.duties.map((duty) => (
                     <li key={duty.title} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
                       <span>{duty.title}</span>
-                      <Badge variant="outline">{duty.cron}</Badge>
+                      <Badge variant="outline">{cronToHuman(duty.cron)}</Badge>
                     </li>
                   ))}
                 </ul>

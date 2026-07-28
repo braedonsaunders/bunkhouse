@@ -85,6 +85,8 @@ it done, do not move on. Every capability ships with, in the same slice:
 
 If a slice is intentionally engine-first, its task stays open until the UI lands.
 
+**Schedules are human-readable.** Operators see "At 8:00 AM, Monday through Friday" and edit with the structured schedule builder — never raw cron. Cron is the internal storage format only; raw entry lives behind the builder's Advanced toggle.
+
 **Row interactions open Drawers.** Clicking a list/table row opens an `@appkit/ui` Drawer with the record's detail and actions — never an inline form below the table, never a bare navigation when a drawer fits. Full-page records are for deep surfaces (profiles, run timelines); everything else drawers.
 
 ## Foundation rules

@@ -9,6 +9,7 @@ import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
 import { connectMailbox, syncPersonMailbox } from '../../lib/mailbox'
 import { listAiProviders } from '../../lib/ai'
+import { CronExpressionParser } from 'cron-parser'
 
 const ACTION_CATEGORIES = [
   'external_email',
@@ -246,6 +247,28 @@ export async function setHandModel(formData: FormData): Promise<void> {
       .update(people)
       .set({ modelConfig: { provider: providerSlug, model }, updatedAt: new Date() })
       .where(eq(people.id, personId))
+  })
+  revalidatePath(`/people/${personId}`)
+}
+
+/** Update a duty from its drawer: instruction, schedule (cron internal), on/off. */
+export async function updateDuty(formData: FormData): Promise<void> {
+  const personId = String(formData.get('personId') ?? '')
+  const dutyId = String(formData.get('dutyId') ?? '')
+  const title = String(formData.get('title') ?? '').trim()
+  const instruction = String(formData.get('instruction') ?? '').trim()
+  const schedule = String(formData.get('schedule') ?? '').trim()
+  const enabled = String(formData.get('enabled') ?? 'on') === 'on' ? ('on' as const) : ('off' as const)
+  if (!dutyId || !title || !instruction || !schedule) throw new Error('Title, instruction, and schedule are required.')
+  CronExpressionParser.parse(schedule)
+
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await app.db
+      .update(duties)
+      .set({ title, instruction, schedule, enabled, nextDueAt: null, updatedAt: new Date() })
+      .where(eq(duties.id, dutyId))
   })
   revalidatePath(`/people/${personId}`)
 }

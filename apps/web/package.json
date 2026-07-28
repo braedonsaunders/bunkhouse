@@ -49,6 +49,7 @@
     "@bunkhouse/runtime": "workspace:*",
     "@xyflow/react": "^12.10.0",
     "cron-parser": "^5.6.2",
+    "cronstrue": "^3.24.0",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.24.0",
     "next": "16.2.10",

@@ -30,6 +30,8 @@ import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
 import { listAiProviders } from '../../../lib/ai'
 import { AssignModelForm } from '../../../components/assign-model-form'
+import { DutiesCard } from '../../../components/duties-card'
+import { cronToHuman } from '../../../lib/schedule'
 import { addMemoryNote, deleteMemoryNote, setAutonomy } from '../actions'
 import { MailboxSection } from './mailbox-section'
 
@@ -260,42 +262,18 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Standing duties</CardTitle>
-              <CardDescription>Work this hand initiates on schedule.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {personDuties.length === 0 ? (
-                <EmptyState title="No duties" description="This hand only reacts to inbound work." />
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Duty</TableHead>
-                      <TableHead>Schedule</TableHead>
-                      <TableHead>Enabled</TableHead>
-                      <TableHead>Last run</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {personDuties.map((duty) => (
-                      <TableRow key={duty.id}>
-                        <TableCell className="font-medium">{duty.title}</TableCell>
-                        <TableCell className="text-fg-muted">{duty.schedule}</TableCell>
-                        <TableCell>
-                          <Badge variant={duty.enabled === 'on' ? 'default' : 'outline'}>{duty.enabled}</Badge>
-                        </TableCell>
-                        <TableCell className="text-fg-muted">
-                          {duty.lastRunAt ? duty.lastRunAt.toISOString().slice(0, 16).replace('T', ' ') : 'never'}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+          <DutiesCard
+            personId={person.id}
+            duties={personDuties.map((duty) => ({
+              id: duty.id,
+              title: duty.title,
+              instruction: duty.instruction,
+              schedule: duty.schedule,
+              scheduleHuman: cronToHuman(duty.schedule),
+              enabled: duty.enabled,
+              lastRunAt: duty.lastRunAt ? duty.lastRunAt.toISOString().slice(0, 16).replace('T', ' ') : '',
+            }))}
+          />
 
           <Card>
             <CardHeader>
