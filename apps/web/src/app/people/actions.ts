@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { eq } from 'drizzle-orm'
 import { getRolePack } from '@bunkhouse/roles'
-import { autonomySettings, duties, memories, people, procedures, procedureRevisions } from '../../db/schema'
+import { autonomySettings, duties, mailboxAccounts, memories, people, procedures, procedureRevisions } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
 import { connectMailbox, syncPersonMailbox } from '../../lib/mailbox'
@@ -339,6 +339,73 @@ export async function updatePerson(formData: FormData): Promise<void> {
       update.proactivity = proactivity
     }
     await app.db.update(people).set(update).where(eq(people.id, personId))
+  })
+  revalidatePath('/people')
+}
+
+/** Add a standing duty to a hand. */
+export async function addDuty(formData: FormData): Promise<void> {
+  const personId = String(formData.get('personId') ?? '')
+  const title = String(formData.get('title') ?? '').trim()
+  const instruction = String(formData.get('instruction') ?? '').trim()
+  const schedule = String(formData.get('schedule') ?? '').trim()
+  if (!personId || !title || !instruction || !schedule) throw new Error('Title, instruction, and schedule are required.')
+  CronExpressionParser.parse(schedule)
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'duty'
+
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await app.db.insert(duties).values({
+      tenantId,
+      personId,
+      slug,
+      title,
+      instruction,
+      scheduleKind: 'cron',
+      schedule,
+    })
+  })
+  revalidatePath('/people')
+}
+
+/** Remove a duty entirely (runs it produced stay in the ledger). */
+export async function deleteDuty(formData: FormData): Promise<void> {
+  const personId = String(formData.get('personId') ?? '')
+  const dutyId = String(formData.get('dutyId') ?? '')
+  if (!dutyId) throw new Error('dutyId is required.')
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await app.db.delete(duties).where(eq(duties.id, dutyId))
+  })
+  revalidatePath('/people')
+}
+
+/** Correct a memory note in place. */
+export async function updateMemoryNote(formData: FormData): Promise<void> {
+  const personId = String(formData.get('personId') ?? '')
+  const memoryId = String(formData.get('memoryId') ?? '')
+  const title = String(formData.get('title') ?? '').trim()
+  const body = String(formData.get('body') ?? '').trim()
+  if (!memoryId || !title || !body) throw new Error('A note needs a title and a body.')
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await app.db.update(memories).set({ title, body, updatedAt: new Date() }).where(eq(memories.id, memoryId))
+  })
+  revalidatePath('/people')
+}
+
+/** Disconnect a hand's mailbox: config is deletable, the mail ledger is not. */
+export async function disconnectMailboxAction(formData: FormData): Promise<void> {
+  const personId = String(formData.get('personId') ?? '')
+  if (!personId) throw new Error('personId is required.')
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await app.db.delete(mailboxAccounts).where(eq(mailboxAccounts.personId, personId))
+    await app.db.update(people).set({ status: 'onboarding', updatedAt: new Date() }).where(eq(people.id, personId))
   })
   revalidatePath('/people')
 }

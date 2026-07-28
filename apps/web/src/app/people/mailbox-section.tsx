@@ -14,7 +14,7 @@ import {
 } from '@appkit/ui'
 import { mailboxAccounts, mailThreads } from '../../db/schema'
 import { db } from '../../db/client'
-import { connectMailboxAction, syncMailboxAction } from './actions'
+import { connectMailboxAction, disconnectMailboxAction, syncMailboxAction } from './actions'
 
 /** The hand's mail surface: connect form, account status, and live threads. */
 export async function MailboxSection({ tenantId, personId }: { tenantId: string; personId: string }) {
@@ -100,6 +100,12 @@ export async function MailboxSection({ tenantId, personId }: { tenantId: string;
               <input type="hidden" name="personId" value={personId} />
               <Button type="submit" variant="outline" size="sm">
                 Sync now
+              </Button>
+            </form>
+            <form action={disconnectMailboxAction}>
+              <input type="hidden" name="personId" value={personId} />
+              <Button type="submit" variant="outline" size="sm">
+                Disconnect
               </Button>
             </form>
           </span>

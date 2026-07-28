@@ -10,14 +10,13 @@ import {
   CardHeader,
   CardTitle,
   Drawer,
-  EmptyState,
   Input,
   Label,
   RecordList,
   Textarea,
   type RecordColumn,
 } from '@appkit/ui'
-import { updateDuty } from '../app/people/actions'
+import { addDuty, deleteDuty, updateDuty } from '../app/people/actions'
 import { cronToHuman } from '../lib/schedule'
 import { ScheduleBuilder } from './schedule-builder'
 
@@ -46,6 +45,8 @@ const COLUMNS: RecordColumn<DutyRow>[] = [
 
 export function DutiesCard({ personId, duties }: { personId: string; duties: DutyRow[] }) {
   const [selected, setSelected] = React.useState<DutyRow | null>(null)
+  const [creating, setCreating] = React.useState(false)
+  const [newSchedule, setNewSchedule] = React.useState('0 8 * * 1-5')
   const [schedule, setSchedule] = React.useState('')
   const [enabled, setEnabled] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -80,17 +81,59 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
         <CardDescription>Work this hand initiates on schedule. Click a duty to adjust it.</CardDescription>
       </CardHeader>
       <CardContent>
-        {duties.length === 0 ? (
-          <EmptyState title="No duties" description="This hand only reacts to inbound work." />
-        ) : (
-          <RecordList
-            columns={COLUMNS}
-            rows={duties}
-            getRowId={(row) => row.id}
-            onRowClick={open}
-            empty={{ title: 'No duties' }}
-          />
-        )}
+        <RecordList
+          columns={COLUMNS}
+          rows={duties}
+          getRowId={(row) => row.id}
+          onRowClick={open}
+          toolbarActions={
+            <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
+              New duty
+            </Button>
+          }
+          empty={{ title: 'No duties', description: 'This hand only reacts to inbound work. Add one to make it proactive.' }}
+        />
+        <Drawer
+          open={creating}
+          onClose={() => setCreating(false)}
+          title="New duty"
+          description="Standing work this hand initiates on schedule."
+          size="md"
+        >
+          <form
+            action={(form) =>
+              startSaving(async () => {
+                setError(null)
+                form.set('personId', personId)
+                form.set('schedule', newSchedule)
+                try {
+                  await addDuty(form)
+                  setCreating(false)
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : String(err))
+                }
+              })
+            }
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="new-duty-title">Title</Label>
+              <Input id="new-duty-title" name="title" placeholder="Weekly vendor follow-up" required />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-duty-instruction">Instruction</Label>
+              <Textarea id="new-duty-instruction" name="instruction" rows={5} placeholder="What to do, in the hand's own terms." required />
+            </div>
+            <div className="space-y-2">
+              <Label>Schedule</Label>
+              <ScheduleBuilder value={newSchedule} onChange={setNewSchedule} idPrefix="new-duty" />
+            </div>
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Adding…' : 'Add duty'}
+            </Button>
+            {error ? <p className="text-sm text-danger">{error}</p> : null}
+          </form>
+        </Drawer>
         <Drawer
           open={selected !== null}
           onClose={() => setSelected(null)}
@@ -126,6 +169,27 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
               <div className="flex items-center gap-3">
                 <Button type="submit" disabled={saving}>
                   {saving ? 'Saving…' : 'Save duty'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={saving}
+                  onClick={() =>
+                    startSaving(async () => {
+                      const form = new FormData()
+                      form.set('personId', personId)
+                      form.set('dutyId', selected!.id)
+                      try {
+                        await deleteDuty(form)
+                        setSelected(null)
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : String(err))
+                      }
+                    })
+                  }
+                >
+                  Delete duty
                 </Button>
                 {selected.lastRunAt ? (
                   <Badge variant="outline">last ran {selected.lastRunAt}</Badge>

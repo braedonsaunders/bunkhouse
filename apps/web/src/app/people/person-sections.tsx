@@ -16,7 +16,7 @@ import {
 } from '@appkit/ui'
 import type { autonomySettings, memories, people, runs } from '../../db/schema'
 import { AssignModelForm } from '../../components/assign-model-form'
-import { addMemoryNote, deleteMemoryNote, setAutonomy, updatePerson } from './actions'
+import { addMemoryNote, deleteMemoryNote, setAutonomy, updateMemoryNote, updatePerson } from './actions'
 
 type Person = typeof people.$inferSelect
 
@@ -232,17 +232,20 @@ export function MemorySection({
           <EmptyState title="Nothing remembered yet" description="Notes appear here as this hand works." />
         ) : (
           notes.map((note) => (
-            <div key={note.id} className="flex items-start justify-between gap-3 rounded-md border border-border p-3">
-              <div>
-                <p className="text-sm font-medium">{note.title}</p>
-                <p className="text-sm text-fg-muted">{note.body}</p>
-              </div>
-              <form action={deleteMemoryNote}>
+            <div key={note.id} className="rounded-md border border-border p-3">
+              <form action={updateMemoryNote} className="space-y-2">
                 <input type="hidden" name="personId" value={person.id} />
                 <input type="hidden" name="memoryId" value={note.id} />
-                <Button type="submit" variant="outline" size="sm">
-                  Forget
-                </Button>
+                <Input name="title" defaultValue={note.title} required />
+                <Textarea name="body" rows={2} defaultValue={note.body} required />
+                <div className="flex items-center gap-2">
+                  <Button type="submit" variant="outline" size="sm">
+                    Save correction
+                  </Button>
+                  <Button type="submit" formAction={deleteMemoryNote} variant="outline" size="sm">
+                    Forget
+                  </Button>
+                </div>
               </form>
             </div>
           ))
