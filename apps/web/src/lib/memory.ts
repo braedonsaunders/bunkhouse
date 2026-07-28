@@ -47,12 +47,12 @@ async function syncLinks(tenantId: string, noteId: string, personId: string | nu
 
 export type CreateNoteInput = {
   tenantId: string
-  scope: 'hand' | 'company'
+  scope: 'agent' | 'company'
   personId: string | null
   kind: NoteKind
   title: string
   body: string
-  author: 'hand' | 'human' | 'consolidator'
+  author: 'agent' | 'human' | 'consolidator'
   importance?: number
   pinned?: boolean
   sourceRunId?: string
@@ -134,7 +134,7 @@ export async function supersedeNote(args: {
   oldNoteId: string
   title: string
   body: string
-  author: 'hand' | 'human' | 'consolidator'
+  author: 'agent' | 'human' | 'consolidator'
   sourceRunId?: string
 }): Promise<string> {
   const app = db()
@@ -188,21 +188,22 @@ export async function retrieveNotes(args: {
   const app = db()
   const limit = args.limit ?? 8
   const query = args.query.slice(0, 500)
-  const scored = await app.db
-    .select({
-      note: memories,
-      score: sql<number>`(
+  // The half-lives are inlined, not bound: a parameter inside a CASE arrives
+  // typed `text`, and `86400.0 * text` is not an operator Postgres has. They
+  // are compile-time constants from HALF_LIFE_DAYS, never user input.
+  const score = sql<number>`(
         0.45 * ts_rank_cd(tsv, websearch_to_tsquery('english', ${query}))
       + 0.25 * (${memories.importance}::float / 5.0)
       + 0.20 * exp(-extract(epoch from (now() - coalesce(${memories.lastUsedAt}, ${memories.createdAt}))) /
           (86400.0 * case ${memories.kind}
-             when 'episode' then ${HALF_LIFE_DAYS.episode}
-             when 'fact' then ${HALF_LIFE_DAYS.fact}
-             when 'reflection' then ${HALF_LIFE_DAYS.reflection}
-             else ${HALF_LIFE_DAYS.procedure} end))
+             when 'episode' then ${sql.raw(String(HALF_LIFE_DAYS.episode))}
+             when 'fact' then ${sql.raw(String(HALF_LIFE_DAYS.fact))}
+             when 'reflection' then ${sql.raw(String(HALF_LIFE_DAYS.reflection))}
+             else ${sql.raw(String(HALF_LIFE_DAYS.procedure))} end))
       + 0.10 * least(${memories.useCount}, 20)::float / 20.0
-      )`.mapWith(Number),
-    })
+      )`.mapWith(Number)
+  const scored = await app.db
+    .select({ note: memories, score })
     .from(memories)
     .where(
       and(
@@ -212,7 +213,9 @@ export async function retrieveNotes(args: {
         sql`(${memories.scope} = 'company' or ${memories.personId} = ${args.personId})`,
       ),
     )
-    .orderBy(sql`2 desc`)
+    // Ordering by the expression itself — a positional `order by 2` pointed at
+    // the second flattened column, which was tenant_id, not the score.
+    .orderBy(sql`${score} desc`)
     .limit(limit)
 
   const picked = scored.map((r) => ({ ...r.note, score: r.score }))
@@ -293,7 +296,7 @@ export async function backlinksFor(tenantId: string, noteIds: string[]): Promise
   return map
 }
 
-/** A hand (or a human on its behalf) nominates a note for company knowledge. */
+/** An agent (or a human on its behalf) nominates a note for company knowledge. */
 export async function proposePromotion(args: {
   tenantId: string
   noteId: string
@@ -303,7 +306,7 @@ export async function proposePromotion(args: {
   const app = db()
   const [note] = await app.db.select().from(memories).where(eq(memories.id, args.noteId))
   if (!note) throw new Error('Note not found.')
-  if (note.scope !== 'hand') throw new Error('Only hand notes can be promoted.')
+  if (note.scope !== 'agent') throw new Error('Only agent notes can be promoted.')
   await app.db.insert(memoryProposals).values({
     tenantId: args.tenantId,
     kind: 'promote',
@@ -315,7 +318,7 @@ export async function proposePromotion(args: {
 }
 
 /** Human decision on a proposal. Approving a promotion creates the company
- *  note (citing the original) and supersedes the hand note by promotion.
+ *  note (citing the original) and supersedes the agent note by promotion.
  *  Approving a consolidator 'supersede' closes the old note behind a new one;
  *  approving an 'edit' applies the correction (prior head snapshotted).
  *  Everything stays append-only; rejections just close the proposal. */

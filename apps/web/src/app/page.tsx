@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { desc, eq, sql } from 'drizzle-orm'
+import { asc, desc, eq, sql } from 'drizzle-orm'
 import { Badge, Button, EmptyState } from '@appkit/ui'
 import { approvals, people, runs, tokenSpend } from '../db/schema'
 import { db } from '../db/client'
@@ -7,17 +7,22 @@ import { resolveTenantId } from '../lib/tenant'
 import { Lobby, type LobbyPerson } from '../components/lobby'
 import { listAvatarCompositions, loadAvatarPartLibrary } from '../lib/avatars'
 import { AVATAR_PART_CATEGORIES } from '../lib/avatar-parts'
+import { personDrawer } from './organization/person-record'
 
 export const dynamic = 'force-dynamic'
 
 /**
  * The home screen is the floor: the agents on staff at work in a drawn office
- * environment, edge to edge, with the dashboard floating over it — title and
- * actions up top, the numbers that matter beneath them, and a compact run feed
- * in the corner. It fits the viewport exactly; only the run feed scrolls,
- * internally.
+ * environment, edge to edge, with the dashboard floating over it — KPIs and
+ * actions up top, a compact run feed in the corner. Clicking a figure opens
+ * their record right here, over the floor; the page never changes beneath it.
  */
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ person?: string }>
+}) {
+  const { person: selectedId } = await searchParams
   const tenantId = await resolveTenantId()
   const app = db()
 
@@ -26,12 +31,7 @@ export default async function HomePage() {
   monthStart.setUTCHours(0, 0, 0, 0)
 
   const data = await app.withTenantContext(tenantId, async () => {
-    const [counts] = await app.db
-      .select({
-        agents: sql<number>`count(*) filter (where ${people.kind} = 'agent' and ${people.status} = 'active')`.mapWith(Number),
-        onboarding: sql<number>`count(*) filter (where ${people.kind} = 'agent' and ${people.status} = 'onboarding')`.mapWith(Number),
-      })
-      .from(people)
+    const roster = await app.db.select().from(people).orderBy(asc(people.name))
     const [pending] = await app.db
       .select({ count: sql<number>`count(*)`.mapWith(Number) })
       .from(approvals)
@@ -57,24 +57,22 @@ export default async function HomePage() {
       .innerJoin(people, eq(people.id, runs.personId))
       .orderBy(desc(runs.startedAt))
       .limit(20)
-    const agents = await app.db
-      .select({ id: people.id, name: people.name, title: people.title })
-      .from(people)
-      .where(sql`${people.kind} = 'agent' and ${people.status} = 'active'`)
     const busyIds = await app.db
       .select({ personId: runs.personId })
       .from(runs)
       .where(eq(runs.status, 'running'))
     return {
-      counts: counts!,
+      roster,
       pending: pending?.count ?? 0,
       working: working?.count ?? 0,
       payroll: Number(payroll?.cost ?? 0),
       recentRuns,
-      agents,
       busyIds,
     }
   })
+
+  const agents = data.roster.filter((p) => p.kind === 'agent' && p.status === 'active')
+  const onboarding = data.roster.filter((p) => p.kind === 'agent' && p.status === 'onboarding').length
 
   // The floor is agents only — the people on staff manage it, they don't live
   // in it. Each figure is the composition the directory crops for portraits.
@@ -83,7 +81,7 @@ export default async function HomePage() {
     loadAvatarPartLibrary(tenantId),
   ])
   const busy = new Set(data.busyIds.map((r) => r.personId))
-  const lobby: LobbyPerson[] = data.agents.map((agent) => ({
+  const lobby: LobbyPerson[] = agents.map((agent) => ({
     id: agent.id,
     name: agent.name,
     ...(compositions.has(agent.id) ? { composition: compositions.get(agent.id)! } : {}),
@@ -94,7 +92,7 @@ export default async function HomePage() {
   }))
 
   const stats: { label: string; value: string; href: string }[] = [
-    { label: 'Agents on staff', value: String(data.counts.agents), href: '/organization/agents' },
+    { label: 'Agents on staff', value: String(agents.length), href: '/organization/agents' },
     { label: 'Working right now', value: String(data.working), href: '/observatory' },
     { label: 'Pending approvals', value: String(data.pending), href: '/approvals' },
     { label: 'Payroll this month', value: `$${data.payroll.toFixed(2)}`, href: '/organization/agents' },
@@ -105,9 +103,17 @@ export default async function HomePage() {
   const widgets = (
     <div className="flex h-full min-h-0 flex-col gap-3 p-5">
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
-        <div className="pointer-events-auto rounded-lg border border-border bg-surface/85 px-4 py-3 shadow-sm backdrop-blur">
-          <h1 className="text-xl font-semibold tracking-tight">Bunkhouse</h1>
-          <p className="text-sm text-fg-muted">Where your agents live. Put them to work, look in any time.</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:max-w-3xl">
+          {stats.map((stat) => (
+            <Link
+              key={stat.label}
+              href={stat.href}
+              className="pointer-events-auto rounded-lg border border-border bg-surface/85 p-3 shadow-sm backdrop-blur transition-colors hover:border-primary"
+            >
+              <p className="text-2xl font-semibold tabular-nums">{stat.value}</p>
+              <p className="text-xs text-fg-muted">{stat.label}</p>
+            </Link>
+          ))}
         </div>
         <div className="pointer-events-auto flex items-center gap-2">
           <Button asChild variant="outline" size="sm" className="bg-surface/85 backdrop-blur">
@@ -119,22 +125,9 @@ export default async function HomePage() {
         </div>
       </div>
 
-      <div className="grid shrink-0 grid-cols-2 gap-3 sm:grid-cols-4 lg:max-w-3xl">
-        {stats.map((stat) => (
-          <Link
-            key={stat.label}
-            href={stat.href}
-            className="pointer-events-auto rounded-lg border border-border bg-surface/85 p-3 shadow-sm backdrop-blur transition-colors hover:border-primary"
-          >
-            <p className="text-2xl font-semibold tabular-nums">{stat.value}</p>
-            <p className="text-xs text-fg-muted">{stat.label}</p>
-          </Link>
-        ))}
-      </div>
-
-      {data.counts.onboarding > 0 ? (
+      {onboarding > 0 ? (
         <p className="pointer-events-auto w-fit shrink-0 rounded-md border border-border bg-surface/85 px-3 py-1.5 text-xs text-fg-muted shadow-sm backdrop-blur">
-          {data.counts.onboarding} agent{data.counts.onboarding === 1 ? '' : 's'} still onboarding —{' '}
+          {onboarding} agent{onboarding === 1 ? '' : 's'} still onboarding —{' '}
           <Link href="/organization/agents" className="text-primary hover:underline">
             finish setting them up
           </Link>
@@ -196,9 +189,12 @@ export default async function HomePage() {
 
   return (
     <div className="h-full min-h-0">
-      <Lobby people={lobby} parts={partLibrary} categories={AVATAR_PART_CATEGORIES}>
+      <Lobby people={lobby} parts={partLibrary} categories={AVATAR_PART_CATEGORIES} selectBasePath="/">
         {widgets}
       </Lobby>
+      {/* The record flyout opens over the floor — same drawer as the
+          directory, no page change beneath it. */}
+      {await personDrawer({ tenantId, roster: data.roster, selectedId, basePath: '/' })}
     </div>
   )
 }

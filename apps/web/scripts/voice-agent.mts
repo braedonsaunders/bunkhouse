@@ -11,15 +11,15 @@ import { isAiProvider, providerSpec, type AiConfig } from '@appkit/ai'
 import { buildSystemPrompt } from '@bunkhouse/runtime'
 import { db } from '../src/db/client'
 import { callSessions, callTurns, people, runs, runEvents, tokenSpend } from '../src/db/schema'
-import { boundProcedures } from '../src/lib/hand-runs'
-import { resolveHandAiConfig } from '../src/lib/ai'
+import { boundProcedures } from '../src/lib/agent-runs'
+import { resolveAgentAiConfig } from '../src/lib/ai'
 import { resolveRealtimeCredential, resolveSpeechCredential } from '../src/lib/voice'
 import { pinnedNotes, retrieveNotes } from '../src/lib/memory'
 import { resolvePrice } from '../src/lib/pricing'
 
 // The bunkhouse voice agent: joins every `call-*` (browser call, session
 // pre-created by the call page) and `pbx-*` (inbound phone call dispatched
-// by LiveKit SIP, session created here) room, loads the session's hand, and
+// by LiveKit SIP, session created here) room, loads the session's agent, and
 // holds the conversation. Media I/O lives here; identity, procedures, and
 // memory come from the same context assembly email runs use. Every utterance
 // is appended to the call_turns ledger; the run is completed with a
@@ -28,7 +28,7 @@ import { resolvePrice } from '../src/lib/pricing'
 // Provider support (engineering notes, never surfaced as-is to operators):
 // - cascade LLM: OpenAI + OpenAI-compatible providers (OpenRouter, Groq, …)
 //   via the openai plugin's baseURL. Anthropic text models still need a
-//   bridge; the UI disables the cascade combo for such hands.
+//   bridge; the UI disables the cascade combo for such agents.
 // - realtime: OpenAI Realtime and Gemini Live. The Gemini plugin enables
 //   input+output audio transcription by default, so both speakers land in
 //   the transcript ledger on either provider.
@@ -48,7 +48,7 @@ async function findSessionByRoom(room: string): Promise<SessionRow | null> {
 /**
  * Inbound phone calls arrive with no pre-created session: LiveKit SIP's
  * dispatch rule names the room `pbx-<extension>` plus a random suffix, and
- * the agent is the first to learn the call exists. Resolve the hand by its
+ * the agent is the first to learn the call exists. Resolve the agent by its
  * tenant-unique extension, then create the run and call_sessions row here —
  * idempotently: the room's unique key makes a concurrent second dispatch a
  * plain read of the winner's session.
@@ -62,19 +62,19 @@ async function ensureInboundPhoneSession(ctx: JobContext, roomName: string): Pro
     console.error(`[voice] room ${roomName}: no extension in the room name`)
     return null
   }
-  const hands = await app.withSuperAdmin((superDb) =>
+  const agents = await app.withSuperAdmin((superDb) =>
     superDb
       .select()
       .from(people)
-      .where(and(eq(people.extension, extension), eq(people.kind, 'hand'), eq(people.status, 'active'))),
+      .where(and(eq(people.extension, extension), eq(people.kind, 'agent'), eq(people.status, 'active'))),
   )
-  if (hands.length !== 1) {
+  if (agents.length !== 1) {
     // Extensions are unique per tenant; a cross-tenant collision (or an
     // unassigned extension) cannot be routed deterministically.
-    console.error(`[voice] room ${roomName}: extension ${extension} matches ${hands.length} active hands — cannot route`)
+    console.error(`[voice] room ${roomName}: extension ${extension} matches ${agents.length} active agents — cannot route`)
     return null
   }
-  const person = hands[0] as PersonRow
+  const person = agents[0] as PersonRow
   const tenantId = person.tenantId
 
   // The SIP participant's join is what triggered dispatch; its attributes
@@ -155,7 +155,7 @@ async function markFailed(session: SessionRow, message: string): Promise<void> {
   })
 }
 
-/** The hand's whole working identity, plus how to behave on a live call. */
+/** The agent's whole working identity, plus how to behave on a live call. */
 async function buildInstructions(session: SessionRow, person: PersonRow, ai: AiConfig | null): Promise<string> {
   const config = person.voiceConfig!
   const directory = await app.withTenantContext(session.tenantId, () =>
@@ -167,7 +167,7 @@ async function buildInstructions(session: SessionRow, person: PersonRow, ai: AiC
   const notes = [...pinned, ...retrieved.filter((r) => !pinned.some((p) => p.id === r.id))]
 
   const base = buildSystemPrompt({
-    hand: {
+    agent: {
       id: person.id,
       name: person.name,
       title: person.title,
@@ -177,7 +177,7 @@ async function buildInstructions(session: SessionRow, person: PersonRow, ai: AiC
         tone: ['professional'],
         signoff: `Best,\n${person.name.split(' ')[0]}`,
       },
-      // Prompt assembly never reads the config; realtime hands may have no text model.
+      // Prompt assembly never reads the config; realtime agents may have no text model.
       ai: ai ?? ({ provider: 'openai', apiKey: '' } as AiConfig),
       ...(person.responsibilities ? { responsibilities: person.responsibilities } : {}),
       proactivity: person.proactivity ?? 'duties',
@@ -241,9 +241,9 @@ export default defineAgent({
       const [row] = await app.db.select().from(people).where(eq(people.id, session.personId))
       return row ?? null
     })
-    if (!person || person.kind !== 'hand' || !person.voiceConfig) {
-      await markFailed(session, 'Call failed: the hand or its voice configuration no longer exists.')
-      ctx.shutdown('hand not callable')
+    if (!person || person.kind !== 'agent' || !person.voiceConfig) {
+      await markFailed(session, 'Call failed: the agent or its voice configuration no longer exists.')
+      ctx.shutdown('agent not callable')
       return
     }
     const config = person.voiceConfig
@@ -253,7 +253,7 @@ export default defineAgent({
     let ai: AiConfig | null = null
     try {
       if (config.mode === 'cascade') {
-        ai = await resolveHandAiConfig(session.tenantId, person.id)
+        ai = await resolveAgentAiConfig(session.tenantId, person.id)
         if (!ai || !ai.modelSmart) {
           throw new Error('No model assigned — set a provider and model on the profile before calling.')
         }
@@ -262,7 +262,7 @@ export default defineAgent({
           // The cascade LLM leg speaks the OpenAI protocol; the Voice tab
           // disables this combo up front — this guard covers stale configs.
           throw new Error(
-            'Voice calls in cascade mode are available for hands running OpenAI-compatible models. Choose realtime mode for this hand, or assign an OpenAI-compatible model.',
+            'Voice calls in cascade mode are available for agents running OpenAI-compatible models. Choose realtime mode for this agent, or assign an OpenAI-compatible model.',
           )
         }
         const deepgramKey = await resolveSpeechCredential(session.tenantId, 'deepgram')
@@ -308,7 +308,13 @@ export default defineAgent({
                   apiKey: credential.apiKey,
                   model: realtime.model,
                   voice: realtime.voice,
-                  ...(config.language ? { language: config.language } : {}),
+                  // The Live API takes regioned BCP-47 tags only — it rejects
+                  // a bare "en" outright. A two-letter preference still steers
+                  // the agent through the prompt; the model auto-detects the
+                  // spoken language when none is pinned here.
+                  ...(config.language && config.language.includes('-')
+                    ? { language: config.language }
+                    : {}),
                 }),
               })
             : new voice.AgentSession({
@@ -331,7 +337,7 @@ export default defineAgent({
     const startedAtMs = session.startedAt.getTime()
     let seq = 0
     let turnCount = 0
-    const appendTurn = async (speaker: 'hand' | 'human', text: string) => {
+    const appendTurn = async (speaker: 'agent' | 'human', text: string) => {
       const mySeq = seq++
       turnCount += 1
       await app.withTenant(session.tenantId, async () => {
@@ -350,7 +356,7 @@ export default defineAgent({
       if (item.type !== 'message') return
       const text = item.textContent
       if (!text) return
-      const speaker = item.role === 'assistant' ? 'hand' : item.role === 'user' ? 'human' : null
+      const speaker = item.role === 'assistant' ? 'agent' : item.role === 'user' ? 'human' : null
       if (!speaker) return
       void appendTurn(speaker, text).catch((error) =>
         console.error(`[voice] turn append failed for ${session.id}:`, (error as Error).message),

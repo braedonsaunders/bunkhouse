@@ -61,12 +61,18 @@ export function Lobby({
   parts,
   categories,
   children,
+  selectBasePath = '/organization/agents',
 }: {
   people: LobbyPerson[]
   parts: AvatarPart[]
   categories: AvatarPartCategory[]
   /** Widgets floated over the scene — KPI tiles, the run feed, actions. */
   children?: React.ReactNode
+  /**
+   * Where a clicked figure opens their record. The home screen passes '/' so
+   * the flyout opens in place, over the floor, with no page change beneath it.
+   */
+  selectBasePath?: string
 }) {
   const router = useRouter()
   const { resolvedTheme } = useTheme()
@@ -128,7 +134,7 @@ export function Lobby({
             { minX: 0, maxX: 100, minY: 0, maxY: 40 },
           ],
         }}
-        onSelect={(id) => router.push(`/organization/agents?person=${id}`, { scroll: false })}
+        onSelect={(id) => router.push(`${selectBasePath}?person=${id}`, { scroll: false })}
       />
       {children ? <div className="pointer-events-none absolute inset-0 z-[92]">{children}</div> : null}
       <div className="absolute bottom-3 left-1/2 z-[95] flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-surface/80 p-1 shadow-sm backdrop-blur">
