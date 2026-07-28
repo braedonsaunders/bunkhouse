@@ -1,0 +1,59 @@
+name: Ops — disk cleanup
+
+# Run by hand from the Actions tab (or `gh workflow run ops-disk.yml`).
+# The deploy runner lives on the Dokploy host, so this is the auditable way to
+# reclaim space there: it prints the before/after picture and prunes images,
+# stopped containers, and build cache. Volumes are NEVER pruned — a stopped
+# stack's volume looks "unused" and that is how data gets destroyed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      prune:
+        description: 'Actually prune (unchecked = report only)'
+        type: boolean
+        default: false
+
+jobs:
+  disk:
+    runs-on: [self-hosted, linux, x64, dokploy]
+    timeout-minutes: 30
+    steps:
+      - name: Before
+        run: |
+          set -uo pipefail
+          echo "::group::Filesystem"
+          df -h
+          echo "::endgroup::"
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "::warning::No docker CLI on this runner — cleanup must be run on the host itself."
+            exit 0
+          fi
+          echo "::group::Docker disk usage"
+          docker system df || true
+          echo "::endgroup::"
+          echo "::group::Largest images"
+          docker images --format '{{.Size}}\t{{.Repository}}:{{.Tag}}' | sort -hr | head -30 || true
+          echo "::endgroup::"
+
+      - name: Prune images, stopped containers, and build cache
+        if: ${{ inputs.prune }}
+        run: |
+          set -uo pipefail
+          command -v docker >/dev/null 2>&1 || { echo "no docker CLI; nothing to do"; exit 0; }
+          echo "::group::Stopped containers"
+          docker container prune -f || true
+          echo "::endgroup::"
+          echo "::group::Unused images (anything no running container needs)"
+          docker image prune -af || true
+          echo "::endgroup::"
+          echo "::group::Build cache"
+          docker builder prune -af || true
+          echo "::endgroup::"
+
+      - name: After
+        if: ${{ inputs.prune }}
+        run: |
+          set -uo pipefail
+          df -h
+          command -v docker >/dev/null 2>&1 && docker system df || true
