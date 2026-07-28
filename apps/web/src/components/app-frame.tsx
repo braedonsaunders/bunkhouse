@@ -11,6 +11,7 @@ const navigation: SidebarNavGroup[] = [
   { id: 'directory', label: 'Directory', items: [{ href: '/people', label: 'Directory', iconKey: 'users', mobile: true }] },
   { id: 'roles', label: 'Roles', items: [{ href: '/roles', label: 'Roles', iconKey: 'clipboard' }] },
   { id: 'approvals', label: 'Approvals', items: [{ href: '/approvals', label: 'Approvals', iconKey: 'list-checks', mobile: true }] },
+  { id: 'observatory', label: 'Observatory', items: [{ href: '/observatory', label: 'Observatory', iconKey: 'activity' }] },
   { id: 'knowledge', label: 'Knowledge', items: [{ href: '/knowledge', label: 'Knowledge', iconKey: 'library' }] },
   { id: 'admin', label: 'Admin', items: [{ href: '/admin', label: 'Admin', iconKey: 'settings', mobile: true }] },
 ]
