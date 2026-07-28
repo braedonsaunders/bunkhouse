@@ -8,6 +8,7 @@ import type { HandDial } from '../../../components/autonomy-settings'
 import { ACTION_CATEGORIES, DEFAULT_AUTONOMY_LEVEL } from '../../../lib/autonomy'
 import { listAiProviders } from '../../../lib/ai'
 import { getVoiceProviders } from '../../../lib/voice'
+import { listSipTrunks, sipIngressAddress } from '../../../lib/pbx'
 import { listPrices } from '../../../lib/pricing'
 import { getImageProviderSetting } from '../../../lib/avatars'
 import { IMAGE_MODELS } from '@appkit/avatars'
@@ -20,11 +21,19 @@ const fmt = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 16).re
 export default async function SettingsPage() {
   const tenantId = await resolveTenantId()
   const app = db()
-  const [providers, prices, imageSetting, voiceProviders, mailboxData, handDials] = await Promise.all([
+  const [providers, prices, imageSetting, voiceProviders, trunks, handExtensions, mailboxData, handDials] = await Promise.all([
     listAiProviders(tenantId),
     listPrices(tenantId),
     getImageProviderSetting(tenantId),
     getVoiceProviders(tenantId),
+    listSipTrunks(tenantId),
+    app.withTenantContext(tenantId, () =>
+      app.db
+        .select({ id: people.id, name: people.name, title: people.title, extension: people.extension })
+        .from(people)
+        .where(and(eq(people.kind, 'hand'), sql`${people.extension} is not null`))
+        .orderBy(asc(people.extension)),
+    ),
     app.withTenantContext(tenantId, async () => {
       const boxes = await app.db
         .select({
@@ -109,6 +118,28 @@ export default async function SettingsPage() {
         imageSetting={imageSetting}
         imageFallbackModels={IMAGE_MODELS}
         voiceProviders={{ deepgram: Boolean(voiceProviders.deepgram), elevenlabs: Boolean(voiceProviders.elevenlabs) }}
+        phoneSystem={{
+          trunks: trunks.map((t) => ({
+            id: t.id,
+            name: t.name,
+            flavor: t.flavor,
+            pbxHost: t.pbxHost ?? '',
+            pbxPort: t.pbxPort,
+            transport: t.transport,
+            authUsername: t.authUsername ?? '',
+            hasPassword: t.sealedAuthPassword !== null,
+            extensionRange: t.extensionRange ?? '',
+            status: t.status,
+            lastError: t.lastError ?? '',
+          })),
+          extensions: handExtensions.map((h) => ({
+            personId: h.id,
+            name: h.name,
+            title: h.title,
+            extension: h.extension ?? '',
+          })),
+          ingress: sipIngressAddress(),
+        }}
         handDials={handDials}
       />
     </PageContainer>

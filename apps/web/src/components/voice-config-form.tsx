@@ -19,6 +19,7 @@ import {
   Select,
 } from '@appkit/ui'
 import { listVoicesForTenantAction } from '../app/admin/settings/actions'
+import { setHandExtensionAction } from '../app/admin/settings/pbx-actions'
 import { setHandVoiceConfig } from '../app/people/actions'
 
 export type VoiceCatalogOption = { id: string; name: string; hint?: string }
@@ -38,6 +39,7 @@ export function VoiceConfigForm({
   realtimeProviders,
   speechConfigured,
   cascadeModelSupported,
+  extension,
   catalogs,
 }: {
   personId: string
@@ -50,6 +52,8 @@ export function VoiceConfigForm({
    *  server-side from its provider). When false, the cascade combo is not
    *  offered — realtime remains fully available. */
   cascadeModelSupported: boolean
+  /** The hand's phone-system extension ('' when unassigned). */
+  extension: string
   catalogs: {
     deepgramSttModels: VoiceCatalogOption[]
     elevenLabsTtsModels: VoiceCatalogOption[]
@@ -74,6 +78,10 @@ export function VoiceConfigForm({
   const [style, setStyle] = React.useState(current?.style ?? '')
   const [error, setError] = React.useState<string | null>(null)
   const [saving, startSaving] = React.useTransition()
+  const [extensionDraft, setExtensionDraft] = React.useState(extension)
+  const [extensionError, setExtensionError] = React.useState<string | null>(null)
+  const [extensionSaved, setExtensionSaved] = React.useState(false)
+  const [savingExtension, startSavingExtension] = React.useTransition()
 
   // The TTS voice list is live from the tenant's own ElevenLabs account.
   const [voices, setVoices] = React.useState<VoiceCatalogOption[] | null>(null)
@@ -354,6 +362,58 @@ export function VoiceConfigForm({
               </Button>
             ) : null}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            Phone extension
+            {extension ? <Badge variant="default">{extension}</Badge> : <Badge variant="outline">unassigned</Badge>}
+          </CardTitle>
+          <CardDescription>
+            Desk phones on the connected phone system reach {name.split(' ')[0]} by dialing this code. Manage the
+            connection under Settings → Voice → Phone system.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="flex items-end gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="voice-extension">Extension</Label>
+              <Input
+                id="voice-extension"
+                value={extensionDraft}
+                onChange={(e) => {
+                  setExtensionDraft(e.target.value)
+                  setExtensionSaved(false)
+                }}
+                placeholder="701"
+                className="w-32 tabular-nums"
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={savingExtension || extensionDraft.trim() === extension}
+              onClick={() =>
+                startSavingExtension(async () => {
+                  setExtensionError(null)
+                  setExtensionSaved(false)
+                  const result = await setHandExtensionAction({ personId, extension: extensionDraft })
+                  if (!result.ok) {
+                    setExtensionError(result.message)
+                    return
+                  }
+                  setExtensionSaved(true)
+                })
+              }
+            >
+              {savingExtension ? 'Saving…' : extensionDraft.trim() ? 'Save extension' : extension ? 'Clear extension' : 'Save extension'}
+            </Button>
+          </div>
+          <p className="text-xs text-fg-muted">2–6 digits, unique across the company. Leave blank and save to unassign.</p>
+          {extensionError ? <p className="text-sm text-danger">{extensionError}</p> : null}
+          {extensionSaved ? <p className="text-sm text-fg-muted">Saved.</p> : null}
         </CardContent>
       </Card>
     </div>

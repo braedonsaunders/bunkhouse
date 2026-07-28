@@ -176,6 +176,7 @@ export default async function PeoplePage({
                     elevenlabs: Boolean(voiceProviders.elevenlabs),
                   }}
                   cascadeModelSupported={cascadeModelSupported}
+                  extension={selected.extension ?? ''}
                   catalogs={{
                     deepgramSttModels: DEEPGRAM_STT_MODELS,
                     elevenLabsTtsModels: ELEVENLABS_TTS_MODELS,

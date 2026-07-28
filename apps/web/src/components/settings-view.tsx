@@ -28,6 +28,7 @@ import {
 import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
 import { ImageProviderForm } from './image-provider-form'
 import { AutonomySettings, type HandDial } from './autonomy-settings'
+import { PhoneSystemRow, type HandExtensionRow, type SipTrunkSummary } from './phone-system'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
   <Link href={href} className={className} title={title}>
@@ -147,6 +148,7 @@ export function SettingsView({
   imageSetting,
   imageFallbackModels,
   voiceProviders,
+  phoneSystem,
   handDials,
 }: {
   providers: ProviderSummary[]
@@ -158,6 +160,11 @@ export function SettingsView({
   /** Static catalog offered only when the live provider model list fails. */
   imageFallbackModels: { id: string; name: string; provider: string }[]
   voiceProviders: VoiceProviderState
+  phoneSystem: {
+    trunks: SipTrunkSummary[]
+    extensions: HandExtensionRow[]
+    ingress: { host: string; port: number } | null
+  }
   handDials: HandDial[]
 }) {
   const [active, setActive] = React.useState('autonomy')
@@ -384,6 +391,11 @@ export function SettingsView({
               }
             />
           ))}
+          <PhoneSystemRow
+            trunks={phoneSystem.trunks}
+            extensions={phoneSystem.extensions}
+            ingress={phoneSystem.ingress}
+          />
         </SettingsSection>
       ) : null}
 
