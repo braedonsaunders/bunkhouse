@@ -5,7 +5,6 @@ import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
 import { type ObservatoryRunRow } from '../../components/observatory-list'
 import { ObservatoryFloor, type ActiveRunCardRow } from '../../components/observatory-floor'
-import { LiveToggle } from '../../components/live-toggle'
 import { RosterAvatar } from '../../components/roster-avatar'
 import { describeToolCall } from '../../lib/call-activity'
 import { listAvatarCompositions, loadAvatarPartLibrary } from '../../lib/avatars'
@@ -205,7 +204,6 @@ export default async function ObservatoryPage() {
       <PageHeader
         title="Observatory"
         description="Watch an agent work — every run across the company, and what's on their screen right now."
-        actions={<LiveToggle defaultOn />}
       />
       <ObservatoryFloor active={active} history={history} renderedAt={new Date().toISOString()} />
     </PageContainer>

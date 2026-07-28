@@ -95,7 +95,7 @@ function ActiveRunCard({ row, nowMs }: { row: ActiveRunCardRow; nowMs: number })
 /**
  * The observatory floor: one big card per run in flight — who's working, what
  * they're doing this second, and what it's cost so far. Finished runs live in
- * the History subtab.
+ * the History subtab. Always live: server data re-fetches every five seconds.
  */
 export function ObservatoryFloor({
   active,
@@ -106,8 +106,14 @@ export function ObservatoryFloor({
   history: ObservatoryRunRow[]
   renderedAt: string
 }) {
+  const router = useRouter()
   const [tab, setTab] = React.useState('live')
   const nowMs = useNowMs(renderedAt)
+
+  React.useEffect(() => {
+    const timer = setInterval(() => router.refresh(), 5000)
+    return () => clearInterval(timer)
+  }, [router])
 
   return (
     <div className="space-y-4">
