@@ -1,6 +1,7 @@
 import 'server-only'
 import { and, eq } from 'drizzle-orm'
 import {
+  buildFullBodyPrompt,
   buildPortraitPrompt,
   generateImages,
   IMAGE_CAPABLE_PROVIDERS,
@@ -59,8 +60,14 @@ export async function setImageProviderSetting(args: {
   })
 }
 
-/** Generate portrait candidates for a hand from its personality. */
-export async function generateHandAvatarCandidates(tenantId: string, personId: string): Promise<string[]> {
+export type AvatarKind = 'portrait' | 'full_body'
+
+/** Generate likeness candidates for a person — portrait or standing figure. */
+export async function generateHandAvatarCandidates(
+  tenantId: string,
+  personId: string,
+  kind: AvatarKind = 'portrait',
+): Promise<string[]> {
   const setting = await getImageProviderSetting(tenantId)
   if (!setting) throw new Error('No image provider configured — pick one in Settings → Image generation.')
   const config = await resolveProviderAiConfig(tenantId, setting.providerSlug)
@@ -73,10 +80,11 @@ export async function generateHandAvatarCandidates(tenantId: string, personId: s
   })
   if (!person) throw new Error('Person not found.')
 
-  const prompt = buildPortraitPrompt({
+  const subject = {
     description: `${person.name}, ${person.title}`,
     ...(person.personality?.tone ? { tone: person.personality.tone } : {}),
-  })
+  }
+  const prompt = kind === 'full_body' ? buildFullBodyPrompt(subject) : buildPortraitPrompt(subject)
   const result = await generateImages(config, { prompt, model: setting.model, count: 4 })
   return result.images
 }
@@ -87,6 +95,7 @@ export async function saveHandAvatar(args: {
   personId: string
   dataUri: string
   model: string
+  kind?: AvatarKind
 }): Promise<void> {
   const match = args.dataUri.match(/^data:([^;]+);base64,(.+)$/s)
   if (!match) throw new Error('Avatar must be a base64 data URI.')
@@ -95,9 +104,16 @@ export async function saveHandAvatar(args: {
   await app.withTenant(args.tenantId, async () => {
     await app.db
       .insert(avatarImages)
-      .values({ tenantId: args.tenantId, personId: args.personId, contentType: contentType!, data: data!, model: args.model })
+      .values({
+        tenantId: args.tenantId,
+        personId: args.personId,
+        kind: args.kind ?? 'portrait',
+        contentType: contentType!,
+        data: data!,
+        model: args.model,
+      })
       .onConflictDoUpdate({
-        target: [avatarImages.tenantId, avatarImages.personId],
+        target: [avatarImages.tenantId, avatarImages.personId, avatarImages.kind],
         set: { contentType: contentType!, data: data!, model: args.model, updatedAt: new Date() },
       })
   })

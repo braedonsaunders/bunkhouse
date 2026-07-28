@@ -12,9 +12,10 @@ import {
   PageContainer,
   PageHeader,
 } from '@appkit/ui'
-import { approvals, people, runs } from '../db/schema'
+import { approvals, avatarImages, people, runs } from '../db/schema'
 import { db } from '../db/client'
 import { resolveTenantId } from '../lib/tenant'
+import { Lobby, type LobbyPerson } from '../components/lobby'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,25 +48,54 @@ export default async function HomePage() {
       .innerJoin(people, eq(people.id, runs.personId))
       .orderBy(desc(runs.startedAt))
       .limit(8)
-    return { counts: counts!, pending: pending?.count ?? 0, recentRuns }
+    const roster = await app.db
+      .select({ id: people.id, name: people.name, kind: people.kind, title: people.title })
+      .from(people)
+      .where(eq(people.status, 'active'))
+    const fullBodies = await app.db
+      .select({ personId: avatarImages.personId })
+      .from(avatarImages)
+      .where(eq(avatarImages.kind, 'full_body'))
+    const busyIds = await app.db
+      .select({ personId: runs.personId })
+      .from(runs)
+      .where(eq(runs.status, 'running'))
+    return { counts: counts!, pending: pending?.count ?? 0, recentRuns, roster, fullBodies, busyIds }
   })
+
+  // The floor: everyone active, wearing their standing likeness when they have one.
+  const withFullBody = new Set(data.fullBodies.map((a) => a.personId))
+  const busy = new Set(data.busyIds.map((r) => r.personId))
+  const lobby: LobbyPerson[] = data.roster.map((person) => ({
+    id: person.id,
+    name: person.name,
+    ...(withFullBody.has(person.id) ? { imageUrl: `/api/avatars/${person.id}?kind=full_body` } : {}),
+    status: busy.has(person.id)
+      ? { label: 'working', tone: 'busy' as const }
+      : { label: person.title, tone: person.kind === 'hand' ? ('active' as const) : ('idle' as const) },
+    idleAnimation: person.kind === 'hand' ? ('bounce' as const) : ('sway' as const),
+  }))
 
   return (
     <PageContainer className="space-y-6">
-      <PageHeader
-        title="Bunkhouse"
-        description="Where your hands live. Hire them, put them to work, look in any time."
-        actions={
-          <div className="flex items-center gap-2">
-            <Button asChild variant="outline">
-              <Link href="/observatory">Observatory</Link>
-            </Button>
-            <Button asChild>
-              <Link href="/people/hire">Hire a hand</Link>
-            </Button>
-          </div>
-        }
-      />
+      <Lobby people={lobby}>
+        <div className="p-6">
+          <PageHeader
+            title="Bunkhouse"
+            description="Where your hands live. Put them to work, look in any time."
+            actions={
+              <div className="flex items-center gap-2">
+                <Button asChild variant="outline">
+                  <Link href="/observatory">Observatory</Link>
+                </Button>
+                <Button asChild>
+                  <Link href="/roles">Onboard a hand</Link>
+                </Button>
+              </div>
+            }
+          />
+        </div>
+      </Lobby>
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader>
@@ -109,8 +139,8 @@ export default async function HomePage() {
           </CardHeader>
           <CardContent className="space-y-1 text-sm text-fg-muted">
             <p>1. Add your humans to the directory.</p>
-            <p>2. Hire a hand from a role pack.</p>
-            <p>3. Connect their mailbox (coming next).</p>
+            <p>2. Onboard a hand from a role.</p>
+            <p>3. Connect their mailbox and give them a voice.</p>
           </CardContent>
         </Card>
       </div>

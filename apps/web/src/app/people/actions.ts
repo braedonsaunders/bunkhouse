@@ -336,12 +336,13 @@ export async function updateDuty(formData: FormData): Promise<void> {
 }
 
 /** Generate avatar portrait candidates for a hand. */
-export async function generateAvatarsAction(personId: string): Promise<
-  { ok: true; images: string[] } | { ok: false; message: string }
-> {
+export async function generateAvatarsAction(
+  personId: string,
+  kind: 'portrait' | 'full_body' = 'portrait',
+): Promise<{ ok: true; images: string[] } | { ok: false; message: string }> {
   try {
     const tenantId = await resolveTenantId()
-    const images = await generateHandAvatarCandidates(tenantId, personId)
+    const images = await generateHandAvatarCandidates(tenantId, personId, kind)
     return { ok: true, images }
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
@@ -353,9 +354,10 @@ export async function chooseAvatarAction(formData: FormData): Promise<void> {
   const personId = String(formData.get('personId') ?? '')
   const dataUri = String(formData.get('dataUri') ?? '')
   const model = String(formData.get('model') ?? 'unknown')
+  const kind = (String(formData.get('kind') ?? 'portrait') as 'portrait' | 'full_body')
   if (!personId || !dataUri) throw new Error('personId and image are required.')
   const tenantId = await resolveTenantId()
-  await saveHandAvatar({ tenantId, personId, dataUri, model })
+  await saveHandAvatar({ tenantId, personId, dataUri, model, kind })
   revalidatePath(`/people/${personId}`)
   revalidatePath('/people')
 }

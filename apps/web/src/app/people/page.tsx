@@ -89,11 +89,11 @@ export default async function PeoplePage({
         .where(eq(runs.personId, selected.id))
         .orderBy(desc(runs.startedAt))
         .limit(6)
-      const [avatar] = await app.db
-        .select({ id: avatarImages.id })
+      const avatars = await app.db
+        .select({ kind: avatarImages.kind })
         .from(avatarImages)
         .where(eq(avatarImages.personId, selected.id))
-      return { personDuties, dial, notes, monthSpend: Number(spend?.cost ?? 0), recentRuns, hasAvatar: !!avatar }
+      return { personDuties, dial, notes, monthSpend: Number(spend?.cost ?? 0), recentRuns, hasPortrait: avatars.some((a) => a.kind === 'portrait'), hasFullBody: avatars.some((a) => a.kind === 'full_body') }
     })
     const providers = isHand ? await listAiProviders(tenantId) : []
     // Cascade calls run the hand's own model over the OpenAI protocol; resolve
@@ -106,22 +106,22 @@ export default async function PeoplePage({
         : null
     const cascadeModelSupported =
       !selected.modelConfig || assignedKind === 'openai' || assignedKind === 'openai-compatible'
-    const imageSetting = isHand ? await getImageProviderSetting(tenantId) : null
+    const imageSetting = await getImageProviderSetting(tenantId)
     const voiceProviders: Awaited<ReturnType<typeof getVoiceProviders>> = isHand ? await getVoiceProviders(tenantId) : {}
     const realtimeProviders = isHand ? await listRealtimeCapableProviders(tenantId) : []
     const rosterOptions = roster
       .filter((p) => p.status === 'active' || p.id === selected.reportsToId)
       .map((p) => ({ id: p.id, name: p.name, title: p.title }))
 
-    avatarNode = isHand ? (
+    // Everyone in the directory gets a likeness — humans included.
+    avatarNode = (
       <AvatarStudio
         personId={selected.id}
         name={selected.name}
-        hasAvatar={detail.hasAvatar}
+        hasPortrait={detail.hasPortrait}
+        hasFullBody={detail.hasFullBody}
         model={imageSetting?.model ?? 'unconfigured'}
       />
-    ) : (
-      <Avatar name={selected.name} size={40} />
     )
 
     tabs = [
