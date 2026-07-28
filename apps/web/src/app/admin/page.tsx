@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Brain, CheckCircle2, Mail, Shield, Users } from 'lucide-react'
+import { BookOpen, Brain, CheckCircle2, Mail, Shield, Users } from 'lucide-react'
 import { AdminHub, type AdminHubGroup, type LinkRender } from '@appkit/ui'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
@@ -24,7 +24,8 @@ const HUB_GROUPS: AdminHubGroup[] = [
     label: 'Company',
     accent: 'violet',
     cards: [
-      { href: '/admin/settings', title: 'Settings', description: 'Model providers and company configuration', icon: <Brain size={18} /> },
+      { href: '/admin/settings', title: 'Settings', description: 'Model providers, pricing, mailboxes, images', icon: <Brain size={18} /> },
+      { href: '/admin/procedures', title: 'Procedures', description: 'Versioned doctrine every hand follows and cites', icon: <BookOpen size={18} /> },
       { href: '/people', title: 'Autonomy', description: 'Trust dials live on each hand’s profile', icon: <Shield size={18} /> },
     ],
   },
