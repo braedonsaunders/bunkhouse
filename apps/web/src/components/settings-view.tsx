@@ -68,61 +68,31 @@ export type HandWithoutMailbox = { id: string; name: string; title: string }
 
 export type VoiceProviderState = { deepgram: boolean; elevenlabs: boolean }
 
-const SPEECH_PROVIDERS: { provider: 'deepgram' | 'elevenlabs'; label: string; role: string; keyHint: string }[] = [
+const SPEECH_PROVIDERS: {
+  provider: 'deepgram' | 'elevenlabs'
+  label: string
+  stage: string
+  line: string
+  consoleUrl: string
+  consoleLabel: string
+}[] = [
   {
     provider: 'deepgram',
     label: 'Deepgram',
-    role: 'Speech-to-text for cascade calls — the hand hears through this.',
-    keyHint: 'Deepgram API key',
+    stage: 'Hearing',
+    line: 'Transcribes what callers say, live.',
+    consoleUrl: 'https://console.deepgram.com/',
+    consoleLabel: 'console.deepgram.com',
   },
   {
     provider: 'elevenlabs',
     label: 'ElevenLabs',
-    role: 'Text-to-speech for cascade calls — the hand speaks through this, and its voice is picked from your account’s catalog.',
-    keyHint: 'ElevenLabs API key',
+    stage: 'Speaking',
+    line: "Gives each hand its voice — picked from your account's catalog on the hand's Voice tab.",
+    consoleUrl: 'https://elevenlabs.io/app/settings/api-keys',
+    consoleLabel: 'elevenlabs.io',
   },
 ]
-
-/** Enter/replace one speech-provider key: verified live, sealed on save. */
-function SpeechKeyForm({ provider, replace }: { provider: 'deepgram' | 'elevenlabs'; replace: boolean }) {
-  const [apiKey, setApiKey] = React.useState('')
-  const [error, setError] = React.useState<string | null>(null)
-  const [saving, startSaving] = React.useTransition()
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder={replace ? 'New API key' : 'API key'}
-          aria-label={`${provider} API key`}
-          className="min-w-64"
-        />
-        <Button
-          type="button"
-          size="sm"
-          variant={replace ? 'outline' : 'default'}
-          disabled={saving || !apiKey.trim()}
-          onClick={() =>
-            startSaving(async () => {
-              setError(null)
-              const result = await setSpeechProviderKeyAction({ provider, apiKey })
-              if (!result.ok) {
-                setError(result.message)
-                return
-              }
-              setApiKey('')
-            })
-          }
-        >
-          {saving ? 'Verifying…' : replace ? 'Replace key' : 'Verify & save'}
-        </Button>
-      </div>
-      {error ? <p className="text-xs text-danger">{error}</p> : null}
-    </div>
-  )
-}
 
 const NAV: SettingsNavGroup[] = [
   {
@@ -188,7 +158,9 @@ export function SettingsView({
   const [notice, setNotice] = React.useState<string | null>(null)
   const [priceDrawer, setPriceDrawer] = React.useState<string | null>(null)
   const [mailboxDrawer, setMailboxDrawer] = React.useState<MailboxRow | null>(null)
-  const [replacingSpeech, setReplacingSpeech] = React.useState<'deepgram' | 'elevenlabs' | null>(null)
+  const [voiceDrawer, setVoiceDrawer] = React.useState<'deepgram' | 'elevenlabs' | null>(null)
+  const [voiceKey, setVoiceKey] = React.useState('')
+  const [voiceError, setVoiceError] = React.useState<string | null>(null)
   const imageCapable = providers.filter((p) => ['openai', 'google'].includes(p.provider))
   const [imageProviderSlug, setImageProviderSlug] = React.useState(
     imageSetting?.providerSlug ?? imageCapable[0]?.slug ?? '',
@@ -340,59 +312,67 @@ export function SettingsView({
       {active === 'voice' ? (
         <SettingsSection
           title="Voice"
-          description="Speech providers for talking to your hands. Cascade calls hear with Deepgram and speak with ElevenLabs — the hand's own governed model does the thinking. Realtime calls reuse your OpenAI/Google Model providers; no extra key is needed here."
+          description="What powers a phone or browser call with a hand."
         >
-          {SPEECH_PROVIDERS.map(({ provider, label, role, keyHint }) => {
-            const configured = voiceProviders[provider]
-            const replacing = replacingSpeech === provider
-            return (
-              <SettingsRow
-                key={provider}
-                title={label}
-                description={configured ? role : `${role} Paste your ${keyHint} — it is verified against the live API before it is sealed.`}
-                stacked={!configured || replacing}
-                control={
-                  configured && !replacing ? (
-                    <span className="flex items-center gap-2">
-                      <Badge variant="secondary">key sealed</Badge>
-                      <Button variant="outline" size="sm" onClick={() => setReplacingSpeech(provider)}>
-                        Replace
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() =>
-                          startBusy(async () => {
-                            const form = new FormData()
-                            form.set('provider', provider)
-                            await removeSpeechProviderAction(form)
-                          })
-                        }
-                      >
-                        Remove
-                      </Button>
-                    </span>
-                  ) : undefined
-                }
-              >
-                {!configured || replacing ? <SpeechKeyForm provider={provider} replace={replacing} /> : null}
-              </SettingsRow>
-            )
-          })}
-          <SettingsRow
-            title="Realtime speech-to-speech"
-            description={
-              imageCapable.length > 0
-                ? `Uses your Model provider keys: ${imageCapable.map((p) => `${p.label} (${p.provider})`).join(', ')}. Pick realtime mode on a hand's Voice tab.`
-                : 'No OpenAI or Google provider is configured under Model providers — realtime voice needs one of those keys.'
-            }
-            control={imageCapable.length > 0 ? <Badge variant="secondary">uses provider keys</Badge> : undefined}
-          />
-          <SettingsRow
-            title="Per-hand voices"
-            description="Each hand's voice — mode, model, and the voice itself — is configured on its profile under the Voice tab."
-          />
+          <SettingsRow title="The call pipeline" stacked>
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              {SPEECH_PROVIDERS.map(({ provider, label, stage }, index) => (
+                <React.Fragment key={provider}>
+                  {index > 0 ? (
+                    <>
+                      <span className="rounded-md border border-border px-3 py-2">
+                        <span className="text-fg-muted">Thinking</span>{' '}
+                        <span className="font-medium">the hand's own model</span>{' '}
+                        <Badge variant={providers.length > 0 ? 'default' : 'destructive'}>
+                          {providers.length > 0 ? `${providers.length} configured` : 'none'}
+                        </Badge>
+                      </span>
+                      <span className="text-fg-subtle">→</span>
+                    </>
+                  ) : null}
+                  <span className="rounded-md border border-border px-3 py-2">
+                    <span className="text-fg-muted">{stage}</span> <span className="font-medium">{label}</span>{' '}
+                    <Badge variant={voiceProviders[provider] ? 'default' : 'outline'}>
+                      {voiceProviders[provider] ? 'connected' : 'not connected'}
+                    </Badge>
+                  </span>
+                  {index === 0 ? <span className="text-fg-subtle">→</span> : null}
+                </React.Fragment>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-fg-muted">
+              Realtime speech-to-speech skips this pipeline and talks through your{' '}
+              {imageCapable.length > 0 ? (
+                <>OpenAI/Google Model provider keys — available now.</>
+              ) : (
+                <>OpenAI or Google Model provider key — add one under Model providers to enable it.</>
+              )}{' '}
+              Each hand picks its mode and voice on its profile's Voice tab.
+            </p>
+          </SettingsRow>
+          {SPEECH_PROVIDERS.map(({ provider, label, line }) => (
+            <SettingsRow
+              key={provider}
+              title={label}
+              description={line}
+              control={
+                <span className="flex items-center gap-2">
+                  {voiceProviders[provider] ? <Badge variant="secondary">key sealed</Badge> : null}
+                  <Button
+                    variant={voiceProviders[provider] ? 'outline' : 'default'}
+                    size="sm"
+                    onClick={() => {
+                      setVoiceKey('')
+                      setVoiceError(null)
+                      setVoiceDrawer(provider)
+                    }}
+                  >
+                    {voiceProviders[provider] ? 'Manage' : 'Connect'}
+                  </Button>
+                </span>
+              }
+            />
+          ))}
         </SettingsSection>
       ) : null}
 
@@ -453,6 +433,81 @@ export function SettingsView({
           )}
         </SettingsSection>
       ) : null}
+
+      <Drawer
+        open={voiceDrawer !== null}
+        onClose={() => setVoiceDrawer(null)}
+        title={voiceDrawer ? SPEECH_PROVIDERS.find((p) => p.provider === voiceDrawer)!.label : ''}
+        description={voiceDrawer ? SPEECH_PROVIDERS.find((p) => p.provider === voiceDrawer)!.line : undefined}
+        size="md"
+      >
+        {voiceDrawer ? (
+          <div className="space-y-4">
+            {voiceProviders[voiceDrawer] ? (
+              <div className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
+                <span className="flex items-center gap-2">
+                  <Badge>connected</Badge>
+                  <span className="text-fg-muted">Key sealed at rest.</span>
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() =>
+                    startBusy(async () => {
+                      const form = new FormData()
+                      form.set('provider', voiceDrawer)
+                      await removeSpeechProviderAction(form)
+                      setVoiceDrawer(null)
+                    })
+                  }
+                >
+                  Remove
+                </Button>
+              </div>
+            ) : null}
+            <div className="space-y-2">
+              <Label htmlFor="voice-key">{voiceProviders[voiceDrawer] ? 'Replace API key' : 'API key'}</Label>
+              <Input
+                id="voice-key"
+                type="password"
+                value={voiceKey}
+                onChange={(e) => setVoiceKey(e.target.value)}
+                placeholder="Paste the key"
+              />
+              <p className="text-xs text-fg-muted">
+                From{' '}
+                <a
+                  href={SPEECH_PROVIDERS.find((p) => p.provider === voiceDrawer)!.consoleUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary underline underline-offset-2"
+                >
+                  {SPEECH_PROVIDERS.find((p) => p.provider === voiceDrawer)!.consoleLabel}
+                </a>
+                . Verified against the live API before it is sealed.
+              </p>
+            </div>
+            <Button
+              disabled={busy || !voiceKey.trim()}
+              onClick={() =>
+                startBusy(async () => {
+                  setVoiceError(null)
+                  const result = await setSpeechProviderKeyAction({ provider: voiceDrawer, apiKey: voiceKey })
+                  if (!result.ok) {
+                    setVoiceError(result.message)
+                    return
+                  }
+                  setVoiceDrawer(null)
+                })
+              }
+            >
+              {busy ? 'Verifying…' : 'Verify & connect'}
+            </Button>
+            {voiceError ? <p className="text-sm text-danger">{voiceError}</p> : null}
+          </div>
+        ) : null}
+      </Drawer>
 
       <Drawer
         open={priceDrawer !== null}
