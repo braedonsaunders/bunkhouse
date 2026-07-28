@@ -12,6 +12,8 @@ import {
 } from '@livekit/components-react'
 import { ConnectionState } from 'livekit-client'
 import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, PageHeader } from '@appkit/ui'
+import { ComposedAvatar } from '@appkit/avatars/react'
+import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
 import { endCallAction, getCallTranscriptAction, type TranscriptTurn } from '../app/call/actions'
 
 const CONNECTION_LABELS: Record<string, string> = {
@@ -23,7 +25,7 @@ const CONNECTION_LABELS: Record<string, string> = {
 }
 
 /** Live captions: the call ledger polled from the browser, as chat bubbles. */
-function Captions({ sessionId, handName }: { sessionId: string; handName: string }) {
+function Captions({ sessionId, agentName }: { sessionId: string; agentName: string }) {
   const [turns, setTurns] = React.useState<TranscriptTurn[]>([])
   const scrollRef = React.useRef<HTMLDivElement>(null)
   React.useEffect(() => {
@@ -66,7 +68,7 @@ function Captions({ sessionId, handName }: { sessionId: string; handName: string
                   }`}
                 >
                   <p className="mb-0.5 text-xs font-medium text-fg-muted">
-                    {turn.speaker === 'human' ? 'You' : handName} ·{' '}
+                    {turn.speaker === 'human' ? 'You' : agentName} ·{' '}
                     <span className="tabular-nums">
                       {Math.floor(turn.atMs / 60000)}:{String(Math.floor((turn.atMs % 60000) / 1000)).padStart(2, '0')}
                     </span>
@@ -83,18 +85,20 @@ function Captions({ sessionId, handName }: { sessionId: string; handName: string
 }
 
 function CallControls({
-  hand,
+  agent,
+  avatar,
   onEnd,
   ending,
 }: {
-  hand: { name: string }
+  agent: { name: string }
+  avatar: { composition: AvatarComposition | null; parts: AvatarPart[]; categories: AvatarPartCategory[] }
   onEnd: () => void
   ending: boolean
 }) {
   const connection = useConnectionState()
   const { localParticipant, isMicrophoneEnabled } = useLocalParticipant()
   const remotes = useRemoteParticipants()
-  const handJoined = remotes.length > 0
+  const agentJoined = remotes.length > 0
   return (
     <Card>
       <CardHeader>
@@ -107,12 +111,30 @@ function CallControls({
         <CardDescription>
           {connection !== ConnectionState.Connected
             ? 'Connecting you to the room…'
-            : handJoined
-              ? `${hand.name} is on the call.`
-              : `Ringing — waiting for ${hand.name} to pick up…`}
+            : agentJoined
+              ? `${agent.name} is on the call.`
+              : `Ringing — waiting for ${agent.name} to pick up…`}
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex items-center gap-2">
+      <CardContent className="space-y-4">
+        {avatar.composition ? (
+          <div className="flex justify-center">
+            {/* The face on the call is the same composition the directory
+                crops — zoomed to its head viewport, and animated while the
+                agent is actually connected. */}
+            <ComposedAvatar
+              composition={avatar.composition}
+              parts={avatar.parts}
+              categories={avatar.categories}
+              variant="head"
+              size={180}
+              rounded
+              animate={connection === ConnectionState.Connected && agentJoined ? 'talking' : 'idle'}
+              name={agent.name}
+            />
+          </div>
+        ) : null}
+        <div className="flex items-center gap-2">
         <Button
           type="button"
           variant="outline"
@@ -131,25 +153,28 @@ function CallControls({
         <Button type="button" variant="destructive" onClick={onEnd} disabled={ending}>
           <PhoneOff className="mr-1.5 size-4" /> {ending ? 'Hanging up…' : 'End call'}
         </Button>
+        </div>
       </CardContent>
     </Card>
   )
 }
 
 /**
- * The browser side of a call: a LiveKit room with the hand's voice agent as
+ * The browser side of a call: a LiveKit room with the agent's voice agent as
  * the other participant. Audio only; captions poll the append-only ledger.
  */
 export function CallRoom({
   serverUrl,
   token,
   sessionId,
-  hand,
+  agent,
+  avatar,
 }: {
   serverUrl: string
   token: string
   sessionId: string
-  hand: { id: string; name: string; title: string }
+  agent: { id: string; name: string; title: string }
+  avatar: { composition: AvatarComposition | null; parts: AvatarPart[]; categories: AvatarPartCategory[] }
 }) {
   const router = useRouter()
   const [ending, setEnding] = React.useState(false)
@@ -162,15 +187,15 @@ export function CallRoom({
     try {
       await endCallAction(sessionId)
     } finally {
-      router.push(`/people?person=${hand.id}`)
+      router.push(`/organization/agents?person=${agent.id}`)
     }
-  }, [hand.id, router, sessionId])
+  }, [agent.id, router, sessionId])
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title={`Calling ${hand.name}`}
-        description={`${hand.title} · web call · everything said here lands on the call record and the run.`}
+        title={`Calling ${agent.name}`}
+        description={`${agent.title} · web call · everything said here lands on the call record and the run.`}
       />
       <LiveKitRoom
         serverUrl={serverUrl}
@@ -182,8 +207,8 @@ export function CallRoom({
       >
         <RoomAudioRenderer />
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-          <CallControls hand={hand} onEnd={() => void finish()} ending={ending} />
-          <Captions sessionId={sessionId} handName={hand.name} />
+          <CallControls agent={agent} avatar={avatar} onEnd={() => void finish()} ending={ending} />
+          <Captions sessionId={sessionId} agentName={agent.name} />
         </div>
       </LiveKitRoom>
     </div>

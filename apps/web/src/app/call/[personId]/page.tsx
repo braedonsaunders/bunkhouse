@@ -8,9 +8,11 @@ import { providerSpec, isAiProvider } from '@appkit/ai'
 import { callSessions, people, runEvents, runs } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
-import { resolveHandAiConfig } from '../../../lib/ai'
+import { resolveAgentAiConfig } from '../../../lib/ai'
 import { getVoiceProviders, listRealtimeCapableProviders } from '../../../lib/voice'
 import { CallRoom } from '../../../components/call-room'
+import { getAvatarComposition, loadAvatarPartLibrary } from '../../../lib/avatars'
+import { AVATAR_PART_CATEGORIES } from '../../../lib/avatar-parts'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,7 +20,7 @@ export const dynamic = 'force-dynamic'
 function Blocked({ title, description, href, linkLabel }: { title: string; description: string; href: string; linkLabel: string }) {
   return (
     <PageContainer className="space-y-6">
-      <PageHeader title="Call" description="Talk to a hand in the browser." />
+      <PageHeader title="Call" description="Talk to an agent in the browser." />
       <EmptyState
         title={title}
         description={description}
@@ -39,14 +41,14 @@ export default async function CallPage({ params }: { params: Promise<{ personId:
   const [person] = await app.withTenantContext(tenantId, () =>
     app.db.select().from(people).where(eq(people.id, personId)),
   )
-  if (!person || person.kind !== 'hand') notFound()
+  if (!person || person.kind !== 'agent') notFound()
 
-  const profileHref = `/people?person=${person.id}`
+  const profileHref = `/organization/agents?person=${person.id}`
   if (person.status !== 'active') {
     return (
       <Blocked
         title={`${person.name} is not active`}
-        description="Only active hands take calls. Activate them from their profile first."
+        description="Only active agents take calls. Activate them from their profile first."
         href={profileHref}
         linkLabel="Open profile"
       />
@@ -77,7 +79,7 @@ export default async function CallPage({ params }: { params: Promise<{ personId:
         />
       )
     }
-    const ai = await resolveHandAiConfig(tenantId, person.id)
+    const ai = await resolveAgentAiConfig(tenantId, person.id)
     if (!ai || !ai.modelSmart) {
       return (
         <Blocked
@@ -93,7 +95,7 @@ export default async function CallPage({ params }: { params: Promise<{ personId:
       return (
         <Blocked
           title="Cascade calls need an OpenAI-compatible model"
-          description={`Voice calls in cascade mode are available for hands running OpenAI-compatible models. Choose realtime mode for ${person.name}, or assign an OpenAI-compatible model on their profile.`}
+          description={`Voice calls in cascade mode are available for agents running OpenAI-compatible models. Choose realtime mode for ${person.name}, or assign an OpenAI-compatible model on their profile.`}
           href={profileHref}
           linkLabel="Open Voice tab"
         />
@@ -106,7 +108,7 @@ export default async function CallPage({ params }: { params: Promise<{ personId:
       return (
         <Blocked
           title="Realtime provider missing"
-          description={`This hand's realtime voice runs on ${providerKind === 'google' ? 'a Google' : 'an OpenAI'} key, but none is configured. Add one under Settings → Model providers.`}
+          description={`This agent's realtime voice runs on ${providerKind === 'google' ? 'a Google' : 'an OpenAI'} key, but none is configured. Add one under Settings → Model providers.`}
           href="/admin/settings"
           linkLabel="Open Settings"
         />
@@ -163,13 +165,20 @@ export default async function CallPage({ params }: { params: Promise<{ personId:
     },
   )
 
+  // The face on the call: their one composition, zoomed to the head.
+  const [composition, partLibrary] = await Promise.all([
+    getAvatarComposition(tenantId, person.id),
+    loadAvatarPartLibrary(tenantId),
+  ])
+
   return (
     <PageContainer className="space-y-6">
       <CallRoom
         serverUrl={livekitUrl}
         token={token}
         sessionId={sessionId}
-        hand={{ id: person.id, name: person.name, title: person.title }}
+        agent={{ id: person.id, name: person.name, title: person.title }}
+        avatar={{ composition, parts: partLibrary, categories: AVATAR_PART_CATEGORIES }}
       />
     </PageContainer>
   )

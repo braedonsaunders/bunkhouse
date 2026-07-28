@@ -1,15 +1,14 @@
 'use client'
 
-import * as React from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Avatar, RecordList, type RecordColumn } from '@appkit/ui'
+import { Badge, EmptyState, PagedTable, type PagedColumn } from '@appkit/ui'
 
 export type ObservatoryRunRow = {
   id: string
-  hand: string
-  handTitle: string
-  avatarSrc?: string
+  agent: string
+  agentTitle: string
+  /** The agent's figure, cropped to its head viewport by the caller. */
+  avatar: React.ReactNode
   trigger: string
   status: 'running' | 'waiting_approval' | 'waiting_reply' | 'completed' | 'failed' | 'cancelled'
   statusLabel: string
@@ -18,6 +17,8 @@ export type ObservatoryRunRow = {
   /** ISO timestamp, for sorting. */
   startedAt: string
   cost: string
+  /** Raw dollars, for sorting the formatted cost column. */
+  costUsd: number
 }
 
 const STATUS_VARIANT = (value: string) =>
@@ -29,72 +30,78 @@ const STATUS_VARIANT = (value: string) =>
         ? ('destructive' as const)
         : ('outline' as const)
 
-const COLUMNS: RecordColumn<ObservatoryRunRow>[] = [
+const COLUMNS: PagedColumn<ObservatoryRunRow>[] = [
   {
-    key: 'hand',
-    label: 'Hand',
-    sortable: true,
-    render: (row) => (
+    key: 'agent',
+    header: 'Agent',
+    cell: (row) => (
       <span className="flex items-center gap-2">
-        <Avatar name={row.hand} size={26} {...(row.avatarSrc ? { src: row.avatarSrc } : {})} />
+        {row.avatar}
         <span className="min-w-0">
-          <span className="block truncate font-medium text-primary">{row.hand}</span>
-          <span className="block truncate text-xs text-fg-muted">{row.handTitle}</span>
+          <span className="block truncate font-medium text-primary">{row.agent}</span>
+          <span className="block truncate text-xs text-fg-muted">{row.agentTitle}</span>
         </span>
       </span>
     ),
+    search: (row) => `${row.agent} ${row.agentTitle}`,
+    sortValue: (row) => row.agent,
   },
-  { key: 'trigger', label: 'Trigger', sortable: true },
-  { key: 'statusLabel', label: 'Status', kind: 'status', sortable: true, statusVariant: STATUS_VARIANT },
+  {
+    key: 'trigger',
+    header: 'Trigger',
+    cell: (row) => row.trigger,
+    search: (row) => row.trigger,
+    sortValue: (row) => row.trigger,
+  },
+  {
+    key: 'status',
+    header: 'Status',
+    cell: (row) => <Badge variant={STATUS_VARIANT(row.status)}>{row.statusLabel}</Badge>,
+    search: (row) => row.statusLabel,
+    sortValue: (row) => row.statusLabel,
+  },
   {
     key: 'summary',
-    label: 'Summary',
-    render: (row) => <span className="block max-w-md truncate">{row.summary}</span>,
+    header: 'Summary',
+    cell: (row) => <span className="block max-w-md truncate">{row.summary}</span>,
+    search: (row) => row.summary,
   },
-  { key: 'started', label: 'Started', sortable: true },
-  { key: 'cost', label: 'Cost', align: 'right', format: (v) => <span className="tabular-nums">{v as string}</span> },
+  {
+    key: 'started',
+    header: 'Started',
+    cell: (row) => row.started,
+    search: (row) => row.started,
+    sortValue: (row) => row.startedAt,
+  },
+  {
+    key: 'cost',
+    header: 'Cost',
+    align: 'right',
+    cell: (row) => row.cost,
+    sortValue: (row) => row.costUsd,
+  },
 ]
 
-/** The observatory floor: every run across every hand, newest first. */
+/** The observatory floor: every run across every agent, newest first. */
 export function ObservatoryList({ rows }: { rows: ObservatoryRunRow[] }) {
   const router = useRouter()
-  const [search, setSearch] = React.useState('')
-  const [sort, setSort] = React.useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'started', dir: 'desc' })
-
-  const filtered = React.useMemo(() => {
-    const q = search.trim().toLowerCase()
-    const base = q
-      ? rows.filter((r) =>
-          [r.hand, r.handTitle, r.trigger, r.statusLabel, r.summary].some((v) => v.toLowerCase().includes(q)),
-        )
-      : rows
-    const dir = sort.dir === 'asc' ? 1 : -1
-    return [...base].sort((a, b) => {
-      const key = sort.key === 'started' ? 'startedAt' : (sort.key as keyof ObservatoryRunRow)
-      return String(a[key] ?? '').localeCompare(String(b[key] ?? '')) * dir
-    })
-  }, [rows, search, sort])
 
   return (
-    <RecordList
+    <PagedTable
       columns={COLUMNS}
-      rows={filtered}
-      getRowId={(row) => row.id}
-      search={{ value: search, onChange: setSearch, placeholder: 'Search runs…' }}
-      sort={sort}
-      onSortChange={(key) =>
-        setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }))
-      }
-      linkRender={({ href, children, className }) => (
-        <Link href={href} className={className}>
-          {children}
-        </Link>
-      )}
+      rows={rows}
+      rowKey={(row) => row.id}
+      pageSize={25}
+      searchable
+      defaultSort={{ key: 'started', dir: 'desc' }}
       onRowClick={(row) => router.push(`/runs/${row.id}?from=observatory`)}
-      empty={{
-        title: 'Nothing on the floor yet',
-        description: 'Runs appear here the moment a hand starts working — from mail, duties, chat, or delegation.',
-      }}
+      labels={{ searchPlaceholder: 'Search runs…', searchLabel: 'Search runs' }}
+      empty={
+        <EmptyState
+          title="Nothing on the floor yet"
+          description="Runs appear here the moment an agent starts working — from mail, duties, chat, or delegation."
+        />
+      }
     />
   )
 }
