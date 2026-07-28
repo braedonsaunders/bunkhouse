@@ -156,6 +156,7 @@ export function ProceduresView({
    */
   const [creating, setCreating] = React.useState(false)
   const [draft, setDraft] = React.useState<ProcedureContent>(emptyDraft)
+  const [authoringKey, setAuthoringKey] = React.useState(0)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -189,6 +190,18 @@ export function ProceduresView({
     }
   }
 
+  const openAuthoring = () => {
+    setError(null)
+    setDraft(emptyDraft())
+    setAuthoringKey((n) => n + 1)
+    setCreating(true)
+  }
+
+  const closeAuthoring = () => {
+    setCreating(false)
+    setAuthoringKey((n) => n + 1)
+  }
+
   const openRecord = (row: ProcedureRow) => {
     setError(null)
     setSelectedId(row.id)
@@ -217,14 +230,7 @@ export function ProceduresView({
         getRowId={(row) => row.id}
         onRowClick={openRecord}
         toolbarActions={
-          <Button
-            size="sm"
-            onClick={() => {
-              setError(null)
-              setDraft(emptyDraft())
-              setCreating(true)
-            }}
-          >
+          <Button size="sm" onClick={openAuthoring}>
             New procedure
           </Button>
         }
@@ -237,39 +243,43 @@ export function ProceduresView({
       {/* Authoring */}
       <Drawer
         open={creating}
-        onClose={() => setCreating(false)}
+        onClose={closeAuthoring}
         title="New procedure"
         description="Versioned company doctrine — hands follow these steps and cite the version they followed."
         size="2xl"
       >
-        {creating ? (
-          <form
-            action={(form) => act(createProcedure, form, () => setCreating(false))}
-            className="space-y-6"
-          >
-            <div className="space-y-2">
-              <Label htmlFor="proc-title">Title</Label>
-              <Input id="proc-title" name="title" placeholder="Refund and exception handling" required />
-            </div>
+        {/*
+          Remounted per authoring session: the key retires the rich-text editors
+          along with the flyout, so a finished draft never bleeds into the next
+          one and a post-submit reset lands on a form that is already gone.
+        */}
+        <form
+          key={authoringKey}
+          action={(form) => act(createProcedure, form, closeAuthoring)}
+          className="space-y-6"
+        >
+          <div className="space-y-2">
+            <Label htmlFor="proc-title">Title</Label>
+            <Input id="proc-title" name="title" placeholder="Refund and exception handling" required />
+          </div>
 
-            <ProcedureEditor name="content" value={draft} onChange={setDraft} />
+          <ProcedureEditor name="content" value={draft} onChange={setDraft} />
 
-            <div className="space-y-2">
-              <Label>Applies to</Label>
-              <AssignmentFields rolePackOptions={rolePackOptions} handOptions={handOptions} />
-            </div>
+          <div className="space-y-2">
+            <Label>Applies to</Label>
+            <AssignmentFields rolePackOptions={rolePackOptions} handOptions={handOptions} />
+          </div>
 
-            <div className="flex items-center gap-2">
-              <Button type="submit" disabled={busy}>
-                {busy ? 'Saving…' : 'Create procedure'}
-              </Button>
-              <Button type="button" variant="outline" onClick={() => setCreating(false)}>
-                Cancel
-              </Button>
-            </div>
-            {error ? <p className="text-sm text-danger">{error}</p> : null}
-          </form>
-        ) : null}
+          <div className="flex items-center gap-2">
+            <Button type="submit" disabled={busy}>
+              {busy ? 'Saving…' : 'Create procedure'}
+            </Button>
+            <Button type="button" variant="outline" onClick={closeAuthoring}>
+              Cancel
+            </Button>
+          </div>
+          {error ? <p className="text-sm text-danger">{error}</p> : null}
+        </form>
       </Drawer>
 
       {/* Record */}
