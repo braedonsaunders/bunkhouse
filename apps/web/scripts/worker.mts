@@ -6,10 +6,12 @@ import { db } from '../src/db/client'
 import { approvals, mailboxAccounts, mailMessages, people, runEvents, runs } from '../src/db/schema'
 import { syncPersonMailbox, sendReplyInThread } from '../src/lib/mailbox'
 import { dueDuties, executeHandRun, markDutyRun, startRunsForNewInbound } from '../src/lib/hand-runs'
+import { journalPass as journalTenant, reflectionPass as reflectTenant } from '../src/lib/consolidation'
 
-// The bunkhouse worker: mailbox sync → inbound runs, the duty scheduler, and
-// approval resume — BullMQ on the shared Redis. One repeatable heartbeat job
-// per concern; every pass is idempotent, so overlapping ticks are safe.
+// The bunkhouse worker: mailbox sync → inbound runs, the duty scheduler,
+// approval resume, and the Logbook consolidation jobs — BullMQ on the shared
+// Redis. One repeatable heartbeat job per concern; every pass is idempotent,
+// so overlapping ticks are safe.
 
 const redisUrl = process.env.BUNKHOUSE_REDIS_URL
 if (!redisUrl) throw new Error('BUNKHOUSE_REDIS_URL must be set (run with --env-file=.env.local)')
@@ -113,7 +115,7 @@ async function applyEmailedDecisions(tenantId: string): Promise<void> {
         const note = reply.bodyText.split('\n').find((l) => l.trim() && !l.trim().startsWith('>'))?.trim().slice(0, 200) ?? null
         await app.db
           .update(approvals)
-          .set({ status: decision, decidedAt: new Date(), decidedBy: staff[0]!.id, decisionNote: note })
+          .set({ status: decision, decidedAt: new Date(), decidedById: staff[0]!.id, decisionNote: note })
           .where(and(eq(approvals.id, approval.id), eq(approvals.status, 'pending')))
         if (decision === 'rejected') {
           await app.db
@@ -171,16 +173,40 @@ async function approvalsPass(): Promise<void> {
   }
 }
 
-const heartbeat = jobs.defineQueue<{ pass: 'mailbox' | 'duties' | 'approvals' }>('bunkhouse-heartbeat')
+/** Nightly journal: episodes + fact candidates from yesterday's runs. The
+ *  pass itself skips any run already journaled (episode with its sourceRunId),
+ *  so a 6-hour tick only ever adds what the last one missed. */
+async function journalPass(): Promise<void> {
+  for (const tenantId of await activeTenantIds()) {
+    await journalTenant(tenantId)
+  }
+}
+
+/** Weekly reflection: evidence-cited conclusions + procedure-change proposals.
+ *  The pass skips a hand that already has a consolidator reflection from the
+ *  last 6 days, so a 12-hour tick fires at most once per hand per week. */
+async function reflectionPass(): Promise<void> {
+  for (const tenantId of await activeTenantIds()) {
+    await reflectTenant(tenantId)
+  }
+}
+
+type HeartbeatPass = 'mailbox' | 'duties' | 'approvals' | 'journal' | 'reflection'
+
+const heartbeat = jobs.defineQueue<{ pass: HeartbeatPass }>('bunkhouse-heartbeat')
 await heartbeat.upsertJobScheduler('mailbox', { every: 120_000 }, { name: 'tick', data: { pass: 'mailbox' } })
 await heartbeat.upsertJobScheduler('duties', { every: 60_000 }, { name: 'tick', data: { pass: 'duties' } })
 await heartbeat.upsertJobScheduler('approvals', { every: 30_000 }, { name: 'tick', data: { pass: 'approvals' } })
+await heartbeat.upsertJobScheduler('journal', { every: 21_600_000 }, { name: 'tick', data: { pass: 'journal' } })
+await heartbeat.upsertJobScheduler('reflection', { every: 43_200_000 }, { name: 'tick', data: { pass: 'reflection' } })
 
-const worker = jobs.createWorker<{ pass: 'mailbox' | 'duties' | 'approvals' }>(
+const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
   'bunkhouse-heartbeat',
   async (job) => {
     if (job.data.pass === 'mailbox') await mailboxPass()
     else if (job.data.pass === 'duties') await dutiesPass()
+    else if (job.data.pass === 'journal') await journalPass()
+    else if (job.data.pass === 'reflection') await reflectionPass()
     else await approvalsPass()
   },
   { concurrency: 1 },
@@ -189,7 +215,7 @@ const worker = jobs.createWorker<{ pass: 'mailbox' | 'duties' | 'approvals' }>(
 await heartbeat.add('tick', { pass: 'mailbox' })
 await heartbeat.add('tick', { pass: 'duties' })
 await heartbeat.add('tick', { pass: 'approvals' })
-console.log('bunkhouse worker up — mailbox 2m, duties 1m, approvals 30s (initial passes queued)')
+console.log('bunkhouse worker up — mailbox 2m, duties 1m, approvals 30s, journal 6h, reflection 12h (initial passes queued)')
 
 async function shutdown(): Promise<void> {
   await worker.close()
