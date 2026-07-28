@@ -6,6 +6,7 @@ import { Button, Drawer } from '@appkit/ui'
 import { AvatarComposer, ComposedAvatar } from '@appkit/avatars/react'
 import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
 import { saveAvatarCompositionAction } from '../app/organization/avatar-actions'
+import { generateAvatarPartsAction, keepAvatarPartAction } from '../app/admin/settings/avatar-part-actions'
 
 /**
  * A person's likeness: one full-body figure, composed from the company's
@@ -86,6 +87,25 @@ export function AvatarStudio({
             saving={saving}
             saveLabel={saved ? 'Saved' : 'Save avatar'}
             subjectName={name}
+            generator={{
+              generate: (categoryId, description) => generateAvatarPartsAction(categoryId, description),
+              keep: async (input) => {
+                const result = await keepAvatarPartAction({ ...input, tags: [] })
+                if (!result.ok) return result
+                // Hand the freshly kept part straight back so the composer can
+                // place it without waiting for a page refresh.
+                return {
+                  ok: true,
+                  part: {
+                    id: result.partId,
+                    categoryId: input.categoryId,
+                    name: input.name,
+                    imageUrl: `/api/avatar-parts/${result.partId}`,
+                    tags: [],
+                  },
+                }
+              },
+            }}
             generateAction={
               <Button asChild size="sm" variant="outline">
                 <Link href="/admin/settings?section=avatar-parts">Open the parts library</Link>

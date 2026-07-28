@@ -43,6 +43,17 @@ export const AVATAR_PART_CATEGORIES: AvatarPartCategory[] = [
       'nobody inside it — no body, no head, no arms, no feet',
   },
   {
+    id: 'legs',
+    label: 'Legs',
+    layerOrder: 25,
+    required: false,
+    frame: { width: 260, height: 360 },
+    defaultTransform: { x: 126, y: 400, scale: 1, rotation: 0 },
+    promptAddition:
+      'trousers or a skirt only, worn shape with an empty waist and empty leg openings, ' +
+      'nobody inside them — no body, no torso, no feet',
+  },
+  {
     id: 'face',
     label: 'Face',
     layerOrder: 30,

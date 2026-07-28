@@ -34,8 +34,8 @@ const flag = (name: string, fallback: string) => {
   return index >= 0 && args[index + 1] ? args[index + 1]! : fallback
 }
 const SOURCE = flag('source', 'https://www.openstudio.cafe')
-/** Parts kept per category — a starter pack, not the whole catalogue. */
-const LIMIT = Number(flag('limit', '6'))
+/** Parts kept per source category. High enough to take the whole library. */
+const LIMIT = Number(flag('limit', '40'))
 
 /**
  * OpenStudio slot → bunkhouse slot. Their vocabulary is finer than ours in
@@ -49,6 +49,7 @@ const CATEGORY_MAP: Record<string, string> = {
   hair_front: 'hair',
   clothing_base: 'outfit',
   clothing_outer: 'outfit',
+  pants: 'legs',
   accessory_head: 'headwear',
   accessory_neck: 'accessory',
 }
