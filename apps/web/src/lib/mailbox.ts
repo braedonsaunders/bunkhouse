@@ -9,10 +9,49 @@ import {
   type ImapCursor,
   type MailboxConnection,
   type MailboxStore,
+  type OutboundAttachment,
   type SendMailArgs,
 } from '@appkit/mailbox'
-import { mailboxAccounts, mailMessages, mailThreads, people } from '../db/schema'
+import { mailboxAccounts, mailMessages, mailThreads, people, type MailAttachmentRef } from '../db/schema'
 import { db } from '../db/client'
+import { getFileBytes, getFileRecords, saveFile } from './files'
+
+/** Attachments above this size are left in the mailbox, referenced but not ledgered. */
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
+
+/**
+ * Resolve ledgered files into wire attachments + the ledger refs for the
+ * outbound message row. Unknown ids fail loudly — an agent promising a file
+ * that doesn't exist is an error, not a silent omission.
+ */
+async function resolveOutboundAttachments(
+  tenantId: string,
+  fileIds: string[],
+): Promise<{ wire: OutboundAttachment[]; refs: MailAttachmentRef[] }> {
+  if (fileIds.length === 0) return { wire: [], refs: [] }
+  const records = await getFileRecords(tenantId, fileIds)
+  if (records.length !== fileIds.length) {
+    const found = new Set(records.map((r) => r.id))
+    const missing = fileIds.filter((id) => !found.has(id))
+    throw new Error(`Attachment file(s) not found: ${missing.join(', ')}`)
+  }
+  const wire: OutboundAttachment[] = []
+  const refs: MailAttachmentRef[] = []
+  for (const record of records) {
+    wire.push({
+      filename: record.filename,
+      content: await getFileBytes(record),
+      contentType: record.contentType,
+    })
+    refs.push({
+      fileId: record.id,
+      filename: record.filename,
+      contentType: record.contentType,
+      size: record.sizeBytes,
+    })
+  }
+  return { wire, refs }
+}
 
 type Account = typeof mailboxAccounts.$inferSelect
 
@@ -130,8 +169,24 @@ function makeStore(tenantId: string, account: Account): MailboxStore {
           .returning({ id: mailThreads.id })
         threadId = thread!.id
       }
-      // Attachment blobs are not persisted until the storage connector slice;
-      // the message ledger records body + headers only.
+      const attachments: MailAttachmentRef[] = []
+      for (const attachment of message.attachments) {
+        if (attachment.size > MAX_ATTACHMENT_BYTES) continue
+        const record = await saveFile({
+          tenantId,
+          personId: account.personId,
+          kind: 'attachment',
+          filename: attachment.filename,
+          contentType: attachment.contentType,
+          bytes: attachment.content,
+        })
+        attachments.push({
+          fileId: record.id,
+          filename: record.filename,
+          contentType: record.contentType,
+          size: record.sizeBytes,
+        })
+      }
       await app.db
         .insert(mailMessages)
         .values({
@@ -145,6 +200,7 @@ function makeStore(tenantId: string, account: Account): MailboxStore {
           bodyText: message.text,
           bodyHtml: message.html,
           externalMessageId: message.messageId,
+          attachments,
           sentAt: message.sentAt,
         })
         .onConflictDoNothing()
@@ -181,7 +237,9 @@ export async function sendReplyInThread(args: {
   threadId: string
   text: string
   runId?: string
+  attachFileIds?: string[]
 }): Promise<void> {
+  const attachments = await resolveOutboundAttachments(args.tenantId, args.attachFileIds ?? [])
   const app = db()
   await app.withTenant(args.tenantId, async () => {
     const [thread] = await app.db.select().from(mailThreads).where(eq(mailThreads.id, args.threadId))
@@ -217,6 +275,7 @@ export async function sendReplyInThread(args: {
       ...(lastInbound?.externalMessageId ? { inReplyTo: lastInbound.externalMessageId } : {}),
       ...(references.length ? { references } : {}),
       ...(owner ? { fromName: owner.name } : {}),
+      ...(attachments.wire.length ? { attachments: attachments.wire } : {}),
     }
     const sent = await sendMail(toConnection(account), sendArgs)
 
@@ -230,6 +289,7 @@ export async function sendReplyInThread(args: {
       subject: sendArgs.subject,
       bodyText: args.text,
       externalMessageId: sent.messageId,
+      attachments: attachments.refs,
       runId: args.runId ?? null,
       sentAt: sent.sentAt,
     })
@@ -248,7 +308,9 @@ export async function sendNewMail(args: {
   subject: string
   text: string
   runId?: string
+  attachFileIds?: string[]
 }): Promise<{ threadId: string }> {
+  const attachments = await resolveOutboundAttachments(args.tenantId, args.attachFileIds ?? [])
   const app = db()
   return app.withTenant(args.tenantId, async () => {
     const [account] = await app.db
@@ -262,6 +324,7 @@ export async function sendNewMail(args: {
       subject: args.subject,
       text: args.text,
       ...(owner ? { fromName: owner.name } : {}),
+      ...(attachments.wire.length ? { attachments: attachments.wire } : {}),
     })
     const [thread] = await app.db
       .insert(mailThreads)
@@ -284,6 +347,7 @@ export async function sendNewMail(args: {
       subject: args.subject,
       bodyText: args.text,
       externalMessageId: sent.messageId,
+      attachments: attachments.refs,
       runId: args.runId ?? null,
       sentAt: sent.sentAt,
     })

@@ -10,7 +10,8 @@ import {
   DetailHeader,
   PageContainer,
 } from '@appkit/ui'
-import { approvals, callSessions, callTurns, people, procedureRevisions, procedures, runEvents, runs, tokenSpend } from '../../../db/schema'
+import { formatAttachmentSize } from '@appkit/storage'
+import { approvals, callSessions, callTurns, files, people, procedureRevisions, procedures, runEvents, runs, tokenSpend } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
 import { toolActivityFromEvents, type CallActivityEvent } from '../../../lib/call-activity'
@@ -40,6 +41,10 @@ function describeTrigger(trigger: Record<string, unknown>): string {
       return 'Chat'
     case 'delegation':
       return 'Delegated task'
+    case 'assignment':
+      return 'Assignment'
+    case 'approval_followup':
+      return 'Approval follow-up'
     default:
       return 'Manual'
   }
@@ -138,7 +143,8 @@ export default async function RunPage({
           .where(eq(callTurns.sessionId, callSession.id))
           .orderBy(asc(callTurns.seq))
       : null
-    return { run, agent: agent ?? null, events, spend, citedProcedures, revisions, approvalRows, callSession: callSession ?? null, transcript }
+    const producedFiles = await app.db.select().from(files).where(eq(files.runId, id)).orderBy(asc(files.createdAt))
+    return { run, agent: agent ?? null, events, spend, citedProcedures, revisions, approvalRows, callSession: callSession ?? null, transcript, producedFiles }
   })
 
   if (!data) notFound()
@@ -235,6 +241,28 @@ export default async function RunPage({
           <CardContent className="whitespace-pre-wrap text-sm">{run.summary ?? 'Still working…'}</CardContent>
         </Card>
       </div>
+
+      {data.producedFiles.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Work product</CardTitle>
+            <CardDescription>Files this run produced or received — the real deliverables, kept on the record.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {data.producedFiles.map((file) => (
+              <a
+                key={file.id}
+                href={`/api/files/${file.id}`}
+                download={file.filename}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 text-xs text-fg transition-colors hover:bg-surface-hover"
+              >
+                <span className="font-medium">{file.filename}</span>
+                <span className="text-fg-muted">{formatAttachmentSize(file.sizeBytes)}</span>
+              </a>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <RunDesk
         events={deskEvents}

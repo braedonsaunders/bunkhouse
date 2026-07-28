@@ -76,6 +76,33 @@ export function describeToolCall(toolName: string, input: unknown): string {
       return 'Reviewing scheduled tasks'
     case 'cancel_scheduled_task':
       return 'Cancelling a scheduled task'
+    case 'take_assignment': {
+      const t = quote(args.title)
+      return t ? `Taking on ${t}` : 'Taking on the work'
+    }
+    case 'create_document': {
+      const t = quote(args.title)
+      const format = typeof args.format === 'string' ? args.format.toUpperCase() : null
+      return t ? `Writing ${format ? `a ${format}` : 'a document'} — ${t}` : 'Writing a document'
+    }
+    case 'create_spreadsheet': {
+      const t = quote(args.title)
+      return t ? `Building a spreadsheet — ${t}` : 'Building a spreadsheet'
+    }
+    case 'reply_to_thread':
+      return 'Sending the reply'
+    case 'run_script':
+      return 'Running a calculation'
+    case 'run_shell': {
+      const c = quote(args.command)
+      return c ? `Working in the workspace — ${c}` : 'Working in the workspace'
+    }
+    case 'list_workspace_files':
+      return 'Checking the workspace'
+    case 'read_workspace_file':
+      return 'Reading a workspace file'
+    case 'publish_workspace_file':
+      return 'Publishing a file'
     default:
       // Integration tools keep their own names, made readable.
       return `Using ${toolName.replace(/[_-]+/g, ' ')}`

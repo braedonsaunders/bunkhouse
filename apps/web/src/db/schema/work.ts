@@ -59,6 +59,8 @@ export type RunTrigger =
   | { type: 'chat'; conversationId: string }
   | { type: 'delegation'; fromPersonId: string; runId: string }
   | { type: 'manual'; requestedBy: string }
+  | { type: 'assignment'; assignmentId: string }
+  | { type: 'approval_followup'; approvalId: string; originRunId: string }
 
 export const runs = pgTable(
   'runs',
@@ -70,6 +72,12 @@ export const runs = pgTable(
     trigger: jsonb('trigger').$type<RunTrigger>().notNull(),
     /** One-line human summary of what the run did; shown in the activity feed. */
     summary: text('summary'),
+    /**
+     * The model-message transcript at suspension, so the run can resume with
+     * full context after its approval is decided. Written only when the run
+     * parks (waiting_approval); cleared when it finishes.
+     */
+    transcript: jsonb('transcript').$type<unknown[]>(),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     ...auditColumns,
@@ -102,6 +110,57 @@ export const runEvents = pgTable(
   (t) => [uniqueIndex('run_events_seq_key').on(t.runId, t.seq)],
 )
 
+/**
+ * A commitment to a deliverable: work an agent has taken on — from a call, a
+ * mail thread, or an operator — with a recipient and (optionally) a deadline.
+ * Distinct from duties: a duty is a schedule; an assignment is one finished
+ * piece of work. The worker turns pending assignments into background runs.
+ */
+export const assignmentStatus = pgEnum('assignment_status', [
+  'pending',
+  'working',
+  'waiting_approval',
+  'delivered',
+  'failed',
+  'cancelled',
+])
+
+export type AssignmentSource =
+  | { kind: 'call'; sessionId: string }
+  | { kind: 'mail'; threadId: string }
+  | { kind: 'manual'; requestedBy?: string }
+
+export const assignments = pgTable(
+  'assignments',
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    /** The agent that owns the deliverable. */
+    personId: uuid('person_id').notNull(),
+    /** Where the commitment was made — the audit anchor back to a call or thread. */
+    source: jsonb('source').$type<AssignmentSource>().notNull(),
+    title: text('title').notNull(),
+    /** What was asked for, in full — becomes the background run's instruction. */
+    spec: text('spec').notNull(),
+    /** Requested deliverable formats, informational: pdf, docx, xlsx… */
+    formats: text('formats').array().notNull().default([]),
+    deliverTo: jsonb('deliver_to').$type<{ name?: string; address: string }>().notNull(),
+    dueAt: timestamp('due_at', { withTimezone: true }),
+    status: assignmentStatus('status').notNull().default('pending'),
+    /** The background run doing (or that did) the work. */
+    runId: uuid('run_id'),
+    /** Files ledgered by the run — the finished work product. */
+    resultFileIds: uuid('result_file_ids').array().notNull().default([]),
+    lastError: text('last_error'),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    ...auditColumns,
+  },
+  (t) => [
+    index('assignments_person_idx').on(t.tenantId, t.personId, t.createdAt),
+    index('assignments_status_idx').on(t.tenantId, t.status, t.createdAt),
+  ],
+)
+
 /** One ledger row per model call; the salary/overtime meter aggregates this. */
 export const tokenSpend = pgTable(
   'token_spend',
@@ -125,4 +184,4 @@ export const tokenSpend = pgTable(
   (t) => [index('token_spend_person_idx').on(t.tenantId, t.personId, t.createdAt)],
 )
 
-export const WORK_TENANT_TABLES = ['duties', 'runs', 'run_events', 'token_spend'] as const
+export const WORK_TENANT_TABLES = ['duties', 'runs', 'run_events', 'token_spend', 'assignments'] as const

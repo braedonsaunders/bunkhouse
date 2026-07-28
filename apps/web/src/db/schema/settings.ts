@@ -60,4 +60,25 @@ export type McpIntegrationEntry = {
 
 export const MCP_INTEGRATIONS_KEY = 'integrations.mcp'
 
+/** settings key: 'documents.branding' — how agent-authored documents present
+ *  the company: the letterhead line, accent color, and footer on every
+ *  generated .docx and .pdf. */
+export type DocumentBrandingSettings = {
+  companyName?: string
+  /** Hex accent for headings/rules, e.g. #1a4d8f. */
+  accentColor?: string
+  footerText?: string
+}
+
+export const DOCUMENT_BRANDING_KEY = 'documents.branding'
+
+/** settings key: 'workspace.policy' — housekeeping for agents' persistent
+ *  workspaces. `retentionDays: null` means keep everything (the default —
+ *  nothing is ever deleted unless an operator turns retention on). */
+export type WorkspacePolicySettings = {
+  retentionDays: number | null
+}
+
+export const WORKSPACE_POLICY_KEY = 'workspace.policy'
+
 export const SETTINGS_TENANT_TABLES = ['tenant_settings'] as const

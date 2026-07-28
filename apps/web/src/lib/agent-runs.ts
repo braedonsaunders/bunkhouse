@@ -1,6 +1,7 @@
 import 'server-only'
 import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { z } from 'zod'
+import type { ModelMessage } from 'ai'
 import {
   defineAbility,
   runAgent,
@@ -17,7 +18,6 @@ import {
   duties,
   mailMessages,
   mailThreads,
-  memories,
   people,
   procedureRevisions,
   procedures,
@@ -69,27 +69,77 @@ export async function boundProcedures(tenantId: string, person: typeof people.$i
 }
 
 /**
+ * The thread-bound reply ability: only email-triggered runs carry it, and the
+ * approval executor rebuilds it to carry out an approved reply.
+ */
+export function replyToThreadAbility(args: { tenantId: string; threadId: string; runId: string }): Ability {
+  const { tenantId, threadId, runId } = args
+  return defineAbility({
+    name: 'reply_to_thread',
+    description:
+      'Send your reply on the email thread you are handling. The body is sent as-is from your mailbox. Attach files you produced by id with attachFileIds.',
+    category: 'external_email',
+    inputSchema: z.object({
+      body: z.string(),
+      attachFileIds: z.array(z.string()).optional().describe('File ids of documents to attach.'),
+    }),
+    execute: async ({ body, attachFileIds }) => {
+      await sendReplyInThread({
+        tenantId,
+        threadId,
+        text: body,
+        runId,
+        ...(attachFileIds?.length ? { attachFileIds } : {}),
+      })
+      return { sent: true, ...(attachFileIds?.length ? { attachedFiles: attachFileIds.length } : {}) }
+    },
+  })
+}
+
+/**
  * Execute one unit of work for an agent, end to end: run row, governed loop,
  * event/spend ledger, approval suspension, outcome. Runs inside the caller's
  * process (web action or worker) — all state is in the database.
+ *
+ * With `resumeRunId`, no new run row is created: the suspended run's stored
+ * transcript becomes the prior context, the event sequence continues, and the
+ * input (normally an approval decision) is appended as the next turn.
  */
 export async function executeAgentRun(args: {
   tenantId: string
   personId: string
   trigger: RunTrigger
   input: RunInput
+  resumeRunId?: string
+  maxSteps?: number
+  counterparty?: { name?: string; address?: string }
 }): Promise<{ runId: string; outcome: RunOutcome }> {
   const app = db()
   return app.withTenant(args.tenantId, async () => {
     const [person] = await app.db.select().from(people).where(eq(people.id, args.personId))
     if (!person || person.kind !== 'agent') throw new Error('Run target is not an agent.')
 
-    const [run] = await app.db
-      .insert(runs)
-      .values({ tenantId: args.tenantId, personId: person.id, trigger: args.trigger })
-      .returning({ id: runs.id })
-    const runId = run!.id
+    let runId: string
     let seq = 0
+    let priorMessages: unknown[] = []
+    if (args.resumeRunId) {
+      const [existing] = await app.db.select().from(runs).where(eq(runs.id, args.resumeRunId))
+      if (!existing || existing.personId !== person.id) throw new Error('Run to resume not found.')
+      runId = existing.id
+      priorMessages = existing.transcript ?? []
+      const [last] = await app.db
+        .select({ seq: sql<number>`coalesce(max(${runEvents.seq}), -1)` })
+        .from(runEvents)
+        .where(eq(runEvents.runId, runId))
+      seq = (last?.seq ?? -1) + 1
+      await app.db.update(runs).set({ status: 'running', finishedAt: null }).where(eq(runs.id, runId))
+    } else {
+      const [run] = await app.db
+        .insert(runs)
+        .values({ tenantId: args.tenantId, personId: person.id, trigger: args.trigger })
+        .returning({ id: runs.id })
+      runId = run!.id
+    }
     const sink = {
       event: async (event: Record<string, unknown> & { kind: string }) => {
         const { kind, ...payload } = event
@@ -128,7 +178,15 @@ export async function executeAgentRun(args: {
         .update(runs)
         .set({ status: 'failed', finishedAt: new Date(), summary: 'No model assigned.' })
         .where(eq(runs.id, runId))
-      return { runId, outcome: { status: 'failed', error: 'No model assigned.', usage: { inputTokens: 0, outputTokens: 0 } } }
+      return {
+        runId,
+        outcome: {
+          status: 'failed',
+          error: 'No model assigned.',
+          usage: { inputTokens: 0, outputTokens: 0 },
+          messages: [],
+        },
+      }
     }
 
     const dialRows = await app.db
@@ -148,34 +206,35 @@ export async function executeAgentRun(args: {
             ? args.input.message
             : args.input.type === 'delegation'
               ? args.input.instruction
-              : args.input.instruction
+              : args.input.type === 'assignment'
+                ? `${args.input.title} ${args.input.spec.slice(0, 400)}`
+                : args.input.type === 'approval_decision'
+                  ? args.input.description
+                  : args.input.instruction
     const pinned = await pinnedNotes({ tenantId: args.tenantId, personId: person.id })
     const retrieved = await retrieveNotes({ tenantId: args.tenantId, personId: person.id, query: retrievalQuery })
     const notes = [...pinned, ...retrieved.filter((r) => !pinned.some((p) => p.id === r.id))]
 
     // The shared capability set — the same abilities voice calls carry.
-    const assembled = await assembleAbilities({ tenantId: args.tenantId, person, runId })
+    const assembled = await assembleAbilities({
+      tenantId: args.tenantId,
+      person,
+      runId,
+      assignmentSource:
+        args.trigger.type === 'email' ? { kind: 'mail', threadId: args.trigger.threadId } : { kind: 'manual' },
+      ...(args.counterparty ? { counterparty: args.counterparty } : {}),
+    })
     for (const failure of assembled.integrationFailures) {
       await sink.event({ kind: 'message', text: `Integration unavailable — ${failure}` })
     }
     const abilities: Ability[] = [...assembled.abilities]
     if (args.trigger.type === 'email') {
-      const threadId = args.trigger.threadId
-      abilities.push(
-        defineAbility({
-          name: 'reply_to_thread',
-          description: 'Send your reply on the email thread you are handling. The body is sent as-is from your mailbox.',
-          category: 'external_email',
-          inputSchema: z.object({ body: z.string() }),
-          execute: async ({ body }) => {
-            await sendReplyInThread({ tenantId: args.tenantId, threadId, text: body, runId })
-            return { sent: true }
-          },
-        }),
-      )
+      abilities.push(replyToThreadAbility({ tenantId: args.tenantId, threadId: args.trigger.threadId, runId }))
     }
 
     const outcome = await runAgent({
+      ...(priorMessages.length ? { priorMessages: priorMessages as ModelMessage[] } : {}),
+      ...(args.maxSteps ? { maxSteps: args.maxSteps } : {}),
       agent: {
         id: person.id,
         name: person.name,
@@ -264,6 +323,9 @@ export async function executeAgentRun(args: {
       .set({
         status,
         finishedAt: status === 'waiting_approval' ? null : new Date(),
+        // The transcript exists to resume a parked run; a finished run keeps
+        // its ledger in run_events, not a copy of the model conversation.
+        transcript: status === 'waiting_approval' ? (outcome.messages as unknown[]) : null,
         summary:
           outcome.status === 'completed'
             ? outcome.summary.slice(0, 500)
@@ -389,6 +451,8 @@ export async function startRunsForNewInbound(tenantId: string): Promise<number> 
       personId: item.personId,
       trigger: { type: 'email', threadId: item.threadId, messageId: item.messageId },
       input: { type: 'email', threadSubject: subject, conversation },
+      // The sender is who work committed on this thread defaults to.
+      ...(item.sender ? { counterparty: { address: item.sender } } : {}),
     })
     started += 1
   }

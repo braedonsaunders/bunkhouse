@@ -2,16 +2,20 @@ import { createJobs } from '@appkit/jobs'
 import { and, eq, sql } from 'drizzle-orm'
 import { schema as identity } from '@appkit/db'
 import { db } from '../src/db/client'
-import { approvals, mailboxAccounts, mailMessages, people, runEvents, runs } from '../src/db/schema'
-import { syncPersonMailbox, sendReplyInThread } from '../src/lib/mailbox'
+import { approvals, mailboxAccounts, mailMessages, people } from '../src/db/schema'
+import { syncPersonMailbox } from '../src/lib/mailbox'
 import { dueDuties, executeAgentRun, markDutyRun, startRunsForNewInbound } from '../src/lib/agent-runs'
 import { nextOccurrence } from '../src/lib/duties'
 import { journalPass as journalTenant, reflectionPass as reflectTenant } from '../src/lib/consolidation'
+import { pendingAssignmentIds, runAssignment } from '../src/lib/assignments'
+import { decidedApprovalIds, executeDecidedApproval } from '../src/lib/approval-executor'
+import { tidyWorkspaces } from '../src/lib/workspace'
 
 // The bunkhouse worker: mailbox sync → inbound runs, the duty scheduler,
-// approval resume, and the Logbook consolidation jobs — BullMQ on the shared
-// Redis. One repeatable heartbeat job per concern; every pass is idempotent,
-// so overlapping ticks are safe.
+// approval execution/resume, assignment runs, and the Logbook consolidation
+// jobs — BullMQ on the shared Redis. Heartbeat passes are idempotent; deep
+// work (assignments, approval continuations) runs on its own queue so a long
+// deliverable never stalls mail sync or the schedulers.
 
 const redisUrl = process.env.BUNKHOUSE_REDIS_URL
 if (!redisUrl) throw new Error('BUNKHOUSE_REDIS_URL must be set (run with --env-file=.env.local)')
@@ -128,12 +132,6 @@ async function applyEmailedDecisions(tenantId: string): Promise<void> {
           .update(approvals)
           .set({ status: decision, decidedAt: new Date(), decidedById: staff[0]!.id, decisionNote: note })
           .where(and(eq(approvals.id, approval.id), eq(approvals.status, 'pending')))
-        if (decision === 'rejected') {
-          await app.db
-            .update(runs)
-            .set({ status: 'completed', finishedAt: new Date(), summary: 'Stopped: the requested action was declined by email.' })
-            .where(and(eq(runs.id, approval.runId), eq(runs.status, 'waiting_approval')))
-        }
         console.log(`[approval] ${tag} ${decision} by email from ${sender}`)
         break
       }
@@ -141,46 +139,37 @@ async function applyEmailedDecisions(tenantId: string): Promise<void> {
   })
 }
 
+/**
+ * Decided approvals and pending assignments become deep-work jobs. Both are
+ * claim-protected (executed_at / pending→working), so re-enqueueing the same
+ * id across ticks is a harmless no-op.
+ */
 async function approvalsPass(): Promise<void> {
   for (const tenantId of await activeTenantIds()) {
     await applyEmailedDecisions(tenantId)
-    await app.withTenant(tenantId, async () => {
-      const ready = await app.db
-        .select()
-        .from(approvals)
-        .innerJoin(runs, eq(runs.id, approvals.runId))
-        .where(and(eq(approvals.status, 'approved'), eq(runs.status, 'waiting_approval')))
-      for (const row of ready) {
-        const approval = row.approvals
-        const run = row.runs
-        const action = approval.payload.action as { toolName?: string; input?: Record<string, unknown> }
-        let summary: string
-        if (action.toolName === 'reply_to_thread' && run.trigger.type === 'email') {
-          const body = String((action.input as { input?: { body?: string } })?.input?.body ?? (action.input as { body?: string })?.body ?? '')
-          await sendReplyInThread({ tenantId, threadId: run.trigger.threadId, text: body, runId: run.id })
-          summary = 'Approved reply sent.'
-        } else {
-          summary = `Approved action "${action.toolName ?? 'unknown'}" recorded; no automatic executor for it yet.`
-        }
-        const [last] = await app.db
-          .select({ seq: runEvents.seq })
-          .from(runEvents)
-          .where(eq(runEvents.runId, run.id))
-          .orderBy(eq(runEvents.seq, runEvents.seq))
-        await app.db.insert(runEvents).values({
-          tenantId,
-          runId: run.id,
-          seq: (last?.seq ?? 0) + 1000,
-          kind: 'tool_result',
-          payload: { toolName: action.toolName ?? 'unknown', output: { approved: true, summary } },
-        })
-        await app.db
-          .update(runs)
-          .set({ status: 'completed', finishedAt: new Date(), summary })
-          .where(eq(runs.id, run.id))
-        console.log(`[approval] run ${run.id}: ${summary}`)
-      }
-    })
+    for (const approvalId of await decidedApprovalIds(tenantId)) {
+      await deepWork.add('approval', { kind: 'approval', tenantId, id: approvalId })
+    }
+  }
+}
+
+async function assignmentsPass(): Promise<void> {
+  for (const tenantId of await activeTenantIds()) {
+    for (const assignmentId of await pendingAssignmentIds(tenantId)) {
+      await deepWork.add('assignment', { kind: 'assignment', tenantId, id: assignmentId })
+    }
+  }
+}
+
+/** Daily workspace housekeeping — a no-op until a tenant turns retention on. */
+async function workspacePass(): Promise<void> {
+  for (const tenantId of await activeTenantIds()) {
+    try {
+      const { deleted } = await tidyWorkspaces(tenantId)
+      if (deleted > 0) console.log(`[workspace] tenant ${tenantId}: retired ${deleted} aged file(s)`)
+    } catch (error) {
+      console.error(`[workspace] tenant ${tenantId}:`, (error as Error).message)
+    }
   }
 }
 
@@ -226,13 +215,28 @@ async function callSweepPass(): Promise<void> {
   if (swept.rows.length > 0) console.log(`[calls] swept ${swept.rows.length} abandoned call run(s)`)
 }
 
-type HeartbeatPass = 'mailbox' | 'duties' | 'approvals' | 'journal' | 'reflection' | 'calls'
+type HeartbeatPass =
+  | 'mailbox'
+  | 'duties'
+  | 'approvals'
+  | 'assignments'
+  | 'journal'
+  | 'reflection'
+  | 'calls'
+  | 'workspace'
+type DeepWorkJob = { kind: 'assignment' | 'approval'; tenantId: string; id: string }
+
+// Deep work — assignment runs and approval continuations — gets its own queue
+// and worker so a multi-minute deliverable never blocks the heartbeat.
+const deepWork = jobs.defineQueue<DeepWorkJob>('bunkhouse-deep-work')
 
 const heartbeat = jobs.defineQueue<{ pass: HeartbeatPass }>('bunkhouse-heartbeat')
 await heartbeat.upsertJobScheduler('mailbox', { every: 120_000 }, { name: 'tick', data: { pass: 'mailbox' } })
 await heartbeat.upsertJobScheduler('duties', { every: 60_000 }, { name: 'tick', data: { pass: 'duties' } })
 await heartbeat.upsertJobScheduler('approvals', { every: 30_000 }, { name: 'tick', data: { pass: 'approvals' } })
+await heartbeat.upsertJobScheduler('assignments', { every: 30_000 }, { name: 'tick', data: { pass: 'assignments' } })
 await heartbeat.upsertJobScheduler('calls', { every: 300_000 }, { name: 'tick', data: { pass: 'calls' } })
+await heartbeat.upsertJobScheduler('workspace', { every: 86_400_000 }, { name: 'tick', data: { pass: 'workspace' } })
 await heartbeat.upsertJobScheduler('journal', { every: 21_600_000 }, { name: 'tick', data: { pass: 'journal' } })
 await heartbeat.upsertJobScheduler('reflection', { every: 43_200_000 }, { name: 'tick', data: { pass: 'reflection' } })
 
@@ -241,7 +245,9 @@ const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
   async (job) => {
     if (job.data.pass === 'mailbox') await mailboxPass()
     else if (job.data.pass === 'duties') await dutiesPass()
+    else if (job.data.pass === 'assignments') await assignmentsPass()
     else if (job.data.pass === 'calls') await callSweepPass()
+    else if (job.data.pass === 'workspace') await workspacePass()
     else if (job.data.pass === 'journal') await journalPass()
     else if (job.data.pass === 'reflection') await reflectionPass()
     else await approvalsPass()
@@ -249,13 +255,29 @@ const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
   { concurrency: 1 },
 )
 
+const deepWorker = jobs.createWorker<DeepWorkJob>(
+  'bunkhouse-deep-work',
+  async (job) => {
+    if (job.data.kind === 'assignment') {
+      await runAssignment(job.data.tenantId, job.data.id)
+    } else {
+      await executeDecidedApproval(job.data.tenantId, job.data.id)
+    }
+  },
+  { concurrency: 2 },
+)
+
 await heartbeat.add('tick', { pass: 'mailbox' })
 await heartbeat.add('tick', { pass: 'duties' })
 await heartbeat.add('tick', { pass: 'approvals' })
-console.log('bunkhouse worker up — mailbox 2m, duties 1m, approvals 30s, call sweep 5m, journal 6h, reflection 12h (initial passes queued)')
+await heartbeat.add('tick', { pass: 'assignments' })
+console.log(
+  'bunkhouse worker up — mailbox 2m, duties 1m, approvals 30s, assignments 30s, call sweep 5m, journal 6h, reflection 12h; deep-work queue ×2 (initial passes queued)',
+)
 
 async function shutdown(): Promise<void> {
   await worker.close()
+  await deepWorker.close()
   await jobs.closeJobConnections()
   await app.pool.end()
   await app.superPool.end()

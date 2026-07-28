@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Mic, MicOff, PhoneOff } from 'lucide-react'
+import { Mic, MicOff, Phone, PhoneOff } from 'lucide-react'
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -14,7 +14,7 @@ import { ConnectionState } from 'livekit-client'
 import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, PageHeader } from '@appkit/ui'
 import { ComposedAvatar } from '@appkit/avatars/react'
 import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
-import { endCallAction, getCallTranscriptAction, type TranscriptTurn } from '../app/call/actions'
+import { endCallAction, getCallTranscriptAction, startCallAction, type TranscriptTurn } from '../app/call/actions'
 import { toolActivityFromEvents, type CallActivityEvent, type ToolActivityItem } from '../lib/call-activity'
 import { ToolActivityCard } from './tool-activity'
 
@@ -195,34 +195,87 @@ function CallControls({
 /**
  * The browser side of a call: a LiveKit room with the agent's voice agent as
  * the other participant. Audio only; captions poll the append-only ledger.
+ * Nothing is created until the caller places the call — the session, its run,
+ * and the token all come from startCallAction on click.
  */
 export function CallRoom({
   serverUrl,
-  token,
-  sessionId,
   agent,
   avatar,
 }: {
   serverUrl: string
-  token: string
-  sessionId: string
   agent: { id: string; name: string; title: string }
   avatar: { composition: AvatarComposition | null; parts: AvatarPart[]; categories: AvatarPartCategory[] }
 }) {
   const router = useRouter()
+  const [call, setCall] = React.useState<{ sessionId: string; token: string } | null>(null)
+  const [placing, setPlacing] = React.useState(false)
+  const [placeError, setPlaceError] = React.useState<string | null>(null)
   const [ending, setEnding] = React.useState(false)
   const endedRef = React.useRef(false)
 
+  const place = React.useCallback(async () => {
+    setPlacing(true)
+    setPlaceError(null)
+    try {
+      setCall(await startCallAction(agent.id))
+    } catch (error) {
+      setPlaceError(error instanceof Error ? error.message : 'The call could not be started.')
+    } finally {
+      setPlacing(false)
+    }
+  }, [agent.id])
+
   const finish = React.useCallback(async () => {
-    if (endedRef.current) return
+    if (endedRef.current || !call) return
     endedRef.current = true
     setEnding(true)
     try {
-      await endCallAction(sessionId)
+      await endCallAction(call.sessionId)
     } finally {
       router.push(`/organization/agents?person=${agent.id}`)
     }
-  }, [agent.id, router, sessionId])
+  }, [agent.id, call, router])
+
+  if (!call) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title={`Call ${agent.name}`}
+          description={`${agent.title} · web call · everything said lands on the call record and the run.`}
+        />
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Ready when you are</CardTitle>
+            <CardDescription>
+              Placing the call connects your microphone and rings {agent.name}. Ask for work on the call — research,
+              documents, spreadsheets — and it is produced and emailed to you after you hang up.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {avatar.composition ? (
+              <div className="flex justify-center">
+                <ComposedAvatar
+                  composition={avatar.composition}
+                  parts={avatar.parts}
+                  categories={avatar.categories}
+                  variant="head"
+                  size={180}
+                  rounded
+                  animate="idle"
+                  name={agent.name}
+                />
+              </div>
+            ) : null}
+            {placeError ? <p className="text-sm text-danger">{placeError}</p> : null}
+            <Button type="button" onClick={() => void place()} disabled={placing}>
+              <Phone className="mr-1.5 size-4" /> {placing ? 'Ringing…' : 'Place call'}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -232,7 +285,7 @@ export function CallRoom({
       />
       <LiveKitRoom
         serverUrl={serverUrl}
-        token={token}
+        token={call.token}
         audio
         video={false}
         connect
@@ -241,7 +294,7 @@ export function CallRoom({
         <RoomAudioRenderer />
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
           <CallControls agent={agent} avatar={avatar} onEnd={() => void finish()} ending={ending} />
-          <Captions sessionId={sessionId} agentName={agent.name} />
+          <Captions sessionId={call.sessionId} agentName={agent.name} />
         </div>
       </LiveKitRoom>
     </div>

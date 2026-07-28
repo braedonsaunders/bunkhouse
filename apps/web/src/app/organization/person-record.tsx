@@ -21,6 +21,7 @@ import { AvatarPortrait, AvatarStudio } from '../../components/avatar-studio'
 import { VoiceConfigForm } from '../../components/voice-config-form'
 import { DutiesCard } from '../../components/duties-card'
 import { MailboxSection } from './mailbox-section'
+import { AssignmentsSection } from './assignments-section'
 import { AutonomySection, MemorySection, OverviewSection, PayrollSection } from './person-sections'
 
 type Person = typeof people.$inferSelect
@@ -171,6 +172,11 @@ export async function personDrawer({
                 })}
               />
             ),
+          },
+          {
+            key: 'work',
+            label: 'Work',
+            content: <AssignmentsSection tenantId={tenantId} personId={selected.id} />,
           },
           {
             key: 'voice',

@@ -91,5 +91,27 @@ export function buildRunInstruction(input: RunInput): string {
       return `${input.fromName} has delegated a task to you:\n\n${input.instruction}`
     case 'manual':
       return input.instruction
+    case 'assignment': {
+      const due = input.dueAt ? `\nDue: ${input.dueAt}` : ''
+      const formats = input.formats?.length ? `\nRequested file format(s): ${input.formats.join(', ')}` : ''
+      const source = input.source ? `\n(You committed to this ${input.source}.)` : ''
+      const recipient = input.deliverTo.name
+        ? `${input.deliverTo.name} <${input.deliverTo.address}>`
+        : input.deliverTo.address
+      const delivery = input.formats?.length
+        ? `Produce the requested file(s), then email them to ${recipient} with a short, professional note — attach every file by its file id.`
+        : `When it is done, email ${recipient} with the outcome — write the result in the email itself, and attach any files you produced by their file ids.`
+      return `Assignment: ${input.title}${source}\n\n${input.spec}${formats}${due}\n\nDo the work now, end to end, using whatever tools it takes. ${delivery} If something makes the work impossible, say exactly what is missing in your email instead of going silent.`
+    }
+    case 'approval_decision': {
+      if (input.decision === 'approved') {
+        const result =
+          input.result === undefined
+            ? 'It has been approved — carry it out now and then continue the task.'
+            : `It was approved and has been carried out on your behalf. Result: ${JSON.stringify(input.result)}. Continue the task from here.`
+        return `Decision on your pending approval — ${input.description}\n\n${result}${input.note ? `\nNote from the approver: ${input.note}` : ''}`
+      }
+      return `Decision on your pending approval — ${input.description}\n\nIt was declined${input.note ? ` with this note: ${input.note}` : ''}. Do not retry the same action. Adjust your approach, inform whoever is waiting on you as appropriate, and wrap up cleanly.`
+    }
   }
 }

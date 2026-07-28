@@ -10,6 +10,8 @@ export * from './avatars'
 export * from './roles'
 export * from './voice'
 export * from './pbx'
+export * from './files'
+export * from './workspace'
 
 import { PEOPLE_TENANT_TABLES } from './people'
 import { MAIL_TENANT_TABLES } from './mail'
@@ -23,6 +25,8 @@ import { AVATARS_TENANT_TABLES } from './avatars'
 import { ROLES_TENANT_TABLES } from './roles'
 import { VOICE_TENANT_TABLES } from './voice'
 import { PBX_TENANT_TABLES } from './pbx'
+import { FILES_TENANT_TABLES } from './files'
+import { WORKSPACE_TENANT_TABLES } from './workspace'
 
 /** Every bunkhouse tenant-scoped table; feed to @appkit/db's RLS installer. */
 export const BUNKHOUSE_TENANT_TABLES = [
@@ -38,4 +42,6 @@ export const BUNKHOUSE_TENANT_TABLES = [
   ...ROLES_TENANT_TABLES,
   ...VOICE_TENANT_TABLES,
   ...PBX_TENANT_TABLES,
+  ...FILES_TENANT_TABLES,
+  ...WORKSPACE_TENANT_TABLES,
 ] as const

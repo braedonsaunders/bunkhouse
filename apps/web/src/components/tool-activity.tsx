@@ -3,14 +3,20 @@
 import * as React from 'react'
 import {
   AlertCircle,
+  Briefcase,
+  Calculator,
   CalendarClock,
   Check,
+  FileText,
+  FolderOpen,
   Globe,
   Loader2,
   Mail,
   NotebookPen,
   Plug,
   Search,
+  Table2,
+  TerminalSquare,
   type LucideIcon,
 } from 'lucide-react'
 import { Badge } from '@appkit/ui'
@@ -33,6 +39,15 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   schedule_task: CalendarClock,
   list_scheduled_tasks: CalendarClock,
   cancel_scheduled_task: CalendarClock,
+  take_assignment: Briefcase,
+  create_document: FileText,
+  create_spreadsheet: Table2,
+  reply_to_thread: Mail,
+  run_script: Calculator,
+  run_shell: TerminalSquare,
+  list_workspace_files: FolderOpen,
+  read_workspace_file: FolderOpen,
+  publish_workspace_file: FileText,
 }
 
 function StatusMark({ status }: { status: ToolActivityItem['status'] }) {

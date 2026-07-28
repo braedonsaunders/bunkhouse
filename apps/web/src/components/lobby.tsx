@@ -45,6 +45,21 @@ const SCENE_LABELS: Partial<Record<SceneKind, string>> = {
 }
 
 const SCENE_STORAGE_KEY = 'bunkhouse.lobby.scene'
+const SCENE_CHANGE_EVENT = 'bunkhouse.lobby.scene-change'
+
+function readStoredScene(): SceneKind {
+  const stored = window.localStorage.getItem(SCENE_STORAGE_KEY)
+  return stored && (OFFICE_SCENE_KINDS as string[]).includes(stored) ? (stored as SceneKind) : 'office'
+}
+
+function subscribeToScene(onChange: () => void): () => void {
+  window.addEventListener(SCENE_CHANGE_EVENT, onChange)
+  window.addEventListener('storage', onChange)
+  return () => {
+    window.removeEventListener(SCENE_CHANGE_EVENT, onChange)
+    window.removeEventListener('storage', onChange)
+  }
+}
 
 /**
  * The bunkhouse floor: the agents on staff at work in one of the drawn office
@@ -79,15 +94,12 @@ export function Lobby({
   const isDark = resolvedTheme === 'dark'
 
   // The stage is a personal, cosmetic preference — it lives in the browser,
-  // like a wallpaper, and comes back on the next visit.
-  const [scene, setScene] = React.useState<SceneKind>('office')
-  React.useEffect(() => {
-    const stored = window.localStorage.getItem(SCENE_STORAGE_KEY)
-    if (stored && (OFFICE_SCENE_KINDS as string[]).includes(stored)) setScene(stored as SceneKind)
-  }, [])
+  // like a wallpaper, and comes back on the next visit. Read through a store
+  // subscription so the server render (no localStorage) hydrates cleanly.
+  const scene = React.useSyncExternalStore(subscribeToScene, readStoredScene, () => 'office' as SceneKind)
   const pickScene = (kind: SceneKind) => {
-    setScene(kind)
     window.localStorage.setItem(SCENE_STORAGE_KEY, kind)
+    window.dispatchEvent(new Event(SCENE_CHANGE_EVENT))
   }
 
   const characters = React.useMemo<SceneCharacter[]>(

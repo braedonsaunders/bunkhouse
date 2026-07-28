@@ -1,4 +1,5 @@
 import type { AiConfig } from '@appkit/ai'
+import type { ModelMessage } from 'ai'
 
 /** The governed action categories. Must stay in sync with the app's
  *  `action_category` enum — the dial is enforced here, not in prompts. */
@@ -77,6 +78,26 @@ export type RunInput =
   | { type: 'chat'; message: string }
   | { type: 'delegation'; fromName: string; instruction: string }
   | { type: 'manual'; instruction: string }
+  | {
+      /** A committed deliverable: produce the work product and deliver it. */
+      type: 'assignment'
+      title: string
+      spec: string
+      deliverTo: { name?: string; address: string }
+      formats?: string[]
+      dueAt?: string
+      /** Where the commitment was made, for the agent's own context. */
+      source?: string
+    }
+  | {
+      /** Continuation of a suspended run after a human decided its approval. */
+      type: 'approval_decision'
+      decision: 'approved' | 'declined'
+      description: string
+      /** Present when the approved action was executed on the agent's behalf. */
+      result?: unknown
+      note?: string
+    }
 
 export type RunEvent =
   | { kind: 'message'; text: string }
@@ -114,7 +135,7 @@ export type BudgetMeter = {
 }
 
 export type RunOutcome =
-  | { status: 'completed'; summary: string; usage: TokenUsage }
-  | { status: 'waiting_approval'; approvalId: string; usage: TokenUsage }
-  | { status: 'budget_paused'; usage: TokenUsage }
-  | { status: 'failed'; error: string; usage: TokenUsage }
+  | { status: 'completed'; summary: string; usage: TokenUsage; messages: ModelMessage[] }
+  | { status: 'waiting_approval'; approvalId: string; usage: TokenUsage; messages: ModelMessage[] }
+  | { status: 'budget_paused'; usage: TokenUsage; messages: ModelMessage[] }
+  | { status: 'failed'; error: string; usage: TokenUsage; messages: ModelMessage[] }

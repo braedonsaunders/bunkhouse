@@ -31,7 +31,7 @@ import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
 import { ImageProviderForm } from './image-provider-form'
 import { AutonomySettings, type AgentDial } from './autonomy-settings'
 import { PhoneSystemRow, type AgentExtensionRow, type AgentOption, type PhoneNumberRowView, type SipTrunkSummary } from './phone-system'
-import { DocumentsSection, IntegrationsSection, ResearchSection, type DocumentBrandingView, type IntegrationRowView } from './capability-settings'
+import { DocumentsSection, IntegrationsSection, ResearchSection, WorkspaceSection, type DocumentBrandingView, type IntegrationRowView, type WorkspacePolicyView } from './capability-settings'
 import { PlatformUsersAdmin, PlatformSessionsAdmin, PlatformTenantsAdmin } from '@appkit/superadmin/react'
 import type { PlatformSessionRecord, PlatformTenantRecord, PlatformUserRecord, TenantMemberRecord } from '@appkit/superadmin'
 import {
@@ -126,6 +126,7 @@ const NAV: SettingsNavGroup[] = [
       { key: 'voice', label: 'Voice', icon: <Phone /> },
       { key: 'research', label: 'Research', icon: <Globe /> },
       { key: 'documents', label: 'Documents', icon: <FileText /> },
+      { key: 'workspace', label: 'Workspace', icon: <FolderCog /> },
       { key: 'integrations', label: 'Integrations', icon: <Plug /> },
       { key: 'images', label: 'Image generation', icon: <ImageIcon /> },
       { key: 'avatar-parts', label: 'Avatar parts', icon: <Boxes /> },
@@ -182,6 +183,7 @@ export function SettingsView({
   voiceProviders,
   research,
   documents,
+  workspace,
   integrations,
   phoneSystem,
   agentDials,
@@ -202,6 +204,7 @@ export function SettingsView({
   voiceProviders: VoiceProviderState
   research: { provider: string | null }
   documents: DocumentBrandingView
+  workspace: WorkspacePolicyView
   integrations: IntegrationRowView[]
   phoneSystem: {
     trunks: SipTrunkSummary[]
@@ -471,6 +474,7 @@ export function SettingsView({
 
       {active === 'research' ? <ResearchSection provider={research.provider} /> : null}
       {active === 'documents' ? <DocumentsSection branding={documents} /> : null}
+      {active === 'workspace' ? <WorkspaceSection policy={workspace} /> : null}
 
       {active === 'integrations' ? <IntegrationsSection integrations={integrations} /> : null}
 

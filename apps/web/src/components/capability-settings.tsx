@@ -5,7 +5,9 @@ import { Badge, Button, EmptyState, Input, Label, Select, SettingsRow, SettingsS
 import {
   removeMcpIntegrationAction,
   removeSearchProviderAction,
+  saveDocumentBrandingAction,
   saveMcpIntegrationAction,
+  saveWorkspacePolicyAction,
   setSearchProviderAction,
 } from '../app/admin/settings/actions'
 
@@ -231,6 +233,157 @@ export function IntegrationsSection({ integrations }: { integrations: Integratio
             }
           >
             Test &amp; save
+          </Button>
+          {notice ? <p className="text-sm text-fg-muted">{notice}</p> : null}
+          {error ? <p className="text-sm text-danger">{error}</p> : null}
+        </div>
+      </SettingsRow>
+    </SettingsSection>
+  )
+}
+
+export type DocumentBrandingView = { companyName: string; accentColor: string; footerText: string }
+
+/**
+ * How agent-authored documents present the company: the letterhead line,
+ * accent color, and footer on every generated .docx and .pdf deliverable.
+ */
+export function DocumentsSection({ branding }: { branding: DocumentBrandingView }) {
+  const [companyName, setCompanyName] = React.useState(branding.companyName)
+  const [accentColor, setAccentColor] = React.useState(branding.accentColor)
+  const [footerText, setFooterText] = React.useState(branding.footerText)
+  const [notice, setNotice] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [busy, startBusy] = React.useTransition()
+
+  return (
+    <SettingsSection
+      title="Documents"
+      description="Agents produce real .docx, .xlsx, and .pdf files — attached to their emails and kept on the record. Letterhead settings here appear on every generated document."
+    >
+      <SettingsRow title="Letterhead" stacked>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="doc-company">Company name on documents</Label>
+            <Input
+              id="doc-company"
+              value={companyName}
+              onChange={(event) => setCompanyName(event.target.value)}
+              placeholder="Shown at the top of every document"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="doc-accent">Accent color</Label>
+            <Input
+              id="doc-accent"
+              value={accentColor}
+              onChange={(event) => setAccentColor(event.target.value)}
+              placeholder="#1a4d8f"
+            />
+          </div>
+        </div>
+        <div className="mt-3 space-y-1">
+          <Label htmlFor="doc-footer">Footer line</Label>
+          <Input
+            id="doc-footer"
+            value={footerText}
+            onChange={(event) => setFooterText(event.target.value)}
+            placeholder="e.g. 123 Main St · (555) 010-0000 · company.com"
+          />
+        </div>
+        <div className="mt-3 flex items-center gap-3">
+          <Button
+            disabled={busy}
+            onClick={() =>
+              startBusy(async () => {
+                setError(null)
+                setNotice(null)
+                const result = await saveDocumentBrandingAction({ companyName, accentColor, footerText })
+                if (!result.ok) setError(result.message)
+                else setNotice('Saved. New documents use this letterhead.')
+              })
+            }
+          >
+            Save letterhead
+          </Button>
+          {notice ? <p className="text-sm text-fg-muted">{notice}</p> : null}
+          {error ? <p className="text-sm text-danger">{error}</p> : null}
+        </div>
+      </SettingsRow>
+    </SettingsSection>
+  )
+}
+
+export type WorkspacePolicyView = { retentionDays: number | null }
+
+/**
+ * Housekeeping for agents' persistent workspaces. Retention is off by default:
+ * nothing an agent keeps on its desk is deleted unless an operator turns this
+ * on, and turning it off again stops the sweep without touching anything.
+ */
+export function WorkspaceSection({ policy }: { policy: WorkspacePolicyView }) {
+  const [enabled, setEnabled] = React.useState(policy.retentionDays !== null)
+  const [days, setDays] = React.useState(String(policy.retentionDays ?? 90))
+  const [notice, setNotice] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [busy, startBusy] = React.useTransition()
+
+  return (
+    <SettingsSection
+      title="Workspace"
+      description="Each agent has a persistent workspace — its own desk. Files it saves there stay across runs and calls; shell work inside it is sandboxed and recorded. Retention keeps the desk tidy by retiring files that have not been touched in a while."
+    >
+      <SettingsRow
+        title="Keep everything"
+        description="With retention off, workspace files are never deleted."
+        control={<Badge variant={enabled ? 'outline' : 'secondary'}>{enabled ? 'off' : 'active'}</Badge>}
+      />
+      <SettingsRow title="Retire untouched files" stacked>
+        <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
+          <div className="space-y-1">
+            <Label htmlFor="workspace-retention-mode">Retention</Label>
+            <Select
+              id="workspace-retention-mode"
+              value={enabled ? 'on' : 'off'}
+              onChange={(event) => setEnabled(event.target.value === 'on')}
+            >
+              <option value="off">Keep everything</option>
+              <option value="on">Retire old files</option>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="workspace-retention-days">Days a file may sit untouched</Label>
+            <Input
+              id="workspace-retention-days"
+              type="number"
+              min={7}
+              value={days}
+              onChange={(event) => setDays(event.target.value)}
+              disabled={!enabled}
+            />
+          </div>
+        </div>
+        <p className="mt-2 text-xs text-fg-muted">
+          The sweep runs daily and removes only files whose last change is older than the window — published
+          deliverables, mail attachments, and everything else in the company file record are never touched.
+        </p>
+        <div className="mt-3 flex items-center gap-3">
+          <Button
+            disabled={busy}
+            onClick={() =>
+              startBusy(async () => {
+                setError(null)
+                setNotice(null)
+                const result = await saveWorkspacePolicyAction({
+                  retentionEnabled: enabled,
+                  retentionDays: Number(days),
+                })
+                if (!result.ok) setError(result.message)
+                else setNotice(enabled ? `Saved — files untouched for ${days} days are retired daily.` : 'Saved — nothing is deleted.')
+              })
+            }
+          >
+            Save policy
           </Button>
           {notice ? <p className="text-sm text-fg-muted">{notice}</p> : null}
           {error ? <p className="text-sm text-danger">{error}</p> : null}

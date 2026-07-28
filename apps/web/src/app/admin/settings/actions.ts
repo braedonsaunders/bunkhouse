@@ -9,6 +9,8 @@ import { resolveTenantId } from '../../../lib/tenant'
 import { refreshPricesFromOpenRouter, setManualPrice } from '../../../lib/pricing'
 import { setImageProviderSetting } from '../../../lib/avatars'
 import { removeSearchProvider, setSearchProvider } from '../../../lib/research'
+import { saveDocumentBranding } from '../../../lib/documents'
+import { saveWorkspacePolicy } from '../../../lib/workspace'
 import { listMcpIntegrations, saveMcpIntegrations } from '../../../lib/agent-abilities'
 import { connectMcpServers } from '@bunkhouse/runtime'
 import { sealSecret } from '@appkit/crypto'
@@ -300,4 +302,41 @@ export async function removeMcpIntegrationAction(formData: FormData): Promise<vo
     await saveMcpIntegrations(tenantId, entries)
   })
   revalidatePath('/admin/settings')
+}
+
+export async function saveDocumentBrandingAction(input: {
+  companyName: string
+  accentColor: string
+  footerText: string
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const accent = input.accentColor.trim()
+  if (accent && !/^#[0-9a-fA-F]{6}$/.test(accent)) {
+    return { ok: false, message: 'Accent color must be a hex value like #1a4d8f.' }
+  }
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await saveDocumentBranding(tenantId, {
+      ...(input.companyName.trim() ? { companyName: input.companyName.trim() } : {}),
+      ...(accent ? { accentColor: accent } : {}),
+      ...(input.footerText.trim() ? { footerText: input.footerText.trim() } : {}),
+    })
+  })
+  revalidatePath('/admin/settings')
+  return { ok: true }
+}
+
+export async function saveWorkspacePolicyAction(input: {
+  retentionEnabled: boolean
+  retentionDays: number
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (input.retentionEnabled && (!Number.isInteger(input.retentionDays) || input.retentionDays < 7)) {
+    return { ok: false, message: 'Retention must be a whole number of days, 7 or more.' }
+  }
+  const tenantId = await resolveTenantId()
+  await saveWorkspacePolicy(tenantId, {
+    retentionDays: input.retentionEnabled ? input.retentionDays : null,
+  })
+  revalidatePath('/admin/settings')
+  return { ok: true }
 }

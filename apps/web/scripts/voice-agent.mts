@@ -231,6 +231,7 @@ async function buildInstructions(session: SessionRow, person: PersonRow, ai: AiC
     ...(config.style ? [`Speaking style: ${config.style}.`] : []),
     'You have your working tools on this call: search the web, read pages, send email, search and save your logbook, schedule follow-ups, and use the company integrations. Use them mid-conversation when they help — say what you are doing in a few words ("give me a second, I am looking that up"), keep talking naturally, and report what you found or did.',
     'If the caller speaks while you are mid-task, just talk with them — the work keeps running in the background and you can share the result when it lands. Never restart a task because you were interrupted.',
+    `When the caller asks for work that takes real time — research, a report or spreadsheet, contacting someone, comparing options, drafting something, chasing an answer — take it as an assignment rather than attempting it live. First confirm the brief out loud: what a good outcome looks like, any file format they want (PDF, Word, Excel — many assignments need no file at all), who receives it, and any deadline. Then call take_assignment with the full brief. Tell the caller it is underway and the outcome will arrive by email — the work starts immediately and continues after the call ends. Quick lookups you can answer in a sentence or two stay on the call; anything bigger becomes an assignment.`,
     'Some actions need human sign-off first. When a tool answers pending_approval, tell the caller it is queued for approval and will happen once signed off — never claim it is done.',
   ].join('\n')
 
@@ -495,7 +496,18 @@ export default defineAgent({
       })
     }
     const assembled = await app.withTenantContext(session.tenantId, () =>
-      assembleAbilities({ tenantId: session.tenantId, person, runId: session.runId ?? session.id }),
+      assembleAbilities({
+        tenantId: session.tenantId,
+        person,
+        runId: session.runId ?? session.id,
+        // Work taken on this call anchors to the call, and defaults its
+        // delivery to whoever is on the line (web callers carry an email).
+        assignmentSource: { kind: 'call', sessionId: session.id },
+        counterparty: {
+          ...(session.counterparty.name ? { name: session.counterparty.name } : {}),
+          ...(session.counterparty.email ? { address: session.counterparty.email } : {}),
+        },
+      }),
     )
     for (const failure of assembled.integrationFailures) {
       console.error(`[voice] room ${roomName}: integration unavailable — ${failure}`)

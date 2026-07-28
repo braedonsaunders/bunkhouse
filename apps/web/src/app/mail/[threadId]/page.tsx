@@ -12,6 +12,7 @@ import {
   Textarea,
   cn,
 } from '@appkit/ui'
+import { formatAttachmentSize } from '@appkit/storage'
 import { mailboxAccounts, mailMessages, mailThreads, people } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
@@ -77,7 +78,24 @@ export default async function ThreadPage({ params }: { params: Promise<{ threadI
                 </span>
               </CardTitle>
             </CardHeader>
-            <CardContent className="whitespace-pre-wrap text-sm">{message.bodyText}</CardContent>
+            <CardContent className="space-y-3">
+              <div className="whitespace-pre-wrap text-sm">{message.bodyText}</div>
+              {message.attachments.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {message.attachments.map((attachment) => (
+                    <a
+                      key={attachment.fileId}
+                      href={`/api/files/${attachment.fileId}`}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 text-xs text-fg transition-colors hover:bg-surface-hover"
+                      download={attachment.filename}
+                    >
+                      <span className="font-medium">{attachment.filename}</span>
+                      <span className="text-fg-muted">{formatAttachmentSize(attachment.size)}</span>
+                    </a>
+                  ))}
+                </div>
+              ) : null}
+            </CardContent>
           </Card>
         ))}
       </div>

@@ -52,14 +52,14 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
       kind: 'error',
       message: 'Salary budget exhausted and overage policy is pause; run not started.',
     })
-    return { status: 'budget_paused', usage }
+    return { status: 'budget_paused', usage, messages: args.priorMessages ?? [] }
   }
 
   const model = getModel(args.agent.ai, 'smart')
   if (!model) {
     const message = `No model available for ${args.agent.name} (provider ${args.agent.ai.provider}).`
     await args.sink.event({ kind: 'error', message })
-    return { status: 'failed', error: message, usage }
+    return { status: 'failed', error: message, usage, messages: args.priorMessages ?? [] }
   }
 
   const state: GovernanceState = { pendingApprovalId: null }
@@ -122,13 +122,14 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
       },
     })
 
+    const transcript: ModelMessage[] = [...messages, ...result.response.messages]
     if (state.pendingApprovalId) {
-      return { status: 'waiting_approval', approvalId: state.pendingApprovalId, usage }
+      return { status: 'waiting_approval', approvalId: state.pendingApprovalId, usage, messages: transcript }
     }
-    return { status: 'completed', summary: result.text, usage }
+    return { status: 'completed', summary: result.text, usage, messages: transcript }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     await args.sink.event({ kind: 'error', message })
-    return { status: 'failed', error: message, usage }
+    return { status: 'failed', error: message, usage, messages }
   }
 }

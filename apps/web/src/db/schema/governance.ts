@@ -58,6 +58,12 @@ export const approvals = pgTable(
     decidedAt: timestamp('decided_at', { withTimezone: true }),
     decisionNote: text('decision_note'),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
+    /**
+     * When the decided action was carried out (or the decline was delivered
+     * back to the agent). The executor claims rows where this is null — so a
+     * decision is acted on exactly once, whatever state its run is in.
+     */
+    executedAt: timestamp('executed_at', { withTimezone: true }),
     ...auditColumns,
   },
   (t) => [index('approvals_pending_idx').on(t.tenantId, t.status, t.createdAt)],

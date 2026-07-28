@@ -11,12 +11,14 @@ import { auditColumns, id, money, tenantRef } from '@appkit/db'
 export const callDirection = pgEnum('call_direction', ['web', 'inbound_phone', 'outbound_phone'])
 export const callSessionStatus = pgEnum('call_session_status', ['active', 'ended', 'failed'])
 
-/** Who is on the other end of the line. Web calls carry a LiveKit identity;
- *  phone calls (later slices) carry an E.164 number. */
+/** Who is on the other end of the line. Web calls carry a LiveKit identity and
+ *  the signed-in caller's email (the default recipient for work taken on the
+ *  call); phone calls carry an E.164 number. */
 export type CallCounterparty = {
   name?: string
   identity?: string
   number?: string
+  email?: string
 }
 
 export const callSessions = pgTable(

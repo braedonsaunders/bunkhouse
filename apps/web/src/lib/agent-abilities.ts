@@ -8,12 +8,23 @@ import {
   type Ability,
   type ActionCategory,
 } from '@bunkhouse/runtime'
-import { duties, memories, people, tenantSettings, MCP_INTEGRATIONS_KEY, type McpIntegrationEntry } from '../db/schema'
+import {
+  assignments,
+  duties,
+  memories,
+  people,
+  tenantSettings,
+  MCP_INTEGRATIONS_KEY,
+  type AssignmentSource,
+  type McpIntegrationEntry,
+} from '../db/schema'
 import { db } from '../db/client'
 import { sendNewMail } from './mailbox'
 import { createNote, retrieveNotes, supersedeNote } from './memory'
 import { firstOccurrence, gapMinutes } from './duties'
 import { readWebpage, webSearch } from './research'
+import { documentAbilities } from './documents'
+import { workspaceAbilities } from './workspace'
 
 /**
  * The one place an agent's working abilities are assembled — email runs, duty
@@ -130,7 +141,7 @@ export function emailAbilities(args: { tenantId: string; person: PersonRow; runI
   const app = db()
   const { tenantId, person, runId } = args
 
-  const send = async (to: string, subject: string, body: string) => {
+  const send = async (to: string, subject: string, body: string, attachFileIds?: string[]) => {
     await sendNewMail({
       tenantId,
       personId: person.id,
@@ -138,9 +149,15 @@ export function emailAbilities(args: { tenantId: string; person: PersonRow; runI
       subject,
       text: body,
       runId,
+      ...(attachFileIds?.length ? { attachFileIds } : {}),
     })
-    return { sent: true, to }
+    return { sent: true, to, ...(attachFileIds?.length ? { attachedFiles: attachFileIds.length } : {}) }
   }
+
+  const attachFileIdsSchema = z
+    .array(z.string())
+    .optional()
+    .describe('File ids of documents you created (or received) to attach to this email.')
 
   return [
     defineAbility({
@@ -152,8 +169,9 @@ export function emailAbilities(args: { tenantId: string; person: PersonRow; runI
         to: z.string().describe('A staff email address from the directory'),
         subject: z.string(),
         body: z.string().describe('Plain text; sign it as yourself.'),
+        attachFileIds: attachFileIdsSchema,
       }),
-      execute: async ({ to, subject, body }) => {
+      execute: async ({ to, subject, body, attachFileIds }) => {
         const [colleague] = await app.db
           .select({ id: people.id })
           .from(people)
@@ -161,19 +179,94 @@ export function emailAbilities(args: { tenantId: string; person: PersonRow; runI
         if (!colleague) {
           return { sent: false, reason: `${to} is not in the company directory — use send_email for outside addresses.` }
         }
-        return send(to, subject, body)
+        return send(to, subject, body, attachFileIds)
       },
     }),
     defineAbility({
       name: 'send_email',
-      description: 'Send an email from your mailbox to any outside address.',
+      description: 'Send an email from your mailbox to any outside address. Attach files you have produced by id.',
       category: 'external_email',
       inputSchema: z.object({
         to: z.string().describe('The recipient email address'),
         subject: z.string(),
         body: z.string().describe('Plain text; sign it as yourself.'),
+        attachFileIds: attachFileIdsSchema,
       }),
-      execute: async ({ to, subject, body }) => send(to, subject, body),
+      execute: async ({ to, subject, body, attachFileIds }) => send(to, subject, body, attachFileIds),
+    }),
+  ]
+}
+
+/**
+ * Committing to a deliverable. Taking the assignment is ungoverned — it is a
+ * promise, not an action; the work it triggers runs under the full dial
+ * (documents are file_write, delivery is external_email) in its own background
+ * run, which starts within moments and survives the current conversation.
+ */
+export function assignmentAbilities(args: {
+  tenantId: string
+  person: PersonRow
+  source: AssignmentSource
+  /** Who the agent is talking to right now — the default recipient. */
+  counterparty?: { name?: string; address?: string }
+}): Ability[] {
+  const app = db()
+  const { tenantId, person, source, counterparty } = args
+  return [
+    defineAbility({
+      name: 'take_assignment',
+      description:
+        'Commit to work that takes real time — anything a capable colleague could be asked to handle: research, a report or spreadsheet, contacting people, comparing options, drafting something, chasing an answer. Capture exactly what was asked (outcome, any file formats wanted, recipient, deadline), confirm it, then call this. The work starts immediately in the background and continues after this conversation ends; the outcome — and any files produced — is emailed to the recipient when done.',
+      category: null,
+      inputSchema: z.object({
+        title: z.string().describe('Short name for the work, e.g. "Competitor pricing comparison"'),
+        spec: z
+          .string()
+          .describe(
+            'The full brief, written to your working self: what to do or produce, what a good outcome looks like, and anything agreed about scope or emphasis.',
+          ),
+        formats: z
+          .array(z.enum(['pdf', 'docx', 'xlsx']))
+          .optional()
+          .describe('File format(s) explicitly asked for, if any. Omit when no file was requested — many assignments are answered in the email itself.'),
+        deliverToEmail: z
+          .string()
+          .optional()
+          .describe('Recipient email. Omit to deliver to the person you are talking with.'),
+        deliverToName: z.string().optional(),
+        dueAt: z.string().optional().describe('ISO 8601 deadline, if one was agreed.'),
+      }),
+      execute: async ({ title, spec, formats, deliverToEmail, deliverToName, dueAt }) => {
+        const address = deliverToEmail ?? counterparty?.address
+        if (!address) {
+          return {
+            taken: false,
+            reason: 'No recipient: ask who should receive the deliverable and pass deliverToEmail.',
+          }
+        }
+        const due = dueAt ? new Date(dueAt) : null
+        if (due && Number.isNaN(due.getTime())) return { taken: false, reason: 'dueAt is not a valid date.' }
+        const name = deliverToName ?? (deliverToEmail ? undefined : counterparty?.name)
+        const [row] = await app.db
+          .insert(assignments)
+          .values({
+            tenantId,
+            personId: person.id,
+            source,
+            title,
+            spec,
+            formats: formats ?? [],
+            deliverTo: { ...(name ? { name } : {}), address },
+            dueAt: due,
+            createdBy: person.id,
+          })
+          .returning({ id: assignments.id })
+        return {
+          taken: true,
+          assignmentId: row!.id,
+          note: `Work starts now in the background and will be emailed to ${address} when finished. You can wrap up the conversation.`,
+        }
+      },
     }),
   ]
 }
@@ -391,6 +484,10 @@ export async function assembleAbilities(args: {
   tenantId: string
   person: PersonRow
   runId: string
+  /** Where this run's commitments would anchor (a call, a thread, an operator). */
+  assignmentSource?: AssignmentSource
+  /** Who the agent is talking to, when known — the default deliverable recipient. */
+  counterparty?: { name?: string; address?: string }
 }): Promise<{ abilities: Ability[]; integrationFailures: string[]; close: () => Promise<void> }> {
   const { tenantId, person, runId } = args
   const integrations = await connectIntegrationAbilities(tenantId)
@@ -398,6 +495,14 @@ export async function assembleAbilities(args: {
     ...memoryAbilities({ tenantId, person, runId }),
     ...researchAbilities({ tenantId }),
     ...emailAbilities({ tenantId, person, runId }),
+    ...documentAbilities({ tenantId, person, runId }),
+    ...workspaceAbilities({ tenantId, person, runId }),
+    ...assignmentAbilities({
+      tenantId,
+      person,
+      source: args.assignmentSource ?? { kind: 'manual' },
+      ...(args.counterparty ? { counterparty: args.counterparty } : {}),
+    }),
     // Self-scheduling follows the proactivity dial: an agent set to react only
     // answers what reaches it, and has no business booking its own future work.
     ...((person.proactivity ?? 'duties') !== 'reactive' ? schedulingAbilities({ tenantId, person }) : []),

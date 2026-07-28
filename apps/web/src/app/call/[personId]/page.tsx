@@ -1,11 +1,9 @@
-import { randomUUID } from 'node:crypto'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { eq } from 'drizzle-orm'
 import { Button, EmptyState, PageContainer, PageHeader } from '@appkit/ui'
-import { mintLiveKitToken } from '@appkit/voice'
 import { providerSpec, isAiProvider } from '@appkit/ai'
-import { callSessions, people, runEvents, runs } from '../../../db/schema'
+import { people } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
 import { resolveAgentAiConfig } from '../../../lib/ai'
@@ -117,53 +115,12 @@ export default async function CallPage({ params }: { params: Promise<{ personId:
   }
 
   const livekitUrl = process.env.LIVEKIT_URL
-  const livekitKey = process.env.LIVEKIT_API_KEY
-  const livekitSecret = process.env.LIVEKIT_API_SECRET
-  if (!livekitUrl || !livekitKey || !livekitSecret) {
+  if (!livekitUrl || !process.env.LIVEKIT_API_KEY || !process.env.LIVEKIT_API_SECRET) {
     throw new Error('LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET must be set — deployment infrastructure, see .env.local.')
   }
 
-  // One session per page load: the run is the audit anchor, the room is the call.
-  const sessionId = randomUUID()
-  const room = `call-${sessionId}`
-  const counterparty = { name: 'Demo Owner', identity: 'human:owner' }
-  await app.withTenant(tenantId, async () => {
-    const [run] = await app.db
-      .insert(runs)
-      .values({
-        tenantId,
-        personId: person.id,
-        status: 'running',
-        trigger: { type: 'chat', conversationId: sessionId },
-      })
-      .returning({ id: runs.id })
-    await app.db.insert(runEvents).values({
-      tenantId,
-      runId: run!.id,
-      seq: 0,
-      kind: 'message',
-      payload: { text: `Web call started with ${counterparty.name}. Room ${room}.` },
-    })
-    await app.db.insert(callSessions).values({
-      id: sessionId,
-      tenantId,
-      personId: person.id,
-      runId: run!.id,
-      room,
-      direction: 'web',
-      counterparty,
-    })
-  })
-
-  const token = await mintLiveKitToken(
-    { apiKey: livekitKey, apiSecret: livekitSecret },
-    {
-      identity: counterparty.identity,
-      name: counterparty.name,
-      room,
-      metadata: JSON.stringify({ tenantId, sessionId }),
-    },
-  )
+  // The session, its run, and the token are created by startCallAction when
+  // the caller connects — this page only validates and renders the room shell.
 
   // The face on the call: their one composition, zoomed to the head.
   const [composition, partLibrary] = await Promise.all([
@@ -175,8 +132,6 @@ export default async function CallPage({ params }: { params: Promise<{ personId:
     <PageContainer className="space-y-6">
       <CallRoom
         serverUrl={livekitUrl}
-        token={token}
-        sessionId={sessionId}
         agent={{ id: person.id, name: person.name, title: person.title }}
         avatar={{ composition, parts: partLibrary, categories: AVATAR_PART_CATEGORIES }}
       />

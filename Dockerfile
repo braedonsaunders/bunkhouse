@@ -15,6 +15,18 @@ FROM node:24-bookworm-slim AS base
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.30.0 --activate
 
+# Native tools the agents' work depends on:
+# - libreoffice-writer + fonts: HTML → .docx/.pdf rendering (@appkit/office)
+# - poppler-utils: PDF concatenation (pdfunite)
+# - bubblewrap: the process sandbox agents run shell work in
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    libreoffice-writer \
+    poppler-utils \
+    bubblewrap \
+    fonts-liberation \
+  && rm -rf /var/lib/apt/lists/*
+
 # --- deps: workspace-aware install ------------------------------------------
 # Dev dependencies stay in (tsx, typescript run at runtime); NODE_ENV becomes
 # production only when the processes start.

@@ -1,12 +1,81 @@
 'use server'
 
+import { randomUUID } from 'node:crypto'
 import { and, asc, eq, inArray } from 'drizzle-orm'
-import { callSessions, callTurns, runEvents, runs } from '../../db/schema'
+import { mintLiveKitToken } from '@appkit/voice'
+import { callSessions, callTurns, people, runEvents, runs } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
+import { requireUser } from '../../lib/auth'
 import type { CallActivityEvent } from '../../lib/call-activity'
 
 export type TranscriptTurn = { seq: number; speaker: 'agent' | 'human'; text: string; atMs: number }
+
+/**
+ * Start a web call: the session, its run, and the room token are created only
+ * when the caller actually connects — a page load or refresh creates nothing.
+ * The caller is the signed-in operator, so the agent knows who it is talking
+ * to and where a deliverable would go.
+ */
+export async function startCallAction(personId: string): Promise<{ sessionId: string; token: string }> {
+  const tenantId = await resolveTenantId()
+  const user = await requireUser()
+  const app = db()
+
+  const livekitKey = process.env.LIVEKIT_API_KEY
+  const livekitSecret = process.env.LIVEKIT_API_SECRET
+  if (!livekitKey || !livekitSecret) {
+    throw new Error('LIVEKIT_API_KEY and LIVEKIT_API_SECRET must be set — deployment infrastructure, see .env.local.')
+  }
+
+  const sessionId = randomUUID()
+  const room = `call-${sessionId}`
+  const callerName = user.name || user.email
+  const counterparty = { name: callerName, identity: `human:${user.id}`, email: user.email }
+
+  await app.withTenant(tenantId, async () => {
+    const [person] = await app.db.select().from(people).where(eq(people.id, personId))
+    if (!person || person.kind !== 'agent' || person.status !== 'active' || !person.voiceConfig) {
+      throw new Error('This agent cannot take calls right now.')
+    }
+    const [run] = await app.db
+      .insert(runs)
+      .values({
+        tenantId,
+        personId,
+        status: 'running',
+        trigger: { type: 'chat', conversationId: sessionId },
+      })
+      .returning({ id: runs.id })
+    await app.db.insert(runEvents).values({
+      tenantId,
+      runId: run!.id,
+      seq: 0,
+      kind: 'message',
+      payload: { text: `Web call started with ${callerName} <${user.email}>. Room ${room}.` },
+    })
+    await app.db.insert(callSessions).values({
+      id: sessionId,
+      tenantId,
+      personId,
+      runId: run!.id,
+      room,
+      direction: 'web',
+      counterparty,
+    })
+  })
+
+  const token = await mintLiveKitToken(
+    { apiKey: livekitKey, apiSecret: livekitSecret },
+    {
+      identity: counterparty.identity,
+      name: callerName,
+      room,
+      metadata: JSON.stringify({ tenantId, sessionId }),
+    },
+  )
+  return { sessionId, token }
+}
 
 /**
  * Live captions and tool activity for the call page — polled while the call

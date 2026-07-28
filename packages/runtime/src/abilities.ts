@@ -97,6 +97,14 @@ export function governedToolSet(args: {
           }
           return pending
         }
+        if (level === 'notify') {
+          const description =
+            args.describeAction?.(ability.name, input) ?? `${ability.name} with ${JSON.stringify(input)}`
+          await args.sink.event({
+            kind: 'message',
+            text: `Performed under notify-level autonomy (${category}): ${description}`,
+          })
+        }
         return execute(input as any, options as any)
       },
     } as ToolSet[string]
