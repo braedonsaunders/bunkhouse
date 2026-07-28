@@ -14,6 +14,7 @@ import { people, tenantSettings, DOCUMENT_BRANDING_KEY, type DocumentBrandingSet
 import { db } from '../db/client'
 import { saveFile } from './files'
 import { readLedgeredFile, reviseDocxFile } from './file-reading'
+import { fileDeliverable } from './filing'
 
 /**
  * Office deliverables: the agent authors clean HTML (documents) or a sheet
@@ -108,6 +109,8 @@ export function documentAbilities(args: { tenantId: string; person: PersonRow; r
               : 'application/pdf',
           bytes,
         })
+        // Filing is the extra copy: it never throws and never blocks delivery.
+        await fileDeliverable({ tenantId, record, bytes })
         return { fileId: record.id, filename: record.filename, sizeBytes: record.sizeBytes }
       },
     }),
@@ -133,6 +136,8 @@ export function documentAbilities(args: { tenantId: string; person: PersonRow; r
           contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           bytes,
         })
+        // Filing is the extra copy: it never throws and never blocks delivery.
+        await fileDeliverable({ tenantId, record, bytes })
         return { fileId: record.id, filename: record.filename, sizeBytes: record.sizeBytes }
       },
     }),

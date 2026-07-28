@@ -3,10 +3,18 @@
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { eq } from 'drizzle-orm'
-import type { AgentVoiceConfig } from '@appkit/voice'
 import { listRealtimeCapableProviders } from '../../lib/voice'
 import { getRole } from '../../lib/roles'
-import { autonomySettings, duties, mailboxAccounts, memories, people, procedures, procedureRevisions } from '../../db/schema'
+import {
+  autonomySettings,
+  duties,
+  mailboxAccounts,
+  memories,
+  people,
+  procedures,
+  procedureRevisions,
+  type BunkhouseVoiceConfig,
+} from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
 import { connectMailbox, syncPersonMailbox } from '../../lib/mailbox'
@@ -372,7 +380,7 @@ export async function setAgentModel(formData: FormData): Promise<void> {
 /** Set (or clear) how an agent sounds on a call. Mode-specific fields validated. */
 export async function setAgentVoiceConfig(input: {
   personId: string
-  config: AgentVoiceConfig | null
+  config: BunkhouseVoiceConfig | null
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   const { personId, config } = input
   if (!personId) return { ok: false, message: 'personId is required.' }
@@ -534,7 +542,15 @@ export async function updatePerson(formData: FormData): Promise<PersonUpdateResu
           tone: tone.length ? tone : (person.personality?.tone ?? ['professional']),
           signoff: signoff || person.personality?.signoff || `Best,\n${name.split(' ')[0]}`,
         }
-        update.salary = { monthlyUsd: salaryUsd, overagePolicy }
+        update.salary = {
+          monthlyUsd: salaryUsd,
+          overagePolicy,
+          // The call-minutes ceiling is set on Payroll, not on this form —
+          // carry it through so saving the record never quietly removes it.
+          ...(person.salary?.monthlyCallMinutes !== undefined
+            ? { monthlyCallMinutes: person.salary.monthlyCallMinutes }
+            : {}),
+        }
         update.proactivity = proactivity
         const inbound = String(formData.get('inboundPolicy') ?? 'staff_only') as 'staff_only' | 'known_contacts' | 'anyone'
         if (!['staff_only', 'known_contacts', 'anyone'].includes(inbound)) throw new Error('Invalid inbound policy.')
@@ -643,4 +659,38 @@ export async function disconnectMailboxAction(formData: FormData): Promise<void>
     await app.db.update(people).set({ status: 'onboarding', updatedAt: new Date() }).where(eq(people.id, personId))
   })
   revalidatePath('/organization/agents')
+}
+
+/**
+ * Set (or lift) an agent's monthly call-minutes ceiling. It lives inside the
+ * salary record because it is part of the same bargain: what this employee may
+ * spend in a month. Null lifts the ceiling — the money budget alone applies.
+ */
+export async function setAgentCallMinutes(input: {
+  personId: string
+  monthlyCallMinutes: number | null
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { personId, monthlyCallMinutes } = input
+  if (!personId) return { ok: false, message: 'personId is required.' }
+  if (monthlyCallMinutes !== null && (!Number.isFinite(monthlyCallMinutes) || monthlyCallMinutes < 1)) {
+    return { ok: false, message: 'A call-minutes ceiling must be at least one minute, or left unset.' }
+  }
+  const tenantId = await resolveTenantId()
+  const app = db()
+  try {
+    await app.withTenant(tenantId, async () => {
+      const [person] = await app.db.select().from(people).where(eq(people.id, personId))
+      if (!person || person.kind !== 'agent') throw new Error('Call minutes can only be set on an agent.')
+      const salary = person.salary ?? { monthlyUsd: 50, overagePolicy: 'ask' as const }
+      const next =
+        monthlyCallMinutes === null
+          ? { monthlyUsd: salary.monthlyUsd, overagePolicy: salary.overagePolicy }
+          : { ...salary, monthlyCallMinutes: Math.floor(monthlyCallMinutes) }
+      await app.db.update(people).set({ salary: next, updatedAt: new Date() }).where(eq(people.id, personId))
+    })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  revalidatePath('/organization/agents')
+  return { ok: true }
 }

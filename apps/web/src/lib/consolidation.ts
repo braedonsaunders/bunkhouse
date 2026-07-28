@@ -1,12 +1,12 @@
 import 'server-only'
-import { and, asc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { generateText } from 'ai'
 import { getModel } from '@appkit/ai'
 import { memories, memoryProposals, people, runEvents, runs } from '../db/schema'
 import { db } from '../db/client'
 import { resolveAgentAiConfig } from './ai'
-import { createNote, parseWikilinks, slugify } from './memory'
+import { createNote, expireNote, parseWikilinks, slugify } from './memory'
 
 /**
  * The Logbook consolidation jobs (docs/memory-design.md §"Consolidation jobs"):
@@ -22,6 +22,14 @@ const MAX_RUNS_PER_JOURNAL = 20
 const MAX_EVENTS_PER_RUN = 30
 const MAX_EVENT_CHARS = 400
 const MAX_SLUG_HINTS = 200
+
+/** The gardener runs at most once per tenant in this many days. */
+const GARDENER_PERIOD_DAYS = 30
+/** Bound on how many live company notes ever reach the model in one pass —
+ *  the priority score below picks the ones most worth reviewing. */
+const MAX_NOTES_PER_GARDENER_PASS = 60
+/** Per-note body truncation inside the gardener prompt. */
+const MAX_GARDENER_NOTE_CHARS = 700
 
 type Agent = typeof people.$inferSelect
 
@@ -100,6 +108,37 @@ const reflectionSchema = z.object({
     .default([]),
 })
 
+const gardenerSchema = z.object({
+  merges: z
+    .array(
+      z.object({
+        noteIds: z.array(z.string()).min(2),
+        title: z.string().min(1).max(200),
+        body: z.string().min(1),
+        rationale: z.string().min(1),
+      }),
+    )
+    .default([]),
+  expirations: z
+    .array(
+      z.object({
+        noteId: z.string().min(1),
+        rationale: z.string().min(1),
+      }),
+    )
+    .default([]),
+  contradictions: z
+    .array(
+      z.object({
+        noteIds: z.array(z.string()).length(2),
+        title: z.string().min(1).max(200),
+        body: z.string().min(1),
+        rationale: z.string().min(1),
+      }),
+    )
+    .default([]),
+})
+
 /** Live note slugs the model may [[wikilink]] to (agent + company scope). */
 async function linkableSlugs(tenantId: string, personId: string): Promise<{ slug: string; kind: string; title: string }[]> {
   const app = db()
@@ -118,7 +157,7 @@ async function linkableSlugs(tenantId: string, personId: string): Promise<{ slug
 }
 
 /** An open proposal already targeting this note — don't file a duplicate. */
-async function hasOpenProposal(noteId: string, kind: 'supersede' | 'edit'): Promise<boolean> {
+async function hasOpenProposal(noteId: string, kind: 'merge' | 'supersede' | 'edit' | 'expire'): Promise<boolean> {
   const app = db()
   const [row] = await app.db
     .select({ id: memoryProposals.id })
@@ -422,4 +461,261 @@ export async function reflectionPass(tenantId: string): Promise<void> {
       console.error(`[reflection] ${agent.name}:`, (error as Error).message)
     }
   }
+}
+
+type GardenerNote = typeof memories.$inferSelect
+
+/** A silent bookkeeping row: no note, no diff, never rendered — it only
+ *  exists so the idempotency check below finds a "this period is used"
+ *  marker even on a cycle where nothing was worth proposing. Every real
+ *  finding (an auto-applied merge, or an open merge/expire/edit) already
+ *  carries payload.origin = 'gardener' too, so it gates the next 30 days
+ *  on its own; this is only inserted when nothing else was written. */
+function gardenerMarker(rationale: string) {
+  return {
+    kind: 'expire' as const,
+    noteId: null,
+    payload: { origin: 'gardener' as const, noteIds: [] as string[] },
+    rationale,
+    proposedByPersonId: null,
+    status: 'auto_applied' as const,
+    decidedBy: 'consolidator',
+    decidedAt: new Date(),
+  }
+}
+
+/**
+ * Monthly company gardener (docs/memory-design.md build-order step 4): a
+ * housekeeping pass over live COMPANY notes only — merge near-duplicates,
+ * expire notes that are stale or superseded in substance, and flag pairs
+ * that contradict each other. Every finding is a memory_proposals row; the
+ * gardener never edits or deletes a note itself. The one exception is the
+ * provably-safe class doctrine calls out explicitly: an exact-duplicate
+ * body under a different slug is closed immediately (via the same
+ * expireNote every human approval uses) and recorded as 'auto_applied'.
+ *
+ * Idempotent per tenant: skipped while a gardener-authored proposal
+ * (payload.origin = 'gardener', any status) exists from the last ~30 days,
+ * so overlapping ticks yield at most one gardener pass a month.
+ */
+export async function gardenerPass(tenantId: string): Promise<{ proposed: number }> {
+  const app = db()
+
+  // Read-only gate, checked before opening a transaction or touching any
+  // provider key: a gardener-authored proposal (any status) from the last
+  // ~30 days means this tenant's period is already used.
+  const [lastRun] = await app.withTenantContext(tenantId, () =>
+    app.db
+      .select({ createdAt: memoryProposals.createdAt })
+      .from(memoryProposals)
+      .where(sql`${memoryProposals.payload} ->> 'origin' = 'gardener'`)
+      .orderBy(desc(memoryProposals.createdAt))
+      .limit(1),
+  )
+  if (lastRun && lastRun.createdAt.getTime() > Date.now() - GARDENER_PERIOD_DAYS * 86400_000) {
+    return { proposed: 0 }
+  }
+
+  // Resolved before the transaction opens, same as journalPass/reflectionPass —
+  // config lookup and secret unsealing shouldn't happen mid-transaction.
+  let model: ReturnType<typeof getModel> = null
+  for (const agent of await activeAgents(tenantId)) {
+    const ai = await resolveAgentAiConfig(tenantId, agent.id)
+    if (!ai) continue
+    model = getModel(ai, 'smart')
+    if (model) break
+  }
+
+  return app.withTenant(tenantId, async () => {
+    // Priority: staler notes (long unread) and higher-importance notes both
+    // deserve a look; a note can earn a place in the bounded set either way.
+    const priority = sql<number>`(
+        extract(epoch from (now() - coalesce(${memories.lastUsedAt}, ${memories.createdAt}))) / 86400.0
+      + (${memories.importance}::float * 20.0)
+      )`.mapWith(Number)
+    let notes: GardenerNote[] = await app.db
+      .select()
+      .from(memories)
+      .where(and(eq(memories.scope, 'company'), isNull(memories.validUntil), eq(memories.status, 'active')))
+      .orderBy(desc(priority))
+      .limit(MAX_NOTES_PER_GARDENER_PASS)
+
+    let proposed = 0
+
+    // Deterministic, LLM-free auto-apply: bodies that are byte-identical
+    // (after trimming) under different slugs carry no information loss, so
+    // this is the one class the doctrine allows to skip human review. A
+    // pinned note in the group means a human curated it deliberately —
+    // leave the whole group for the model/human path instead.
+    const groups = new Map<string, GardenerNote[]>()
+    for (const note of notes) {
+      const key = note.body.trim()
+      const list = groups.get(key) ?? []
+      list.push(note)
+      groups.set(key, list)
+    }
+    const closedIds = new Set<string>()
+    for (const group of groups.values()) {
+      if (group.length < 2 || group.some((note) => note.pinned)) continue
+      const [survivor, ...duplicates] = [...group].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      if (!survivor || duplicates.length === 0) continue
+      for (const duplicate of duplicates) {
+        await expireNote(tenantId, duplicate.id)
+        closedIds.add(duplicate.id)
+      }
+      const dupSlugs = duplicates.map((d) => `[[${d.slug}]]`).join(', ')
+      await app.db.insert(memoryProposals).values({
+        tenantId,
+        kind: 'merge',
+        noteId: survivor.id,
+        payload: {
+          title: survivor.title,
+          body: survivor.body,
+          noteIds: [survivor.id, ...duplicates.map((d) => d.id)],
+          origin: 'gardener',
+        },
+        rationale: `${dupSlugs} ${duplicates.length > 1 ? 'were' : 'was'} word-for-word identical to [[${survivor.slug}]] — retired as an exact duplicate, no wording lost.`,
+        proposedByPersonId: null,
+        status: 'auto_applied',
+        decidedBy: 'consolidator',
+        decidedAt: new Date(),
+      })
+      proposed += 1
+    }
+    notes = notes.filter((note) => !closedIds.has(note.id))
+
+    if (notes.length === 0) {
+      if (proposed === 0) {
+        await app.db.insert(memoryProposals).values({
+          tenantId,
+          ...gardenerMarker('Monthly housekeeping scan: no company notes to review yet.'),
+        })
+      }
+      console.log(`[gardener] tenant ${tenantId}: ${proposed} auto-applied merge(s), nothing left to reason over`)
+      return { proposed }
+    }
+
+    if (!model) {
+      // No usable provider yet — leave the period open so gardening starts
+      // the moment one is configured, rather than waiting out the month.
+      console.log(`[gardener] tenant ${tenantId}: ${proposed} auto-applied merge(s), no configured model to reason further`)
+      return { proposed }
+    }
+
+    const byId = new Map(notes.map((note) => [note.id, note]))
+    const notesBlock = notes
+      .map(
+        (note) =>
+          `id: ${note.id}\nslug: [[${note.slug}]]\nkind: ${note.kind}\nimportance: ${note.importance}\n` +
+          `last touched: ${(note.lastUsedAt ?? note.createdAt).toISOString().slice(0, 10)}\n` +
+          `title: ${note.title}\nbody: ${note.body.slice(0, MAX_GARDENER_NOTE_CHARS)}`,
+      )
+      .join('\n\n')
+
+    let text: string
+    try {
+      ;({ text } = await generateText({
+        model,
+        system:
+          'You are the memory consolidator running the monthly housekeeping pass over this company\'s shared ' +
+          'knowledge notes. You look for near-duplicates to merge, notes that are stale or no longer true to ' +
+          'retire, and pairs of notes that state something contradictory. Respond with ONLY a JSON object, no prose.',
+        prompt:
+          `Live company notes (id is what you must reference — copy it exactly):\n\n${notesBlock}\n\n` +
+          'Return JSON with three arrays. Every "noteIds"/"noteId" value MUST be copied exactly from an "id" above; ' +
+          'invent nothing, and when in doubt leave a note out.\n' +
+          '1. "merges": near-duplicate notes that say the same thing in different words (NOT byte-identical — those ' +
+          'are already handled). Each has "noteIds" (2+, the notes to fold together), "title" and "body" (the single ' +
+          'merged note, markdown, keeping every distinct fact from all of them) and "rationale".\n' +
+          '2. "expirations": notes that are stale (no longer relevant) or superseded in substance by something ' +
+          'else you can see here, but NOT a near-duplicate (that belongs in "merges"). Each has "noteId" and ' +
+          '"rationale" explaining why it no longer holds.\n' +
+          '3. "contradictions": pairs of LIVE notes that assert incompatible things. Each has "noteIds" (exactly 2), ' +
+          '"title" and "body" (the corrected note that resolves the conflict, citing both with [[slug]]) and ' +
+          '"rationale" explaining the contradiction.\n' +
+          'Leave any array empty if nothing qualifies — do not force findings.\n\n' +
+          'Return JSON: {"merges": [...], "expirations": [...], "contradictions": [...]}',
+      }))
+    } catch (error) {
+      console.error(`[gardener] tenant ${tenantId}: model call failed:`, (error as Error).message)
+      return { proposed }
+    }
+
+    let parsed: z.infer<typeof gardenerSchema>
+    try {
+      parsed = gardenerSchema.parse(extractJson(text))
+    } catch (error) {
+      console.error(`[gardener] tenant ${tenantId}: malformed model output, recording nothing:`, (error as Error).message)
+      await app.db.insert(memoryProposals).values({
+        tenantId,
+        ...gardenerMarker('Monthly housekeeping pass ran, but the model\'s output could not be parsed — no suggestions were recorded this cycle.'),
+      })
+      return { proposed }
+    }
+
+    // A note may not be claimed by more than one finding in the same pass —
+    // keeps the proposals a human sees non-overlapping and easy to reason about.
+    const claimed = new Set<string>()
+    const validIds = (ids: string[]) => ids.every((noteId) => byId.has(noteId) && !claimed.has(noteId))
+
+    for (const merge of parsed.merges) {
+      const ids = [...new Set(merge.noteIds)]
+      if (ids.length < 2 || !validIds(ids)) continue
+      const survivorId = ids[0]!
+      if (await hasOpenProposal(survivorId, 'merge')) continue
+      await app.db.insert(memoryProposals).values({
+        tenantId,
+        kind: 'merge',
+        noteId: survivorId,
+        payload: { title: merge.title, body: merge.body, noteIds: ids, origin: 'gardener' },
+        rationale: merge.rationale,
+        proposedByPersonId: null,
+      })
+      ids.forEach((id) => claimed.add(id))
+      proposed += 1
+    }
+
+    for (const expiration of parsed.expirations) {
+      if (!validIds([expiration.noteId])) continue
+      if (byId.get(expiration.noteId)!.pinned) continue
+      if (await hasOpenProposal(expiration.noteId, 'expire')) continue
+      const note = byId.get(expiration.noteId)!
+      await app.db.insert(memoryProposals).values({
+        tenantId,
+        kind: 'expire',
+        noteId: expiration.noteId,
+        payload: { title: note.title, body: note.body, noteIds: [expiration.noteId], origin: 'gardener' },
+        rationale: expiration.rationale,
+        proposedByPersonId: null,
+      })
+      claimed.add(expiration.noteId)
+      proposed += 1
+    }
+
+    for (const contradiction of parsed.contradictions) {
+      const ids = [...new Set(contradiction.noteIds)]
+      if (ids.length !== 2 || !validIds(ids)) continue
+      const targetId = ids[0]!
+      if (await hasOpenProposal(targetId, 'edit')) continue
+      await app.db.insert(memoryProposals).values({
+        tenantId,
+        kind: 'edit',
+        noteId: targetId,
+        payload: { title: contradiction.title, body: contradiction.body, noteIds: ids, origin: 'gardener' },
+        rationale: contradiction.rationale,
+        proposedByPersonId: null,
+      })
+      ids.forEach((id) => claimed.add(id))
+      proposed += 1
+    }
+
+    if (proposed === 0) {
+      await app.db.insert(memoryProposals).values({
+        tenantId,
+        ...gardenerMarker('Monthly housekeeping scan found no duplicate, stale, or contradictory company notes.'),
+      })
+    }
+    console.log(`[gardener] tenant ${tenantId}: ${proposed} proposal(s) from ${notes.length} live company note(s)`)
+    return { proposed }
+  })
 }

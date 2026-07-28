@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { ROLE_PACKS } from '@bunkhouse/roles'
 import { PageContainer, PageHeader } from '@appkit/ui'
 import { memories, memoryProposals, people, procedureRevisions, procedures } from '../../db/schema'
@@ -20,14 +20,44 @@ export default async function KnowledgePage() {
       .from(memories)
       .where(and(eq(memories.scope, 'company'), isNull(memories.validUntil), eq(memories.status, 'active')))
       .orderBy(desc(memories.pinned), asc(memories.title))
+    // Open proposals await a decision; a gardener finding that was safe
+    // enough to auto-apply still shows up (read-only) for the audit trail —
+    // its silent "nothing needed doing" marker rows do not (empty noteIds).
     const proposals = await app.db
       .select({
         proposal: memoryProposals,
         proposerName: sql<string | null>`(select name from people p where p.id = ${memoryProposals.proposedByPersonId})`,
       })
       .from(memoryProposals)
-      .where(eq(memoryProposals.status, 'open'))
-      .orderBy(asc(memoryProposals.createdAt))
+      .where(
+        or(
+          eq(memoryProposals.status, 'open'),
+          and(
+            eq(memoryProposals.status, 'auto_applied'),
+            sql`${memoryProposals.payload} ->> 'origin' = 'gardener'`,
+            sql`jsonb_array_length(coalesce(${memoryProposals.payload} -> 'noteIds', '[]'::jsonb)) > 0`,
+          ),
+        ),
+      )
+      .orderBy(sql`case when ${memoryProposals.status} = 'open' then 0 else 1 end`, desc(memoryProposals.createdAt))
+      .limit(200)
+
+    // The notes each proposal references (payload.noteIds) — fetched once so
+    // the drawer can render a real before/after diff instead of just the
+    // proposed text on its own.
+    const refIds = new Set<string>()
+    for (const { proposal } of proposals) {
+      for (const refId of proposal.payload.noteIds ?? []) refIds.add(refId)
+    }
+    const refNotes =
+      refIds.size > 0
+        ? await app.db
+            .select({ id: memories.id, slug: memories.slug, title: memories.title, body: memories.body })
+            .from(memories)
+            .where(inArray(memories.id, [...refIds]))
+        : []
+    const refNoteById = new Map(refNotes.map((n) => [n.id, n]))
+
     const procedureHeads = await app.db.select().from(procedures).orderBy(asc(procedures.title))
     const revisions = await app.db.select().from(procedureRevisions).orderBy(desc(procedureRevisions.version))
     const agents = await app.db
@@ -35,7 +65,7 @@ export default async function KnowledgePage() {
       .from(people)
       .where(eq(people.kind, 'agent'))
       .orderBy(asc(people.name))
-    return { notes, proposals, procedureHeads, revisions, agents }
+    return { notes, proposals, refNoteById, procedureHeads, revisions, agents }
   })
 
   const agentNames = new Map(data.agents.map((h) => [h.id, h.name]))
@@ -90,15 +120,24 @@ export default async function KnowledgePage() {
           author: note.author,
           updatedAt: stamp(note.updatedAt),
         }))}
-        proposals={data.proposals.map(({ proposal, proposerName }) => ({
-          id: proposal.id,
-          kind: proposal.kind,
-          title: proposal.payload.title ?? '(untitled)',
-          body: proposal.payload.body ?? '',
-          rationale: proposal.rationale,
-          from: proposerName ?? 'consolidator',
-          createdAt: stamp(proposal.createdAt),
-        }))}
+        proposals={data.proposals.map(({ proposal, proposerName }) => {
+          const housekeeping = proposal.payload.origin === 'gardener'
+          return {
+            id: proposal.id,
+            kind: proposal.kind,
+            title: proposal.payload.title ?? '(untitled)',
+            body: proposal.payload.body ?? '',
+            rationale: proposal.rationale,
+            from: proposerName ?? (housekeeping ? 'Housekeeping' : 'consolidator'),
+            createdAt: stamp(proposal.createdAt),
+            status: proposal.status as 'open' | 'auto_applied',
+            decidedAt: proposal.decidedAt ? stamp(proposal.decidedAt) : null,
+            housekeeping,
+            refs: (proposal.payload.noteIds ?? [])
+              .map((refId) => data.refNoteById.get(refId))
+              .filter((ref): ref is { id: string; slug: string; title: string; body: string } => Boolean(ref)),
+          }
+        })}
         procedures={procedureRows}
         rolePackOptions={ROLE_PACKS.map((p) => ({ value: p.slug, label: p.title }))}
         agentOptions={data.agents.map((h) => ({ value: h.id, label: h.name }))}

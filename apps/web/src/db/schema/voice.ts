@@ -1,5 +1,7 @@
+import { sql } from 'drizzle-orm'
 import { bigint, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { auditColumns, id, money, tenantRef } from '@appkit/db'
+import type { AgentVoiceConfig } from '@appkit/voice'
 
 /**
  * The call ledger. Every voice conversation with an agent is a call_sessions
@@ -10,6 +12,10 @@ import { auditColumns, id, money, tenantRef } from '@appkit/db'
  */
 export const callDirection = pgEnum('call_direction', ['web', 'inbound_phone', 'outbound_phone'])
 export const callSessionStatus = pgEnum('call_session_status', ['active', 'ended', 'failed'])
+
+/** What sort of line the other end was on: a public telephone number, an
+ *  extension on the company phone system, or a browser. */
+export const callPeerKind = pgEnum('call_peer_kind', ['pstn', 'pbx_extension', 'web'])
 
 /** Who is on the other end of the line. Web calls carry a LiveKit identity and
  *  the signed-in caller's email (the default recipient for work taken on the
@@ -43,12 +49,27 @@ export const callSessions = pgTable(
     durationSeconds: integer('duration_seconds'),
     /** Speech/model spend for the call; null when the framework exposed no usage. */
     costUsd: money('cost_usd'),
+    /** The line the peer was on. Null means the writer did not classify the
+     *  call — never inferred after the fact. */
+    peerKind: callPeerKind('peer_kind'),
+    /** The phone-system extension involved: the extension dialled on an
+     *  inbound PBX call, or the one dialled out to. Null off the PBX. */
+    peerExtension: text('peer_extension'),
+    /** The call's audio recording in the files ledger. Null when recording was
+     *  unavailable, failed, or the retention sweep has since removed it — the
+     *  column and the file row are cleared together, never left dangling. */
+    recordingFileId: uuid('recording_file_id'),
     ...auditColumns,
   },
   (t) => [
     uniqueIndex('call_sessions_room_key').on(t.room),
     index('call_sessions_person_idx').on(t.tenantId, t.personId, t.startedAt),
     index('call_sessions_run_idx').on(t.tenantId, t.runId),
+    // The retention sweep walks recordings by age; only rows that still hold
+    // one are of interest, so the index carries only those.
+    index('call_sessions_recording_idx')
+      .on(t.tenantId, t.startedAt)
+      .where(sql`${t.recordingFileId} is not null`),
   ],
 )
 
@@ -102,5 +123,46 @@ export const meetingLinks = pgTable(
     index('meeting_links_person_idx').on(t.tenantId, t.createdByPersonId, t.createdAt),
   ],
 )
+
+/**
+ * The agent's voice configuration as bunkhouse stores it: the portable
+ * @appkit/voice contract plus the settings that only mean something inside
+ * this product. Extra keys ride along in the same jsonb column, so an older
+ * row simply has them undefined.
+ */
+export type BunkhouseVoiceConfig = AgentVoiceConfig & {
+  /**
+   * Cascade agents only: put stills of a shared screen in front of the agent's
+   * own text model during a video meeting. Off by default — a text model may
+   * have no vision at all, and the runtime cannot tell in advance, so this is
+   * an explicit choice the operator makes for the agent.
+   */
+  cascadeVision?: boolean
+}
+
+/** settings key: 'voice.retention' — how long call recordings are kept.
+ *  `recordingDays: null` means keep them forever (the default: nothing is
+ *  ever deleted unless an operator turns retention on). */
+export type VoiceRetentionSettings = {
+  recordingDays: number | null
+}
+
+export const VOICE_RETENTION_KEY = 'voice.retention'
+
+/**
+ * settings key: 'voice.pricing' — what a minute of speech costs THIS company,
+ * from its own provider contracts. Unset prices are not guessed: the minutes
+ * are still recorded, the money simply is not claimed.
+ */
+export type VoicePricingSettings = {
+  /** Deepgram streaming transcription, USD per minute of call. */
+  deepgramUsdPerMinute?: number
+  /** ElevenLabs speech synthesis, USD per minute of call. */
+  elevenLabsUsdPerMinute?: number
+  /** Speech-to-speech (OpenAI Realtime, Gemini Live), USD per minute of call. */
+  realtimeUsdPerMinute?: number
+}
+
+export const VOICE_PRICING_KEY = 'voice.pricing'
 
 export const VOICE_TENANT_TABLES = ['call_sessions', 'call_turns', 'meeting_links'] as const

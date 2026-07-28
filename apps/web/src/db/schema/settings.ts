@@ -107,4 +107,105 @@ export type MailOauthAppSettings = {
 
 export const MAIL_OAUTH_APPS_KEY = 'mail.oauthApps'
 
+/** Where agent-produced files are copied to, on top of the files ledger. */
+export type FilingProvider = 'google_drive' | 'onedrive' | 'smb'
+
+/** Which ledger kinds are copied out to company storage. */
+export type FilingFileKind = 'document' | 'spreadsheet' | 'attachment'
+
+/** Subfolder layout inside the destination folder. */
+export type FilingLayout = 'flat' | 'agent' | 'month'
+
+/**
+ * The connected destination. Google and Microsoft carry the refresh token
+ * granted by the company's own application, sealed at rest exactly like a
+ * mailbox credential; a server folder carries no secret at all.
+ */
+export type FilingTarget =
+  | {
+      provider: 'google_drive'
+      /** How the destination reads in Settings, e.g. "Drive · Bunkhouse deliverables". */
+      label: string
+      /** The account that granted access. */
+      account: string
+      /** The app-created folder everything is filed into. */
+      folderId: string
+      folderName: string
+      sealedRefreshToken: SealedSecret
+    }
+  | {
+      provider: 'onedrive'
+      label: string
+      account: string
+      /** A SharePoint document-library drive id, or null for the user's OneDrive. */
+      driveId: string | null
+      /** Destination folder path relative to the drive root. */
+      folderPath: string
+      sealedRefreshToken: SealedSecret
+    }
+  | {
+      provider: 'smb'
+      label: string
+      /** Absolute path to the mounted share, as the server sees it. */
+      basePath: string
+    }
+
+/** settings key: 'storage.filing' — optional filing of agent-produced files
+ *  into the company's real storage. The files ledger is always the system of
+ *  record; filing is an additional copy, best-effort by design, so a connector
+ *  outage never holds a deliverable back. Application client secrets and
+ *  granted refresh tokens are sealed at rest and unsealed only for a request. */
+export type FilingSettings = {
+  /** Master switch. Off = nothing is copied anywhere. */
+  enabled: boolean
+  target: FilingTarget | null
+  kinds: FilingFileKind[]
+  layout: FilingLayout
+  /** The company's own OAuth applications, one per provider. */
+  apps: {
+    google?: { clientId: string; sealedClientSecret: SealedSecret }
+    microsoft?: {
+      clientId: string
+      sealedClientSecret: SealedSecret
+      /** Microsoft Entra directory: a directory (tenant) ID, or 'common'. */
+      tenant: string
+    }
+  }
+}
+
+export const FILING_SETTINGS_KEY = 'storage.filing'
+
+/**
+ * settings key: 'integrations.chat' — the tenant's Slack and Microsoft Teams
+ * connections. Chat is a secondary surface (doctrine #1): it reaches the same
+ * runs/run_events ledger mail does, this key only holds the credentials.
+ *
+ * Slack carries a bot token and signing secret, both sealed; `teamId`/
+ * `teamName` are plain (Slack's workspace identity, not a secret — captured
+ * from `auth.test` at connect time, shown in Settings). Teams ships outbound
+ * via an Incoming Webhook URL (sealed — it is itself a bearer credential);
+ * inbound is optional and, in this build, wired through Teams' lightweight
+ * Outgoing Webhook mechanism (a per-channel HMAC security token) rather than
+ * a full Azure Bot Service registration — see lib/chat-bridge.ts for why.
+ */
+export type ChatIntegrationSettings = {
+  slack?: {
+    teamId: string
+    teamName: string
+    sealedBotToken: SealedSecret
+    sealedSigningSecret: SealedSecret
+  }
+  teams?: {
+    /** Outbound: an Incoming Webhook connector URL. */
+    sealedWebhookUrl?: SealedSecret
+    /** Inbound (optional): the Outgoing Webhook's HMAC security token, base64. */
+    sealedSecurityToken?: SealedSecret
+    /** Informational, shown back in Settings — not used to authorize anything. */
+    msTenantId?: string
+    appId?: string
+  }
+}
+
+export const CHAT_INTEGRATIONS_KEY = 'integrations.chat'
+
 export const SETTINGS_TENANT_TABLES = ['tenant_settings'] as const

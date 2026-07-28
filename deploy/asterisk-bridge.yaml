@@ -1,0 +1,130 @@
+# The registered-extensions bridge (phone system mode B) — service definition.
+#
+# THIS FILE IS NOT DEPLOYED ON ITS OWN. Paste the `services:` and `volumes:`
+# entries below into deploy/dokploy.compose.yaml (and the dev equivalent into
+# docker-compose.dev.yml), which are owned elsewhere; this file exists so the
+# exact block is written down once and reviewed with the code that generates
+# its configuration.
+#
+# WHY IT EXISTS
+# LiveKit SIP is trunk-only: it cannot REGISTER to a phone system as an
+# endpoint. Companies whose phone system will not take a SIP line therefore get
+# this container, which REGISTERs once per mapped agent (the pbx_extensions
+# rows) and bridges each answered call to the SIP ingress with the dialled
+# extension as the callee — landing on exactly the same dispatch rule a trunk
+# call does.
+#
+# HOW IT IS CONFIGURED
+# Never by hand. The whole /etc/asterisk directory is generated from the
+# extension map by apps/web/src/lib/asterisk-bridge.ts and written into the
+# shared `asterisk-config` volume by the web service whenever a trunk or an
+# extension is saved; the bridge is then reloaded over the manager interface.
+# Both the web service and the worker therefore need the same
+# BUNKHOUSE_BRIDGE_* environment and the same volume mounted.
+#
+# ENVIRONMENT TO ADD TO THE `web` AND `worker` SERVICES
+#   BUNKHOUSE_BRIDGE_CONFIG_DIR: /data/asterisk        # enables the bridge
+#   BUNKHOUSE_BRIDGE_SIP_INGRESS: livekit-sip:5060     # where calls are handed on
+#   BUNKHOUSE_BRIDGE_SIP_ADDRESS: ${BRIDGE_IP}         # the bridge's own address,
+#                                                      # offered as the ingress
+#                                                      # allowlist default
+#   BUNKHOUSE_BRIDGE_AMI_HOST: asterisk-bridge
+#   BUNKHOUSE_BRIDGE_AMI_PORT: '5038'
+#   BUNKHOUSE_BRIDGE_AMI_USERNAME: bunkhouse
+#   BUNKHOUSE_BRIDGE_AMI_PASSWORD: ${BUNKHOUSE_BRIDGE_AMI_PASSWORD}
+# and the same volume mount both services need:
+#   volumes:
+#     - asterisk-config:/data/asterisk
+#
+# Without BUNKHOUSE_BRIDGE_CONFIG_DIR the app treats the bridge as absent:
+# registered-extension mode still saves, and the UI says plainly that the
+# bridge is not part of this deployment. Nothing else changes.
+#
+# NOTE ON THE IMAGE
+# Asterisk publishes no official image. Pin a digest of whichever community
+# image is adopted before this reaches production — the tag below is a
+# placeholder, not a recommendation.
+#
+# NOTE ON PORTS
+# SIP signalling and RTP must reach the phone system, so on the swarm manager
+# they publish in host mode exactly as livekit-sip does. The RTP range below is
+# deliberately small and must be enumerated one port per entry (swarm long
+# syntax takes no ranges) — widen it in step with concurrent-call capacity.
+
+volumes:
+  # The generated /etc/asterisk. Written by web/worker, read by the bridge.
+  asterisk-config:
+    driver: local
+
+services:
+  asterisk-bridge:
+    image: ${BUNKHOUSE_ASTERISK_IMAGE:-andrius/asterisk:latest}
+    command: ['asterisk', '-f', '-vvv', '-C', '/etc/asterisk/asterisk.conf']
+    environment:
+      # Read only for the operator's benefit; the container is configured by
+      # the generated files, never by environment.
+      BUNKHOUSE_BRIDGE_SIP_INGRESS: ${BUNKHOUSE_BRIDGE_SIP_INGRESS:-livekit-sip:5060}
+    volumes:
+      - asterisk-config:/etc/asterisk
+    networks:
+      - dokploy-network
+    ports:
+      - target: 5070
+        published: 5070
+        protocol: udp
+        mode: host
+      - target: 5070
+        published: 5070
+        protocol: tcp
+        mode: host
+      - target: 10100
+        published: 10100
+        protocol: udp
+        mode: host
+      - target: 10101
+        published: 10101
+        protocol: udp
+        mode: host
+      - target: 10102
+        published: 10102
+        protocol: udp
+        mode: host
+      - target: 10103
+        published: 10103
+        protocol: udp
+        mode: host
+      - target: 10104
+        published: 10104
+        protocol: udp
+        mode: host
+      - target: 10105
+        published: 10105
+        protocol: udp
+        mode: host
+      - target: 10106
+        published: 10106
+        protocol: udp
+        mode: host
+      - target: 10107
+        published: 10107
+        protocol: udp
+        mode: host
+      - target: 10108
+        published: 10108
+        protocol: udp
+        mode: host
+      - target: 10109
+        published: 10109
+        protocol: udp
+        mode: host
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname==dokploy-mgr
+      resources:
+        limits:
+          memory: 512m
+      restart_policy:
+        condition: any
+        delay: 5s

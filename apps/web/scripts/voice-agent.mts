@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, ne } from 'drizzle-orm'
 import { z } from 'zod'
 import { cli, defineAgent, llm, voice, ServerOptions, type JobContext, type JobProcess } from '@livekit/agents'
 import * as deepgram from '@livekit/agents-plugin-deepgram'
@@ -11,7 +11,18 @@ import * as silero from '@livekit/agents-plugin-silero'
 import { isAiProvider, providerSpec, type AiConfig } from '@appkit/ai'
 import { buildSystemPrompt } from '@bunkhouse/runtime'
 import { db } from '../src/db/client'
-import { approvals, autonomySettings, callSessions, callTurns, people, phoneNumbers, runs, runEvents, tokenSpend } from '../src/db/schema'
+import {
+  approvals,
+  autonomySettings,
+  callSessions,
+  callTurns,
+  people,
+  phoneNumbers,
+  runs,
+  runEvents,
+  tokenSpend,
+  type BunkhouseVoiceConfig,
+} from '../src/db/schema'
 import { assembleAbilities } from '../src/lib/agent-abilities'
 import { boundProcedures } from '../src/lib/agent-runs'
 import { governedCallTools } from '../src/lib/call-tools'
@@ -23,6 +34,18 @@ import { watchScreenShare } from '../src/lib/screen-share'
 import { saveFile } from '../src/lib/files'
 import { pinnedNotes, retrieveNotes } from '../src/lib/memory'
 import { resolvePrice } from '../src/lib/pricing'
+import { isWithinWorkingHours } from '../src/lib/working-hours'
+import { callMinutesBudget } from '../src/lib/call-budget'
+import { finishCallRecording, startCallRecording, type CallRecordingHandle } from '../src/lib/voice-recording'
+import { meterSpeechMinutes } from '../src/lib/voice-pricing'
+import {
+  callerLabel,
+  deliverVoicemail,
+  voicemailGreeting,
+  voicemailInstructions,
+  type VoicemailReason,
+  type VoicemailTurn,
+} from '../src/lib/voicemail'
 
 // The bunkhouse voice agent: joins every `call-*` (browser call, session
 // pre-created by the call page), `pbx-*` (inbound phone call dispatched by
@@ -45,9 +68,20 @@ import { resolvePrice } from '../src/lib/pricing'
 //   is declared but unimplemented in 1.6.0) nor the Gemini plugin's pushVideo
 //   (a no-op) carries video into a realtime session, so frames reach the model
 //   the way both realtime plugins genuinely do accept images — as chat-context
-//   image content, pushed between turns. Cascade sessions get no frames: the
-//   agent's text model may have no vision at all, and guessing wrong breaks the
-//   meeting. Either way every sampled frame is stored as evidence on the run.
+//   image content, pushed between turns. Cascade sessions take the same path,
+//   but only when the operator has turned live vision on for that agent: a
+//   text model may have no vision at all, and the runtime cannot tell in
+//   advance. If the model then refuses the picture, vision is switched off for
+//   the rest of the meeting and the agent says so out loud. Either way every
+//   sampled frame is stored as evidence on the run.
+// - recording: LiveKit Egress mixes the room (audio only) straight into the
+//   tenant's own object storage; this process never handles the bytes. The
+//   uploaded object is ledgered in `files` and stamped on the session.
+// - voicemail: an inbound call the agent cannot take — off shift, not yet
+//   active, out of call minutes, or with no working voice — is still answered.
+//   The answering machine (Deepgram hears, ElevenLabs speaks, nothing thinks)
+//   takes the message and mails it to the agent's own inbox, where the normal
+//   inbound-mail pass picks it up as work.
 
 const app = db()
 
@@ -83,8 +117,12 @@ async function ensureInboundPhoneSession(ctx: JobContext, roomName: string): Pro
   const digits = callee.replace(/[^0-9]/g, '')
 
   // Provisioned numbers first — they are globally unique by nature — then the
-  // PBX extension path.
+  // PBX extension path. An agent that is still onboarding is routed to as
+  // well: it cannot hold a conversation yet, but a ringing number must never
+  // go unanswered, and it can take a message. An offboarded agent is gone —
+  // its number belongs to whoever takes the work over.
   let person: PersonRow | null = null
+  let viaNumber = false
   const numbered = await app.withSuperAdmin((superDb) =>
     superDb
       .select({ personId: phoneNumbers.personId })
@@ -96,16 +134,17 @@ async function ensureInboundPhoneSession(ctx: JobContext, roomName: string): Pro
       superDb
         .select()
         .from(people)
-        .where(and(eq(people.id, numbered[0]!.personId), eq(people.kind, 'agent'), eq(people.status, 'active'))),
+        .where(and(eq(people.id, numbered[0]!.personId), eq(people.kind, 'agent'), ne(people.status, 'offboarded'))),
     )
     person = (rows[0] as PersonRow | undefined) ?? null
+    viaNumber = person !== null
   }
   if (!person) {
     const agents = await app.withSuperAdmin((superDb) =>
       superDb
         .select()
         .from(people)
-        .where(and(eq(people.extension, digits), eq(people.kind, 'agent'), eq(people.status, 'active'))),
+        .where(and(eq(people.extension, digits), eq(people.kind, 'agent'), ne(people.status, 'offboarded'))),
     )
     // Extensions are unique per tenant; a cross-tenant collision (or an
     // unassigned callee) cannot be routed deterministically.
@@ -139,6 +178,10 @@ async function ensureInboundPhoneSession(ctx: JobContext, roomName: string): Pro
         room: roomName,
         direction: 'inbound_phone',
         counterparty,
+        // How the callee was reached: a provisioned number is a carrier (PSTN)
+        // leg, a bare extension came off the company's own phone system.
+        peerKind: viaNumber ? 'pstn' : 'pbx_extension',
+        peerExtension: viaNumber ? null : digits,
       })
       .onConflictDoNothing({ target: callSessions.room })
       .returning({ id: callSessions.id })
@@ -205,10 +248,10 @@ type MeetingPosture = {
 async function buildInstructions(
   session: SessionRow,
   person: PersonRow,
+  config: BunkhouseVoiceConfig,
   ai: AiConfig | null,
   meeting: MeetingPosture | null = null,
 ): Promise<string> {
-  const config = person.voiceConfig!
   const directory = await app.withTenantContext(session.tenantId, () =>
     app.db.select().from(people).where(eq(people.status, 'active')),
   )
@@ -261,8 +304,8 @@ async function buildInstructions(
             : []),
           'They joined from a link in their browser, so they have a camera, a microphone, and a Share screen button. If it would be quicker to be shown than told — an error, a document, a system they are stuck in — ask them to share their screen.',
           meeting.seesScreen
-            ? 'While a screen is shared you are sent a still picture of it every few seconds, whenever it changes. Talk about what you can actually see in those pictures, and ask them to scroll or move on when you need to see more. Never describe anything that has not appeared in one — if no picture has arrived yet, say so and ask them to start sharing.'
-            : 'You cannot see their screen while the meeting is running — your voice model takes sound only. Say that plainly rather than pretending, and ask them to describe what is on it. Everything they share is captured to the meeting record, so you can tell them honestly that you will go through it after the meeting and follow up.',
+            ? 'While a screen is shared you are sent a still picture of it every few seconds, whenever it changes. Talk about what you can actually see in those pictures, and ask them to scroll or move on when you need to see more. Never describe anything that has not appeared in one — if no picture has arrived yet, say so and ask them to start sharing. If the pictures ever stop reaching you, say so plainly at that point rather than guessing at what is on the screen.'
+            : 'You cannot see their screen while the meeting is running. Say that plainly rather than pretending, and ask them to describe what is on it. Everything they share is captured to the meeting record, so you can tell them honestly that you will go through it after the meeting and follow up.',
         ]
       : []),
     ...(session.direction === 'outbound_phone' && session.purpose
@@ -284,24 +327,69 @@ async function buildInstructions(
 /** How often a captured still is put in front of the model, at most. */
 const SCREEN_VISION_INTERVAL_MS = 20_000
 
+/** Live vision, once the meeting is running. */
+type ScreenWatch = {
+  /** True while stills are still being put in front of the model. */
+  visionActive: () => boolean
+  /**
+   * The model would not take the picture. Stop sending them, take the ones
+   * already sent back out of the context so the next turn can succeed, and
+   * have the agent say plainly that it cannot see the screen.
+   */
+  imageRejected: (message: string) => void
+}
+
 /**
  * The meeting's eyes. Every sampled still of a shared screen is stored and
  * ledgered on the run — that is the record of what the agent was shown, and it
  * outlives the meeting. Where the speech model takes images, the most recent
  * still is also handed to it between turns, so the agent is talking about the
  * screen it can actually see rather than one it was told about.
+ *
+ * Whether a text model takes images at all is not something the runtime can
+ * know in advance, which is why live vision for cascade agents is an explicit
+ * choice on the Voice tab. If the model turns out to refuse the picture, the
+ * meeting does not fail: vision goes off, the pictures come back out of the
+ * context, and the agent tells the guest it cannot see their screen.
  */
 function watchMeetingScreen(args: {
   ctx: JobContext
   session: SessionRow
   person: PersonRow
   agent: voice.Agent
+  agentSession: voice.AgentSession
   seesScreen: boolean
   recordEvent: (kind: string, payload: Record<string, unknown>) => Promise<void>
-}): void {
-  const { ctx, session, person, agent, seesScreen, recordEvent } = args
+}): ScreenWatch {
+  const { ctx, session, person, agent, agentSession, seesScreen, recordEvent } = args
   let frameSeq = 0
   let shownAt = 0
+  let visionOn = seesScreen
+  const shownMessageIds = new Set<string>()
+
+  const imageRejected = (message: string) => {
+    if (!visionOn || shownMessageIds.size === 0) return
+    visionOn = false
+    console.error(`[voice] room ${ctx.room.name ?? ''}: the model refused a screen still — vision off for this meeting: ${message}`)
+    void recordEvent('error', {
+      message: `Live screen vision was switched off for this meeting: the agent's model would not accept the picture (${message}).`,
+    }).catch(() => undefined)
+    // The refused pictures are still in the context; leave them there and
+    // every following turn fails the same way.
+    const chatCtx = agent.chatCtx.copy()
+    chatCtx.items = chatCtx.items.filter((item) => !shownMessageIds.has(item.id))
+    shownMessageIds.clear()
+    void agent
+      .updateChatCtx(chatCtx)
+      .then(() => {
+        agentSession.generateReply({
+          instructions:
+            'The pictures of their screen are not reaching you after all. Tell them plainly, in one sentence, that you cannot see their screen, ask them to describe what is on it, and carry on with the meeting.',
+        })
+      })
+      .catch((error) => console.error(`[voice] room ${ctx.room.name ?? ''}: ${(error as Error).message}`))
+  }
+
   const watcher = watchScreenShare({
     room: ctx.room,
     onError: (message) => console.error(`[voice] room ${ctx.room.name ?? ''}: ${message}`),
@@ -324,22 +412,177 @@ function watchMeetingScreen(args: {
         width: frame.width,
         height: frame.height,
       })
-      if (!seesScreen) return
+      if (!visionOn) return
       const now = Date.now()
       if (now - shownAt < SCREEN_VISION_INTERVAL_MS) return
       shownAt = now
       const chatCtx = agent.chatCtx.copy()
-      chatCtx.addMessage({
+      const message = chatCtx.addMessage({
         role: 'user',
         content: [
           `${frame.participantName} is sharing their screen. This is what it looks like right now:`,
           llm.createImageContent({ image: frame.dataUrl }),
         ],
       })
-      await agent.updateChatCtx(chatCtx)
+      try {
+        await agent.updateChatCtx(chatCtx)
+        shownMessageIds.add(message.id)
+      } catch (error) {
+        // Some models refuse image content the moment it is offered rather
+        // than at inference time; either way the answer is the same.
+        shownMessageIds.add(message.id)
+        imageRejected((error as Error).message)
+      }
     },
   })
   ctx.addShutdownCallback(() => watcher.stop())
+  return { visionActive: () => visionOn, imageRejected }
+}
+
+/** A built speech pipeline, and what it can do. */
+type SpeechPipeline = {
+  session: voice.AgentSession
+  /** The agent's text model config — cascade only; null on realtime. */
+  ai: AiConfig | null
+  /** The cascade LLM leg, so its errors can be told apart from the others'. */
+  cascadeLlm: openai.LLM | null
+  /** True when stills of a shared screen genuinely reach the model. */
+  seesScreen: boolean
+}
+
+/**
+ * The agent's own voice: cascade (Deepgram hears, the agent's governed model
+ * thinks, ElevenLabs speaks) or realtime speech-to-speech. Throws with an
+ * operator-readable reason when the configuration cannot hold a call.
+ */
+async function buildSpeechPipeline(args: {
+  tenantId: string
+  personId: string
+  config: BunkhouseVoiceConfig
+  vad: InstanceType<typeof silero.VAD>
+}): Promise<SpeechPipeline> {
+  const { tenantId, config } = args
+  if (config.mode === 'cascade') {
+    const ai = await resolveAgentAiConfig(tenantId, args.personId)
+    if (!ai || !ai.modelSmart) {
+      throw new Error('No model assigned — set a provider and model on the profile before calling.')
+    }
+    const kind = isAiProvider(ai.provider) ? providerSpec(ai.provider).kind : null
+    if (kind !== 'openai' && kind !== 'openai-compatible') {
+      // The cascade LLM leg speaks the OpenAI protocol; the Voice tab
+      // disables this combo up front — this guard covers stale configs.
+      throw new Error(
+        'Voice calls in cascade mode are available for agents running OpenAI-compatible models. Choose realtime mode for this agent, or assign an OpenAI-compatible model.',
+      )
+    }
+    const deepgramKey = await resolveSpeechCredential(tenantId, 'deepgram')
+    const elevenKey = await resolveSpeechCredential(tenantId, 'elevenlabs')
+    if (!deepgramKey || !elevenKey) {
+      throw new Error('Speech provider keys are missing — add Deepgram and ElevenLabs in Settings → Voice.')
+    }
+    const cascade = config.cascade!
+    const baseURL = ai.baseUrl ?? (isAiProvider(ai.provider) ? providerSpec(ai.provider).baseUrl : null)
+    const cascadeLlm = new openai.LLM({
+      apiKey: ai.apiKey,
+      model: ai.modelSmart,
+      ...(baseURL ? { baseURL } : {}),
+    })
+    return {
+      session: new voice.AgentSession({
+        vad: args.vad,
+        stt: new deepgram.STT({
+          apiKey: deepgramKey,
+          model: cascade.sttModel,
+          ...(config.language ? { language: config.language } : {}),
+        }),
+        llm: cascadeLlm,
+        tts: new elevenlabs.TTS({
+          apiKey: elevenKey,
+          voiceId: cascade.ttsVoiceId,
+          model: cascade.ttsModel,
+          ...(config.language ? { language: config.language } : {}),
+        }),
+      }),
+      ai,
+      cascadeLlm,
+      // Live vision is the operator's call for a cascade agent: their text
+      // model may have no eyes, and only they know.
+      seesScreen: config.cascadeVision === true,
+    }
+  }
+
+  const realtime = config.realtime!
+  const credential = await resolveRealtimeCredential(tenantId, realtime.provider)
+  if (!credential) {
+    throw new Error(
+      `No ${realtime.provider === 'google' ? 'Google' : 'OpenAI'} provider is configured under Settings → Model providers — realtime voice runs on its key.`,
+    )
+  }
+  const realtimeModel =
+    realtime.provider === 'google'
+      ? // Gemini Live. Input and output audio transcription are on by
+        // default in the plugin, so both speakers reach the ledger.
+        new google.realtime.RealtimeModel({
+          apiKey: credential.apiKey,
+          model: realtime.model,
+          voice: realtime.voice,
+          // The Live API takes regioned BCP-47 tags only — it rejects
+          // a bare "en" outright. A two-letter preference still steers
+          // the agent through the prompt; the model auto-detects the
+          // spoken language when none is pinned here.
+          ...(config.language && config.language.includes('-') ? { language: config.language } : {}),
+        })
+      : new openai.realtime.RealtimeModel({
+          apiKey: credential.apiKey,
+          model: realtime.model,
+          voice: realtime.voice,
+        })
+  return {
+    session: new voice.AgentSession({ llm: realtimeModel }),
+    ai: null,
+    cascadeLlm: null,
+    // Screen frames go in as chat-context images between turns, which a
+    // session that refuses mid-flight updates cannot take.
+    seesScreen: realtimeModel.capabilities.midSessionChatCtxUpdate === true,
+  }
+}
+
+/**
+ * The answering machine. Deepgram hears, ElevenLabs speaks, and nothing
+ * thinks: it says one fixed line and then records what the caller says. No
+ * model runs, so it costs nothing beyond the minutes and it works even when
+ * the agent's own thinking is not configured — which is precisely one of the
+ * cases it exists for.
+ *
+ * Null when the company has no speech provider keys; the caller then falls
+ * back to the agent's own voice for the message.
+ */
+async function buildAnsweringMachine(args: {
+  tenantId: string
+  config: BunkhouseVoiceConfig | null
+  vad: InstanceType<typeof silero.VAD>
+}): Promise<voice.AgentSession | null> {
+  const deepgramKey = await resolveSpeechCredential(args.tenantId, 'deepgram')
+  const elevenKey = await resolveSpeechCredential(args.tenantId, 'elevenlabs')
+  if (!deepgramKey || !elevenKey) return null
+  const cascade = args.config?.cascade
+  const language = args.config?.language
+  return new voice.AgentSession({
+    vad: args.vad,
+    stt: new deepgram.STT({
+      apiKey: deepgramKey,
+      ...(cascade?.sttModel ? { model: cascade.sttModel } : {}),
+      ...(language ? { language } : {}),
+    }),
+    tts: new elevenlabs.TTS({
+      apiKey: elevenKey,
+      // The agent's own voice where it has one, so the greeting sounds like
+      // the person the caller was trying to reach.
+      ...(cascade?.ttsVoiceId ? { voiceId: cascade.ttsVoiceId } : {}),
+      ...(cascade?.ttsModel ? { model: cascade.ttsModel } : {}),
+      ...(language ? { language } : {}),
+    }),
+  })
 }
 
 export default defineAgent({
@@ -378,91 +621,71 @@ export default defineAgent({
       const [row] = await app.db.select().from(people).where(eq(people.id, session.personId))
       return row ?? null
     })
-    if (!person || person.kind !== 'agent' || !person.voiceConfig) {
+    if (!person || person.kind !== 'agent') {
+      await markFailed(session, 'Call failed: the agent no longer exists.')
+      ctx.shutdown('agent not callable')
+      return
+    }
+    const isInboundPhone = session.direction === 'inbound_phone'
+    const config = (person.voiceConfig as BunkhouseVoiceConfig | null) ?? null
+    if (!config && !isInboundPhone) {
       await markFailed(session, 'Call failed: the agent or its voice configuration no longer exists.')
       ctx.shutdown('agent not callable')
       return
     }
-    const config = person.voiceConfig
+
+    // --- Can this agent take the call at all? ------------------------------
+    // A ringing phone is always answered. When the agent cannot hold the
+    // conversation the call becomes a voicemail instead of a failure — the
+    // caller is told plainly why, and the message becomes work by email.
+    let voicemail: VoicemailReason | null = null
+    if (isInboundPhone) {
+      if (!config) voicemail = 'misconfigured'
+      else if (person.status !== 'active') voicemail = 'inactive'
+      else if (!isWithinWorkingHours(person.workingHours)) voicemail = 'off_hours'
+      else {
+        const budget = await callMinutesBudget({
+          tenantId: session.tenantId,
+          personId: person.id,
+          salary: person.salary,
+        })
+        if (budget.exhausted) voicemail = 'over_budget'
+      }
+    }
 
     // --- Build the speech pipeline from tenant-sealed credentials ----------
-    let agentSession: voice.AgentSession
+    let built: voice.AgentSession | null = null
     let ai: AiConfig | null = null
-    // Whether frames of a shared screen can reach the model at all. Only the
-    // realtime providers take images, and only while their session accepts
-    // mid-flight context updates.
+    let cascadeLlm: openai.LLM | null = null
+    // Whether frames of a shared screen can reach the model at all: the
+    // realtime providers while their session accepts mid-flight context
+    // updates, and cascade agents whose operator has turned live vision on.
     let seesScreen = false
+    // True while the fixed-script answering machine holds the line: no model
+    // runs, so there are no tools, no abilities, and no thinking.
+    let answeringMachine = false
     try {
-      if (config.mode === 'cascade') {
-        ai = await resolveAgentAiConfig(session.tenantId, person.id)
-        if (!ai || !ai.modelSmart) {
-          throw new Error('No model assigned — set a provider and model on the profile before calling.')
-        }
-        const kind = isAiProvider(ai.provider) ? providerSpec(ai.provider).kind : null
-        if (kind !== 'openai' && kind !== 'openai-compatible') {
-          // The cascade LLM leg speaks the OpenAI protocol; the Voice tab
-          // disables this combo up front — this guard covers stale configs.
+      const vad = ctx.proc.userData.vad as InstanceType<typeof silero.VAD>
+      if (voicemail) {
+        built = await buildAnsweringMachine({ tenantId: session.tenantId, config, vad })
+        answeringMachine = built !== null
+      }
+      if (!built) {
+        if (!config) {
           throw new Error(
-            'Voice calls in cascade mode are available for agents running OpenAI-compatible models. Choose realtime mode for this agent, or assign an OpenAI-compatible model.',
+            'This agent has no voice configured, and the company has no speech provider keys for it to take a message with. Add Deepgram and ElevenLabs in Settings → Voice.',
           )
         }
-        const deepgramKey = await resolveSpeechCredential(session.tenantId, 'deepgram')
-        const elevenKey = await resolveSpeechCredential(session.tenantId, 'elevenlabs')
-        if (!deepgramKey || !elevenKey) {
-          throw new Error('Speech provider keys are missing — add Deepgram and ElevenLabs in Settings → Voice.')
-        }
-        const cascade = config.cascade!
-        const baseURL = ai.baseUrl ?? (isAiProvider(ai.provider) ? providerSpec(ai.provider).baseUrl : null)
-        agentSession = new voice.AgentSession({
-          vad: ctx.proc.userData.vad as InstanceType<typeof silero.VAD>,
-          stt: new deepgram.STT({
-            apiKey: deepgramKey,
-            model: cascade.sttModel,
-            ...(config.language ? { language: config.language } : {}),
-          }),
-          llm: new openai.LLM({
-            apiKey: ai.apiKey,
-            model: ai.modelSmart,
-            ...(baseURL ? { baseURL } : {}),
-          }),
-          tts: new elevenlabs.TTS({
-            apiKey: elevenKey,
-            voiceId: cascade.ttsVoiceId,
-            model: cascade.ttsModel,
-            ...(config.language ? { language: config.language } : {}),
-          }),
+        const pipeline = await buildSpeechPipeline({
+          tenantId: session.tenantId,
+          personId: person.id,
+          config,
+          vad,
         })
-      } else {
-        const realtime = config.realtime!
-        const credential = await resolveRealtimeCredential(session.tenantId, realtime.provider)
-        if (!credential) {
-          throw new Error(
-            `No ${realtime.provider === 'google' ? 'Google' : 'OpenAI'} provider is configured under Settings → Model providers — realtime voice runs on its key.`,
-          )
-        }
-        const realtimeModel =
-          realtime.provider === 'google'
-            ? // Gemini Live. Input and output audio transcription are on by
-              // default in the plugin, so both speakers reach the ledger.
-              new google.realtime.RealtimeModel({
-                apiKey: credential.apiKey,
-                model: realtime.model,
-                voice: realtime.voice,
-                // The Live API takes regioned BCP-47 tags only — it rejects
-                // a bare "en" outright. A two-letter preference still steers
-                // the agent through the prompt; the model auto-detects the
-                // spoken language when none is pinned here.
-                ...(config.language && config.language.includes('-') ? { language: config.language } : {}),
-              })
-            : new openai.realtime.RealtimeModel({
-                apiKey: credential.apiKey,
-                model: realtime.model,
-                voice: realtime.voice,
-              })
-        // Screen frames go in as chat-context images between turns, which a
-        // session that refuses mid-flight updates cannot take.
-        seesScreen = realtimeModel.capabilities.midSessionChatCtxUpdate
-        agentSession = new voice.AgentSession({ llm: realtimeModel })
+        built = pipeline.session
+        ai = pipeline.ai
+        cascadeLlm = pipeline.cascadeLlm
+        seesScreen = pipeline.seesScreen
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -471,14 +694,19 @@ export default defineAgent({
       ctx.shutdown('setup failed')
       return
     }
+    const agentSession = built
 
     // --- Transcript ledger: append-only, both speakers ---------------------
     const startedAtMs = session.startedAt.getTime()
     let seq = 0
     let turnCount = 0
+    /** The same turns in memory — what a voicemail is mailed out as. */
+    const transcript: VoicemailTurn[] = []
     const appendTurn = async (speaker: 'agent' | 'human', text: string) => {
       const mySeq = seq++
       turnCount += 1
+      const atMs = Math.max(0, Date.now() - startedAtMs)
+      transcript.push({ speaker, text, atMs })
       await app.withTenant(session.tenantId, async () => {
         await app.db.insert(callTurns).values({
           tenantId: session.tenantId,
@@ -486,10 +714,14 @@ export default defineAgent({
           seq: mySeq,
           speaker,
           text,
-          atMs: Math.max(0, Date.now() - startedAtMs),
+          atMs,
         })
       })
     }
+    const ledgerTurn = (speaker: 'agent' | 'human', text: string) =>
+      void appendTurn(speaker, text).catch((error) =>
+        console.error(`[voice] turn append failed for ${session.id}:`, (error as Error).message),
+      )
     agentSession.on(voice.AgentSessionEventTypes.ConversationItemAdded, (event) => {
       const item = event.item
       if (item.type !== 'message') return
@@ -497,10 +729,52 @@ export default defineAgent({
       if (!text) return
       const speaker = item.role === 'assistant' ? 'agent' : item.role === 'user' ? 'human' : null
       if (!speaker) return
-      void appendTurn(speaker, text).catch((error) =>
-        console.error(`[voice] turn append failed for ${session.id}:`, (error as Error).message),
-      )
+      ledgerTurn(speaker, text)
     })
+    if (answeringMachine) {
+      // With no model in the session the framework has nowhere to put a user
+      // turn, so the caller's message is ledgered straight off the transcriber.
+      agentSession.on(voice.AgentSessionEventTypes.UserInputTranscribed, (event) => {
+        if (!event.isFinal) return
+        const text = event.transcript.trim()
+        if (!text) return
+        ledgerTurn('human', text)
+      })
+    }
+
+    // --- Run events: tool activity, evidence, and anything worth an audit ---
+    // Seq starts high above the fixed rows the session setup writes. A call the
+    // agent placed itself anchors to the run that placed it, which already has
+    // events of its own — (run_id, seq) is unique, so continue past the last.
+    let eventSeq = 100
+    if (session.runId) {
+      const [last] = await app.withTenantContext(session.tenantId, () =>
+        app.db
+          .select({ seq: runEvents.seq })
+          .from(runEvents)
+          .where(eq(runEvents.runId, session.runId!))
+          .orderBy(desc(runEvents.seq))
+          .limit(1),
+      )
+      if (last) eventSeq = Math.max(eventSeq, last.seq + 1)
+    }
+    const recordEvent = async (kind: string, payload: Record<string, unknown>) => {
+      if (!session.runId) return
+      const mySeq = eventSeq++
+      await app.withTenant(session.tenantId, async () => {
+        await app.db.insert(runEvents).values({
+          tenantId: session.tenantId,
+          runId: session.runId!,
+          seq: mySeq,
+          kind: kind as 'tool_call',
+          payload,
+        })
+      })
+    }
+
+    // The call's audio, once it is running. Started below, after the finalizer
+    // is registered — nothing may be left recording with no one to stop it.
+    let recording: CallRecordingHandle | null = null
 
     // --- End of call: finalize the ledger, complete the run, meter spend ---
     // A completed REFER hands the line to a human and the call ends there; the
@@ -514,10 +788,33 @@ export default defineAgent({
       const durationSeconds = Math.max(0, Math.round((endedAt.getTime() - startedAtMs) / 1000))
       const minutes = Math.max(1, Math.round(durationSeconds / 60))
 
+      // Stop the recording and file the object the egress uploaded. A lost
+      // recording never takes the transcript, the run, or the metering with it.
+      if (recording) {
+        const result = await finishCallRecording({
+          tenantId: session.tenantId,
+          sessionId: session.id,
+          personId: person.id,
+          runId: session.runId ?? null,
+          recording,
+        })
+        if (result.recorded) {
+          await recordEvent('message', {
+            text: 'Call recording filed',
+            fileId: result.fileId,
+            filename: recording.filename,
+          }).catch(() => undefined)
+        } else {
+          console.error(`[voice] recording for ${session.id} was not filed: ${result.reason}`)
+          await recordEvent('error', { message: `The call recording was not saved: ${result.reason}` }).catch(
+            () => undefined,
+          )
+        }
+      }
+
       // Meter LLM usage from the framework's per-model usage summaries into
-      // the same token_spend ledger email runs use. STT/TTS usage has no
-      // token price here yet; when no LLM usage was exposed, costUsd stays
-      // null — never fabricated.
+      // the same token_spend ledger email runs use. When no LLM usage was
+      // exposed, costUsd stays null — never fabricated.
       let totalCost: number | null = null
       try {
         const usage = agentSession.usage.modelUsage
@@ -550,6 +847,59 @@ export default defineAgent({
         console.error(`[voice] usage metering failed for ${session.id}:`, (error as Error).message)
       }
 
+      // Speech is billed by the minute, not by the token: price the call's
+      // hearing and speaking legs from the tenant's own per-minute rates and
+      // add them to the same ledger, so salary reflects the whole call. With
+      // no rates configured the minutes are still recorded and no money is
+      // claimed for them.
+      // The answering machine runs on Deepgram and ElevenLabs whatever the
+      // agent's own mode is — including when it has no configuration at all.
+      const speechConfig: BunkhouseVoiceConfig | null = answeringMachine
+        ? { mode: 'cascade', ...(config?.cascade ? { cascade: config.cascade } : {}) }
+        : config
+      try {
+        const speech = await meterSpeechMinutes({
+          tenantId: session.tenantId,
+          personId: person.id,
+          runId: session.runId ?? session.id,
+          config: speechConfig,
+          durationSeconds,
+        })
+        if (speech.usd > 0) totalCost = (totalCost ?? 0) + speech.usd
+      } catch (error) {
+        console.error(`[voice] speech metering failed for ${session.id}:`, (error as Error).message)
+      }
+
+      // A message taken becomes work the ordinary way: mailed to the agent's
+      // own inbox, where the inbound-mail pass picks it up on its next run.
+      let voicemailNote: string | null = null
+      if (voicemail) {
+        const delivery = await deliverVoicemail({
+          tenantId: session.tenantId,
+          person: { id: person.id, name: person.name, email: person.email },
+          counterparty: session.counterparty,
+          reason: voicemail,
+          turns: transcript,
+          durationSeconds,
+          runId: session.runId ?? null,
+          receivedAt: endedAt,
+        })
+        if (delivery.delivered) {
+          voicemailNote = `message mailed to ${person.email}`
+          await recordEvent('message', {
+            text: `Voicemail taken and mailed to ${person.email}`,
+            subject: delivery.subject,
+            threadId: delivery.threadId,
+          }).catch(() => undefined)
+        } else {
+          voicemailNote = 'message could not be mailed'
+          console.error(`[voice] voicemail for ${session.id} was not delivered: ${delivery.reason}`)
+          await recordEvent('error', {
+            message: `The voicemail could not be mailed to ${person.email}: ${delivery.reason}. The transcript is on this call.`,
+          }).catch(() => undefined)
+        }
+      }
+
       await app.withTenant(session.tenantId, async () => {
         const [current] = await app.db.select().from(callSessions).where(eq(callSessions.id, session.id))
         if (current && current.status === 'active') {
@@ -576,9 +926,11 @@ export default defineAgent({
               `${turnCount} turn${turnCount === 1 ? '' : 's'}`,
               `${minutes} minute${minutes === 1 ? '' : 's'}`,
               ...(transferredTo ? [`transferred to ${transferredTo}`] : []),
+              ...(voicemailNote ? [voicemailNote] : []),
             ]
-            const opening =
-              session.direction === 'inbound_phone'
+            const opening = voicemail
+              ? `Voicemail from ${callerLabel(session.counterparty)}`
+              : session.direction === 'inbound_phone'
                 ? `Inbound call from ${session.counterparty.number ?? 'an unknown number'}`
                 : session.direction === 'outbound_phone'
                   ? `Outbound call to ${session.counterparty.name ?? session.counterparty.number ?? 'an unknown number'}`
@@ -600,36 +952,69 @@ export default defineAgent({
     }
     ctx.addShutdownCallback(finalize)
 
-    // --- The working toolset: same abilities as email runs, call posture ---
-    // Tool activity lands on the call's run as ordinary run events; seq starts
-    // high above the fixed rows the session setup writes. A call the agent
-    // placed itself anchors to the run that placed it, which already has events
-    // of its own — (run_id, seq) is unique, so continue past the last one.
-    let eventSeq = 100
-    if (session.runId) {
-      const [last] = await app.withTenantContext(session.tenantId, () =>
-        app.db
-          .select({ seq: runEvents.seq })
-          .from(runEvents)
-          .where(eq(runEvents.runId, session.runId!))
-          .orderBy(desc(runEvents.seq))
-          .limit(1),
-      )
-      if (last) eventSeq = Math.max(eventSeq, last.seq + 1)
+    // --- Recording ----------------------------------------------------------
+    // LiveKit Egress mixes the room straight into the company's own object
+    // storage; the bytes never come through this process. A call that cannot
+    // be recorded still happens — the reason goes on the run, in the open.
+    const startedRecording = await startCallRecording({
+      tenantId: session.tenantId,
+      sessionId: session.id,
+      room: roomName,
+    })
+    if (startedRecording.started) {
+      recording = startedRecording.recording
+    } else {
+      console.warn(`[voice] room ${roomName}: not recording — ${startedRecording.reason}`)
+      await recordEvent('message', {
+        text: `This call is not being recorded: ${startedRecording.reason}`,
+      }).catch(() => undefined)
     }
-    const recordEvent = async (kind: string, payload: Record<string, unknown>) => {
-      if (!session.runId) return
-      const mySeq = eventSeq++
-      await app.withTenant(session.tenantId, async () => {
-        await app.db.insert(runEvents).values({
-          tenantId: session.tenantId,
-          runId: session.runId!,
-          seq: mySeq,
-          kind: kind as 'tool_call',
-          payload,
+
+    // --- Taking a message ---------------------------------------------------
+    // The agent cannot hold this conversation, so it answers, says why, and
+    // records what the caller has to say. No tools, no abilities, no work
+    // started on the line: the message is the whole job, and it becomes work
+    // when it lands in the agent's inbox at the end of the call.
+    if (voicemail) {
+      const caller = callerLabel(session.counterparty)
+      try {
+        const instructions = voicemailInstructions({
+          agentName: person.name,
+          reason: voicemail,
+          caller,
+          language: config?.language,
         })
-      })
+        await recordEvent('message', {
+          text: `Answering as voicemail (${voicemail.replace('_', ' ')}) — taking a message from ${caller}.`,
+        }).catch(() => undefined)
+        await agentSession.start({ agent: new voice.Agent({ instructions }), room: ctx.room })
+        if (answeringMachine) {
+          // Nothing is thinking: the greeting is a fixed line, spoken once.
+          agentSession.say(voicemailGreeting({ agentName: person.name, reason: voicemail }))
+        } else {
+          agentSession.generateReply({
+            instructions:
+              'Answer the call: say who you are, that you cannot take it right now, and ask them to leave their message.',
+          })
+        }
+        console.log(
+          `[voice] ${person.name} is taking a voicemail in room ${roomName} (${voicemail}${answeringMachine ? '' : ', own voice'})`,
+        )
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.error(`[voice] room ${roomName} voicemail error: ${message}`)
+        await markFailed(session, `Call failed: ${message}`)
+        ctx.shutdown('voicemail error')
+      }
+      return
     }
+
+    // Past this point the call is a working conversation, which is only
+    // reached when the agent's own voice configuration held: every route that
+    // leaves it unset answers as a voicemail above.
+    const liveConfig = config!
+
+    // --- The working toolset: same abilities as email runs, call posture ---
     const assembled = await app.withTenantContext(session.tenantId, () =>
       assembleAbilities({
         tenantId: session.tenantId,
@@ -700,20 +1085,29 @@ export default defineAgent({
       // Missing categories default to 'approval' — the safe posture for
       // anything nobody configured, same as email runs.
       autonomy: (category) => dial.get(category) ?? 'approval',
-      fileApproval: async (input) =>
-        app.withTenant(session.tenantId, async () => {
+      fileApproval: async (input) => {
+        // approvals.run_id is NOT NULL: an approval with no run to hang off
+        // cannot be filed, and silently dropping the column would fail the
+        // insert mid-call. Say so instead — the caller is told it is queued
+        // only when it genuinely is.
+        if (!session.runId) {
+          throw new Error('This call has no run to record an approval against.')
+        }
+        const runId = session.runId
+        return app.withTenant(session.tenantId, async () => {
           const [row] = await app.db
             .insert(approvals)
             .values({
               tenantId: session.tenantId,
-              ...(session.runId ? { runId: session.runId } : {}),
+              runId,
               personId: person.id,
               category: input.category,
               payload: { description: input.description, action: input.action },
             })
             .returning({ id: approvals.id })
           return { approvalId: row!.id }
-        }),
+        })
+      },
       record: (kind, payload) => recordEvent(kind, payload),
       onSlow: ({ toolName }) => speakFiller(toolName),
       onSettled: ({ toolName }) => resumeAfterSettle(toolName),
@@ -770,10 +1164,23 @@ export default defineAgent({
     ctx.addShutdownCallback(() => assembled.close())
 
     try {
-      const instructions = await buildInstructions(session, person, ai, isMeeting ? { seesScreen } : null)
+      const instructions = await buildInstructions(session, person, liveConfig, ai, isMeeting ? { seesScreen } : null)
       const agent = new voice.Agent({ instructions, tools })
       await agentSession.start({ agent, room: ctx.room })
-      if (isMeeting) watchMeetingScreen({ ctx, session, person, agent, seesScreen, recordEvent })
+      if (isMeeting) {
+        const screen = watchMeetingScreen({ ctx, session, person, agent, agentSession, seesScreen, recordEvent })
+        // A cascade agent's text model may simply refuse the picture. The
+        // failure surfaces on its next inference, so the LLM leg's errors are
+        // what tell us — and only that leg's, which is why the instance is
+        // kept: an STT or TTS hiccup must never be read as blindness.
+        if (cascadeLlm) {
+          agentSession.on(voice.AgentSessionEventTypes.Error, (event) => {
+            if (event.source !== cascadeLlm || !screen.visionActive()) return
+            const error = event.error as { message?: string }
+            screen.imageRejected(error.message ?? 'the model rejected the request')
+          })
+        }
+      }
       agentSession.generateReply({
         instructions: isMeeting
           ? session.purpose
@@ -783,7 +1190,7 @@ export default defineAgent({
             ? `You placed this call to: ${session.purpose}. Introduce yourself and get to it politely.`
             : `Greet ${session.counterparty.name ?? 'the caller'} briefly, as yourself, and ask how you can help.`,
       })
-      console.log(`[voice] ${person.name} answered room ${roomName} (${config.mode})`)
+      console.log(`[voice] ${person.name} answered room ${roomName} (${liveConfig.mode})`)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.error(`[voice] room ${roomName} session error: ${message}`)

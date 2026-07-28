@@ -1,6 +1,6 @@
 import Link from 'next/link'
-import { asc, desc, eq, sql } from 'drizzle-orm'
-import { Badge, Button, EmptyState } from '@appkit/ui'
+import { asc, eq, sql } from 'drizzle-orm'
+import { Button, EmptyState } from '@appkit/ui'
 import { approvals, people, runs, tokenSpend } from '../db/schema'
 import { db } from '../db/client'
 import { resolveTenantId } from '../lib/tenant'
@@ -13,9 +13,9 @@ export const dynamic = 'force-dynamic'
 
 /**
  * The home screen is the floor: the agents on staff at work in a drawn office
- * environment, edge to edge, with the dashboard floating over it — KPIs and
- * actions up top, a compact run feed in the corner. Clicking a figure opens
- * their record right here, over the floor; the page never changes beneath it.
+ * environment, edge to edge, with one band of dashboard floating over it —
+ * the KPIs and the two actions, nothing else. Clicking a figure opens their
+ * record right here, over the floor; the page never changes beneath it.
  */
 export default async function HomePage({
   searchParams,
@@ -44,19 +44,6 @@ export default async function HomePage({
       .select({ cost: sql<string>`coalesce(sum(${tokenSpend.costUsd}), 0)` })
       .from(tokenSpend)
       .where(sql`${tokenSpend.createdAt} >= ${monthStart}`)
-    const recentRuns = await app.db
-      .select({
-        id: runs.id,
-        personId: runs.personId,
-        status: runs.status,
-        summary: runs.summary,
-        startedAt: runs.startedAt,
-        personName: people.name,
-      })
-      .from(runs)
-      .innerJoin(people, eq(people.id, runs.personId))
-      .orderBy(desc(runs.startedAt))
-      .limit(20)
     const busyIds = await app.db
       .select({ personId: runs.personId })
       .from(runs)
@@ -66,7 +53,6 @@ export default async function HomePage({
       pending: pending?.count ?? 0,
       working: working?.count ?? 0,
       payroll: Number(payroll?.cost ?? 0),
-      recentRuns,
       busyIds,
     }
   })
@@ -91,83 +77,69 @@ export default async function HomePage({
     idleAnimation: 'bounce' as const,
   }))
 
-  const stats: { label: string; value: string; href: string }[] = [
-    { label: 'Agents on staff', value: String(agents.length), href: '/organization/agents' },
-    { label: 'Working right now', value: String(data.working), href: '/observatory' },
-    { label: 'Pending approvals', value: String(data.pending), href: '/approvals' },
-    { label: 'Payroll this month', value: `$${data.payroll.toFixed(2)}`, href: '/organization/agents' },
+  const stats: { label: string; value: string; href: string; alert?: boolean }[] = [
+    { label: 'On staff', value: String(agents.length), href: '/organization/agents' },
+    { label: 'Working now', value: String(data.working), href: '/observatory' },
+    { label: 'Approvals', value: String(data.pending), href: '/approvals', alert: data.pending > 0 },
+    { label: 'Payroll', value: `$${data.payroll.toFixed(2)}`, href: '/organization/agents' },
   ]
 
   // Widgets float over the scene; the wrapper is pointer-transparent so the
   // floor stays clickable between them, and each widget opts back in.
+  //
+  // Everything here is one HUD band across the top. A painted, animated floor
+  // will eat a plain translucent card — so the panels carry their own light
+  // (`.bh-hud` in globals.css) and there is only one row of them, kept shallow
+  // so the room behind stays the thing you look at.
   const widgets = (
-    <div className="flex h-full min-h-0 flex-col gap-3 p-5">
-      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:max-w-3xl">
+    <div className="flex h-full min-h-0 flex-col items-start gap-2.5 p-4 sm:p-5">
+      <div className="flex w-full shrink-0 flex-wrap items-start justify-between gap-3">
+        <div className="bh-hud pointer-events-auto flex divide-x divide-border/60 overflow-hidden rounded-2xl">
           {stats.map((stat) => (
             <Link
               key={stat.label}
               href={stat.href}
-              className="pointer-events-auto rounded-lg border border-border bg-surface/85 p-3 shadow-sm backdrop-blur transition-colors hover:border-primary"
+              className="min-w-0 px-4 py-2.5 transition-colors first:pl-5 last:pr-5 hover:bg-surface-hover/70"
             >
-              <p className="text-2xl font-semibold tabular-nums">{stat.value}</p>
-              <p className="text-xs text-fg-muted">{stat.label}</p>
+              <p
+                className={`text-2xl font-semibold leading-none tabular-nums ${
+                  stat.alert ? 'text-primary' : ''
+                }`}
+              >
+                {stat.value}
+              </p>
+              <p className="mt-1.5 whitespace-nowrap text-[11px] font-medium uppercase tracking-wide text-fg-muted">
+                {stat.label}
+              </p>
             </Link>
           ))}
         </div>
-        <div className="pointer-events-auto flex items-center gap-2">
-          <Button asChild variant="outline" size="sm" className="bg-surface/85 backdrop-blur">
-            <Link href="/observatory">Observatory</Link>
-          </Button>
-          <Button asChild size="sm">
-            <Link href="/roles">Onboard an agent</Link>
-          </Button>
+
+        <div className="bh-hud pointer-events-auto flex items-center gap-1 rounded-full p-1">
+          <Link
+            href="/observatory"
+            className="rounded-full px-3.5 py-1.5 text-sm font-medium text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
+          >
+            Observatory
+          </Link>
+          <Link
+            href="/roles"
+            className="rounded-full bg-primary px-3.5 py-1.5 text-sm font-medium text-primary-fg shadow-sm transition-opacity hover:opacity-90"
+          >
+            Onboard an agent
+          </Link>
         </div>
       </div>
 
       {onboarding > 0 ? (
-        <p className="pointer-events-auto w-fit shrink-0 rounded-md border border-border bg-surface/85 px-3 py-1.5 text-xs text-fg-muted shadow-sm backdrop-blur">
+        <p className="bh-hud pointer-events-auto w-fit shrink-0 rounded-full px-3.5 py-1.5 text-xs text-fg-muted">
           {onboarding} agent{onboarding === 1 ? '' : 's'} still onboarding —{' '}
-          <Link href="/organization/agents" className="text-primary hover:underline">
+          <Link href="/organization/agents" className="font-medium text-primary hover:underline">
             finish setting them up
           </Link>
           .
         </p>
       ) : null}
-
-      {/* The run feed, tucked into the lower-left corner. */}
-      <div className="pointer-events-auto mt-auto flex min-h-0 max-h-[46%] w-full max-w-sm flex-col rounded-lg border border-border bg-surface/85 shadow-sm backdrop-blur">
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
-          <h2 className="text-sm font-semibold">Recent work</h2>
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/observatory">Observatory</Link>
-          </Button>
-        </div>
-        <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-2">
-          {data.recentRuns.length === 0 ? (
-            <p className="p-2 text-xs text-fg-muted">
-              Once an agent has a mailbox and duties, their work shows up here.
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {data.recentRuns.map((run) => (
-                <div
-                  key={run.id}
-                  className="flex items-center justify-between gap-2 rounded-md border border-border/70 px-2.5 py-1.5 text-xs"
-                >
-                  <div className="min-w-0">
-                    <Link href={`/runs/${run.id}`} className="font-medium hover:text-primary">
-                      {run.personName}
-                    </Link>
-                    <p className="truncate text-fg-muted">{run.summary ?? 'Working…'}</p>
-                  </div>
-                  <Badge variant={run.status === 'completed' ? 'default' : 'outline'}>{run.status}</Badge>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   )
 

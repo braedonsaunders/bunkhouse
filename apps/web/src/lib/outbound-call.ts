@@ -2,12 +2,13 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { SipClient, type CreateSipOutboundTrunkOptions } from 'livekit-server-sdk'
+import { RoomServiceClient, SipClient, type CreateSipOutboundTrunkOptions } from 'livekit-server-sdk'
 import { unsealSecret } from '@appkit/crypto'
 import { defineAbility, type Ability } from '@bunkhouse/runtime'
 import { callSessions, people } from '../db/schema'
 import { db } from '../db/client'
 import { listSipTrunks, type SipTrunkRow } from './pbx'
+import { callMinutesBudget, nextMonthPhrase } from './call-budget'
 
 /**
  * Outbound telephony: the agent dials out. `place_call` creates the call
@@ -36,6 +37,7 @@ function outboundTrunkName(trunkId: string): string {
 }
 
 type SipTransportValue = CreateSipOutboundTrunkOptions['transport']
+type SipMediaEncryptionValue = NonNullable<CreateSipOutboundTrunkOptions['mediaEncryption']>
 
 // livekit.SIPTransport wire values (AUTO 0, UDP 1, TCP 2, TLS 3). The generated
 // enum lives in @livekit/protocol — a transitive dependency of the server SDK
@@ -44,6 +46,14 @@ const SIP_TRANSPORT: Record<SipTrunkRow['transport'], SipTransportValue> = {
   udp: 1 as SipTransportValue,
   tcp: 2 as SipTransportValue,
   tls: 3 as SipTransportValue,
+}
+
+// livekit.SIPMediaEncryption wire values (DISABLE 0, ALLOW 1, REQUIRE 2),
+// named here for the same reason.
+const SIP_MEDIA_ENCRYPTION: Record<SipTrunkRow['srtp'], SipMediaEncryptionValue> = {
+  disabled: 0 as SipMediaEncryptionValue,
+  best_effort: 1 as SipMediaEncryptionValue,
+  required: 2 as SipMediaEncryptionValue,
 }
 
 function livekitEnv(): { host: string; apiKey: string; apiSecret: string } | null {
@@ -92,8 +102,14 @@ async function ensureOutboundTrunk(client: SipClient, tenantId: string, trunk: S
   const name = outboundTrunkName(trunk.id)
   const address = `${trunk.pbxHost}:${trunk.pbxPort}`
   const transport = SIP_TRANSPORT[trunk.transport]
+  const mediaEncryption = SIP_MEDIA_ENCRYPTION[trunk.srtp]
   const mine = (await client.listSipOutboundTrunk()).filter((existing) => existing.name === name)
-  const match = mine.find((existing) => existing.address === address && existing.transport === transport)
+  const match = mine.find(
+    (existing) =>
+      existing.address === address &&
+      existing.transport === transport &&
+      existing.mediaEncryption === mediaEncryption,
+  )
   for (const stale of mine) {
     if (stale.sipTrunkId === match?.sipTrunkId) continue
     await client.deleteSipTrunk(stale.sipTrunkId).catch(() => undefined)
@@ -102,6 +118,7 @@ async function ensureOutboundTrunk(client: SipClient, tenantId: string, trunk: S
   const password = trunk.sealedAuthPassword ? unsealSecret(trunk.sealedAuthPassword) : null
   const created = await client.createSipOutboundTrunk(name, address, [], {
     transport,
+    mediaEncryption,
     ...(trunk.authUsername ? { authUsername: trunk.authUsername } : {}),
     ...(password ? { authPassword: password } : {}),
     metadata: JSON.stringify({ tenantId, trunkId: trunk.id }),
@@ -144,6 +161,16 @@ export async function placeOutboundCall(args: {
     }
   }
 
+  // Call minutes are part of salary. Once the month's ceiling is reached the
+  // agent stops dialing until it resets — the work still gets done, in writing.
+  const budget = await callMinutesBudget({ tenantId, personId: person.id, salary: person.salary })
+  if (budget.exhausted) {
+    return {
+      placed: false,
+      reason: `You have used all ${budget.limitMinutes} of your call minutes for this month, so you cannot place calls until ${nextMonthPhrase()}. Say so plainly and deal with this by email instead.`,
+    }
+  }
+
   const env = livekitEnv()
   if (!env) {
     return { placed: false, reason: 'The phone system is not connected on this deployment. Say plainly that you cannot make calls right now.' }
@@ -177,6 +204,10 @@ export async function placeOutboundCall(args: {
       room,
       direction: 'outbound_phone',
       counterparty: { name: args.to.trim(), number: target.number },
+      // An internal extension is a call onto the company phone system; a full
+      // number leaves for the public network.
+      peerKind: target.kind === 'extension' ? 'pbx_extension' : 'pstn',
+      ...(target.kind === 'extension' ? { peerExtension: target.number } : {}),
       purpose,
     })
   })
@@ -231,6 +262,134 @@ export function outboundCallAbilities(args: { tenantId: string; person: PersonRo
         placeOutboundCall({ tenantId: args.tenantId, person: args.person, runId: args.runId, to, reason }),
     }),
   ]
+}
+
+// ---------------------------------------------------------------------------
+// Test call — proving a line before anyone depends on it
+// ---------------------------------------------------------------------------
+
+/** Rooms a test call uses. Deliberately not a call-room prefix: the voice
+ *  agent leaves these alone, so nothing answers and nothing is billed. */
+const TEST_ROOM_PREFIX = 'siptest-'
+
+export type TestCallStep = { label: string; detail: string; ok: boolean }
+
+export type TestCallResult = {
+  ok: boolean
+  /** The SIP exchange as it actually went, step by step. */
+  steps: TestCallStep[]
+  summary: string
+}
+
+/** The SIP status a failure carries, when the far end sent one. */
+function sipStatusFrom(message: string): string | null {
+  const match = /\b([1-6][0-9]{2})\b\s*([A-Za-z][A-Za-z ]{2,40})?/.exec(message)
+  if (!match) return null
+  const reason = match[2]?.trim()
+  return reason ? `${match[1]} ${reason}` : match[1]!
+}
+
+/**
+ * Dial a test extension over a trunk and report what the phone system said.
+ *
+ * This is a real INVITE over the real trunk — the only honest test of a SIP
+ * line. The call is hung up the moment it is answered: the point is the
+ * response chain, not a conversation. Nothing is written to the call ledger,
+ * because no agent held a conversation.
+ */
+export async function placeTestCall(args: {
+  tenantId: string
+  trunkId: string
+  extension: string
+}): Promise<TestCallResult> {
+  const steps: TestCallStep[] = []
+  const fail = (summary: string): TestCallResult => ({ ok: false, steps, summary })
+
+  const target = parseDialTarget(args.extension)
+  if (!target) {
+    return fail(`"${args.extension}" is not a number this phone system can be asked to dial.`)
+  }
+  const env = livekitEnv()
+  if (!env) return fail('The phone system is not connected on this deployment.')
+
+  const trunks = await listSipTrunks(args.tenantId)
+  const trunk = trunks.find((entry) => entry.id === args.trunkId)
+  if (!trunk) return fail('This trunk no longer exists.')
+  if (trunk.mode !== 'trunk') {
+    return fail(
+      `"${trunk.name}" reaches the phone system by registering extensions, so there is no line to place a test call over. Check the registration state on the Extensions tab instead.`,
+    )
+  }
+  if (!trunk.pbxHost) return fail(`"${trunk.name}" has no phone system address, so there is nowhere to send the call.`)
+
+  const client = new SipClient(env.host, env.apiKey, env.apiSecret)
+  let livekitTrunkId: string
+  try {
+    livekitTrunkId = await ensureOutboundTrunk(client, args.tenantId, trunk)
+    steps.push({
+      label: 'Line prepared',
+      detail: `${trunk.pbxHost}:${trunk.pbxPort} over ${trunk.transport.toUpperCase()}${
+        trunk.srtp === 'disabled' ? '' : `, media encryption ${trunk.srtp === 'required' ? 'required' : 'best effort'}`
+      }.`,
+      ok: true,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    steps.push({ label: 'Line prepared', detail: message, ok: false })
+    return fail(`The line could not be prepared for dialing: ${message}`)
+  }
+
+  const room = `${TEST_ROOM_PREFIX}${randomUUID()}`
+  const dialed = target.number
+  try {
+    const participant = await client.createSipParticipant(livekitTrunkId, dialed, room, {
+      participantIdentity: 'bunkhouse-test',
+      participantName: 'Phone system test',
+      waitUntilAnswered: true,
+      ringingTimeout: 20,
+      maxCallDuration: 10,
+    })
+    steps.push({ label: `INVITE to ${dialed}`, detail: 'Sent over the trunk.', ok: true })
+    steps.push({
+      label: '200 OK — answered',
+      detail: `The phone system connected the call${participant.sipCallId ? ` (call id ${participant.sipCallId})` : ''}.`,
+      ok: true,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const status = sipStatusFrom(message)
+    steps.push({ label: `INVITE to ${dialed}`, detail: 'Sent over the trunk.', ok: true })
+    steps.push({
+      label: status ? `Rejected — ${status}` : 'No answer',
+      detail: message,
+      ok: false,
+    })
+    return fail(
+      status
+        ? `${dialed} was not connected: the phone system answered ${status}.`
+        : `${dialed} was not connected: ${message}`,
+    )
+  }
+
+  // Hang up: the room is the call, so deleting it clears the line.
+  try {
+    const rooms = new RoomServiceClient(env.host, env.apiKey, env.apiSecret)
+    await rooms.deleteRoom(room)
+    steps.push({ label: 'Hung up', detail: 'The test call was cleared.', ok: true })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    steps.push({
+      label: 'Hung up',
+      detail: `The call connected, but clearing it reported: ${message}`,
+      ok: false,
+    })
+  }
+
+  return {
+    ok: true,
+    steps,
+    summary: `${dialed} answered over "${trunk.name}". The line carries calls in both directions.`,
+  }
 }
 
 export type TransferCallResult =

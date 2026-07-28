@@ -1,9 +1,16 @@
 import 'server-only'
 import { and, eq, ne } from 'drizzle-orm'
-import { SipClient } from 'livekit-server-sdk'
+import { SipClient, type CreateSipInboundTrunkOptions } from 'livekit-server-sdk'
 import { sealSecret, unsealSecret } from '@appkit/crypto'
-import { people, phoneNumbers, sipTrunks } from '../db/schema'
+import { pbxExtensions, people, phoneNumbers, sipTrunks } from '../db/schema'
 import { db } from '../db/client'
+import {
+  bridgeDeployment,
+  publishBridgeConfig,
+  scrapePjsipRegistrations,
+  type BridgeExtension,
+} from './asterisk-bridge'
+import { sipOptionsPing } from './sip-probe'
 
 /**
  * The phone system: tenant PBX trunks and agent extensions. A trunk row is
@@ -12,16 +19,30 @@ import { db } from '../db/client'
  * rooms the voice agent answers). Mirroring is reconstruct-on-save: the
  * previous LiveKit objects are removed and fresh ones created, and their
  * ids stored on the row — deterministic, idempotent, and safe to repeat.
+ *
+ * A trunk in 'extension' mode takes the same shape, but the phone system
+ * never sees the ingress: the bridge REGISTERs to it as one endpoint per
+ * mapped agent (the pbx_extensions rows) and hands answered calls on. Saving
+ * such a trunk republishes the bridge's generated configuration.
  */
 
 export type SipTrunkRow = typeof sipTrunks.$inferSelect
+export type PbxExtensionRow = typeof pbxExtensions.$inferSelect
 
 export type SipTrunkInput = {
   name: string
   flavor: 'avaya_ip_office' | 'generic_sip'
+  mode?: 'trunk' | 'extension'
   pbxHost?: string | null
   pbxPort?: number
   transport?: 'udp' | 'tcp' | 'tls'
+  srtp?: 'disabled' | 'best_effort' | 'required'
+  /** RFC 4028 session expiry, matched to the phone system's line. */
+  sessionTimerSeconds?: number | null
+  /** Addresses the ingress accepts INVITEs from for this trunk. */
+  allowedAddresses?: string[]
+  /** The extension the Test call button dials. */
+  testExtension?: string | null
   authUsername?: string | null
   /** Plain password; sealed here. Undefined = leave the stored one alone. */
   authPassword?: string | null
@@ -55,6 +76,37 @@ export async function listSipTrunks(tenantId: string): Promise<SipTrunkRow[]> {
   return app.withTenantContext(tenantId, () => app.db.select().from(sipTrunks))
 }
 
+// livekit.SIPMediaEncryption wire values (DISABLE 0, ALLOW 1, REQUIRE 2). The
+// generated enum lives in @livekit/protocol — a transitive dependency of the
+// server SDK that this package does not resolve — so the values are named here.
+type SipMediaEncryptionValue = NonNullable<CreateSipInboundTrunkOptions['mediaEncryption']>
+
+const SIP_MEDIA_ENCRYPTION: Record<SipTrunkRow['srtp'], SipMediaEncryptionValue> = {
+  disabled: 0 as SipMediaEncryptionValue,
+  best_effort: 1 as SipMediaEncryptionValue,
+  required: 2 as SipMediaEncryptionValue,
+}
+
+/**
+ * The addresses the SIP ingress accepts this trunk's calls from. On a SIP line
+ * the phone system itself is the sender, so its address is always allowed
+ * alongside anything the operator added. Through the bridge the sender is the
+ * bridge container, never the phone system — so only the authored list applies,
+ * plus the bridge's own address when the deployment publishes one.
+ */
+function ingressAllowlist(trunk: SipTrunkRow): string[] {
+  const authored = trunk.allowedAddresses.map((entry) => entry.trim()).filter(Boolean)
+  const implied =
+    trunk.mode === 'trunk'
+      ? trunk.pbxHost
+        ? [trunk.pbxHost]
+        : []
+      : process.env.BUNKHOUSE_BRIDGE_SIP_ADDRESS
+        ? [process.env.BUNKHOUSE_BRIDGE_SIP_ADDRESS]
+        : []
+  return [...new Set([...implied, ...authored])]
+}
+
 /** Mirror one trunk row to the LiveKit SIP service. Returns the row's new
  *  status fields; never throws — provisioning failures land on the row. */
 async function provisionTrunk(
@@ -76,10 +128,12 @@ async function provisionTrunk(
       await client.deleteSipTrunk(trunk.livekitTrunkId).catch(() => undefined)
     }
     const password = trunk.sealedAuthPassword ? unsealSecret(trunk.sealedAuthPassword) : null
+    const allowedAddresses = ingressAllowlist(trunk)
     const created = await client.createSipInboundTrunk(`bunkhouse-${trunk.id}`, [], {
-      ...(trunk.pbxHost ? { allowedAddresses: [trunk.pbxHost] } : {}),
+      ...(allowedAddresses.length > 0 ? { allowedAddresses } : {}),
       ...(trunk.authUsername ? { authUsername: trunk.authUsername } : {}),
       ...(password ? { authPassword: password } : {}),
+      mediaEncryption: SIP_MEDIA_ENCRYPTION[trunk.srtp],
       metadata: JSON.stringify({ tenantId, trunkId: trunk.id }),
     })
     const rule = await client.createSipDispatchRule(
@@ -118,10 +172,14 @@ export async function createSipTrunk(tenantId: string, input: SipTrunkInput): Pr
         tenantId,
         name: input.name.trim(),
         flavor: input.flavor,
-        mode: 'trunk',
+        mode: input.mode ?? 'trunk',
         pbxHost: input.pbxHost?.trim() || null,
         pbxPort: input.pbxPort ?? 5060,
         transport: input.transport ?? 'udp',
+        srtp: input.srtp ?? 'disabled',
+        sessionTimerSeconds: input.sessionTimerSeconds ?? null,
+        allowedAddresses: normalizeAllowlist(input.allowedAddresses),
+        testExtension: input.testExtension?.trim() || null,
         authUsername: input.authUsername?.trim() || null,
         sealedAuthPassword: input.authPassword ? sealSecret(input.authPassword) : null,
         extensionRange: input.extensionRange?.trim() || null,
@@ -142,9 +200,14 @@ export async function updateSipTrunk(tenantId: string, trunkId: string, input: S
       .set({
         name: input.name.trim(),
         flavor: input.flavor,
+        mode: input.mode ?? current.mode,
         pbxHost: input.pbxHost?.trim() || null,
         pbxPort: input.pbxPort ?? 5060,
         transport: input.transport ?? 'udp',
+        srtp: input.srtp ?? 'disabled',
+        sessionTimerSeconds: input.sessionTimerSeconds ?? null,
+        allowedAddresses: normalizeAllowlist(input.allowedAddresses),
+        testExtension: input.testExtension?.trim() || null,
         authUsername: input.authUsername?.trim() || null,
         // Undefined leaves the sealed password untouched; empty string clears it.
         ...(input.authPassword !== undefined
@@ -160,10 +223,20 @@ export async function updateSipTrunk(tenantId: string, trunkId: string, input: S
   return finishProvision(tenantId, updated)
 }
 
+/** One address per line or comma, de-duplicated, order preserved. */
+function normalizeAllowlist(entries: string[] | undefined): string[] {
+  if (!entries) return []
+  const cleaned = entries
+    .flatMap((entry) => entry.split(/[\s,]+/))
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+  return [...new Set(cleaned)]
+}
+
 async function finishProvision(tenantId: string, trunk: SipTrunkRow): Promise<SipTrunkRow> {
   const app = db()
   const result = await provisionTrunk(tenantId, trunk)
-  return app.withTenant(tenantId, async () => {
+  const saved = await app.withTenant(tenantId, async () => {
     const [row] = await app.db
       .update(sipTrunks)
       .set({ ...result, updatedAt: new Date() })
@@ -171,6 +244,10 @@ async function finishProvision(tenantId: string, trunk: SipTrunkRow): Promise<Si
       .returning()
     return row!
   })
+  // The bridge's configuration is derived from these rows, so a saved trunk
+  // republishes it — the generated files are never edited by hand.
+  await republishBridge()
+  return saved
 }
 
 export async function deleteSipTrunk(tenantId: string, trunkId: string): Promise<void> {
@@ -187,6 +264,292 @@ export async function deleteSipTrunk(tenantId: string, trunkId: string): Promise
   }
   await app.withTenant(tenantId, async () => {
     await app.db.delete(sipTrunks).where(eq(sipTrunks.id, trunkId))
+  })
+  await republishBridge()
+}
+
+// ---------------------------------------------------------------------------
+// Trunk health — the SIP OPTIONS keepalive
+// ---------------------------------------------------------------------------
+
+export type TrunkHealthResult = {
+  trunkId: string
+  health: SipTrunkRow['health']
+  detail: string
+  lastSeenAt: Date | null
+}
+
+/**
+ * Ask one trunk's phone system whether it is there, and record the answer.
+ * Any SIP response proves the address is live and speaking SIP — even a 403 —
+ * so the status line is stored verbatim rather than being judged as a failure.
+ */
+export async function probeTrunkHealth(tenantId: string, trunkId: string): Promise<TrunkHealthResult> {
+  const app = db()
+  const [trunk] = await app.withTenantContext(tenantId, () =>
+    app.db.select().from(sipTrunks).where(eq(sipTrunks.id, trunkId)),
+  )
+  if (!trunk) {
+    return { trunkId, health: 'unknown', detail: 'This trunk no longer exists.', lastSeenAt: null }
+  }
+  if (!trunk.pbxHost) {
+    const detail = 'No phone system address is set, so there is nothing to check.'
+    await app.withTenant(tenantId, async () => {
+      await app.db
+        .update(sipTrunks)
+        .set({ health: 'unknown', healthDetail: detail, updatedAt: new Date() })
+        .where(eq(sipTrunks.id, trunkId))
+    })
+    return { trunkId, health: 'unknown', detail, lastSeenAt: trunk.lastSeenAt }
+  }
+  const probe = await sipOptionsPing({
+    host: trunk.pbxHost,
+    port: trunk.pbxPort,
+    transport: trunk.transport,
+  })
+  const now = new Date()
+  const health: SipTrunkRow['health'] = probe.reachable ? 'ok' : 'unreachable'
+  const detail = probe.reachable
+    ? `${probe.detail}${probe.latencyMs === null ? '' : ` · ${probe.latencyMs} ms`}`
+    : probe.detail
+  await app.withTenant(tenantId, async () => {
+    await app.db
+      .update(sipTrunks)
+      .set({
+        health,
+        healthDetail: detail,
+        ...(probe.reachable ? { lastSeenAt: now } : {}),
+        updatedAt: now,
+      })
+      .where(eq(sipTrunks.id, trunkId))
+  })
+  return { trunkId, health, detail, lastSeenAt: probe.reachable ? now : trunk.lastSeenAt }
+}
+
+/**
+ * Probe every trunk a company has. Exported for scheduling — the keepalive is
+ * only worth anything when it runs on a cadence.
+ */
+export async function probeAllTrunks(tenantId: string): Promise<TrunkHealthResult[]> {
+  const trunks = await listSipTrunks(tenantId)
+  const results: TrunkHealthResult[] = []
+  for (const trunk of trunks) {
+    results.push(await probeTrunkHealth(tenantId, trunk.id))
+  }
+  return results
+}
+
+// ---------------------------------------------------------------------------
+// The extension map — registered-extensions mode
+// ---------------------------------------------------------------------------
+
+export type PbxExtensionView = PbxExtensionRow & {
+  personName: string
+  trunkName: string
+  hasPassword: boolean
+}
+
+export async function listPbxExtensions(tenantId: string): Promise<PbxExtensionView[]> {
+  const app = db()
+  return app.withTenantContext(tenantId, async () => {
+    const rows = await app.db
+      .select({ row: pbxExtensions, personName: people.name, trunkName: sipTrunks.name })
+      .from(pbxExtensions)
+      .innerJoin(people, eq(people.id, pbxExtensions.personId))
+      .innerJoin(sipTrunks, eq(sipTrunks.id, pbxExtensions.trunkId))
+    return rows
+      .map((entry) => ({
+        ...entry.row,
+        personName: entry.personName,
+        trunkName: entry.trunkName,
+        hasPassword: entry.row.sealedAuthPassword !== null,
+      }))
+      .sort((a, b) => a.extension.localeCompare(b.extension, 'en', { numeric: true }))
+  })
+}
+
+export type PbxExtensionInput = {
+  id?: string
+  trunkId: string
+  extension: string
+  personId: string
+  authUsername?: string | null
+  /** Plain password; sealed here. Undefined leaves the stored one alone. */
+  authPassword?: string | null
+}
+
+/**
+ * Map an agent onto an extension of a phone system the bridge registers to.
+ * The agent's own extension is kept in step, because a call routed here and a
+ * call routed over a SIP line must reach the same agent — the extension an
+ * agent answers on is one fact, not two.
+ */
+export async function savePbxExtension(
+  tenantId: string,
+  input: PbxExtensionInput,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const extension = input.extension.trim()
+  if (!/^[0-9]{2,6}$/.test(extension)) {
+    return { ok: false, message: 'An extension is 2–6 digits, e.g. 701.' }
+  }
+  const app = db()
+  const outcome = await app.withTenant(tenantId, async () => {
+    const [trunk] = await app.db.select().from(sipTrunks).where(eq(sipTrunks.id, input.trunkId))
+    if (!trunk) return { ok: false as const, message: 'That phone system no longer exists.' }
+    if (trunk.mode !== 'extension') {
+      return {
+        ok: false as const,
+        message: `"${trunk.name}" is set up as a SIP line, so it has no registered extensions. Switch it to registered extensions first.`,
+      }
+    }
+    const [agent] = await app.db
+      .select({ id: people.id })
+      .from(people)
+      .where(and(eq(people.id, input.personId), eq(people.kind, 'agent'), eq(people.status, 'active')))
+    if (!agent) return { ok: false as const, message: 'Pick an active agent to answer this extension.' }
+
+    const values = {
+      tenantId,
+      trunkId: input.trunkId,
+      extension,
+      personId: input.personId,
+      authUsername: input.authUsername?.trim() || null,
+      ...(input.authPassword !== undefined
+        ? { sealedAuthPassword: input.authPassword ? sealSecret(input.authPassword) : null }
+        : {}),
+    }
+    if (input.id) {
+      await app.db
+        .update(pbxExtensions)
+        .set({ ...values, updatedAt: new Date() })
+        .where(eq(pbxExtensions.id, input.id))
+    } else {
+      const [taken] = await app.db
+        .select({ id: pbxExtensions.id })
+        .from(pbxExtensions)
+        .where(and(eq(pbxExtensions.trunkId, input.trunkId), eq(pbxExtensions.extension, extension)))
+      if (taken) {
+        return { ok: false as const, message: `Extension ${extension} is already mapped on "${trunk.name}".` }
+      }
+      await app.db.insert(pbxExtensions).values(values)
+    }
+    return { ok: true as const }
+  })
+  if (!outcome.ok) return outcome
+  const assigned = await assignExtension({ tenantId, personId: input.personId, extension })
+  if (!assigned.ok) return assigned
+  await republishBridge()
+  return { ok: true }
+}
+
+export async function deletePbxExtension(tenantId: string, extensionId: string): Promise<void> {
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await app.db.delete(pbxExtensions).where(eq(pbxExtensions.id, extensionId))
+  })
+  await republishBridge()
+}
+
+// ---------------------------------------------------------------------------
+// The bridge: generated configuration and registration state
+// ---------------------------------------------------------------------------
+
+/**
+ * Every mapped endpoint across the deployment, with credentials unsealed —
+ * the bridge container is one process serving every company, so its
+ * configuration is rendered from all of them at once.
+ */
+async function collectBridgeExtensions(): Promise<BridgeExtension[]> {
+  const app = db()
+  return app.withSuperAdmin(async (superDb) => {
+    const rows = await superDb
+      .select({ row: pbxExtensions, trunk: sipTrunks, personName: people.name })
+      .from(pbxExtensions)
+      .innerJoin(sipTrunks, eq(sipTrunks.id, pbxExtensions.trunkId))
+      .innerJoin(people, eq(people.id, pbxExtensions.personId))
+      .where(and(eq(sipTrunks.mode, 'extension'), eq(people.status, 'active')))
+    return rows
+      .filter((entry) => Boolean(entry.trunk.pbxHost))
+      .map((entry) => ({
+        id: entry.row.id,
+        tenantId: entry.row.tenantId,
+        trunkId: entry.row.trunkId,
+        trunkName: entry.trunk.name,
+        extension: entry.row.extension,
+        personName: entry.personName,
+        pbxHost: entry.trunk.pbxHost!,
+        pbxPort: entry.trunk.pbxPort,
+        transport: entry.trunk.transport,
+        srtp: entry.trunk.srtp,
+        sessionTimerSeconds: entry.trunk.sessionTimerSeconds,
+        authUsername: entry.row.authUsername,
+        authPassword: entry.row.sealedAuthPassword ? unsealSecret(entry.row.sealedAuthPassword) : null,
+      }))
+  })
+}
+
+/**
+ * Regenerate and publish the bridge's configuration. A deployment without the
+ * bridge simply has nothing to publish to, which is not a failure — so this
+ * never throws into a save path.
+ */
+export async function republishBridge(): Promise<{ ok: boolean; detail: string }> {
+  const deployment = bridgeDeployment()
+  if (!deployment) {
+    return { ok: true, detail: 'The extension bridge is not part of this deployment.' }
+  }
+  try {
+    const extensions = await collectBridgeExtensions()
+    const result = await publishBridgeConfig({
+      extensions,
+      ingress: deployment.ingress,
+      bindPort: deployment.bindPort,
+      rtpPorts: deployment.rtpPorts,
+    })
+    return result.published ? { ok: true, detail: result.detail } : { ok: false, detail: result.detail }
+  } catch (error) {
+    return { ok: false, detail: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Read the bridge's live registration state onto the extension rows. Exported
+ * for scheduling: registration is a running state, not a saved one.
+ */
+export async function refreshBridgeRegistrations(
+  tenantId: string,
+): Promise<{ ok: boolean; detail: string; updated: number }> {
+  const scrape = await scrapePjsipRegistrations()
+  if (!scrape.ok) return { ok: false, detail: scrape.detail, updated: 0 }
+  const byId = new Map(scrape.registrations.map((entry) => [entry.extensionId, entry]))
+  const app = db()
+  const now = new Date()
+  return app.withTenant(tenantId, async () => {
+    const rows = await app.db.select({ id: pbxExtensions.id }).from(pbxExtensions)
+    let updated = 0
+    for (const row of rows) {
+      const state = byId.get(row.id)
+      await app.db
+        .update(pbxExtensions)
+        .set(
+          state
+            ? {
+                regStatus: state.status,
+                regExpiresAt: state.expiresAt,
+                lastError: state.status === 'failed' ? `The phone system reported ${state.detail}.` : null,
+                updatedAt: now,
+              }
+            : {
+                regStatus: 'unregistered' as const,
+                regExpiresAt: null,
+                lastError: 'The bridge is not attempting this registration — republish the extension map.',
+                updatedAt: now,
+              },
+        )
+        .where(eq(pbxExtensions.id, row.id))
+      updated += 1
+    }
+    return { ok: true, detail: `Registration state read for ${updated} extension${updated === 1 ? '' : 's'}.`, updated }
   })
 }
 

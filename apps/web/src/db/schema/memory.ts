@@ -95,6 +95,10 @@ export type MemoryProposalPayload = {
   body?: string
   /** Notes consumed by a merge/supersede, for the diff view. */
   noteIds?: string[]
+  /** Set by the monthly company gardener (lib/consolidation.ts) so the UI can
+   *  label its proposals distinctly and the pass can find its own last run —
+   *  never set by journal/reflection or an agent's own promotion. */
+  origin?: 'gardener'
 }
 
 export const memoryProposals = pgTable(

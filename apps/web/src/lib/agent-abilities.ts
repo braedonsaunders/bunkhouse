@@ -25,8 +25,10 @@ import { createNote, retrieveNotes, supersedeNote } from './memory'
 import { firstOccurrence, gapMinutes } from './duties'
 import { readWebpage, webSearch } from './research'
 import { documentAbilities } from './documents'
+import { templateAbilities } from './document-templates'
 import { workspaceAbilities } from './workspace'
 import { sendSms, smsConfigured } from './sms'
+import { chatAbilities } from './chat-bridge'
 import { outboundCallAbilities } from './outbound-call'
 import { browserAbilities } from './browser-use'
 import { meetingAbilities } from './meetings'
@@ -654,10 +656,12 @@ export async function assembleAbilities(args: {
     ...emailAbilities({ tenantId, person, runId }),
     ...(args.waitState ? askAbilities({ tenantId, person, runId, waitState: args.waitState }) : []),
     ...(await smsAbilities({ tenantId })),
+    ...(await chatAbilities({ tenantId, person, runId })),
     ...outboundCallAbilities({ tenantId, person, runId }),
     ...meetingAbilities({ tenantId, person, runId }),
     ...delegationAbilities({ tenantId, person, runId }),
     ...documentAbilities({ tenantId, person, runId }),
+    ...templateAbilities({ tenantId, person, runId }),
     ...workspaceAbilities({ tenantId, person, runId }),
     ...browserAbilities({ tenantId, person, runId }),
     ...assignmentAbilities({

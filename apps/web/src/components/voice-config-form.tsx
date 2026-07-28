@@ -3,7 +3,6 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { Loader2, Phone, Play, Square } from 'lucide-react'
-import type { AgentVoiceConfig } from '@appkit/voice'
 import {
   Badge,
   Button,
@@ -17,7 +16,9 @@ import {
   Label,
   SearchSelect,
   Select,
+  Switch,
 } from '@appkit/ui'
+import type { BunkhouseVoiceConfig } from '../db/schema'
 import { listVoicesForTenantAction } from '../app/admin/settings/actions'
 import { setAgentExtensionAction } from '../app/admin/settings/pbx-actions'
 import { setAgentVoiceConfig } from '../app/organization/actions'
@@ -46,7 +47,7 @@ export function VoiceConfigForm({
   personId: string
   name: string
   status: string
-  current: AgentVoiceConfig | null
+  current: BunkhouseVoiceConfig | null
   realtimeProviders: RealtimeProviderOption[]
   speechConfigured: { deepgram: boolean; elevenlabs: boolean }
   /** Whether this agent's assigned model can hold a cascade call (resolved
@@ -75,6 +76,7 @@ export function VoiceConfigForm({
   )
   const [realtimeModel, setRealtimeModel] = React.useState(current?.realtime?.model ?? '')
   const [realtimeVoice, setRealtimeVoice] = React.useState(current?.realtime?.voice ?? '')
+  const [cascadeVision, setCascadeVision] = React.useState(current?.cascadeVision === true)
   const [language, setLanguage] = React.useState(current?.language ?? 'en')
   const [style, setStyle] = React.useState(current?.style ?? '')
   const [error, setError] = React.useState<string | null>(null)
@@ -212,12 +214,13 @@ export function VoiceConfigForm({
   const save = () =>
     startSaving(async () => {
       setError(null)
-      const config: AgentVoiceConfig =
+      const config: BunkhouseVoiceConfig =
         mode === 'cascade'
           ? {
               mode,
               language: language.trim() || 'en',
               ...(style.trim() ? { style: style.trim() } : {}),
+              ...(cascadeVision ? { cascadeVision: true } : {}),
               cascade: {
                 sttProvider: 'deepgram',
                 sttModel,
@@ -375,6 +378,30 @@ export function VoiceConfigForm({
                   </>
                 )}
               </div>
+
+              <div className="space-y-2 rounded-md border border-border p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="voice-cascade-vision">See a shared screen in meetings</Label>
+                    <p className="text-xs text-fg-muted">
+                      In a video meeting, a still picture of the guest&apos;s shared screen is put in front of{' '}
+                      {name.split(' ')[0]}&apos;s own model every twenty seconds, so they can talk about what is
+                      actually on it.
+                    </p>
+                  </div>
+                  <Switch
+                    id="voice-cascade-vision"
+                    checked={cascadeVision}
+                    onChange={(e) => setCascadeVision(e.target.checked)}
+                  />
+                </div>
+                <p className="text-xs text-fg-muted">
+                  Turn this on only if the model assigned on the Overview tab accepts images — many text models do not,
+                  and there is no way to know without trying. If the model refuses a picture, vision switches off for
+                  the rest of that meeting and {name.split(' ')[0]} says plainly that they cannot see the screen. Every
+                  still is saved to the meeting record either way, so nothing shared is lost.
+                </p>
+              </div>
             </div>
           ) : (
             <div className="space-y-4">
@@ -445,6 +472,10 @@ export function VoiceConfigForm({
                       ) : null}
                     </div>
                   </div>
+                  <p className="text-xs text-fg-muted">
+                    Realtime voices see a shared screen in video meetings as standard — a still is put in front of the
+                    model every twenty seconds, and every still is saved to the meeting record.
+                  </p>
                 </>
               )}
             </div>

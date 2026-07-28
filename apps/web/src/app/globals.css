@@ -11,6 +11,189 @@
 
 html, body { min-height: 100%; }
 
+/* Floating HUD panels (the home screen dashboard, over the drawn floor).
+   A flat `bg-surface/85` card disappears into a painted, animated room — the
+   scene shows through it as mush and its edge dissolves against whatever
+   colour happens to be behind. These panels carry their own light instead: a
+   graded pull of the surface colour over a blurred, resaturated sample of the
+   room, a hairline rim, a lit top edge, and a cast shadow so the panel reads
+   as floating a few inches off the floor rather than painted onto it. Colours
+   are token channels only, so the panel follows the theme. */
+.bh-hud {
+  background:
+    linear-gradient(to bottom, rgb(var(--ch-surface) / 0.92), rgb(var(--ch-surface) / 0.76));
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgb(var(--ch-border) / 0.85);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.65),
+    0 1px 2px rgb(0 0 0 / 0.06),
+    0 14px 30px -14px rgb(0 0 0 / 0.4);
+}
+.dark .bh-hud {
+  background:
+    linear-gradient(to bottom, rgb(var(--ch-surface) / 0.88), rgb(var(--ch-surface) / 0.7));
+  border-color: rgb(var(--ch-border-strong) / 0.85);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.09),
+    0 1px 2px rgb(0 0 0 / 0.45),
+    0 16px 34px -14px rgb(0 0 0 / 0.7);
+}
+
+/* Scene art (components/scene-art.tsx). A room holds a hundred or so moving
+   parts — blinking LEDs, breathing lamps, drifting motes, swaying leaves — so
+   every one of them is a CSS keyframe the compositor can own on its own thread.
+   Per-element variety comes from `animation-delay` and `animation-duration`
+   set inline, never from a JS animation loop. */
+@keyframes bhs-glow {
+  0%,
+  100% {
+    opacity: var(--bhs-lo, 0.72);
+  }
+  50% {
+    opacity: var(--bhs-hi, 1);
+  }
+}
+@keyframes bhs-blink {
+  0%,
+  44% {
+    opacity: 1;
+  }
+  52%,
+  70% {
+    opacity: 0.12;
+  }
+  78%,
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes bhs-sway {
+  0%,
+  100% {
+    transform: rotate(-1.6deg);
+  }
+  50% {
+    transform: rotate(1.6deg);
+  }
+}
+@keyframes bhs-drift {
+  from {
+    transform: translateX(-30%);
+  }
+  to {
+    transform: translateX(130%);
+  }
+}
+@keyframes bhs-mote {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0);
+  }
+  18%,
+  74% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(14px, -30px, 0);
+  }
+}
+@keyframes bhs-steam {
+  0% {
+    opacity: 0;
+    transform: translateY(4px) scaleY(0.8);
+  }
+  30% {
+    opacity: 0.75;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-16px) scaleY(1.15);
+  }
+}
+@keyframes bhs-twinkle {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes bhs-shaft {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+@keyframes bhs-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes bhs-tick {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.bhs-glow {
+  animation: bhs-glow 4.5s ease-in-out infinite;
+}
+.bhs-blink {
+  animation: bhs-blink 1.8s steps(1, end) infinite;
+}
+.bhs-sway {
+  animation: bhs-sway 7s ease-in-out infinite;
+}
+.bhs-drift {
+  animation: bhs-drift 180s linear infinite;
+}
+.bhs-mote {
+  animation: bhs-mote 16s linear infinite;
+}
+.bhs-steam {
+  animation: bhs-steam 3.2s ease-out infinite;
+}
+.bhs-twinkle {
+  animation: bhs-twinkle 4s ease-in-out infinite;
+}
+.bhs-shaft {
+  animation: bhs-shaft 9s ease-in-out infinite;
+}
+.bhs-spin {
+  animation: bhs-spin 9s linear infinite;
+}
+.bhs-tick {
+  animation: bhs-tick 60s steps(60, end) infinite;
+}
+.bhs-bulb {
+  animation: bhs-glow 5.5s ease-in-out infinite;
+}
+/* A drawn room is decoration. If motion is unwelcome, the room still reads —
+   it just stops breathing. */
+@media (prefers-reduced-motion: reduce) {
+  .bhs-glow,
+  .bhs-blink,
+  .bhs-sway,
+  .bhs-drift,
+  .bhs-mote,
+  .bhs-steam,
+  .bhs-twinkle,
+  .bhs-shaft,
+  .bhs-spin,
+  .bhs-tick,
+  .bhs-bulb {
+    animation: none;
+  }
+  .bhs-mote {
+    opacity: 0.6;
+  }
+}
+
 /* Brand logo animation (components/brand-logo.tsx). Roof strokes carry a
    normalized pathLength of 1 so one dasharray rule draws any segment. Draw
    mode builds the lockup once: the word fades in first, the roof draws from

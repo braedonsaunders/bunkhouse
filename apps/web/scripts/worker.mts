@@ -7,10 +7,12 @@ import { sendNewMail, sendReplyInThread, syncPersonMailbox } from '../src/lib/ma
 import { dueDuties, executeAgentRun, markDutyRun, startRunsForNewInbound } from '../src/lib/agent-runs'
 import { finalizeAssignmentRun } from '../src/lib/assignments'
 import { nextOccurrence } from '../src/lib/duties'
-import { journalPass as journalTenant, reflectionPass as reflectTenant } from '../src/lib/consolidation'
+import { gardenerPass as gardenTenant, journalPass as journalTenant, reflectionPass as reflectTenant } from '../src/lib/consolidation'
 import { pendingAssignmentIds, runAssignment } from '../src/lib/assignments'
 import { decidedApprovalIds, executeDecidedApproval } from '../src/lib/approval-executor'
 import { tidyWorkspaces } from '../src/lib/workspace'
+import { probeAllTrunks, refreshBridgeRegistrations } from '../src/lib/pbx'
+import { sweepExpiredRecordings } from '../src/lib/voice-recording'
 
 // The bunkhouse worker: mailbox sync → inbound runs, the duty scheduler,
 // approval execution/resume, assignment runs, and the Logbook consolidation
@@ -308,12 +310,45 @@ async function weeklyReportPass(): Promise<void> {
   }
 }
 
+/**
+ * Phone-system health: a SIP OPTIONS keepalive against every trunk, plus the
+ * registration state of any mode-B bridge extensions. Both write status onto
+ * the rows the Phone system drawer reads, so a dead trunk is visible before a
+ * caller finds it.
+ */
+async function trunkHealthPass(): Promise<void> {
+  for (const tenantId of await activeTenantIds()) {
+    try {
+      await probeAllTrunks(tenantId)
+      await refreshBridgeRegistrations(tenantId)
+    } catch (error) {
+      console.error(`[pbx] tenant ${tenantId}:`, (error as Error).message)
+    }
+  }
+}
+
+/** Monthly housekeeping over company knowledge: the gardener proposes merges,
+ *  retirements, and contradiction fixes for a human to decide. It self-gates to
+ *  one pass per tenant per month, so a daily tick is cheap. */
+async function gardenerPassAll(): Promise<void> {
+  for (const tenantId of await activeTenantIds()) {
+    try {
+      const { proposed } = await gardenTenant(tenantId)
+      if (proposed > 0) console.log(`[gardener] tenant ${tenantId}: ${proposed} housekeeping suggestion(s)`)
+    } catch (error) {
+      console.error(`[gardener] tenant ${tenantId}:`, (error as Error).message)
+    }
+  }
+}
+
 /** Daily workspace housekeeping — a no-op until a tenant turns retention on. */
 async function workspacePass(): Promise<void> {
   for (const tenantId of await activeTenantIds()) {
     try {
       const { deleted } = await tidyWorkspaces(tenantId)
       if (deleted > 0) console.log(`[workspace] tenant ${tenantId}: retired ${deleted} aged file(s)`)
+      const recordings = await sweepExpiredRecordings(tenantId)
+      if (recordings.deleted > 0) console.log(`[recordings] tenant ${tenantId}: retired ${recordings.deleted}`)
     } catch (error) {
       console.error(`[workspace] tenant ${tenantId}:`, (error as Error).message)
     }
@@ -392,6 +427,8 @@ type HeartbeatPass =
   | 'workspace'
   | 'waits'
   | 'reports'
+  | 'gardener'
+  | 'trunks'
 type DeepWorkJob = { kind: 'assignment' | 'approval'; tenantId: string; id: string }
 
 // Deep work — assignment runs and approval continuations — gets its own queue
@@ -407,6 +444,8 @@ await heartbeat.upsertJobScheduler('calls', { every: 300_000 }, { name: 'tick', 
 await heartbeat.upsertJobScheduler('waits', { every: 3_600_000 }, { name: 'tick', data: { pass: 'waits' } })
 await heartbeat.upsertJobScheduler('reports', { every: 21_600_000 }, { name: 'tick', data: { pass: 'reports' } })
 await heartbeat.upsertJobScheduler('workspace', { every: 86_400_000 }, { name: 'tick', data: { pass: 'workspace' } })
+await heartbeat.upsertJobScheduler('gardener', { every: 86_400_000 }, { name: 'tick', data: { pass: 'gardener' } })
+await heartbeat.upsertJobScheduler('trunks', { every: 300_000 }, { name: 'tick', data: { pass: 'trunks' } })
 await heartbeat.upsertJobScheduler('journal', { every: 21_600_000 }, { name: 'tick', data: { pass: 'journal' } })
 await heartbeat.upsertJobScheduler('reflection', { every: 43_200_000 }, { name: 'tick', data: { pass: 'reflection' } })
 
@@ -420,6 +459,8 @@ const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
     else if (job.data.pass === 'waits') await waitsPass()
     else if (job.data.pass === 'reports') await weeklyReportPass()
     else if (job.data.pass === 'workspace') await workspacePass()
+    else if (job.data.pass === 'gardener') await gardenerPassAll()
+    else if (job.data.pass === 'trunks') await trunkHealthPass()
     else if (job.data.pass === 'journal') await journalPass()
     else if (job.data.pass === 'reflection') await reflectionPass()
     else await approvalsPass()

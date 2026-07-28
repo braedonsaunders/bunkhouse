@@ -384,6 +384,34 @@ export async function decideProposal(args: {
         reason: 'consolidator proposal',
       })
     }
+  } else if (proposal.kind === 'merge') {
+    // The gardener's merge: one surviving note absorbs the merged text
+    // (a correction, prior head snapshotted); the rest close behind it,
+    // same as any other supersession — never a delete.
+    const noteIds = proposal.payload.noteIds ?? (proposal.noteId ? [proposal.noteId] : [])
+    const survivorId = proposal.noteId ?? noteIds[0]
+    if (survivorId) {
+      const [survivor] = await app.db.select().from(memories).where(eq(memories.id, survivorId))
+      if (survivor && !survivor.validUntil) {
+        await correctNote({
+          tenantId: args.tenantId,
+          noteId: survivorId,
+          title: proposal.payload.title ?? survivor.title,
+          body: proposal.payload.body ?? survivor.body,
+          editedBy: 'consolidator',
+          reason: 'merge proposal',
+        })
+        const duplicateIds = noteIds.filter((noteId) => noteId !== survivorId)
+        for (const duplicateId of duplicateIds) {
+          await app.db
+            .update(memories)
+            .set({ validUntil: new Date(), supersededBy: survivorId, pinned: false, updatedAt: new Date() })
+            .where(and(eq(memories.id, duplicateId), isNull(memories.validUntil)))
+        }
+      }
+    }
+  } else if (proposal.kind === 'expire' && proposal.noteId) {
+    await expireNote(args.tenantId, proposal.noteId)
   }
   await app.db
     .update(memoryProposals)

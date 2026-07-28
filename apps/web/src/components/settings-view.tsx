@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Boxes, Brain, CircleDollarSign, FileText, FolderCog, Globe, ImageIcon, Mail, MessageSquare, Phone, Plug, Shield } from 'lucide-react'
+import { Boxes, Brain, CircleDollarSign, FileText, FolderCog, Globe, ImageIcon, Mail, MessageSquare,
+  MessagesSquare, Phone, Plug, Shield } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -33,6 +34,10 @@ import { AutonomySettings, type AgentDial } from './autonomy-settings'
 import { PhoneSystemRow, type AgentExtensionRow, type AgentOption, type PhoneNumberRowView, type SipTrunkSummary } from './phone-system'
 import { MailOauthApps, type MailOauthAppView } from './mail-oauth-apps'
 import { DocumentsSection, IntegrationsSection, ResearchSection, SmsSection, WorkspaceSection, type DocumentBrandingView, type IntegrationRowView, type SmsSettingsView, type WorkspacePolicyView } from './capability-settings'
+import { VoiceCostSettings, type VoiceCostSettingsView } from './voice-cost-settings'
+import { DocumentTemplatesView, type TemplateRowView } from './document-templates-view'
+import { FilingSection, type FilingActivityRow, type FilingSettingsView } from './filing-settings'
+import { ChatSettingsSection, type ChatAgentOption, type ChatChannelRouteRowView, type ChatConnectionsView } from './chat-settings'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
   <Link href={href} className={className} title={title}>
@@ -112,8 +117,12 @@ const NAV: SettingsNavGroup[] = [
       { key: 'mailboxes', label: 'Mailboxes', icon: <Mail /> },
       { key: 'voice', label: 'Voice', icon: <Phone /> },
       { key: 'sms', label: 'Text messaging', icon: <MessageSquare /> },
+      { key: 'chat', label: 'Chat bridge', icon: <MessagesSquare /> },
       { key: 'research', label: 'Research', icon: <Globe /> },
       { key: 'documents', label: 'Documents', icon: <FileText /> },
+      { key: 'templates', label: 'Document templates', icon: <FileText /> },
+      { key: 'filing', label: 'Filing', icon: <FolderCog /> },
+      { key: 'callcosts', label: 'Call costs & recordings', icon: <Phone /> },
       { key: 'workspace', label: 'Workspace', icon: <FolderCog /> },
       { key: 'integrations', label: 'Integrations', icon: <Plug /> },
       { key: 'images', label: 'Image generation', icon: <ImageIcon /> },
@@ -164,6 +173,10 @@ export function SettingsView({
   research,
   documents,
   workspace,
+  chat,
+  callCosts,
+  templates,
+  filing,
   sms,
   integrations,
   phoneSystem,
@@ -189,6 +202,15 @@ export function SettingsView({
   research: { provider: string | null }
   documents: DocumentBrandingView
   workspace: WorkspacePolicyView
+  callCosts: VoiceCostSettingsView
+  templates: TemplateRowView[]
+  filing: { settings: FilingSettingsView; activity: FilingActivityRow[] }
+  chat: {
+    connections: ChatConnectionsView
+    routes: ChatChannelRouteRowView[]
+    agents: ChatAgentOption[]
+    webhookUrls: { slack: string; teams: string }
+  }
   sms: SmsSettingsView
   integrations: IntegrationRowView[]
   phoneSystem: {
@@ -450,6 +472,17 @@ export function SettingsView({
       {active === 'research' ? <ResearchSection provider={research.provider} /> : null}
       {active === 'documents' ? <DocumentsSection branding={documents} /> : null}
       {active === 'workspace' ? <WorkspaceSection policy={workspace} /> : null}
+      {active === 'templates' ? <DocumentTemplatesView rows={templates} /> : null}
+      {active === 'filing' ? <FilingSection settings={filing.settings} activity={filing.activity} /> : null}
+      {active === 'callcosts' ? <VoiceCostSettings settings={callCosts} /> : null}
+      {active === 'chat' ? (
+        <ChatSettingsSection
+          connections={chat.connections}
+          routes={chat.routes}
+          agents={chat.agents}
+          webhookUrls={chat.webhookUrls}
+        />
+      ) : null}
 
       {active === 'integrations' ? <IntegrationsSection integrations={integrations} /> : null}
 

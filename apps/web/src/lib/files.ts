@@ -86,6 +86,64 @@ export async function getFileRecords(tenantId: string, fileIds: string[]): Promi
   return found.filter((f): f is FileRecord => f !== null)
 }
 
+/**
+ * Ledger an object that was written straight into the tenant's storage by
+ * something other than this process — a LiveKit Egress recording, for one.
+ * The bytes already exist at `storageKey`; this is the row that makes them a
+ * file the company owns. The object is read back once to size and hash it, so
+ * the ledger says the same thing about it as it does about every other file.
+ */
+export async function ledgerExistingObject(args: {
+  tenantId: string
+  personId?: string | null
+  runId?: string | null
+  kind: FileKind
+  filename: string
+  contentType: string
+  storageKey: string
+}): Promise<FileRecord> {
+  const { storage: s, ready } = storage()
+  await ready
+  const bytes = await s.getBytes(args.storageKey)
+  const app = db()
+  return app.withTenant(args.tenantId, async () => {
+    const [row] = await app.db
+      .insert(files)
+      .values({
+        tenantId: args.tenantId,
+        personId: args.personId ?? null,
+        runId: args.runId ?? null,
+        kind: args.kind,
+        filename: args.filename,
+        contentType: args.contentType,
+        sizeBytes: bytes.byteLength,
+        storageKey: args.storageKey,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+      })
+      .returning()
+    if (!row) throw new Error('File record could not be created.')
+    return row
+  })
+}
+
+/**
+ * Remove a ledgered file: the stored object first, then the row. Used by
+ * retention sweeps, which are the only places a file is ever destroyed. A
+ * storage object that has already gone is not an error — the row still goes.
+ */
+export async function deleteFileRecord(tenantId: string, fileId: string): Promise<boolean> {
+  const record = await getFileRecord(tenantId, fileId)
+  if (!record) return false
+  const { storage: s, ready } = storage()
+  await ready
+  await s.delete(record.storageKey)
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await app.db.delete(files).where(and(eq(files.tenantId, tenantId), eq(files.id, fileId)))
+  })
+  return true
+}
+
 /** The stored bytes for a ledgered file. */
 export async function getFileBytes(record: Pick<FileRecord, 'storageKey'>): Promise<Uint8Array> {
   const { storage: s, ready } = storage()

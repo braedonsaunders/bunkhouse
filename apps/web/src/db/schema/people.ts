@@ -46,6 +46,14 @@ export type AgentSalary = {
   monthlyUsd: number
   /** What happens at 100% of budget: stop working, keep working (overtime), or ask a human. */
   overagePolicy: 'pause' | 'overtime' | 'ask'
+  /**
+   * Monthly ceiling on live call minutes, counted across every call this agent
+   * takes or places. Undefined — the shape every existing row has — means no
+   * ceiling: calls are limited by the money budget alone. Once the ceiling is
+   * reached the agent stops answering and placing calls until the next month
+   * begins; inbound callers are offered a voicemail instead.
+   */
+  monthlyCallMinutes?: number
 }
 
 /** An agent's working window; resolved in `timezone` (IANA). */

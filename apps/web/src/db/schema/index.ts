@@ -12,6 +12,9 @@ export * from './voice'
 export * from './pbx'
 export * from './files'
 export * from './workspace'
+export * from './chat'
+export * from './templates'
+export * from './filing'
 export * from './browser'
 
 import { PEOPLE_TENANT_TABLES } from './people'
@@ -28,6 +31,9 @@ import { VOICE_TENANT_TABLES } from './voice'
 import { PBX_TENANT_TABLES } from './pbx'
 import { FILES_TENANT_TABLES } from './files'
 import { WORKSPACE_TENANT_TABLES } from './workspace'
+import { CHAT_TENANT_TABLES } from './chat'
+import { TEMPLATES_TENANT_TABLES } from './templates'
+import { FILING_TENANT_TABLES } from './filing'
 import { BROWSER_TENANT_TABLES } from './browser'
 
 /** Every bunkhouse tenant-scoped table; feed to @appkit/db's RLS installer. */
@@ -46,5 +52,8 @@ export const BUNKHOUSE_TENANT_TABLES = [
   ...PBX_TENANT_TABLES,
   ...FILES_TENANT_TABLES,
   ...WORKSPACE_TENANT_TABLES,
+  ...CHAT_TENANT_TABLES,
+  ...TEMPLATES_TENANT_TABLES,
+  ...FILING_TENANT_TABLES,
   ...BROWSER_TENANT_TABLES,
 ] as const

@@ -79,6 +79,23 @@ services:
     volumes:
       - minio-data:/data
 
+  # The registered-extensions bridge (phone system mode B). Dev only for now:
+  # the app ignores it entirely unless BUNKHOUSE_BRIDGE_CONFIG_DIR is set, and
+  # its /etc/asterisk is generated from the extension map by the app, never by
+  # hand. Production deliberately does NOT run this yet — see
+  # deploy/asterisk-bridge.yaml for the swarm block and why it is opt-in.
+  asterisk-bridge:
+    image: ${BUNKHOUSE_ASTERISK_IMAGE:-andrius/asterisk:latest}
+    container_name: bunkhouse-asterisk
+    restart: unless-stopped
+    command: ['asterisk', '-f', '-vvv', '-C', '/etc/asterisk/asterisk.conf']
+    volumes:
+      - asterisk-config:/etc/asterisk
+    ports:
+      - '5070:5070/udp'
+      - '5070:5070/tcp'
+      - '10100-10109:10100-10109/udp'
+
   mailpit:
     image: axllent/mailpit:latest
     container_name: bunkhouse-mailpit
@@ -104,3 +121,4 @@ services:
 
 volumes:
   minio-data:
+  asterisk-config:

@@ -14,6 +14,11 @@ import { getResearchSettings } from '../../../lib/research'
 import { getDocumentBranding } from '../../../lib/documents'
 import { getSmsSettings } from '../../../lib/sms'
 import { getWorkspacePolicy } from '../../../lib/workspace'
+import { chatWebhookUrls, listChatChannelRoutes, listChatConnections } from '../../../lib/chat-bridge'
+import { getVoiceRetention } from '../../../lib/voice-recording'
+import { getVoicePricing } from '../../../lib/voice-pricing'
+import { listDocumentTemplates } from '../../../lib/document-templates'
+import { getFilingSettingsView, listRecentFilings } from '../../../lib/filing'
 import { listMcpIntegrations } from '../../../lib/agent-abilities'
 import { listMailOauthApps, mailOauthRedirectUri } from '../../../lib/mail-oauth'
 import { AVATAR_PART_CATEGORIES, avatarPartCategory } from '../../../lib/avatar-parts'
@@ -96,6 +101,17 @@ export default async function SettingsPage({
   const research = await getResearchSettings(tenantId)
   const branding = await getDocumentBranding(tenantId)
   const workspacePolicy = await getWorkspacePolicy(tenantId)
+  const [voiceRetention, voicePricing, templates, filingSettings, filingActivity] = await Promise.all([
+    getVoiceRetention(tenantId),
+    getVoicePricing(tenantId),
+    listDocumentTemplates(tenantId),
+    getFilingSettingsView(tenantId),
+    listRecentFilings(tenantId),
+  ])
+  const [chatConnections, chatRoutes] = await Promise.all([
+    listChatConnections(tenantId),
+    listChatChannelRoutes(tenantId),
+  ])
   const smsSettings = await getSmsSettings(tenantId)
   const phoneNumberRows = await listPhoneNumbers(tenantId)
   const activeAgents = await app.withTenantContext(tenantId, () =>
@@ -154,6 +170,52 @@ export default async function SettingsPage({
         footerText: branding.footerText ?? '',
       }}
       workspace={{ retentionDays: workspacePolicy.retentionDays }}
+      callCosts={{
+        recordingDays: voiceRetention.recordingDays,
+        deepgramUsdPerMinute: voicePricing.deepgramUsdPerMinute ?? null,
+        elevenLabsUsdPerMinute: voicePricing.elevenLabsUsdPerMinute ?? null,
+        realtimeUsdPerMinute: voicePricing.realtimeUsdPerMinute ?? null,
+      }}
+      templates={templates.map((t) => ({
+        id: t.id,
+        slug: t.slug,
+        name: t.name,
+        description: t.description,
+        kind: t.kind,
+        defaultFormat: t.defaultFormat,
+        status: t.status,
+        body: t.body,
+        mergeFields: t.mergeFields,
+        produces: t.kind === 'spreadsheet' ? '.xlsx' : `.${t.defaultFormat}`,
+        fieldCount: t.mergeFields.length,
+        updatedAt: t.updatedAt.toISOString().slice(0, 16).replace('T', ' '),
+      }))}
+      filing={{
+        settings: filingSettings,
+        activity: filingActivity.map((entry) => ({
+          id: entry.id,
+          fileId: entry.fileId,
+          file: entry.filename ?? 'A file no longer in the record',
+          status: entry.status,
+          destination:
+            entry.provider === 'google_drive'
+              ? 'Google Drive'
+              : entry.provider === 'onedrive'
+                ? 'OneDrive / SharePoint'
+                : 'Server folder',
+          detail:
+            entry.status === 'filed'
+              ? (entry.location ?? 'Filed')
+              : (entry.reason ?? 'The copy did not land.'),
+          when: entry.createdAt.toISOString().slice(0, 16).replace('T', ' '),
+        })),
+      }}
+      chat={{
+        connections: chatConnections,
+        routes: chatRoutes,
+        agents: activeAgents,
+        webhookUrls: chatWebhookUrls(),
+      }}
       sms={{ provider: smsSettings.provider, fromNumber: smsSettings.fromNumber }}
       integrations={integrations.map((entry) => ({
         slug: entry.slug,

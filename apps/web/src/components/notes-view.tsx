@@ -244,16 +244,49 @@ export type ProposalRow = {
   rationale: string
   from: string
   createdAt: string
+  status: 'open' | 'auto_applied'
+  decidedAt: string | null
+  /** True for the monthly housekeeping pass (lib/consolidation.ts gardenerPass) —
+   *  rendered as "Housekeeping suggestion", never the internal job name. */
+  housekeeping: boolean
+  /** The live notes this proposal reads against, for a before/after diff. */
+  refs: { id: string; slug: string; title: string; body: string }[]
 }
+
+const HOUSEKEEPING_KIND_LABEL: Record<string, string> = {
+  merge: 'Merge duplicate notes',
+  expire: 'Retire stale note',
+  edit: 'Resolve contradiction',
+}
+
+const KIND_LABEL = (row: ProposalRow) => (row.housekeeping ? (HOUSEKEEPING_KIND_LABEL[row.kind] ?? 'Housekeeping') : row.kind)
 
 const PROPOSAL_COLUMNS: RecordColumn<ProposalRow>[] = [
   { key: 'title', label: 'Proposal', sortable: true },
-  { key: 'kind', label: 'Kind', kind: 'status', statusVariant: () => 'secondary' },
+  {
+    key: 'kind',
+    label: 'Type',
+    render: (row) => <Badge variant={row.housekeeping ? 'secondary' : 'outline'}>{KIND_LABEL(row)}</Badge>,
+  },
+  {
+    key: 'status',
+    label: 'Status',
+    render: (row) =>
+      row.status === 'auto_applied' ? (
+        <Badge variant="secondary">Applied automatically</Badge>
+      ) : (
+        <Badge variant="outline">Needs review</Badge>
+      ),
+  },
   { key: 'from', label: 'From', sortable: true },
   { key: 'createdAt', label: 'Proposed', sortable: true },
 ]
 
-/** The approval boundary for company knowledge, as a list + decision drawer. */
+/** The approval boundary for company knowledge, as a list + decision drawer.
+ *  Renders agent nominations, journal/reflection consolidator proposals, and
+ *  the monthly housekeeping pass's merge/expire/contradiction suggestions —
+ *  the last group gets a real before/after diff since "here's the new text"
+ *  alone doesn't explain what it replaces. */
 export function ProposalsView({ rows }: { rows: ProposalRow[] }) {
   const [selected, setSelected] = React.useState<ProposalRow | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -280,31 +313,70 @@ export function ProposalsView({ rows }: { rows: ProposalRow[] }) {
         rows={rows}
         getRowId={(row) => row.id}
         onRowClick={(row) => setSelected(row)}
-        empty={{ title: 'No open proposals', description: 'Agents nominate knowledge here; you decide what crosses.' }}
+        empty={{
+          title: 'No knowledge changes pending',
+          description:
+            'Agents nominate knowledge here, and the monthly housekeeping pass flags duplicate or conflicting notes — you decide what crosses.',
+        }}
       />
       <Drawer
         open={selected !== null}
         onClose={() => setSelected(null)}
-        title={selected ? `Proposal — ${selected.title}` : ''}
-        description={selected ? `${selected.kind} · from ${selected.from} · ${selected.createdAt}` : undefined}
+        title={selected ? `${selected.housekeeping ? 'Housekeeping suggestion' : 'Proposal'} — ${selected.title}` : ''}
+        description={selected ? `${KIND_LABEL(selected)} · from ${selected.from} · ${selected.createdAt}` : undefined}
         size="2xl"
       >
         {selected ? (
           <div className="space-y-4">
-            <div className="rounded-md border border-border p-3 text-sm whitespace-pre-wrap">{selected.body}</div>
+            {selected.refs.length > 0 ? (
+              <div className="space-y-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Current</p>
+                {selected.refs.map((ref) => (
+                  <div key={ref.id} className="rounded-md border border-border p-3 text-sm">
+                    <p className="mb-1 font-medium">
+                      [[{ref.slug}]] · {ref.title}
+                    </p>
+                    <p className="whitespace-pre-wrap text-fg-muted">{ref.body}</p>
+                  </div>
+                ))}
+                {selected.kind === 'expire' ? (
+                  <p className="text-sm text-fg-muted">This note will be retired — no successor note is created.</p>
+                ) : (
+                  <>
+                    <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Proposed</p>
+                    <div className="rounded-md border border-border p-3 text-sm whitespace-pre-wrap">{selected.body}</div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-md border border-border p-3 text-sm whitespace-pre-wrap">{selected.body}</div>
+            )}
             <p className="text-sm text-fg-muted">Rationale: {selected.rationale}</p>
-            <div className="flex items-center gap-2">
-              <Button onClick={() => decide('approve')} disabled={busy}>
-                {selected.kind === 'promote'
-                  ? 'Approve into company knowledge'
-                  : selected.kind === 'supersede'
-                    ? 'Approve — supersede the old note'
-                    : 'Approve this change'}
-              </Button>
-              <Button variant="outline" onClick={() => decide('reject')} disabled={busy}>
-                Reject
-              </Button>
-            </div>
+            {selected.status === 'auto_applied' ? (
+              <p className="text-sm text-fg-muted">
+                Applied automatically{selected.decidedAt ? ` on ${selected.decidedAt}` : ''} — the two notes were word-for-word
+                identical, so no review was needed.
+              </p>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Button onClick={() => decide('approve')} disabled={busy}>
+                  {selected.kind === 'promote'
+                    ? 'Approve into company knowledge'
+                    : selected.kind === 'supersede'
+                      ? 'Approve — supersede the old note'
+                      : selected.kind === 'merge'
+                        ? 'Approve — merge into one note'
+                        : selected.kind === 'expire'
+                          ? 'Approve — retire this note'
+                          : selected.housekeeping
+                            ? 'Approve — resolve contradiction'
+                            : 'Approve this change'}
+                </Button>
+                <Button variant="outline" onClick={() => decide('reject')} disabled={busy}>
+                  Reject
+                </Button>
+              </div>
+            )}
             {error ? <p className="text-sm text-danger">{error}</p> : null}
           </div>
         ) : null}
