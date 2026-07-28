@@ -16,6 +16,7 @@ import { getDocumentBranding } from '../../../lib/documents'
 import { getSmsSettings } from '../../../lib/sms'
 import { getWorkspacePolicy } from '../../../lib/workspace'
 import { listMcpIntegrations } from '../../../lib/agent-abilities'
+import { listMailOauthApps, mailOauthRedirectUri } from '../../../lib/mail-oauth'
 import { AVATAR_PART_CATEGORIES, avatarPartCategory } from '../../../lib/avatar-parts'
 import { IMAGE_MODELS } from '@appkit/avatars'
 import { resolveTenantId } from '../../../lib/tenant'
@@ -106,6 +107,7 @@ export default async function SettingsPage({
       .orderBy(asc(people.name)),
   )
   const integrations = await app.withTenantContext(tenantId, () => listMcpIntegrations(tenantId))
+  const mailOauthApps = await listMailOauthApps(tenantId)
 
   return (
     <PageContainer>
@@ -142,6 +144,8 @@ export default async function SettingsPage({
           lastError: b.lastError ?? '',
         }))}
         agentsWithoutMailbox={mailboxData.unconnected}
+        mailOauthApps={mailOauthApps}
+        mailOauthRedirectUri={mailOauthRedirectUri()}
         imageSetting={imageSetting}
         imageFallbackModels={IMAGE_MODELS}
         voiceProviders={{ deepgram: Boolean(voiceProviders.deepgram), elevenlabs: Boolean(voiceProviders.elevenlabs) }}

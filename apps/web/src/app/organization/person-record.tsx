@@ -36,12 +36,15 @@ export async function personDrawer({
   roster,
   selectedId,
   basePath,
+  mailboxError,
 }: {
   tenantId: string
   roster: Person[]
   selectedId?: string | undefined
   /** The organization surface the drawer was opened from; closing returns there. */
   basePath: string
+  /** Set when a mailbox sign-in redirected back here without connecting. */
+  mailboxError?: string | undefined
 }): Promise<ReactNode> {
   const selected = selectedId ? roster.find((person) => person.id === selectedId) : undefined
   if (!selected) return null
@@ -169,7 +172,7 @@ export async function personDrawer({
           {
             key: 'mailbox',
             label: 'Mailbox',
-            content: <MailboxSection tenantId={tenantId} personId={selected.id} />,
+            content: <MailboxSection tenantId={tenantId} personId={selected.id} error={mailboxError} />,
           },
           {
             key: 'duties',
@@ -265,6 +268,7 @@ export async function personDrawer({
       subtitle={`${selected.title}${manager ? ` · reports to ${manager.name}` : ''} · ${selected.email}`}
       kind={selected.kind}
       status={selected.status}
+      initialTabKey={mailboxError ? 'mailbox' : undefined}
       avatar={
         // Everyone in the organization gets a likeness — humans included.
         <AvatarPortrait

@@ -15,6 +15,7 @@ import {
 import { mailboxAccounts, mailMessages, mailThreads, people, type MailAttachmentRef } from '../db/schema'
 import { db } from '../db/client'
 import { getFileBytes, getFileRecords, saveFile } from './files'
+import { freshAccessToken, mailOauthProviderOf, recordMailboxError } from './mail-oauth'
 
 /** Attachments above this size are left in the mailbox, referenced but not ledgered. */
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
@@ -55,18 +56,33 @@ async function resolveOutboundAttachments(
 
 type Account = typeof mailboxAccounts.$inferSelect
 
-/** Rebuild the live connection from an account row + its sealed credential. */
-function toConnection(account: Account): MailboxConnection {
+/**
+ * Rebuild the live connection from an account row + its sealed credential.
+ * A Google Workspace or Microsoft 365 mailbox mints a short-lived access token
+ * for this one operation and authenticates with XOAUTH2; a self-hosted IMAP
+ * mailbox unseals its password. A credential failure is recorded on the account
+ * exactly like a failed sync, so the operator sees why the mailbox went quiet.
+ * Call inside an existing tenant scope.
+ */
+async function toConnection(tenantId: string, account: Account): Promise<MailboxConnection> {
   if (!account.imap) throw new Error('Mailbox has no IMAP endpoint configuration.')
-  const password = unsealSecret(JSON.parse(account.secretRef) as SealedSecret)
-  if (password === null) throw new Error('Mailbox credential cannot be unsealed (APPKIT_SECRET changed?).')
-  return {
+  const endpoints = {
     address: account.address,
     imap: { host: account.imap.imapHost, port: account.imap.imapPort, secure: account.imap.imapSecure },
     smtp: { host: account.imap.smtpHost, port: account.imap.smtpPort, secure: account.imap.smtpSecure },
-    username: account.imap.username,
-    password,
   }
+  if (mailOauthProviderOf(account)) {
+    try {
+      const { accessToken, username } = await freshAccessToken(tenantId, account)
+      return { ...endpoints, username, password: '', accessToken }
+    } catch (error) {
+      await recordMailboxError(tenantId, account.id, error instanceof Error ? error.message : String(error))
+      throw error
+    }
+  }
+  const password = unsealSecret(JSON.parse(account.secretRef) as SealedSecret)
+  if (password === null) throw new Error('Mailbox credential cannot be unsealed (APPKIT_SECRET changed?).')
+  return { ...endpoints, username: account.imap.username, password }
 }
 
 export type ConnectMailboxInput = {
@@ -218,7 +234,7 @@ export async function syncPersonMailbox(tenantId: string, personId: string): Pro
       .where(eq(mailboxAccounts.personId, personId))
     if (!account) throw new Error('No mailbox connected for this agent.')
     try {
-      const result = await syncMailbox(toConnection(account), makeStore(tenantId, account))
+      const result = await syncMailbox(await toConnection(tenantId, account), makeStore(tenantId, account))
       return { saved: result.saved }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -277,7 +293,7 @@ export async function sendReplyInThread(args: {
       ...(owner ? { fromName: owner.name } : {}),
       ...(attachments.wire.length ? { attachments: attachments.wire } : {}),
     }
-    const sent = await sendMail(toConnection(account), sendArgs)
+    const sent = await sendMail(await toConnection(args.tenantId, account), sendArgs)
 
     await app.db.insert(mailMessages).values({
       tenantId: args.tenantId,
@@ -319,7 +335,7 @@ export async function sendNewMail(args: {
       .where(eq(mailboxAccounts.personId, args.personId))
     if (!account) throw new Error('No mailbox connected for this agent.')
     const [owner] = await app.db.select().from(people).where(eq(people.id, args.personId))
-    const sent = await sendMail(toConnection(account), {
+    const sent = await sendMail(await toConnection(args.tenantId, account), {
       to: args.to,
       subject: args.subject,
       text: args.text,

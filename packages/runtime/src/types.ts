@@ -71,9 +71,19 @@ export type MemoryNote = {
   body: string
 }
 
+/** An image the agent should actually look at, inlined into the run's opening turn. */
+export type RunInputImage = { filename: string; mediaType: string; dataBase64: string }
+
 /** What triggered this run, rendered into the opening instruction. */
 export type RunInput =
-  | { type: 'email'; threadSubject: string; conversation: string; instruction?: string }
+  | {
+      type: 'email'
+      threadSubject: string
+      conversation: string
+      instruction?: string
+      /** Image attachments from the thread, shown to multimodal models. */
+      images?: RunInputImage[]
+    }
   | { type: 'duty'; dutyTitle: string; instruction: string }
   | { type: 'chat'; message: string }
   | { type: 'delegation'; fromName: string; instruction: string }

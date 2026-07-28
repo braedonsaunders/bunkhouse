@@ -31,6 +31,7 @@ import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
 import { ImageProviderForm } from './image-provider-form'
 import { AutonomySettings, type AgentDial } from './autonomy-settings'
 import { PhoneSystemRow, type AgentExtensionRow, type AgentOption, type PhoneNumberRowView, type SipTrunkSummary } from './phone-system'
+import { MailOauthApps, type MailOauthAppView } from './mail-oauth-apps'
 import { DocumentsSection, IntegrationsSection, ResearchSection, SmsSection, WorkspaceSection, type DocumentBrandingView, type IntegrationRowView, type SmsSettingsView, type WorkspacePolicyView } from './capability-settings'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
@@ -155,6 +156,8 @@ export function SettingsView({
   prices,
   mailboxes,
   agentsWithoutMailbox,
+  mailOauthApps,
+  mailOauthRedirectUri,
   imageSetting,
   imageFallbackModels,
   voiceProviders,
@@ -175,6 +178,10 @@ export function SettingsView({
   prices: PriceRow[]
   mailboxes: MailboxRow[]
   agentsWithoutMailbox: AgentWithoutMailbox[]
+  /** The company's Google Workspace / Microsoft 365 applications, secrets withheld. */
+  mailOauthApps: MailOauthAppView[]
+  /** The one address both providers call back to; operators copy it into their console. */
+  mailOauthRedirectUri: string
   imageSetting: { providerSlug: string; model: string } | null
   /** Static catalog offered only when the live provider model list fails. */
   imageFallbackModels: { id: string; name: string; provider: string }[]
@@ -362,6 +369,7 @@ export function SettingsView({
               </div>
             </SettingsRow>
           ) : null}
+          <MailOauthApps apps={mailOauthApps} redirectUri={mailOauthRedirectUri} />
         </SettingsSection>
       ) : null}
       {active === 'voice' ? (

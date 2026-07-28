@@ -18,14 +18,18 @@ import { governedCallTools } from '../src/lib/call-tools'
 import { resolveAgentAiConfig } from '../src/lib/ai'
 import { OUTBOUND_ROOM_PREFIX, transferCallToExtension } from '../src/lib/outbound-call'
 import { resolveRealtimeCredential, resolveSpeechCredential } from '../src/lib/voice'
+import { MEETING_ROOM_PREFIX } from '../src/lib/meetings'
+import { watchScreenShare } from '../src/lib/screen-share'
+import { saveFile } from '../src/lib/files'
 import { pinnedNotes, retrieveNotes } from '../src/lib/memory'
 import { resolvePrice } from '../src/lib/pricing'
 
 // The bunkhouse voice agent: joins every `call-*` (browser call, session
 // pre-created by the call page), `pbx-*` (inbound phone call dispatched by
-// LiveKit SIP, session created here), and `out-*` room (a call the agent
-// placed itself, session pre-created by `place_call`), loads the session's
-// agent, and holds the conversation. Media I/O lives here; identity,
+// LiveKit SIP, session created here), `out-*` room (a call the agent placed
+// itself, session pre-created by `place_call`), and `meet-*` room (a video
+// meeting, session pre-created when the invitation went out), loads the
+// session's agent, and holds the conversation. Media I/O lives here; identity,
 // procedures, and memory come from the same context assembly email runs use.
 // Every utterance is appended to the call_turns ledger; the run is completed
 // with a deterministic summary and LLM usage is metered into token_spend.
@@ -37,6 +41,13 @@ import { resolvePrice } from '../src/lib/pricing'
 // - realtime: OpenAI Realtime and Gemini Live. The Gemini plugin enables
 //   input+output audio transcription by default, so both speakers land in
 //   the transcript ledger on either provider.
+// - seeing a shared screen: neither the framework's room input (videoEnabled
+//   is declared but unimplemented in 1.6.0) nor the Gemini plugin's pushVideo
+//   (a no-op) carries video into a realtime session, so frames reach the model
+//   the way both realtime plugins genuinely do accept images — as chat-context
+//   image content, pushed between turns. Cascade sessions get no frames: the
+//   agent's text model may have no vision at all, and guessing wrong breaks the
+//   meeting. Either way every sampled frame is stored as evidence on the run.
 
 const app = db()
 
@@ -184,8 +195,19 @@ async function markFailed(session: SessionRow, message: string): Promise<void> {
   })
 }
 
+/** What a video meeting adds on top of a call: a purpose, and a screen. */
+type MeetingPosture = {
+  /** True when frames of a shared screen actually reach the speech model. */
+  seesScreen: boolean
+}
+
 /** The agent's whole working identity, plus how to behave on a live call. */
-async function buildInstructions(session: SessionRow, person: PersonRow, ai: AiConfig | null): Promise<string> {
+async function buildInstructions(
+  session: SessionRow,
+  person: PersonRow,
+  ai: AiConfig | null,
+  meeting: MeetingPosture | null = null,
+): Promise<string> {
   const config = person.voiceConfig!
   const directory = await app.withTenantContext(session.tenantId, () =>
     app.db.select().from(people).where(eq(people.status, 'active')),
@@ -229,7 +251,20 @@ async function buildInstructions(session: SessionRow, person: PersonRow, ai: AiC
 
   const caller = session.counterparty.name ?? 'the caller'
   const voiceAddendum = [
-    `You are on a live voice call with ${caller}. Speak naturally, in short turns — one to three sentences, then let them respond. Plain spoken words only: no markdown, no lists, no headings, nothing that only works on a screen.`,
+    meeting
+      ? `You are in a live video meeting with ${caller}. Speak naturally, in short turns — one to three sentences, then let them respond. Plain spoken words only: no markdown, no lists, no headings, nothing that only works on a screen.`
+      : `You are on a live voice call with ${caller}. Speak naturally, in short turns — one to three sentences, then let them respond. Plain spoken words only: no markdown, no lists, no headings, nothing that only works on a screen.`,
+    ...(meeting
+      ? [
+          ...(session.purpose
+            ? [`You set this meeting up. What it is for: ${session.purpose}. Open by saying who you are and what the meeting is about, then let them talk.`]
+            : []),
+          'They joined from a link in their browser, so they have a camera, a microphone, and a Share screen button. If it would be quicker to be shown than told — an error, a document, a system they are stuck in — ask them to share their screen.',
+          meeting.seesScreen
+            ? 'While a screen is shared you are sent a still picture of it every few seconds, whenever it changes. Talk about what you can actually see in those pictures, and ask them to scroll or move on when you need to see more. Never describe anything that has not appeared in one — if no picture has arrived yet, say so and ask them to start sharing.'
+            : 'You cannot see their screen while the meeting is running — your voice model takes sound only. Say that plainly rather than pretending, and ask them to describe what is on it. Everything they share is captured to the meeting record, so you can tell them honestly that you will go through it after the meeting and follow up.',
+        ]
+      : []),
     ...(session.direction === 'outbound_phone' && session.purpose
       ? [
           `You placed this call. What it is for: ${session.purpose}. Whoever answers has no idea who is on the line, so say who you are and why you are calling before anything else, and let them go once you have what you called for.`,
@@ -246,6 +281,67 @@ async function buildInstructions(session: SessionRow, person: PersonRow, ai: AiC
   return `${base}\n\n${voiceAddendum}`
 }
 
+/** How often a captured still is put in front of the model, at most. */
+const SCREEN_VISION_INTERVAL_MS = 20_000
+
+/**
+ * The meeting's eyes. Every sampled still of a shared screen is stored and
+ * ledgered on the run — that is the record of what the agent was shown, and it
+ * outlives the meeting. Where the speech model takes images, the most recent
+ * still is also handed to it between turns, so the agent is talking about the
+ * screen it can actually see rather than one it was told about.
+ */
+function watchMeetingScreen(args: {
+  ctx: JobContext
+  session: SessionRow
+  person: PersonRow
+  agent: voice.Agent
+  seesScreen: boolean
+  recordEvent: (kind: string, payload: Record<string, unknown>) => Promise<void>
+}): void {
+  const { ctx, session, person, agent, seesScreen, recordEvent } = args
+  let frameSeq = 0
+  let shownAt = 0
+  const watcher = watchScreenShare({
+    room: ctx.room,
+    onError: (message) => console.error(`[voice] room ${ctx.room.name ?? ''}: ${message}`),
+    onFrame: async (frame) => {
+      frameSeq += 1
+      const file = await saveFile({
+        tenantId: session.tenantId,
+        personId: person.id,
+        ...(session.runId ? { runId: session.runId } : {}),
+        kind: 'recording',
+        filename: `screen-${session.id}-${String(frameSeq).padStart(4, '0')}.jpg`,
+        contentType: frame.contentType,
+        bytes: frame.bytes,
+      })
+      await recordEvent('message', {
+        text: 'Screen-share frame captured',
+        fileId: file.id,
+        filename: file.filename,
+        sharedBy: frame.participantName,
+        width: frame.width,
+        height: frame.height,
+      })
+      if (!seesScreen) return
+      const now = Date.now()
+      if (now - shownAt < SCREEN_VISION_INTERVAL_MS) return
+      shownAt = now
+      const chatCtx = agent.chatCtx.copy()
+      chatCtx.addMessage({
+        role: 'user',
+        content: [
+          `${frame.participantName} is sharing their screen. This is what it looks like right now:`,
+          llm.createImageContent({ image: frame.dataUrl }),
+        ],
+      })
+      await agent.updateChatCtx(chatCtx)
+    },
+  })
+  ctx.addShutdownCallback(() => watcher.stop())
+}
+
 export default defineAgent({
   prewarm: async (proc: JobProcess) => {
     proc.userData.vad = await silero.VAD.load()
@@ -253,10 +349,12 @@ export default defineAgent({
   entry: async (ctx: JobContext) => {
     await ctx.connect()
     const roomName = ctx.room.name ?? ''
+    const isMeeting = roomName.startsWith(MEETING_ROOM_PREFIX)
     let resolvedSession: SessionRow | null = null
-    if (roomName.startsWith('call-') || roomName.startsWith(OUTBOUND_ROOM_PREFIX)) {
-      // Both are pre-created sessions: the call page's, and the one `place_call`
-      // committed before asking LiveKit SIP to dial the callee into this room.
+    if (roomName.startsWith('call-') || roomName.startsWith(OUTBOUND_ROOM_PREFIX) || isMeeting) {
+      // All three are pre-created sessions: the call page's, the one `place_call`
+      // committed before asking LiveKit SIP to dial the callee into this room,
+      // and the meeting the agent opened when it mailed the invitation.
       resolvedSession = await findSessionByRoom(roomName)
       if (!resolvedSession) {
         console.error(`[voice] no call_sessions row for room ${roomName}`)
@@ -290,6 +388,10 @@ export default defineAgent({
     // --- Build the speech pipeline from tenant-sealed credentials ----------
     let agentSession: voice.AgentSession
     let ai: AiConfig | null = null
+    // Whether frames of a shared screen can reach the model at all. Only the
+    // realtime providers take images, and only while their session accepts
+    // mid-flight context updates.
+    let seesScreen = false
     try {
       if (config.mode === 'cascade') {
         ai = await resolveAgentAiConfig(session.tenantId, person.id)
@@ -338,31 +440,29 @@ export default defineAgent({
             `No ${realtime.provider === 'google' ? 'Google' : 'OpenAI'} provider is configured under Settings → Model providers — realtime voice runs on its key.`,
           )
         }
-        agentSession =
+        const realtimeModel =
           realtime.provider === 'google'
-            ? new voice.AgentSession({
-                // Gemini Live. Input and output audio transcription are on by
-                // default in the plugin, so both speakers reach the ledger.
-                llm: new google.realtime.RealtimeModel({
-                  apiKey: credential.apiKey,
-                  model: realtime.model,
-                  voice: realtime.voice,
-                  // The Live API takes regioned BCP-47 tags only — it rejects
-                  // a bare "en" outright. A two-letter preference still steers
-                  // the agent through the prompt; the model auto-detects the
-                  // spoken language when none is pinned here.
-                  ...(config.language && config.language.includes('-')
-                    ? { language: config.language }
-                    : {}),
-                }),
+            ? // Gemini Live. Input and output audio transcription are on by
+              // default in the plugin, so both speakers reach the ledger.
+              new google.realtime.RealtimeModel({
+                apiKey: credential.apiKey,
+                model: realtime.model,
+                voice: realtime.voice,
+                // The Live API takes regioned BCP-47 tags only — it rejects
+                // a bare "en" outright. A two-letter preference still steers
+                // the agent through the prompt; the model auto-detects the
+                // spoken language when none is pinned here.
+                ...(config.language && config.language.includes('-') ? { language: config.language } : {}),
               })
-            : new voice.AgentSession({
-                llm: new openai.realtime.RealtimeModel({
-                  apiKey: credential.apiKey,
-                  model: realtime.model,
-                  voice: realtime.voice,
-                }),
+            : new openai.realtime.RealtimeModel({
+                apiKey: credential.apiKey,
+                model: realtime.model,
+                voice: realtime.voice,
               })
+        // Screen frames go in as chat-context images between turns, which a
+        // session that refuses mid-flight updates cannot take.
+        seesScreen = realtimeModel.capabilities.midSessionChatCtxUpdate
+        agentSession = new voice.AgentSession({ llm: realtimeModel })
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -482,7 +582,9 @@ export default defineAgent({
                 ? `Inbound call from ${session.counterparty.number ?? 'an unknown number'}`
                 : session.direction === 'outbound_phone'
                   ? `Outbound call to ${session.counterparty.name ?? session.counterparty.number ?? 'an unknown number'}`
-                  : `Voice call with ${session.counterparty.name ?? 'the caller'}`
+                  : isMeeting
+                    ? `Video meeting with ${session.counterparty.name ?? 'the guest'}`
+                    : `Voice call with ${session.counterparty.name ?? 'the caller'}`
             await app.db
               .update(runs)
               .set({
@@ -668,14 +770,16 @@ export default defineAgent({
     ctx.addShutdownCallback(() => assembled.close())
 
     try {
-      const instructions = await buildInstructions(session, person, ai)
-      await agentSession.start({
-        agent: new voice.Agent({ instructions, tools }),
-        room: ctx.room,
-      })
+      const instructions = await buildInstructions(session, person, ai, isMeeting ? { seesScreen } : null)
+      const agent = new voice.Agent({ instructions, tools })
+      await agentSession.start({ agent, room: ctx.room })
+      if (isMeeting) watchMeetingScreen({ ctx, session, person, agent, seesScreen, recordEvent })
       agentSession.generateReply({
-        instructions:
-          session.direction === 'outbound_phone' && session.purpose
+        instructions: isMeeting
+          ? session.purpose
+            ? `Greet ${session.counterparty.name ?? 'them'} briefly, as yourself, say the meeting is about: ${session.purpose}, and ask them to show you what they are working with when they are ready.`
+            : `Greet ${session.counterparty.name ?? 'them'} briefly, as yourself, and ask what they would like to go through.`
+          : session.direction === 'outbound_phone' && session.purpose
             ? `You placed this call to: ${session.purpose}. Introduce yourself and get to it politely.`
             : `Greet ${session.counterparty.name ?? 'the caller'} briefly, as yourself, and ask how you can help.`,
       })

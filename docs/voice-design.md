@@ -119,6 +119,23 @@ meeting_links(id, tenant_id, session_id, token, created_by_person_id, expires_at
    tokenized UI); agent joins as participant, samples screen-share frames (~1fps,
    on-change) into its multimodal context; frames persisted as `screen_frame` turns —
    the replayable session record. Gate `videoMeetings`, dependent on `voice`.
+   **SHIPPED:** `0027_meetings` (`meeting_links`: token, 48h expiry, joined_at),
+   `lib/meetings.ts` (`createMeeting` + the `send_meeting_link` ability, delivered
+   over mail under `external_email`), the `/meet/[token]` guest room (name, join,
+   camera/mic/screen-share toggles, video tiles — no account, no download; the
+   route is exempt from the auth middleware and renders outside the app shell),
+   and `meet-*` rooms answered by the voice worker with a purpose-aware greeting.
+   Screen share: the worker subscribes to SOURCE_SCREENSHARE and samples it every
+   5s **on change**, storing each still as a `recording` file plus a run event —
+   the replayable record (files, not `screen_frame` turns, since call_turns has no
+   kind column). Honest limit on *seeing*: LiveKit Agents 1.6.0 has no video input
+   path (`RoomInputOptions.videoEnabled` is declared but unimplemented; the Gemini
+   plugin's `pushVideo` is a no-op), so frames reach the model the way both
+   realtime plugins genuinely do accept images — as chat-context image content
+   pushed between turns, at most one per 20s. Realtime agents (OpenAI Realtime,
+   Gemini Live with mid-session context updates) therefore really see the screen;
+   cascade agents do not — their text model may have no vision at all — and are
+   instructed to say so plainly and review the captured stills afterwards.
 5. **Operations polish.** Transfer-to-human (SIP REFER), voicemail→mail-thread
    handoff, per-agent call-minutes budget lines, retention policies UI.
 

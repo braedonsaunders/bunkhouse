@@ -243,10 +243,41 @@ tiers landed together:
    approvals in a category still on 'approval' surface a "ready for more trust" badge
    on the dial.
 
-Still open after this pass: Gmail/Microsoft Graph OAuth mailbox connectors (needs
-real OAuth apps), recorded browser computer-use, video meetings + screen share
-(voice slice 4), image understanding in mail, OCR for scanned PDFs, per-tenant
-document templates.
+Google Workspace and Microsoft 365 mailboxes now connect by sign-in rather than by
+password, over the same IMAP/SMTP engine: `@appkit/mailbox` **0.3.0** adds
+`MailboxConnection.accessToken` (XOAUTH2 on both endpoints), `lib/mail-oauth.ts`
+owns the credential lifecycle (sealed state + PKCE, code exchange, per-operation
+access tokens, Microsoft's rotating refresh token written back in its own committed
+transaction), and `/api/mail-oauth/{start,callback}` carry the round-trip. The
+company registers its own Google/Entra application once under Settings → Mailboxes.
+
+Also in this pass:
+
+- **Recorded browser computer-use.** Six `computer_use`-governed abilities
+  (`browser_open/click/type/read/screenshot/close`) on puppeteer-core + system
+  Chromium: one session per run, every step — including refusals and failures — an
+  append-only `browser_steps` row with a JPEG frame in the files ledger; SSRF checks
+  on every navigation hop; downloads denied; typed passwords withheld from the
+  ledger; sessions closed at run teardown and by an idle reaper. The run desk
+  replays the session step by step. Migration `0026_browser_use`.
+- **Video meetings + screen share** (voice slice 4). `send_meeting_link` emails a
+  48-hour guest link; `/meet/<token>` is a no-login tokenized room (camera, mic,
+  screen share); the voice worker answers `meet-*` rooms briefed on the purpose.
+  Screen vision is honest: realtime models that accept mid-session context updates
+  get the latest still injected (≤1 per 20 s); every meaningfully-changed frame
+  (≤1 per 5 s) is filed as evidence regardless; cascade agents say plainly they
+  cannot see the screen live. Unopened invitations are swept once the link
+  expires. Migration `0027_meetings`.
+- **Image understanding in mail.** Up to four inbound image attachments ride the
+  run's opening turn as real image content — the agent sees the receipt, not its
+  filename.
+- **OCR.** Scanned PDFs (no text layer) fall through to pdftoppm + tesseract
+  (first 10 pages, honest notes); `read_file` on an image OCRs it. tesseract and
+  chromium joined the deploy image.
+
+Still open: per-tenant document templates; Drive/OneDrive/SMB filing connectors;
+Slack/Teams bridge; a live-vision cascade path (needs per-model vision capability
+detection); meeting recording via LiveKit Egress.
 
 **Generality note.** Assignments are not a "research report" feature: `take_assignment`
 accepts any committed work a colleague could take on (formats optional — many

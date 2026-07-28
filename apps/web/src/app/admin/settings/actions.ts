@@ -14,6 +14,7 @@ import { saveDocumentBranding } from '../../../lib/documents'
 import { removeSmsSettings, saveSmsSettings } from '../../../lib/sms'
 import { saveWorkspacePolicy } from '../../../lib/workspace'
 import { listMcpIntegrations, saveMcpIntegrations } from '../../../lib/agent-abilities'
+import { isMailOauthProvider, removeMailOauthApp, saveMailOauthApp } from '../../../lib/mail-oauth'
 import { connectMcpServers } from '@bunkhouse/runtime'
 import { sealSecret } from '@appkit/crypto'
 import { db } from '../../../db/client'
@@ -385,4 +386,49 @@ export async function removeSmsSettingsAction(): Promise<void> {
   const tenantId = await resolveTenantId()
   await removeSmsSettings(tenantId)
   revalidatePath('/admin/settings')
+}
+
+// --- Email sign-in applications --------------------------------------------
+
+/** Save the company's Google Workspace or Microsoft 365 application. The
+ *  client secret is sealed before it is persisted and never rendered back. */
+export async function saveMailOauthAppAction(input: {
+  provider: string
+  clientId: string
+  clientSecret: string
+  directory?: string
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!isMailOauthProvider(input.provider)) {
+    return { ok: false, message: 'Choose Google Workspace or Microsoft 365.' }
+  }
+  try {
+    const tenantId = await resolveTenantId()
+    await saveMailOauthApp({
+      tenantId,
+      provider: input.provider,
+      clientId: input.clientId,
+      clientSecret: input.clientSecret,
+      ...(input.directory?.trim() ? { directory: input.directory.trim() } : {}),
+    })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  revalidatePath('/admin/settings')
+  return { ok: true }
+}
+
+/** Remove an email sign-in application. Mailboxes connected through it stop
+ *  refreshing and report the missing application on their next sync. */
+export async function removeMailOauthAppAction(
+  provider: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!isMailOauthProvider(provider)) return { ok: false, message: 'Unknown mail provider.' }
+  try {
+    const tenantId = await resolveTenantId()
+    await removeMailOauthApp(tenantId, provider)
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  revalidatePath('/admin/settings')
+  return { ok: true }
 }

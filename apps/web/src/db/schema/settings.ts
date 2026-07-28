@@ -90,4 +90,21 @@ export type SmsProviderSettings = RawSmsConfig
 
 export const SMS_PROVIDER_KEY = 'sms.provider'
 
+/** settings key: 'mail.oauthApps' — the company's own Google Workspace and
+ *  Microsoft 365 applications, used to sign agents into their mailboxes. Only
+ *  the application's identity lives here; the per-mailbox refresh token is
+ *  sealed on the mailbox account row, not in settings. Client secrets are
+ *  sealed at rest and unsealed only during a token exchange. */
+export type MailOauthAppSettings = {
+  google?: { clientId: string; sealedClientSecret: SealedSecret }
+  microsoft?: {
+    clientId: string
+    sealedClientSecret: SealedSecret
+    /** Microsoft Entra directory: a directory (tenant) ID, or 'common'. */
+    tenant: string
+  }
+}
+
+export const MAIL_OAUTH_APPS_KEY = 'mail.oauthApps'
+
 export const SETTINGS_TENANT_TABLES = ['tenant_settings'] as const

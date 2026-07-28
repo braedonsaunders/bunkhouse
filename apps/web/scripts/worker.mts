@@ -360,6 +360,25 @@ async function callSweepPass(): Promise<void> {
     `),
   )
   if (swept.rows.length > 0) console.log(`[calls] swept ${swept.rows.length} abandoned call run(s)`)
+
+  // Meeting invitations nobody opened: once the link expires unjoined, the
+  // pre-created session closes so nothing sits 'active' forever.
+  const meetings = await app.withSuperAdmin((superDb) =>
+    superDb.execute(sql`
+      with unopened as (
+        update call_sessions cs set status = 'ended', ended_at = now(), updated_at = now()
+        from meeting_links ml
+        where ml.session_id = cs.id and cs.status = 'active'
+          and ml.joined_at is null and ml.expires_at < now()
+        returning cs.run_id
+      )
+      update runs set status = 'completed', finished_at = now(),
+        summary = 'Meeting invitation expired without being opened.'
+      where id in (select run_id from unopened where run_id is not null) and status = 'running'
+      returning id
+    `),
+  )
+  if (meetings.rows.length > 0) console.log(`[calls] closed ${meetings.rows.length} unopened meeting invitation(s)`)
 }
 
 type HeartbeatPass =

@@ -11,6 +11,7 @@ import {
   type BoundProcedure,
   type GovernanceState,
   type RunInput,
+  type RunInputImage,
   type RunOutcome,
 } from '@bunkhouse/runtime'
 import {
@@ -35,6 +36,8 @@ import { sendNewMail, sendReplyInThread } from './mailbox'
 import { pinnedNotes, retrieveNotes } from './memory'
 import { describeToolCall } from './call-activity'
 import { isWithinWorkingHours } from './working-hours'
+import { getFileBytes, getFileRecord } from './files'
+import { closeBrowserSession } from './browser-use'
 
 
 
@@ -300,7 +303,11 @@ export async function executeAgentRun(args: {
         overagePolicy: person.salary?.overagePolicy ?? 'ask',
       },
       sink,
-    }).finally(() => assembled.close())
+    }).finally(async () => {
+      await assembled.close()
+      // A browser left open by the model is closed with the run, not leaked.
+      await closeBrowserSession(runId)
+    })
 
     const status =
       outcome.status === 'completed'
@@ -362,8 +369,15 @@ export async function executeAgentRun(args: {
   })
 }
 
+/** How many thread images ride into the model, and how big each may be. */
+const MAX_RUN_IMAGES = 4
+const MAX_RUN_IMAGE_BYTES = 4 * 1024 * 1024
+
 /** Render an email thread into the run instruction's conversation block. */
-export async function threadConversation(tenantId: string, threadId: string): Promise<{ subject: string; conversation: string }> {
+export async function threadConversation(
+  tenantId: string,
+  threadId: string,
+): Promise<{ subject: string; conversation: string; images: RunInputImage[] }> {
   const app = db()
   return app.withTenantContext(tenantId, async () => {
     const [thread] = await app.db.select().from(mailThreads).where(eq(mailThreads.id, threadId))
@@ -383,7 +397,28 @@ export async function threadConversation(tenantId: string, threadId: string): Pr
         return `From ${m.from.name || m.from.address} (${m.direction}) at ${m.sentAt.toISOString()}:\n${m.bodyText}${attachments}`
       })
       .join('\n\n---\n\n')
-    return { subject: thread.subject, conversation }
+
+    // Recent inbound image attachments become part of what the agent sees —
+    // newest first, bounded so one photo-heavy thread cannot flood the context.
+    const images: RunInputImage[] = []
+    for (const message of messages) {
+      if (message.direction !== 'inbound') continue
+      for (const attachment of message.attachments) {
+        if (images.length >= MAX_RUN_IMAGES) break
+        if (!attachment.contentType.startsWith('image/')) continue
+        if (attachment.size > MAX_RUN_IMAGE_BYTES) continue
+        const record = await getFileRecord(tenantId, attachment.fileId)
+        if (!record) continue
+        const bytes = await getFileBytes(record)
+        images.push({
+          filename: attachment.filename,
+          mediaType: attachment.contentType,
+          dataBase64: Buffer.from(bytes).toString('base64'),
+        })
+      }
+      if (images.length >= MAX_RUN_IMAGES) break
+    }
+    return { subject: thread.subject, conversation, images }
   })
 }
 
@@ -529,12 +564,12 @@ export async function startRunsForNewInbound(tenantId: string): Promise<number> 
       })
       continue
     }
-    const { subject, conversation } = await threadConversation(tenantId, item.threadId)
+    const { subject, conversation, images } = await threadConversation(tenantId, item.threadId)
     await executeAgentRun({
       tenantId,
       personId: item.personId,
       trigger: { type: 'email', threadId: item.threadId, messageId: item.messageId },
-      input: { type: 'email', threadSubject: subject, conversation },
+      input: { type: 'email', threadSubject: subject, conversation, ...(images.length ? { images } : {}) },
       // The sender is who work committed on this thread defaults to.
       ...(item.sender ? { counterparty: { address: item.sender } } : {}),
     })

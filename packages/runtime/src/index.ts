@@ -24,6 +24,7 @@ export type {
   MemoryNote,
   RunEvent,
   RunInput,
+  RunInputImage,
   RunOutcome,
   RunSink,
   TokenUsage,

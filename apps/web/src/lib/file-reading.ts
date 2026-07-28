@@ -1,4 +1,9 @@
 import 'server-only'
+import { execFile } from 'node:child_process'
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
 import ExcelJS, { type CellValue } from 'exceljs'
 import { extractText, getDocumentProxy } from 'unpdf'
 import {
@@ -21,7 +26,7 @@ import { getFileBytes, getFileRecord, saveFile, type FileRecord } from './files'
  * stays retrievable and the audit trail keeps both.
  */
 
-export type FileTextKind = 'docx' | 'pdf' | 'xlsx' | 'html' | 'text' | 'binary'
+export type FileTextKind = 'docx' | 'pdf' | 'xlsx' | 'html' | 'text' | 'image' | 'binary'
 
 export type ExtractedFileText = {
   kind: FileTextKind
@@ -216,13 +221,104 @@ async function xlsxToText(bytes: Uint8Array): Promise<string> {
   return lines.join('\n')
 }
 
+// ---------------------------------------------------------------------------
+// OCR — scanned PDFs and images, via poppler's pdftoppm + tesseract
+// ---------------------------------------------------------------------------
+
+const run = promisify(execFile)
+
+/** Rasterizing + recognizing is expensive; a scanned book is not a use case. */
+const MAX_OCR_PAGES = 10
+const OCR_TIMEOUT_MS = 120_000
+const OCR_RENDER_DPI = '200'
+
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'tif', 'tiff', 'webp', 'bmp'])
+
+const OCR_UNAVAILABLE_NOTE = 'OCR is not available on this host, so the scan could not be read.'
+const OCR_RECOVERED_NOTE = 'Text recovered by OCR from a scanned document — expect occasional recognition errors.'
+
+let ocrProbe: Promise<boolean> | null = null
+
+/** Both binaries must answer for OCR to be offered; probed once per process. */
+function ocrAvailable(): Promise<boolean> {
+  ocrProbe ??= (async () => {
+    try {
+      await run('tesseract', ['--version'], { timeout: 10_000 })
+      await run('pdftoppm', ['-v'], { timeout: 10_000 })
+      return true
+    } catch {
+      return false
+    }
+  })()
+  return ocrProbe
+}
+
+async function tesseractFile(path: string): Promise<string> {
+  const { stdout } = await run('tesseract', [path, 'stdout', '-l', 'eng'], {
+    timeout: OCR_TIMEOUT_MS,
+    maxBuffer: 8 * 1024 * 1024,
+  })
+  return stdout
+}
+
+/** Rasterize the first pages of a scanned PDF and recognize each one. */
+async function ocrPdfBytes(bytes: Uint8Array): Promise<string> {
+  const workdir = await mkdtemp(join(tmpdir(), 'bunkhouse-ocr-'))
+  try {
+    const source = join(workdir, 'in.pdf')
+    await writeFile(source, bytes)
+    await run(
+      'pdftoppm',
+      ['-png', '-r', OCR_RENDER_DPI, '-f', '1', '-l', String(MAX_OCR_PAGES), source, join(workdir, 'page')],
+      { timeout: OCR_TIMEOUT_MS },
+    )
+    const pages = (await readdir(workdir)).filter((name) => name.startsWith('page') && name.endsWith('.png')).sort()
+    const texts: string[] = []
+    for (const page of pages) {
+      const text = (await tesseractFile(join(workdir, page))).trim()
+      if (text) texts.push(text)
+    }
+    return texts.join('\n\n')
+  } finally {
+    await rm(workdir, { recursive: true, force: true })
+  }
+}
+
+async function ocrImageBytes(bytes: Uint8Array, extension: string): Promise<string> {
+  const workdir = await mkdtemp(join(tmpdir(), 'bunkhouse-ocr-'))
+  try {
+    const source = join(workdir, `in.${extension || 'png'}`)
+    await writeFile(source, bytes)
+    return (await tesseractFile(source)).trim()
+  } finally {
+    await rm(workdir, { recursive: true, force: true })
+  }
+}
+
 async function pdfToText(bytes: Uint8Array): Promise<ExtractedFileText> {
   // pdf.js detaches the buffer it is handed, so it gets its own copy.
   const pdf = await getDocumentProxy(new Uint8Array(bytes))
   const { totalPages, text } = await extractText(pdf, { mergePages: true })
   const dense = text.replace(/\s+/g, '')
   const scanned = dense.length < MIN_PDF_CHARS_PER_PAGE * Math.max(totalPages, 1)
-  return clip('pdf', text.trim(), scanned ? SCANNED_PDF_NOTE : undefined)
+  if (!scanned) return clip('pdf', text.trim())
+
+  // No text layer: this is a scan. Recover what OCR can before giving up.
+  if (!(await ocrAvailable())) return clip('pdf', text.trim(), `${SCANNED_PDF_NOTE} ${OCR_UNAVAILABLE_NOTE}`)
+  const recognized = await ocrPdfBytes(bytes)
+  if (!recognized) return clip('pdf', text.trim(), `${SCANNED_PDF_NOTE} OCR found no readable text either.`)
+  const pageNote =
+    totalPages > MAX_OCR_PAGES ? ` Only the first ${MAX_OCR_PAGES} of ${totalPages} pages were recognized.` : ''
+  return clip('pdf', recognized, `${OCR_RECOVERED_NOTE}${pageNote}`)
+}
+
+async function imageToText(bytes: Uint8Array, extension: string): Promise<ExtractedFileText> {
+  if (!(await ocrAvailable())) {
+    return { kind: 'image', text: '', note: `This is an image. ${OCR_UNAVAILABLE_NOTE}` }
+  }
+  const recognized = await ocrImageBytes(bytes, extension)
+  if (!recognized) return { kind: 'image', text: '', note: 'No readable text was found in the image.' }
+  return clip('image', recognized, 'Text recognized from the image by OCR — expect occasional errors.')
 }
 
 function isDocx(record: Pick<FileRecord, 'filename' | 'contentType'>): boolean {
@@ -252,6 +348,9 @@ export async function extractFileText(record: FileRecord, bytes: Uint8Array): Pr
   }
   if (HTML_EXTENSIONS.has(extension) || mediaType === 'text/html' || mediaType === 'application/xhtml+xml') {
     return clip('html', htmlToText(decodeUtf8(bytes)))
+  }
+  if (IMAGE_EXTENSIONS.has(extension) || mediaType.startsWith('image/')) {
+    return imageToText(bytes, extension)
   }
   if (TEXT_EXTENSIONS.has(extension) || TEXT_CONTENT_TYPES.has(mediaType) || mediaType.startsWith('text/')) {
     return clip('text', decodeUtf8(bytes))

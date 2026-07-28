@@ -28,6 +28,8 @@ import { documentAbilities } from './documents'
 import { workspaceAbilities } from './workspace'
 import { sendSms, smsConfigured } from './sms'
 import { outboundCallAbilities } from './outbound-call'
+import { browserAbilities } from './browser-use'
+import { meetingAbilities } from './meetings'
 
 /**
  * The one place an agent's working abilities are assembled — email runs, duty
@@ -653,9 +655,11 @@ export async function assembleAbilities(args: {
     ...(args.waitState ? askAbilities({ tenantId, person, runId, waitState: args.waitState }) : []),
     ...(await smsAbilities({ tenantId })),
     ...outboundCallAbilities({ tenantId, person, runId }),
+    ...meetingAbilities({ tenantId, person, runId }),
     ...delegationAbilities({ tenantId, person, runId }),
     ...documentAbilities({ tenantId, person, runId }),
     ...workspaceAbilities({ tenantId, person, runId }),
+    ...browserAbilities({ tenantId, person, runId }),
     ...assignmentAbilities({
       tenantId,
       person,

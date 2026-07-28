@@ -14,12 +14,14 @@ import {
   Mail,
   MessageCircleQuestion,
   MessageSquare,
+  MonitorSmartphone,
   NotebookPen,
   PhoneOutgoing,
   Plug,
   Search,
   Table2,
   TerminalSquare,
+  Video,
   type LucideIcon,
 } from 'lucide-react'
 import { Badge } from '@appkit/ui'
@@ -57,6 +59,13 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   send_sms: MessageSquare,
   read_file: FileText,
   revise_document: FileText,
+  browser_open: MonitorSmartphone,
+  browser_click: MonitorSmartphone,
+  browser_type: MonitorSmartphone,
+  browser_read: MonitorSmartphone,
+  browser_screenshot: MonitorSmartphone,
+  browser_close: MonitorSmartphone,
+  send_meeting_link: Video,
 }
 
 function StatusMark({ status }: { status: ToolActivityItem['status'] }) {

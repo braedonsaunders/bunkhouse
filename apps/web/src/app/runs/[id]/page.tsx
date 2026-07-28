@@ -1,3 +1,4 @@
+import Image from 'next/image'
 import { notFound } from 'next/navigation'
 import { asc, eq, inArray, sql } from 'drizzle-orm'
 import {
@@ -11,7 +12,7 @@ import {
   PageContainer,
 } from '@appkit/ui'
 import { formatAttachmentSize } from '@appkit/storage'
-import { approvals, callSessions, callTurns, files, people, procedureRevisions, procedures, runEvents, runs, tokenSpend } from '../../../db/schema'
+import { approvals, browserSessions, browserSteps, callSessions, callTurns, files, people, procedureRevisions, procedures, runEvents, runs, tokenSpend, type BrowserStepDetail } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
 import { toolActivityFromEvents, type CallActivityEvent } from '../../../lib/call-activity'
@@ -48,6 +49,27 @@ function describeTrigger(trigger: Record<string, unknown>): string {
     default:
       return 'Manual'
   }
+}
+
+/** Frames are captured at 1280×900, so the thumbnail keeps that exact ratio. */
+const BROWSER_THUMBNAIL = { width: 128, height: 90 }
+
+const BROWSER_STEP_VERBS: Record<string, string> = {
+  open: 'Opened',
+  click: 'Clicked',
+  type: 'Typed into',
+  read: 'Read',
+  screenshot: 'Captured',
+  close: 'Closed the browser',
+}
+
+/** One plain line per recorded step: what the agent did, and where it landed. */
+function describeBrowserStep(action: string, detail: BrowserStepDetail): string {
+  const verb = BROWSER_STEP_VERBS[action] ?? action
+  const target = detail.target ?? detail.title ?? detail.url ?? ''
+  const typed = detail.text ? ` — "${detail.text}"` : ''
+  const failure = detail.error ? ` — ${detail.error}` : ''
+  return `${verb}${target ? ` ${target}` : ''}${typed}${failure}`
 }
 
 export default async function RunPage({
@@ -144,7 +166,25 @@ export default async function RunPage({
           .orderBy(asc(callTurns.seq))
       : null
     const producedFiles = await app.db.select().from(files).where(eq(files.runId, id)).orderBy(asc(files.createdAt))
-    return { run, agent: agent ?? null, events, spend, citedProcedures, revisions, approvalRows, callSession: callSession ?? null, transcript, producedFiles }
+    // Computer use is recorded, always: if this run drove a browser, its steps
+    // and their frames replay here.
+    const [browserSession] = await app.db
+      .select({ id: browserSessions.id, status: browserSessions.status })
+      .from(browserSessions)
+      .where(eq(browserSessions.runId, id))
+    const browserStepRows = browserSession
+      ? await app.db
+          .select({
+            seq: browserSteps.seq,
+            action: browserSteps.action,
+            detail: browserSteps.detail,
+            screenshotFileId: browserSteps.screenshotFileId,
+          })
+          .from(browserSteps)
+          .where(eq(browserSteps.sessionId, browserSession.id))
+          .orderBy(asc(browserSteps.seq))
+      : []
+    return { run, agent: agent ?? null, events, spend, citedProcedures, revisions, approvalRows, callSession: callSession ?? null, transcript, producedFiles, browserSession: browserSession ?? null, browserStepRows }
   })
 
   if (!data) notFound()
@@ -259,6 +299,58 @@ export default async function RunPage({
                 <span className="font-medium">{file.filename}</span>
                 <span className="text-fg-muted">{formatAttachmentSize(file.sizeBytes)}</span>
               </a>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {data.browserStepRows.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              Browser session
+              {data.browserSession ? (
+                <Badge variant={data.browserSession.status === 'failed' ? 'destructive' : 'outline'}>
+                  {data.browserSession.status}
+                </Badge>
+              ) : null}
+            </CardTitle>
+            <CardDescription>
+              Every step the agent took at the keyboard, with the screen as it looked — computer use is always
+              replayable.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {data.browserStepRows.map((step) => (
+              <div
+                key={step.seq}
+                className="flex items-start gap-3 rounded-md border border-border bg-surface p-2 text-xs"
+              >
+                <span className="w-6 shrink-0 pt-0.5 text-right font-medium tabular-nums text-fg-muted">
+                  {step.seq}
+                </span>
+                {step.screenshotFileId ? (
+                  <a href={`/api/files/${step.screenshotFileId}`} target="_blank" rel="noreferrer" className="shrink-0">
+                    <Image
+                      src={`/api/files/${step.screenshotFileId}`}
+                      alt={`Step ${step.seq}: ${step.action}`}
+                      width={BROWSER_THUMBNAIL.width}
+                      height={BROWSER_THUMBNAIL.height}
+                      loading="lazy"
+                      unoptimized
+                      className="rounded border border-border object-contain"
+                    />
+                  </a>
+                ) : (
+                  <span className="flex h-[90px] w-32 shrink-0 items-center justify-center rounded border border-dashed border-border text-fg-subtle">
+                    no frame
+                  </span>
+                )}
+                <div className="min-w-0 flex-1 space-y-1 pt-0.5">
+                  <p className="text-fg">{describeBrowserStep(step.action, step.detail)}</p>
+                  {step.detail.url ? <p className="truncate text-fg-muted">{step.detail.url}</p> : null}
+                </div>
+              </div>
             ))}
           </CardContent>
         </Card>

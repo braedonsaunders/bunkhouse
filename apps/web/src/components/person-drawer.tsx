@@ -30,6 +30,7 @@ export function PersonDrawer({
   status,
   avatar,
   avatarTabKey,
+  initialTabKey,
   tabs,
 }: {
   open: boolean
@@ -42,10 +43,14 @@ export function PersonDrawer({
   avatar: React.ReactNode
   /** Tab the header portrait opens, so the face is a way into its own editor. */
   avatarTabKey?: string
+  /** Tab to land on, when the record was opened to show something specific. */
+  initialTabKey?: string | undefined
   tabs: PersonDrawerTab[]
 }) {
   const router = useRouter()
-  const [active, setActive] = React.useState(tabs[0]?.key ?? 'overview')
+  const [active, setActive] = React.useState(
+    initialTabKey && tabs.some((tab) => tab.key === initialTabKey) ? initialTabKey : (tabs[0]?.key ?? 'overview'),
+  )
   const items: SubtabItem[] = tabs.map((tab) => ({ key: tab.key, label: tab.label }))
   const current = tabs.find((tab) => tab.key === active) ?? tabs[0]
   const fills = Boolean(current?.fill)

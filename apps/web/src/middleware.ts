@@ -6,7 +6,9 @@ import { getSessionCookie } from 'better-auth/cookies'
 // it deliberately does NOT validate the session — forging a cookie gets you
 // nothing, because every data path revalidates server-side via requireUser()
 // inside resolveTenantId(). Exempt: the login screen, the Better Auth API
-// (sign-in must reach it), and static assets.
+// (sign-in must reach it), the /meet/[token] guest rooms (an outside guest
+// has no account by design — the invitation token is the credential, and it
+// is revalidated on every read and every action), and static assets.
 
 export function middleware(request: NextRequest) {
   const sessionCookie = getSessionCookie(request)
@@ -21,7 +23,7 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Everything except /login, /api/auth/*, Next internals, and static files.
-    '/((?!login|api/auth|_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?|ttf|map)$).*)',
+    // Everything except /login, /meet/*, /api/auth/*, Next internals, and static files.
+    '/((?!login|meet|api/auth|_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?|ttf|map)$).*)',
   ],
 }

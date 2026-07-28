@@ -84,9 +84,26 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
     procedures: args.procedures,
     memories: args.memories,
   })
+  // Image attachments ride the opening turn so multimodal models genuinely
+  // see what was sent — a photo of a receipt is content, not a filename.
+  const images = args.input.type === 'email' ? (args.input.images ?? []) : []
+  const instruction = buildRunInstruction(args.input)
   const messages: ModelMessage[] = [
     ...(args.priorMessages ?? []),
-    { role: 'user', content: buildRunInstruction(args.input) },
+    {
+      role: 'user',
+      content:
+        images.length === 0
+          ? instruction
+          : [
+              { type: 'text' as const, text: instruction },
+              ...images.map((img) => ({
+                type: 'image' as const,
+                image: img.dataBase64,
+                mediaType: img.mediaType,
+              })),
+            ],
+    },
   ]
 
   try {

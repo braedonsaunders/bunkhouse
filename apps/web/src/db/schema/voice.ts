@@ -74,4 +74,33 @@ export const callTurns = pgTable(
   ],
 )
 
-export const VOICE_TENANT_TABLES = ['call_sessions', 'call_turns'] as const
+/**
+ * A guest's way into a video meeting: one unguessable token per session,
+ * mailed out by the agent. The link IS the credential — a guest needs no
+ * account and no software, just the URL — so it is short-lived and single
+ * meeting, and its use is stamped on the row the moment someone joins.
+ */
+export const meetingLinks = pgTable(
+  'meeting_links',
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    /** The call session (room `meet-{sessionId}`) this link opens. */
+    sessionId: uuid('session_id').notNull(),
+    /** URL-safe random secret; the /meet/[token] path segment. */
+    token: text('token').notNull(),
+    /** The agent that set the meeting up. */
+    createdByPersonId: uuid('created_by_person_id').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    /** When the guest first joined; null while the invitation is outstanding. */
+    joinedAt: timestamp('joined_at', { withTimezone: true }),
+    ...auditColumns,
+  },
+  (t) => [
+    uniqueIndex('meeting_links_token_key').on(t.token),
+    uniqueIndex('meeting_links_session_key').on(t.sessionId),
+    index('meeting_links_person_idx').on(t.tenantId, t.createdByPersonId, t.createdAt),
+  ],
+)
+
+export const VOICE_TENANT_TABLES = ['call_sessions', 'call_turns', 'meeting_links'] as const

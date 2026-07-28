@@ -203,9 +203,10 @@ function isPrivateAddress(address: string): boolean {
 /**
  * The agent's fetch runs from inside the network, so every hop of a page load
  * is checked against private address space — an agent must not be talkable
- * into reading the metadata service or an internal admin panel.
+ * into reading the metadata service or an internal admin panel. Shared with
+ * the browser-use abilities, which apply it to every top-level navigation.
  */
-async function assertPublicHost(url: URL): Promise<void> {
+export async function assertPublicHost(url: URL): Promise<void> {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error('Only http(s) pages can be read.')
   }

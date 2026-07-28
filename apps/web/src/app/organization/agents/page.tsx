@@ -19,9 +19,9 @@ const STATUS_LABELS = { onboarding: 'Onboarding', active: 'Active', offboarded: 
 export default async function AgentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ person?: string }>
+  searchParams: Promise<{ person?: string; mailboxError?: string }>
 }) {
-  const { person: selectedId } = await searchParams
+  const { person: selectedId, mailboxError } = await searchParams
   const tenantId = await resolveTenantId()
   const app = db()
   const roster = await app.withTenantContext(tenantId, () =>
@@ -78,7 +78,7 @@ export default async function AgentsPage({
           description: 'Hire your first agent from a role pack — the pack brings its duties and procedures with it.',
         }}
       />
-      {await personDrawer({ tenantId, roster, selectedId, basePath: BASE_PATH })}
+      {await personDrawer({ tenantId, roster, selectedId, basePath: BASE_PATH, mailboxError })}
     </PageContainer>
   )
 }

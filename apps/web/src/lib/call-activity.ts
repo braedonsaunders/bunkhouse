@@ -123,6 +123,26 @@ export function describeToolCall(toolName: string, input: unknown): string {
       return 'Reading a file'
     case 'revise_document':
       return 'Revising a document'
+    case 'browser_open': {
+      const host = hostOf(args.url)
+      return host ? `Opening ${host} in the browser` : 'Opening the browser'
+    }
+    case 'browser_click': {
+      const t = quote(args.target)
+      return t ? `Clicking ${t}` : 'Clicking in the browser'
+    }
+    case 'browser_type':
+      return 'Typing in the browser'
+    case 'browser_read':
+      return 'Reading the page'
+    case 'browser_screenshot':
+      return 'Taking a screenshot'
+    case 'browser_close':
+      return 'Closing the browser'
+    case 'send_meeting_link': {
+      const to = typeof args.toEmail === 'string' && args.toEmail.trim() ? args.toEmail.trim() : null
+      return to ? `Inviting ${to} to a video meeting` : 'Sending a meeting link'
+    }
     default:
       // Integration tools keep their own names, made readable.
       return `Using ${toolName.replace(/[_-]+/g, ' ')}`

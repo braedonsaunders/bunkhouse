@@ -47,8 +47,9 @@ export function AppFrame({
   switchTenant?: (tenantId: string) => Promise<{ ok: boolean; message?: string }>
 }) {
   const pathname = usePathname()
-  // The sign-in screen renders bare (no shell chrome) but keeps the theme.
-  if (pathname === '/login') {
+  // The sign-in screen and the guest meeting rooms render bare (no shell
+  // chrome — a guest has no workspace to navigate) but keep the theme.
+  if (pathname === '/login' || pathname.startsWith('/meet/')) {
     return <ThemeProvider>{children}</ThemeProvider>
   }
   // Multi-membership users get the workspace switcher; single-membership users

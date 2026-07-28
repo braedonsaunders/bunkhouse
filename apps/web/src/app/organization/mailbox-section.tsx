@@ -14,10 +14,30 @@ import {
 } from '@appkit/ui'
 import { mailboxAccounts, mailThreads } from '../../db/schema'
 import { db } from '../../db/client'
+import { listMailOauthApps } from '../../lib/mail-oauth'
 import { connectMailboxAction, disconnectMailboxAction, syncMailboxAction } from './actions'
 
+/** A failed sign-in round-trip, shown where the operator started it. */
+function MailboxError({ message }: { message: string }) {
+  return (
+    <div className="mb-4 rounded-md border border-danger/40 bg-danger-subtle px-3 py-2 text-sm">
+      <p className="text-xs text-fg-muted">Mailbox not connected</p>
+      <p>{message}</p>
+    </div>
+  )
+}
+
 /** The agent's mail surface: connect form, account status, and live threads. */
-export async function MailboxSection({ tenantId, personId }: { tenantId: string; personId: string }) {
+export async function MailboxSection({
+  tenantId,
+  personId,
+  error,
+}: {
+  tenantId: string
+  personId: string
+  /** Surfaced when a Google/Microsoft sign-in came back without connecting. */
+  error?: string | undefined
+}) {
   const app = db()
   const data = await app.withTenantContext(tenantId, async () => {
     const [account] = await app.db
@@ -33,6 +53,7 @@ export async function MailboxSection({ tenantId, personId }: { tenantId: string;
       .limit(15)
     return { account, threads }
   })
+  const signInApps = await listMailOauthApps(tenantId)
 
   if (!data.account) {
     return (
@@ -45,6 +66,24 @@ export async function MailboxSection({ tenantId, personId }: { tenantId: string;
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {error ? <MailboxError message={error} /> : null}
+          {signInApps.length > 0 ? (
+            <div className="mb-6 space-y-2">
+              <div className="flex flex-wrap gap-2">
+                {signInApps.map((signIn) => (
+                  <Button key={signIn.provider} asChild>
+                    <a href={`/api/mail-oauth/start?personId=${personId}&provider=${signIn.provider}`}>
+                      Connect {signIn.label}
+                    </a>
+                  </Button>
+                ))}
+              </div>
+              <p className="text-sm text-fg-muted">
+                Sign in as the agent&rsquo;s own account — nothing is stored but a sealed sign-in token you can revoke
+                at any time. Use the form below only for mail you host yourself.
+              </p>
+            </div>
+          ) : null}
           <form action={connectMailboxAction} className="grid gap-4 md:grid-cols-2">
             <input type="hidden" name="personId" value={personId} />
             <div className="space-y-2">
@@ -89,6 +128,13 @@ export async function MailboxSection({ tenantId, personId }: { tenantId: string;
   }
 
   const { account, threads } = data
+  // A mailbox signed in through Google/Microsoft can have its consent revoked
+  // on the provider's side; re-signing in is the fix, so offer it in place.
+  const signIn = signInApps.find(
+    (entry) =>
+      (entry.provider === 'google' && account.provider === 'gmail') ||
+      (entry.provider === 'microsoft' && account.provider === 'microsoft'),
+  )
   return (
     <Card>
       <CardHeader>
@@ -96,6 +142,11 @@ export async function MailboxSection({ tenantId, personId }: { tenantId: string;
           <span>Mailbox — {account.address}</span>
           <span className="flex items-center gap-2">
             <Badge variant={account.status === 'active' ? 'default' : 'destructive'}>{account.status}</Badge>
+            {signIn ? (
+              <Button asChild variant="outline" size="sm">
+                <a href={`/api/mail-oauth/start?personId=${personId}&provider=${signIn.provider}`}>Sign in again</a>
+              </Button>
+            ) : null}
             <form action={syncMailboxAction}>
               <input type="hidden" name="personId" value={personId} />
               <Button type="submit" variant="outline" size="sm">
@@ -118,6 +169,7 @@ export async function MailboxSection({ tenantId, personId }: { tenantId: string;
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {error ? <MailboxError message={error} /> : null}
         {threads.length === 0 ? (
           <EmptyState title="No threads yet" description="Inbound mail lands here after the next sync." />
         ) : (

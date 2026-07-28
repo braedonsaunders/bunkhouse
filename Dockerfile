@@ -17,15 +17,21 @@ RUN corepack enable && corepack prepare pnpm@10.30.0 --activate
 
 # Native tools the agents' work depends on:
 # - libreoffice-writer + fonts: HTML → .docx/.pdf rendering (@appkit/office)
-# - poppler-utils: PDF concatenation (pdfunite)
+# - poppler-utils: PDF concatenation (pdfunite) + pdftoppm for OCR rasterizing
 # - bubblewrap: the process sandbox agents run shell work in
+# - tesseract-ocr: text from scanned PDFs and images
+# - chromium: the recorded browser agents drive (puppeteer-core connects to it)
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     libreoffice-writer \
     poppler-utils \
     bubblewrap \
     fonts-liberation \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    chromium \
   && rm -rf /var/lib/apt/lists/*
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # --- deps: workspace-aware install ------------------------------------------
 # Dev dependencies stay in (tsx, typescript run at runtime); NODE_ENV becomes
