@@ -202,12 +202,37 @@ async function reflectionPass(): Promise<void> {
   }
 }
 
-type HeartbeatPass = 'mailbox' | 'duties' | 'approvals' | 'journal' | 'reflection'
+/**
+ * Abandoned calls: a call page creates its session (and run) before the caller
+ * joins the room, so a closed tab, a blocked microphone, or a retry loop
+ * leaves 'active' sessions nobody is on. The voice agent finalizes every call
+ * it actually answered; this sweep is the babysitter for the ones it never
+ * saw. Ten minutes is far beyond any legitimate ring time.
+ */
+async function callSweepPass(): Promise<void> {
+  const swept = await app.withSuperAdmin((superDb) =>
+    superDb.execute(sql`
+      with stale as (
+        update call_sessions set status = 'ended', ended_at = now(), updated_at = now()
+        where status = 'active' and started_at < now() - interval '10 minutes'
+        returning run_id
+      )
+      update runs set status = 'failed', finished_at = now(),
+        summary = 'Call ended before it was answered.'
+      where id in (select run_id from stale where run_id is not null) and status = 'running'
+      returning id
+    `),
+  )
+  if (swept.rows.length > 0) console.log(`[calls] swept ${swept.rows.length} abandoned call run(s)`)
+}
+
+type HeartbeatPass = 'mailbox' | 'duties' | 'approvals' | 'journal' | 'reflection' | 'calls'
 
 const heartbeat = jobs.defineQueue<{ pass: HeartbeatPass }>('bunkhouse-heartbeat')
 await heartbeat.upsertJobScheduler('mailbox', { every: 120_000 }, { name: 'tick', data: { pass: 'mailbox' } })
 await heartbeat.upsertJobScheduler('duties', { every: 60_000 }, { name: 'tick', data: { pass: 'duties' } })
 await heartbeat.upsertJobScheduler('approvals', { every: 30_000 }, { name: 'tick', data: { pass: 'approvals' } })
+await heartbeat.upsertJobScheduler('calls', { every: 300_000 }, { name: 'tick', data: { pass: 'calls' } })
 await heartbeat.upsertJobScheduler('journal', { every: 21_600_000 }, { name: 'tick', data: { pass: 'journal' } })
 await heartbeat.upsertJobScheduler('reflection', { every: 43_200_000 }, { name: 'tick', data: { pass: 'reflection' } })
 
@@ -216,6 +241,7 @@ const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
   async (job) => {
     if (job.data.pass === 'mailbox') await mailboxPass()
     else if (job.data.pass === 'duties') await dutiesPass()
+    else if (job.data.pass === 'calls') await callSweepPass()
     else if (job.data.pass === 'journal') await journalPass()
     else if (job.data.pass === 'reflection') await reflectionPass()
     else await approvalsPass()
@@ -226,7 +252,7 @@ const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
 await heartbeat.add('tick', { pass: 'mailbox' })
 await heartbeat.add('tick', { pass: 'duties' })
 await heartbeat.add('tick', { pass: 'approvals' })
-console.log('bunkhouse worker up — mailbox 2m, duties 1m, approvals 30s, journal 6h, reflection 12h (initial passes queued)')
+console.log('bunkhouse worker up — mailbox 2m, duties 1m, approvals 30s, call sweep 5m, journal 6h, reflection 12h (initial passes queued)')
 
 async function shutdown(): Promise<void> {
   await worker.close()
