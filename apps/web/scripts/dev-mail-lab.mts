@@ -3,9 +3,9 @@ import { eq } from 'drizzle-orm'
 import { db } from '../src/db/client'
 import { people } from '../src/db/schema'
 import { connectMailbox } from '../src/lib/mailbox'
-import { resolveTenantId } from '../src/lib/tenant'
+import { resolveTenantIdForSystem } from '../src/lib/tenant'
 
-const tenantId = await resolveTenantId()
+const tenantId = await resolveTenantIdForSystem()
 const app = db()
 const [dana] = await app.withTenantContext(tenantId, () =>
   app.db.select().from(people).where(eq(people.email, 'dana@bunkhouse.local')),

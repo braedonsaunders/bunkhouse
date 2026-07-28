@@ -33,6 +33,12 @@ services:
       LIVEKIT_URL: ${LIVEKIT_URL}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      # Authentication: session signing, public origin, and the first-boot
+      # owner (consumed only while no credentialed account exists).
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      APP_URL: ${APP_URL}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     networks:
       - dokploy-network
     healthcheck:
@@ -40,7 +46,7 @@ services:
         - CMD
         - node
         - -e
-        - "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        - "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
       interval: 15s
       timeout: 5s
       retries: 5
@@ -71,6 +77,8 @@ services:
       LIVEKIT_URL: ${LIVEKIT_URL}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      APP_URL: ${APP_URL}
     networks:
       - dokploy-network
     deploy:
@@ -98,6 +106,8 @@ services:
       LIVEKIT_URL: ${LIVEKIT_URL}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      APP_URL: ${APP_URL}
     networks:
       - dokploy-network
     deploy:

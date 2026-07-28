@@ -16,7 +16,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { avatarParts } from '../src/db/schema'
 import { db } from '../src/db/client'
 import { AVATAR_PART_CATEGORIES } from '../src/lib/avatar-parts'
-import { resolveTenantId } from '../src/lib/tenant'
+import { resolveTenantIdForSystem } from '../src/lib/tenant'
 
 type OpenStudioComponent = {
   id: string
@@ -84,7 +84,7 @@ for (const component of components) {
 }
 
 const skipped = new Set(components.map((c) => c.categoryId).filter((id) => !CATEGORY_MAP[id]))
-const tenantId = await resolveTenantId()
+const tenantId = await resolveTenantIdForSystem()
 const app = db()
 
 let imported = 0

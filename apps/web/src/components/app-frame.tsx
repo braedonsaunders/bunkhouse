@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
 import { AccountMenu, AppShell, ThemeProvider, UiLinkProvider, type SidebarNavGroup } from '@appkit/ui'
 import { PageTransition } from '@appkit/ui/page-transition'
+import { authClient } from '@/lib/auth-client'
 
 const navigation: SidebarNavGroup[] = [
   { id: 'home', label: 'Home', items: [{ href: '/', label: 'Home', iconKey: 'home', exact: true, mobile: true }] },
@@ -24,8 +25,22 @@ const navigation: SidebarNavGroup[] = [
   { id: 'settings', label: 'Settings', items: [{ href: '/admin/settings', label: 'Settings', iconKey: 'settings', mobile: true }] },
 ]
 
-export function AppFrame({ children }: { children: ReactNode }) {
+export type FrameUser = { name: string; email: string }
+
+export function AppFrame({
+  children,
+  user,
+  contextLabel,
+}: {
+  children: ReactNode
+  user: FrameUser | null
+  contextLabel?: string
+}) {
   const pathname = usePathname()
+  // The sign-in screen renders bare (no shell chrome) but keeps the theme.
+  if (pathname === '/login') {
+    return <ThemeProvider>{children}</ThemeProvider>
+  }
   return (
     <UiLinkProvider link={Link}>
       <ThemeProvider>
@@ -35,12 +50,14 @@ export function AppFrame({ children }: { children: ReactNode }) {
           brand={<strong>Bunkhouse</strong>}
           header={
             <AccountMenu
-              name="Demo Owner"
-              email="owner@bunkhouse.local"
-              contextLabel="Bunkhouse Demo Co · workspace"
-              roleLabel="Owner"
-              status={{ label: 'Authentication not configured', variant: 'secondary' }}
+              name={user?.name || user?.email || 'Signed in'}
+              email={user?.email ?? ''}
+              contextLabel={contextLabel}
               showTheme
+              onSignOut={async () => {
+                await authClient.signOut()
+                window.location.assign('/login')
+              }}
             />
           }
         >
