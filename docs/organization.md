@@ -23,7 +23,10 @@ model that is blank for the other half — and no honest heading covers both. So
 | Agents | `/organization/agents` | Agents: role, mailbox, model, extension, manager, status |
 | Org chart | `/organization/chart` | Both, drawn as the reporting hierarchy |
 
-`/organization` redirects to People. `/organization/<id>` is the canonical deep
+The sidebar names one destination — Agents — and the three surfaces sit behind
+that page's own switcher (the same control the observatory uses for
+Live/History), so the nav has no submenu. `/organization` redirects to Agents.
+`/organization/<id>` is the canonical deep
 link for callers that hold only an id — mail, approvals, runs, the PBX — and it
 resolves the record's kind before landing on the right roster with the drawer
 open. Every surface opens the **same** record drawer from `?person=<id>`; the
