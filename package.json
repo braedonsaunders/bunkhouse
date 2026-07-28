@@ -63,7 +63,7 @@
       "@appkit/mailbox": "file:./vendor/appkit/appkit-mailbox-0.1.0.tgz",
       "@appkit/avatars": "file:./vendor/appkit/appkit-avatars-0.5.2.tgz",
       "@appkit/voice": "file:./vendor/appkit/appkit-voice-0.1.0.tgz",
-      "@appkit/scene": "file:./vendor/appkit/appkit-scene-0.2.2.tgz"
+      "@appkit/scene": "file:./vendor/appkit/appkit-scene-0.3.2.tgz"
     }
   }
 }

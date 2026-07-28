@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useTheme } from '@appkit/ui'
 import {
   CharacterScene,
-  SCENE_ORDER,
+  OFFICE_SCENE_KINDS,
   SceneArt,
   sceneGround,
   type SceneCharacter,
@@ -35,21 +35,22 @@ export type LobbyPerson = {
   walkSpeed?: number
 }
 
-const SCENE_LABELS: Record<SceneKind, string> = {
-  beach: 'Beach',
-  campfire: 'Campfire',
-  forest: 'Forest',
-  studio: 'Studio',
-  space: 'Space',
+const SCENE_LABELS: Partial<Record<SceneKind, string>> = {
+  office: 'Office',
+  executive: 'Executive',
+  warehouse: 'Warehouse',
+  serverroom: 'Server room',
+  breakroom: 'Break room',
   rooftop: 'Rooftop',
 }
 
 const SCENE_STORAGE_KEY = 'bunkhouse.lobby.scene'
 
 /**
- * The bunkhouse floor: the agents on staff, off in their world — one of the
- * painted OpenStudio stages, day or night with the app theme. Clicking a
- * figure opens their record.
+ * The bunkhouse floor: the agents on staff at work in one of the drawn office
+ * environments, day or night with the app theme. It fills the whole home
+ * screen; the dashboard floats over it as widgets. Clicking a figure opens
+ * their record.
  *
  * The figures are the same compositions the directory crops for its portraits,
  * rendered whole — the standing take and the headshot are one document, so
@@ -59,10 +60,13 @@ export function Lobby({
   people,
   parts,
   categories,
+  children,
 }: {
   people: LobbyPerson[]
   parts: AvatarPart[]
   categories: AvatarPartCategory[]
+  /** Widgets floated over the scene — KPI tiles, the run feed, actions. */
+  children?: React.ReactNode
 }) {
   const router = useRouter()
   const { resolvedTheme } = useTheme()
@@ -70,10 +74,10 @@ export function Lobby({
 
   // The stage is a personal, cosmetic preference — it lives in the browser,
   // like a wallpaper, and comes back on the next visit.
-  const [scene, setScene] = React.useState<SceneKind>('campfire')
+  const [scene, setScene] = React.useState<SceneKind>('office')
   React.useEffect(() => {
     const stored = window.localStorage.getItem(SCENE_STORAGE_KEY)
-    if (stored && (SCENE_ORDER as string[]).includes(stored)) setScene(stored as SceneKind)
+    if (stored && (OFFICE_SCENE_KINDS as string[]).includes(stored)) setScene(stored as SceneKind)
   }, [])
   const pickScene = (kind: SceneKind) => {
     setScene(kind)
@@ -116,10 +120,19 @@ export function Lobby({
         height="100%"
         baseCharacterSize={170}
         className="rounded-none border-0"
+        // Keep the walkers clear of the floating widgets: the run feed on the
+        // left, and give the KPI band across the top of the floor a margin.
+        config={{
+          exclusionZones: [
+            { minX: 0, maxX: 30, minY: 44, maxY: 100 },
+            { minX: 0, maxX: 100, minY: 0, maxY: 40 },
+          ],
+        }}
         onSelect={(id) => router.push(`/organization/agents?person=${id}`, { scroll: false })}
       />
+      {children ? <div className="pointer-events-none absolute inset-0 z-[92]">{children}</div> : null}
       <div className="absolute bottom-3 left-1/2 z-[95] flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-surface/80 p-1 shadow-sm backdrop-blur">
-        {SCENE_ORDER.map((kind) => (
+        {OFFICE_SCENE_KINDS.map((kind) => (
           <button
             key={kind}
             type="button"
