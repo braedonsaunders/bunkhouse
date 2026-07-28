@@ -7,8 +7,9 @@
 #   bunkhouse-livekit.cloud.rassaun.com  → livekit:7880 (wss)
 # The GitHub deploy workflow bumps BUNKHOUSE_TAG and triggers compose.deploy.
 #
-# Database and app Redis are the EXISTING shared VMs (Patroni pgcluster,
-# HA Redis) — never bundled containers. The media plane (LiveKit + SIP) runs
+# Database, app Redis, and object storage are EXISTING shared services
+# (Patroni pgcluster, HA Redis, the NAS-backed MinIO at s3.beaconhs.io) —
+# never bundled containers. The media plane (LiveKit + SIP) runs
 # here with its own private Redis, exactly as in local dev, but with real API
 # keys and the public address announced to SIP peers. SIP/RTP ports publish in
 # host mode on the manager — the public ingress a carrier or PBX points at.
@@ -18,7 +19,6 @@ networks:
     external: true
 
 volumes:
-  minio-data:
   agent-homes:
 
 services:
@@ -44,10 +44,10 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       # Object storage (files ledger: deliverables, mail attachments).
-      APPKIT_STORAGE_ENDPOINT: http://minio:9000
-      APPKIT_STORAGE_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
-      APPKIT_STORAGE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
-      APPKIT_STORAGE_BUCKET: bunkhouse
+      APPKIT_STORAGE_ENDPOINT: ${APPKIT_STORAGE_ENDPOINT}
+      APPKIT_STORAGE_ACCESS_KEY_ID: ${APPKIT_STORAGE_ACCESS_KEY_ID}
+      APPKIT_STORAGE_SECRET_ACCESS_KEY: ${APPKIT_STORAGE_SECRET_ACCESS_KEY}
+      APPKIT_STORAGE_BUCKET: ${APPKIT_STORAGE_BUCKET:-bunkhouse}
       BUNKHOUSE_AGENT_HOMES: /data/agent-homes
     volumes:
       - agent-homes:/data/agent-homes
@@ -91,10 +91,10 @@ services:
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       APP_URL: ${APP_URL}
-      APPKIT_STORAGE_ENDPOINT: http://minio:9000
-      APPKIT_STORAGE_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
-      APPKIT_STORAGE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
-      APPKIT_STORAGE_BUCKET: bunkhouse
+      APPKIT_STORAGE_ENDPOINT: ${APPKIT_STORAGE_ENDPOINT}
+      APPKIT_STORAGE_ACCESS_KEY_ID: ${APPKIT_STORAGE_ACCESS_KEY_ID}
+      APPKIT_STORAGE_SECRET_ACCESS_KEY: ${APPKIT_STORAGE_SECRET_ACCESS_KEY}
+      APPKIT_STORAGE_BUCKET: ${APPKIT_STORAGE_BUCKET:-bunkhouse}
       BUNKHOUSE_AGENT_HOMES: /data/agent-homes
     volumes:
       - agent-homes:/data/agent-homes
@@ -127,10 +127,10 @@ services:
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       APP_URL: ${APP_URL}
-      APPKIT_STORAGE_ENDPOINT: http://minio:9000
-      APPKIT_STORAGE_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
-      APPKIT_STORAGE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
-      APPKIT_STORAGE_BUCKET: bunkhouse
+      APPKIT_STORAGE_ENDPOINT: ${APPKIT_STORAGE_ENDPOINT}
+      APPKIT_STORAGE_ACCESS_KEY_ID: ${APPKIT_STORAGE_ACCESS_KEY_ID}
+      APPKIT_STORAGE_SECRET_ACCESS_KEY: ${APPKIT_STORAGE_SECRET_ACCESS_KEY}
+      APPKIT_STORAGE_BUCKET: ${APPKIT_STORAGE_BUCKET:-bunkhouse}
       BUNKHOUSE_AGENT_HOMES: /data/agent-homes
     volumes:
       - agent-homes:/data/agent-homes
@@ -170,30 +170,6 @@ services:
       placement:
         constraints:
           - node.hostname==dokploy-mgr
-      restart_policy:
-        condition: any
-        delay: 5s
-
-  # Object storage for the files ledger. Internal only — downloads go through
-  # the app (auth + tenant checks), never straight to the bucket.
-  minio:
-    image: minio/minio:latest
-    command: server /data
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    volumes:
-      - minio-data:/data
-    networks:
-      - dokploy-network
-    deploy:
-      replicas: 1
-      placement:
-        constraints:
-          - node.hostname==dokploy-mgr
-      resources:
-        limits:
-          memory: 1g
       restart_policy:
         condition: any
         delay: 5s
