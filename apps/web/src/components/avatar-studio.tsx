@@ -1,79 +1,52 @@
 'use client'
 
 import * as React from 'react'
-import { Avatar, Badge, Button, Drawer, SubtabNav } from '@appkit/ui'
-import { chooseAvatarAction, generateAvatarsAction } from '../app/people/actions'
-
-type Kind = 'portrait' | 'full_body'
-
-const KIND_COPY: Record<Kind, { label: string; blurb: string }> = {
-  portrait: {
-    label: 'Portrait',
-    blurb: 'The face shown in the directory, on records, and during calls.',
-  },
-  full_body: {
-    label: 'Full body',
-    blurb: 'The standing figure that appears in the lobby on the home page.',
-  },
-}
+import Link from 'next/link'
+import { Button, Drawer } from '@appkit/ui'
+import { AvatarComposer, ComposedAvatar } from '@appkit/avatars/react'
+import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
+import { saveAvatarCompositionAction } from '../app/organization/avatar-actions'
 
 /**
- * The likeness studio: generate portrait and full-body art for anyone in the
- * directory in one house style, and pick the take that fits.
+ * A person's likeness: one full-body figure, composed from the company's
+ * parts library.
+ *
+ * The avatar in the drawer header is that same figure cropped to its head
+ * viewport, so what an operator arranges here is literally what appears in the
+ * directory, on the org chart, in the lobby, and on a call. Clicking it opens
+ * the composer.
  */
 export function AvatarStudio({
   personId,
   name,
-  hasPortrait,
-  hasFullBody,
-  model,
+  composition,
+  parts,
+  categories,
   size = 44,
 }: {
   personId: string
   name: string
-  hasPortrait: boolean
-  hasFullBody: boolean
-  model: string
+  composition: AvatarComposition
+  parts: AvatarPart[]
+  categories: AvatarPartCategory[]
   size?: number
 }) {
   const [open, setOpen] = React.useState(false)
-  const [kind, setKind] = React.useState<Kind>('portrait')
-  const [candidates, setCandidates] = React.useState<Record<Kind, string[]>>({ portrait: [], full_body: [] })
-  const [error, setError] = React.useState<string | null>(null)
-  const [generating, startGenerating] = React.useTransition()
   const [saving, startSaving] = React.useTransition()
-  // Bust the image cache after a save so the new art shows immediately.
-  const [version, setVersion] = React.useState(0)
+  const [error, setError] = React.useState<string | null>(null)
+  const [saved, setSaved] = React.useState(false)
+  const [current, setCurrent] = React.useState(composition)
 
-  const has = kind === 'portrait' ? hasPortrait : hasFullBody
-  const src = (forKind: Kind) => `/api/avatars/${personId}?kind=${forKind}&v=${version}`
-
-  const generate = () =>
-    startGenerating(async () => {
+  const save = (next: AvatarComposition) =>
+    startSaving(async () => {
       setError(null)
-      const result = await generateAvatarsAction(personId, kind)
+      const result = await saveAvatarCompositionAction(personId, next)
       if (!result.ok) {
         setError(result.message)
         return
       }
-      setCandidates((prev) => ({ ...prev, [kind]: result.images }))
-    })
-
-  const choose = (dataUri: string) =>
-    startSaving(async () => {
-      setError(null)
-      const form = new FormData()
-      form.set('personId', personId)
-      form.set('dataUri', dataUri)
-      form.set('model', model)
-      form.set('kind', kind)
-      try {
-        await chooseAvatarAction(form)
-        setCandidates((prev) => ({ ...prev, [kind]: [] }))
-        setVersion((v) => v + 1)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err))
-      }
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
     })
 
   return (
@@ -81,69 +54,43 @@ export function AvatarStudio({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title="Open the likeness studio"
+        title={`Compose ${name}'s avatar`}
         className="rounded-full transition-opacity hover:opacity-80"
       >
-        <Avatar name={name} size={size} {...(hasPortrait ? { src: src('portrait') } : {})} />
+        <ComposedAvatar
+          composition={current}
+          parts={parts}
+          categories={categories}
+          variant="head"
+          size={size}
+          rounded
+          name={name}
+        />
       </button>
       <Drawer
         open={open}
         onClose={() => setOpen(false)}
-        title={`Likeness — ${name}`}
-        description="Generated in one house style so the whole roster looks like one team."
-        size="lg"
+        title={`Avatar — ${name}`}
+        description="One full-body figure, built from the company parts library. Every portrait in the app is a crop of it."
+        size="xl"
       >
-        <div className="space-y-4">
-          <SubtabNav
-            tabs={[
-              { key: 'portrait', label: KIND_COPY.portrait.label },
-              { key: 'full_body', label: KIND_COPY.full_body.label },
-            ]}
-            active={kind}
-            onSelect={(key) => {
-              setKind(key as Kind)
-              setError(null)
-            }}
-            ariaLabel="Likeness kind"
-          />
-
-          <div className="flex flex-wrap items-center gap-3">
-            {has ? (
-              kind === 'portrait' ? (
-                <Avatar name={name} size={64} src={src('portrait')} />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={src('full_body')} alt="" className="h-32 w-auto object-contain" />
-              )
-            ) : (
-              <Badge variant="outline">none yet</Badge>
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="text-sm text-fg-muted">{KIND_COPY[kind].blurb}</p>
-            </div>
-            <Button type="button" onClick={generate} disabled={generating}>
-              {generating ? 'Generating…' : candidates[kind].length > 0 ? 'Generate again' : 'Generate'}
-            </Button>
-          </div>
-
-          {candidates[kind].length > 0 ? (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {candidates[kind].map((uri, index) => (
-                <button
-                  key={index}
-                  type="button"
-                  disabled={saving}
-                  onClick={() => choose(uri)}
-                  className="overflow-hidden rounded-lg border border-border transition-colors hover:border-primary"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={uri} alt={`Option ${index + 1}`} className="aspect-square w-full object-contain" />
-                </button>
-              ))}
-            </div>
-          ) : null}
-
+        <div className="space-y-3">
           {error ? <p className="text-sm text-danger">{error}</p> : null}
+          <AvatarComposer
+            composition={composition}
+            parts={parts}
+            categories={categories}
+            onChange={setCurrent}
+            onSave={save}
+            saving={saving}
+            saveLabel={saved ? 'Saved' : 'Save avatar'}
+            subjectName={name}
+            generateAction={
+              <Button asChild size="sm" variant="outline">
+                <Link href="/admin/settings?section=avatar-parts">Open the parts library</Link>
+              </Button>
+            }
+          />
         </div>
       </Drawer>
     </>
