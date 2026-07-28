@@ -4,7 +4,6 @@ import {
   buildPortraitPrompt,
   generateImages,
   IMAGE_CAPABLE_PROVIDERS,
-  IMAGE_MODELS,
   type ImageModelId,
 } from '@appkit/avatars'
 import { avatarImages, people, tenantSettings } from '../db/schema'
@@ -42,10 +41,12 @@ export async function setImageProviderSetting(args: {
   if (!(IMAGE_CAPABLE_PROVIDERS as readonly string[]).includes(entry.provider)) {
     throw new Error(`Provider kind "${entry.provider}" cannot generate images (use ${IMAGE_CAPABLE_PROVIDERS.join(' or ')}).`)
   }
-  if (!IMAGE_MODELS.some((m) => m.id === args.model && m.provider === entry.provider)) {
-    throw new Error(`Model "${args.model}" does not belong to the ${entry.provider} provider.`)
-  }
-  const value: ImageProviderSetting = { providerSlug: args.providerSlug, model: args.model }
+  // The provider's live model API is the source of truth for valid ids —
+  // providers add and retire image models without notice, so we only require
+  // a non-empty id here rather than membership in a static catalog.
+  const model = args.model.trim()
+  if (!model) throw new Error('Pick an image model.')
+  const value: ImageProviderSetting = { providerSlug: args.providerSlug, model }
   const app = db()
   await app.withTenant(args.tenantId, async () => {
     await app.db

@@ -42,7 +42,7 @@ overrides:
   '@appkit/ui': file:./vendor/appkit/appkit-ui-0.1.3.tgz
   '@appkit/workflows': file:./vendor/appkit/appkit-workflows-1.0.0.tgz
   '@appkit/mailbox': file:./vendor/appkit/appkit-mailbox-0.1.0.tgz
-  '@appkit/avatars': file:./vendor/appkit/appkit-avatars-0.1.0.tgz
+  '@appkit/avatars': file:./vendor/appkit/appkit-avatars-0.2.0.tgz
   '@appkit/voice': file:./vendor/appkit/appkit-voice-0.1.0.tgz
 
 importers:
@@ -64,8 +64,8 @@ importers:
         specifier: file:../../vendor/appkit/appkit-auth-0.1.1.tgz
         version: file:vendor/appkit/appkit-auth-0.1.1.tgz(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(kysely@0.29.4)(next@16.2.10(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@appkit/avatars':
-        specifier: file:../../vendor/appkit/appkit-avatars-0.1.0.tgz
-        version: file:vendor/appkit/appkit-avatars-0.1.0.tgz(zod@4.4.3)
+        specifier: file:../../vendor/appkit/appkit-avatars-0.2.0.tgz
+        version: file:vendor/appkit/appkit-avatars-0.2.0.tgz(zod@4.4.3)
       '@appkit/crypto':
         specifier: file:../../vendor/appkit/appkit-crypto-0.2.0.tgz
         version: file:vendor/appkit/appkit-crypto-0.2.0.tgz
@@ -402,9 +402,9 @@ packages:
     peerDependencies:
       react: '>=18.2 <20'
 
-  '@appkit/avatars@file:vendor/appkit/appkit-avatars-0.1.0.tgz':
-    resolution: {integrity: sha512-nVXzt1WhaWAwR5JrFN6b/TbHTJRyQ9Y39FeOtQ3pqwTGBuObMX5sbSB00ntntbHoDY46STU5k37RR4AxA1RiZg==, tarball: file:vendor/appkit/appkit-avatars-0.1.0.tgz}
-    version: 0.1.0
+  '@appkit/avatars@file:vendor/appkit/appkit-avatars-0.2.0.tgz':
+    resolution: {integrity: sha512-dGN4iMgsIYNYJt9+W1c9idKg/yjGdBMuJFpTryrJ22ufZK22Yjrycy9gVrUwQl21a9x9AuVY546GNGzYi68jRg==, tarball: file:vendor/appkit/appkit-avatars-0.2.0.tgz}
+    version: 0.2.0
     engines: {node: '>=22'}
 
   '@appkit/crypto@file:vendor/appkit/appkit-crypto-0.2.0.tgz':
@@ -6708,7 +6708,7 @@ snapshots:
       - vitest
       - vue
 
-  '@appkit/avatars@file:vendor/appkit/appkit-avatars-0.1.0.tgz(zod@4.4.3)':
+  '@appkit/avatars@file:vendor/appkit/appkit-avatars-0.2.0.tgz(zod@4.4.3)':
     dependencies:
       '@ai-sdk/google': 3.0.101(zod@4.4.3)
       '@ai-sdk/openai': 3.0.88(zod@4.4.3)

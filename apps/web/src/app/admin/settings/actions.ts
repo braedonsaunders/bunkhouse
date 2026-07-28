@@ -3,12 +3,12 @@
 import { revalidatePath } from 'next/cache'
 import { isAiProvider, listModels } from '@appkit/ai'
 import { unsealSecret } from '@appkit/crypto'
-import { addAiProvider, listAiProviders, removeAiProvider } from '../../../lib/ai'
+import { addAiProvider, listAiProviders, removeAiProvider, resolveProviderAiConfig } from '../../../lib/ai'
 import { listTenantElevenLabsVoices, removeSpeechProvider, setSpeechProviderKey, type SpeechProvider } from '../../../lib/voice'
 import { resolveTenantId } from '../../../lib/tenant'
 import { refreshPricesFromOpenRouter, setManualPrice } from '../../../lib/pricing'
 import { setImageProviderSetting } from '../../../lib/avatars'
-import { type ImageModelId } from '@appkit/avatars'
+import { listImageModels, type ImageModelId } from '@appkit/avatars'
 
 export async function addProviderAction(formData: FormData): Promise<void> {
   const slug = String(formData.get('slug') ?? '').trim().toLowerCase()
@@ -142,6 +142,30 @@ export async function listVoicesForTenantAction(): Promise<
 > {
   const tenantId = await resolveTenantId()
   return listTenantElevenLabsVoices(tenantId)
+}
+
+/**
+ * Live image-model discovery for a saved provider (key stays sealed here).
+ * The provider's model API is authoritative — the static catalog is only a
+ * fallback the client may offer when this fails.
+ */
+export async function listImageModelsForProviderAction(
+  providerSlug: string,
+): Promise<{ ok: true; models: { id: string; name?: string }[] } | { ok: false; message: string }> {
+  const tenantId = await resolveTenantId()
+  const config = await resolveProviderAiConfig(tenantId, providerSlug)
+  if (!config) {
+    return { ok: false, message: `The "${providerSlug}" provider is missing or its key cannot be unsealed.` }
+  }
+  try {
+    const models = await listImageModels(config)
+    if (models.length === 0) {
+      return { ok: false, message: 'The provider returned no image-capable models for this key.' }
+    }
+    return { ok: true, models }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 /** Point avatar generation at one of the tenant's AI providers + image model. */
