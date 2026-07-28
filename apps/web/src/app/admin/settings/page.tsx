@@ -18,10 +18,7 @@ import { listMcpIntegrations } from '../../../lib/agent-abilities'
 import { AVATAR_PART_CATEGORIES, avatarPartCategory } from '../../../lib/avatar-parts'
 import { IMAGE_MODELS } from '@appkit/avatars'
 import { resolveTenantId } from '../../../lib/tenant'
-import { getSuperAdminContext } from '../../../lib/auth'
-import { createDrizzleSuperadminService } from '@appkit/superadmin/drizzle'
-import { hashPassword } from 'better-auth/crypto'
-import type { PlatformAdminData } from '../../../components/settings-view'
+import {  } from '../../../lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -95,35 +92,6 @@ export default async function SettingsPage({
     listAvatarPartRows(tenantId),
     loadAvatarPartLibrary(tenantId),
   ])
-  // Platform administration (global sign-in accounts + sessions) renders only
-  // for super admins; everyone else gets neither the data nor the nav entry.
-  // The server actions behind it re-authorize independently.
-  const operator = await getSuperAdminContext()
-  let platform: PlatformAdminData | undefined
-  if (operator) {
-    const superadmin = createDrizzleSuperadminService({
-      db: app.superDb,
-      hashPassword,
-      actor: { userId: operator.userId, sessionId: operator.sessionId, tenantId },
-    })
-    const [userList, sessionList, tenantList] = await Promise.all([
-      superadmin.listUsers({ perPage: 100, sort: 'name' }),
-      superadmin.listSessions({ perPage: 100, sort: 'created', direction: 'desc' }),
-      superadmin.listTenants(),
-    ])
-    const memberLists = await Promise.all(
-      tenantList.map(async (tenant) => [tenant.id, await superadmin.listTenantMembers(tenant.id)] as const),
-    )
-    platform = {
-      users: userList.rows,
-      sessions: sessionList.rows,
-      currentUserId: operator.userId,
-      tenants: tenantList,
-      tenantMembers: Object.fromEntries(memberLists),
-      currentTenantId: tenantId,
-    }
-  }
-
   const research = await getResearchSettings(tenantId)
   const branding = await getDocumentBranding(tenantId)
   const workspacePolicy = await getWorkspacePolicy(tenantId)
@@ -233,7 +201,6 @@ export default async function SettingsPage({
         }))}
         avatarPartCategories={AVATAR_PART_CATEGORIES}
         avatarPartLibrary={partLibrary}
-        {...(platform ? { platform } : {})}
       />
     </PageContainer>
   )

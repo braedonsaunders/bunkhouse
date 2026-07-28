@@ -5,9 +5,9 @@ import { hashPassword } from 'better-auth/crypto'
 import { createDrizzleSuperadminService } from '@appkit/superadmin/drizzle'
 import type { SuperadminService } from '@appkit/superadmin'
 import type { SuperadminActionResult } from '@appkit/superadmin/react'
-import { requireSuperAdmin } from '../../../lib/auth'
-import { provisionTenant, resolveTenantId } from '../../../lib/tenant'
-import { db } from '../../../db/client'
+import { requireSuperAdmin } from '../../lib/auth'
+import { provisionTenant, resolveTenantId } from '../../lib/tenant'
+import { db } from '../../db/client'
 
 // Instance-operator actions. Every entry point re-authorizes via
 // requireSuperAdmin() — the client-side nav gating is cosmetic only. The
@@ -44,7 +44,7 @@ export async function createPlatformUserAction(input: {
     // tenant. Move them later from Platform → Tenants.
     const tenantId = await resolveTenantId()
     await service.addTenantMember(tenantId, { email: created.email })
-    revalidatePath('/admin/settings')
+    revalidatePath('/superadmin')
     return { ok: true }
   } catch (error) {
     return failure(error)
@@ -58,7 +58,7 @@ export async function updatePlatformUserAction(
   try {
     const service = await operatorService()
     await service.updateUser(userId, input)
-    revalidatePath('/admin/settings')
+    revalidatePath('/superadmin')
     return { ok: true }
   } catch (error) {
     return failure(error)
@@ -72,7 +72,7 @@ export async function setPlatformUserPasswordAction(
   try {
     const service = await operatorService()
     await service.setPassword(userId, password)
-    revalidatePath('/admin/settings')
+    revalidatePath('/superadmin')
     return { ok: true }
   } catch (error) {
     return failure(error)
@@ -83,7 +83,7 @@ export async function revokePlatformUserSessionsAction(userId: string): Promise<
   try {
     const service = await operatorService()
     const result = await service.revokeUserSessions(userId)
-    revalidatePath('/admin/settings')
+    revalidatePath('/superadmin')
     return {
       ok: true,
       ...(result.revokedCurrentSession
@@ -104,7 +104,7 @@ export async function createPlatformTenantAction(input: {
     const tenant = await service.createTenant(input)
     // Run the app-level bootstrap so the new workspace is immediately usable.
     await provisionTenant(tenant.id)
-    revalidatePath('/admin/settings')
+    revalidatePath('/superadmin')
     return { ok: true }
   } catch (error) {
     return failure(error)
@@ -118,7 +118,7 @@ export async function setPlatformTenantStatusAction(
   try {
     const service = await operatorService()
     const result = await service.setTenantStatus(tenantId, status)
-    revalidatePath('/admin/settings')
+    revalidatePath('/superadmin')
     return {
       ok: true,
       ...(result.suspendedCurrentTenant
@@ -140,7 +140,7 @@ export async function addPlatformTenantMemberAction(
   try {
     const service = await operatorService()
     await service.addTenantMember(tenantId, { email })
-    revalidatePath('/admin/settings')
+    revalidatePath('/superadmin')
     return { ok: true }
   } catch (error) {
     return failure(error)
@@ -155,7 +155,7 @@ export async function setPlatformTenantMemberStatusAction(
   try {
     const service = await operatorService()
     await service.setTenantMemberStatus(tenantId, membershipId, status)
-    revalidatePath('/admin/settings')
+    revalidatePath('/superadmin')
     return { ok: true }
   } catch (error) {
     return failure(error)
@@ -169,7 +169,7 @@ export async function removePlatformTenantMemberAction(
   try {
     const service = await operatorService()
     await service.removeTenantMember(tenantId, membershipId)
-    revalidatePath('/admin/settings')
+    revalidatePath('/superadmin')
     return { ok: true }
   } catch (error) {
     return failure(error)
@@ -180,7 +180,7 @@ export async function revokePlatformSessionAction(sessionId: string): Promise<Su
   try {
     const service = await operatorService()
     const result = await service.revokeSession(sessionId)
-    revalidatePath('/admin/settings')
+    revalidatePath('/superadmin')
     return {
       ok: true,
       ...(result.revokedCurrentSession

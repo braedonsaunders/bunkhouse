@@ -25,7 +25,7 @@ const navigation: SidebarNavGroup[] = [
   { id: 'settings', label: 'Settings', items: [{ href: '/admin/settings', label: 'Settings', iconKey: 'settings', mobile: true }] },
 ]
 
-export type FrameUser = { name: string; email: string }
+export type FrameUser = { name: string; email: string; isSuperAdmin?: boolean }
 
 export type FrameTenant = {
   id: string
@@ -82,6 +82,11 @@ export function AppFrame({
               email={user?.email ?? ''}
               contextLabel={tenant ? `${tenant.name} · workspace` : undefined}
               organization={organization}
+              // Instance operation lives outside tenant settings; only super
+              // admins see the doorway.
+              {...(user?.isSuperAdmin
+                ? { elevatedAccess: { label: 'Platform administration', href: '/superadmin' } }
+                : {})}
               showTheme
               onSignOut={async () => {
                 await authClient.signOut()

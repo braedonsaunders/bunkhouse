@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Boxes, Brain, Building2, CircleDollarSign, FileText, FolderCog, Globe, ImageIcon, Mail, Phone, Plug, Shield, UserCog } from 'lucide-react'
+import { Boxes, Brain, CircleDollarSign, FileText, FolderCog, Globe, ImageIcon, Mail, Phone, Plug, Shield } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -32,20 +32,6 @@ import { ImageProviderForm } from './image-provider-form'
 import { AutonomySettings, type AgentDial } from './autonomy-settings'
 import { PhoneSystemRow, type AgentExtensionRow, type AgentOption, type PhoneNumberRowView, type SipTrunkSummary } from './phone-system'
 import { DocumentsSection, IntegrationsSection, ResearchSection, WorkspaceSection, type DocumentBrandingView, type IntegrationRowView, type WorkspacePolicyView } from './capability-settings'
-import { PlatformUsersAdmin, PlatformSessionsAdmin, PlatformTenantsAdmin } from '@appkit/superadmin/react'
-import type { PlatformSessionRecord, PlatformTenantRecord, PlatformUserRecord, TenantMemberRecord } from '@appkit/superadmin'
-import {
-  addPlatformTenantMemberAction,
-  createPlatformTenantAction,
-  createPlatformUserAction,
-  removePlatformTenantMemberAction,
-  revokePlatformSessionAction,
-  revokePlatformUserSessionsAction,
-  setPlatformTenantMemberStatusAction,
-  setPlatformTenantStatusAction,
-  setPlatformUserPasswordAction,
-  updatePlatformUserAction,
-} from '../app/admin/settings/platform-actions'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
   <Link href={href} className={className} title={title}>
@@ -161,16 +147,6 @@ const MAILBOX_COLUMNS: RecordColumn<MailboxRow>[] = [
   { key: 'lastError', label: 'Last error' },
 ]
 
-export type PlatformAdminData = {
-  users: PlatformUserRecord[]
-  sessions: PlatformSessionRecord[]
-  currentUserId: string
-  tenants: PlatformTenantRecord[]
-  /** tenantId → members, preloaded server-side. */
-  tenantMembers: Record<string, TenantMemberRecord[]>
-  /** The tenant the operator is currently working in. */
-  currentTenantId: string
-}
 
 export function SettingsView({
   providers,
@@ -191,7 +167,6 @@ export function SettingsView({
   avatarParts,
   avatarPartCategories,
   avatarPartLibrary,
-  platform,
 }: {
   providers: ProviderSummary[]
   kinds: ProviderKindOption[]
@@ -224,7 +199,6 @@ export function SettingsView({
    * Instance-operator data — present only when the signed-in user is a super
    * admin (the server withholds it otherwise, and the actions re-authorize).
    */
-  platform?: PlatformAdminData
 }) {
   const [active, setActive] = React.useState(initialSection)
   const [busy, startBusy] = React.useTransition()
@@ -236,18 +210,7 @@ export function SettingsView({
   const [voiceError, setVoiceError] = React.useState<string | null>(null)
   const imageCapable = providers.filter((p) => ['openai', 'google'].includes(p.provider))
   const priceHistory = priceDrawer && priceDrawer !== '*new*' ? prices.filter((row) => row.model === priceDrawer) : []
-  const nav: SettingsNavGroup[] = platform
-    ? [
-        ...NAV,
-        {
-          label: 'Platform',
-          items: [
-            { key: 'users', label: 'Users', icon: <UserCog /> },
-            { key: 'tenants', label: 'Tenants', icon: <Building2 /> },
-          ],
-        },
-      ]
-    : NAV
+  const nav: SettingsNavGroup[] = NAV
 
   return (
     <SettingsShell
@@ -521,40 +484,6 @@ export function SettingsView({
             imageProviderConfigured={imageSetting !== null}
           />
         </SettingsSection>
-      ) : null}
-
-      {active === 'users' && platform ? (
-        <div className="space-y-10">
-          <PlatformUsersAdmin
-            users={platform.users}
-            currentUserId={platform.currentUserId}
-            actions={{
-              createUser: createPlatformUserAction,
-              updateUser: updatePlatformUserAction,
-              setPassword: setPlatformUserPasswordAction,
-              revokeUserSessions: revokePlatformUserSessionsAction,
-            }}
-          />
-          <PlatformSessionsAdmin
-            sessions={platform.sessions}
-            actions={{ revokeSession: revokePlatformSessionAction }}
-          />
-        </div>
-      ) : null}
-
-      {active === 'tenants' && platform ? (
-        <PlatformTenantsAdmin
-          tenants={platform.tenants}
-          members={platform.tenantMembers}
-          currentTenantId={platform.currentTenantId}
-          actions={{
-            createTenant: createPlatformTenantAction,
-            setTenantStatus: setPlatformTenantStatusAction,
-            addMember: addPlatformTenantMemberAction,
-            setMemberStatus: setPlatformTenantMemberStatusAction,
-            removeMember: removePlatformTenantMemberAction,
-          }}
-        />
       ) : null}
 
       <Drawer
