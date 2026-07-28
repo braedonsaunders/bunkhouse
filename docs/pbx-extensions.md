@@ -138,6 +138,20 @@ credentials, and extension maps are sealed tenant settings.
    subtab + extension map UI + hand-profile extension field; trunk-scoped
    called-number→hand resolution in the voice-worker dispatch path; call ledger
    peer_kind/peer_extension. Desk phone rings a hand.
+   **SHIPPED (trunk-first first pass):** livekit-sip + media-redis in compose
+   (`--dev` server now on the same redis bus); migration `0012_pbx` — sip_trunks
+   (flavor avaya_ip_office|generic_sip, mode trunk|extension column reserved,
+   host/port/transport, sealed auth, status/last_error, mirrored LiveKit ids,
+   RLS) + `people.extension` (per-tenant partial unique) instead of a separate
+   pbx_extensions table for this slice; lib/pbx.ts CRUD + reconstruct-on-save
+   provisioning (inbound trunk + `pbx-` callee dispatch rule via SipClient);
+   voice-agent answers `pbx-<ext>…` rooms, resolves the hand by extension, and
+   creates the run + call_sessions row (direction inbound_phone) itself;
+   Settings → Voice → Phone system drawer (Trunks / Extensions / Connection
+   details subtabs, Avaya checklist) + Phone extension card on the hand's
+   Voice tab; observatory labels the runs 'Inbound call'. Still open from this
+   slice's full spec: peer_kind/peer_extension ledger columns, trunk-scoped
+   (vs extension-global) resolution, and the Test call button.
 2. **Outbound + transfers.** place_call to internal extensions over the PBX trunk
    (autonomy-gated), REFER transfer tool + `transferred` session outcome, caller-id
    mapping, Test call button.
