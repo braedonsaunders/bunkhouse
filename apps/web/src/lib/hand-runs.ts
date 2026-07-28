@@ -29,7 +29,8 @@ import {
 import { db } from '../db/client'
 import { resolveHandAiConfig } from './ai'
 import { resolvePrice } from './pricing'
-import { sendReplyInThread } from './mailbox'
+import { sendNewMail, sendReplyInThread } from './mailbox'
+import { createNote, pinnedNotes, retrieveNotes, supersedeNote } from './memory'
 
 
 
@@ -135,27 +136,74 @@ export async function executeHandRun(args: {
     const dial = new Map(dialRows.map((r) => [r.category, r.level]))
 
     const directory = await app.db.select().from(people).where(eq(people.status, 'active'))
-    const notes = await app.db
-      .select()
-      .from(memories)
-      .where(and(eq(memories.status, 'active'), sql`(${memories.personId} = ${person.id} or ${memories.scope} = 'company')`))
+    // The Logbook: pinned tier always in prompt; the rest scored per task.
+    const retrievalQuery =
+      args.input.type === 'email'
+        ? `${args.input.threadSubject} ${args.input.conversation.slice(-400)}`
+        : args.input.type === 'duty'
+          ? `${args.input.dutyTitle} ${args.input.instruction}`
+          : args.input.type === 'chat'
+            ? args.input.message
+            : args.input.type === 'delegation'
+              ? args.input.instruction
+              : args.input.instruction
+    const pinned = await pinnedNotes({ tenantId: args.tenantId, personId: person.id })
+    const retrieved = await retrieveNotes({ tenantId: args.tenantId, personId: person.id, query: retrievalQuery })
+    const notes = [...pinned, ...retrieved.filter((r) => !pinned.some((p) => p.id === r.id))]
 
     const abilities: Ability[] = [
       defineAbility({
         name: 'save_memory',
-        description: 'Save a short note to your own memory so you remember it in future work.',
+        description:
+          'Save a note to your logbook. kind: fact (currently true), episode (what happened), procedure (how to do something), reflection (a conclusion — cite evidence with [[slug]] links). If a live note with the same title exists, yours supersedes it (the old one is kept in history). Use [[wikilinks]] to connect notes.',
         category: null,
-        inputSchema: z.object({ title: z.string(), body: z.string() }),
-        execute: async ({ title, body }) => {
+        inputSchema: z.object({
+          title: z.string(),
+          body: z.string(),
+          kind: z.enum(['fact', 'episode', 'procedure', 'reflection']).default('fact'),
+          importance: z.number().min(1).max(5).default(3),
+        }),
+        execute: async ({ title, body, kind, importance }) => {
           const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'note'
-          await app.db
-            .insert(memories)
-            .values({ tenantId: args.tenantId, scope: 'hand', personId: person.id, slug, title, body, sourceRunId: runId })
-            .onConflictDoUpdate({
-              target: [memories.tenantId, memories.scope, memories.personId, memories.slug],
-              set: { title, body, status: 'active', updatedAt: new Date() },
-            })
+          const [existing] = await app.db
+            .select()
+            .from(memories)
+            .where(
+              and(
+                eq(memories.scope, 'hand'),
+                eq(memories.personId, person.id),
+                eq(memories.slug, slug),
+                sql`${memories.validUntil} is null`,
+              ),
+            )
+          if (existing) {
+            await supersedeNote({ tenantId: args.tenantId, oldNoteId: existing.id, title, body, author: 'hand', sourceRunId: runId })
+            return { saved: true, superseded: existing.slug }
+          }
+          await createNote({
+            tenantId: args.tenantId,
+            scope: 'hand',
+            personId: person.id,
+            kind,
+            title,
+            body,
+            author: 'hand',
+            importance,
+            sourceRunId: runId,
+          })
           return { saved: true }
+        },
+      }),
+      defineAbility({
+        name: 'search_memory',
+        description: 'Search your logbook and company knowledge for notes relevant to a query. Returns the best matches with their [[slug]] handles.',
+        category: null,
+        inputSchema: z.object({ query: z.string() }),
+        execute: async ({ query }) => {
+          const found = await retrieveNotes({ tenantId: args.tenantId, personId: person.id, query, limit: 6 })
+          return {
+            notes: found.map((n) => ({ slug: n.slug, kind: n.kind, title: n.title, body: n.body })),
+          }
         },
       }),
     ]
@@ -235,6 +283,29 @@ export async function executeHandRun(args: {
         : outcome.status === 'waiting_approval'
           ? ('waiting_approval' as const)
           : ('failed' as const)
+    if (outcome.status === 'waiting_approval' && person.reportsToId) {
+      const [manager] = await app.db.select().from(people).where(eq(people.id, person.reportsToId))
+      const [approval] = await app.db.select().from(approvals).where(eq(approvals.id, outcome.approvalId))
+      if (manager && approval) {
+        try {
+          await sendNewMail({
+            tenantId: args.tenantId,
+            personId: person.id,
+            to: [{ name: manager.name, address: manager.email }],
+            subject: `[BH#${approval.id.slice(0, 8)}] Approval needed: ${approval.category.replace('_', ' ')}`,
+            text: `Hi ${manager.name.split(' ')[0]},\n\nI need your sign-off before I act:\n\n${approval.payload.description}\n\nReply to this email with "approve" or "decline" (a short note after the word is kept for the record). You can also decide it in Bunkhouse under Approvals.\n\n${person.personality?.signoff ?? person.name}`,
+            runId,
+          })
+          await sink.event({ kind: 'message', text: `Approval request emailed to ${manager.name} <${manager.email}>.` })
+        } catch (error) {
+          await sink.event({
+            kind: 'message',
+            text: `Could not email the approval request (${error instanceof Error ? error.message : String(error)}); it is waiting in the Approvals queue.`,
+          })
+        }
+      }
+    }
+
     await app.db
       .update(runs)
       .set({

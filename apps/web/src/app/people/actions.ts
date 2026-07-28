@@ -214,7 +214,7 @@ export async function connectMailboxAction(formData: FormData): Promise<void> {
     password,
     imapHost,
     imapPort,
-    imapSecure: imapPort !== 143,
+    imapSecure: imapPort === 993,
     smtpHost,
     smtpPort,
     smtpSecure: smtpPort === 465,

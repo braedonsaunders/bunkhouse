@@ -1,0 +1,28 @@
+# Local mail lab: Mailpit catches and displays every message hands SEND
+# (point a hand's SMTP at localhost:1025, watch http://localhost:8025);
+# GreenMail provides accept-anything IMAP/SMTP so hands can be connected
+# end-to-end with no real mail account (IMAP localhost:3143, SMTP :3025 —
+# send test mail INTO a hand with any SMTP client against :3025).
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: bunkhouse-mailpit
+    restart: unless-stopped
+    ports:
+      - '8025:8025'
+      - '1025:1025'
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+
+  greenmail:
+    image: greenmail/standalone:latest
+    container_name: bunkhouse-greenmail
+    restart: unless-stopped
+    ports:
+      - '3025:3025'
+      - '3143:3143'
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap
+        -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled

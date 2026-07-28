@@ -1,9 +1,9 @@
 import { createJobs } from '@appkit/jobs'
 import { CronExpressionParser } from 'cron-parser'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { schema as identity } from '@appkit/db'
 import { db } from '../src/db/client'
-import { approvals, mailboxAccounts, runEvents, runs } from '../src/db/schema'
+import { approvals, mailboxAccounts, mailMessages, people, runEvents, runs } from '../src/db/schema'
 import { syncPersonMailbox, sendReplyInThread } from '../src/lib/mailbox'
 import { dueDuties, executeHandRun, markDutyRun, startRunsForNewInbound } from '../src/lib/hand-runs'
 
@@ -67,8 +67,70 @@ async function dutiesPass(): Promise<void> {
   }
 }
 
+const APPROVE_WORDS = new Set(['approve', 'approved', 'yes', 'ok', 'okay', 'lgtm'])
+const DECLINE_WORDS = new Set(['decline', 'declined', 'reject', 'rejected', 'no', 'deny', 'denied'])
+
+/** Parse the first meaningful word of a reply body (skipping quoted lines). */
+function parseDecision(body: string): 'approved' | 'rejected' | null {
+  for (const raw of body.split('\n')) {
+    const line = raw.trim()
+    if (!line || line.startsWith('>') || line.startsWith('On ')) continue
+    const word = line.split(/\s+/)[0]?.toLowerCase().replace(/[^a-z]/g, '') ?? ''
+    if (APPROVE_WORDS.has(word)) return 'approved'
+    if (DECLINE_WORDS.has(word)) return 'rejected'
+    return null
+  }
+  return null
+}
+
+/** Email-driven decisions: a staff reply to the [BH#tag] thread decides it. */
+async function applyEmailedDecisions(tenantId: string): Promise<void> {
+  await app.withTenant(tenantId, async () => {
+    const open = await app.db.select().from(approvals).where(eq(approvals.status, 'pending'))
+    for (const approval of open) {
+      const tag = `[BH#${approval.id.slice(0, 8)}]`
+      const replies = await app.db
+        .select()
+        .from(mailMessages)
+        .where(
+          and(
+            eq(mailMessages.direction, 'inbound'),
+            sql`${mailMessages.subject} like ${'%' + tag + '%'}`,
+            sql`${mailMessages.sentAt} > ${approval.createdAt}`,
+          ),
+        )
+        .orderBy(mailMessages.sentAt)
+      for (const reply of replies) {
+        const sender = reply.from.address.toLowerCase()
+        const staff = await app.db
+          .select({ id: people.id })
+          .from(people)
+          .where(and(eq(people.status, 'active'), eq(people.kind, 'human'), sql`lower(${people.email}) = ${sender}`))
+          .limit(1)
+        if (staff.length === 0) continue
+        const decision = parseDecision(reply.bodyText)
+        if (!decision) continue
+        const note = reply.bodyText.split('\n').find((l) => l.trim() && !l.trim().startsWith('>'))?.trim().slice(0, 200) ?? null
+        await app.db
+          .update(approvals)
+          .set({ status: decision, decidedAt: new Date(), decidedBy: staff[0]!.id, decisionNote: note })
+          .where(and(eq(approvals.id, approval.id), eq(approvals.status, 'pending')))
+        if (decision === 'rejected') {
+          await app.db
+            .update(runs)
+            .set({ status: 'completed', finishedAt: new Date(), summary: 'Stopped: the requested action was declined by email.' })
+            .where(and(eq(runs.id, approval.runId), eq(runs.status, 'waiting_approval')))
+        }
+        console.log(`[approval] ${tag} ${decision} by email from ${sender}`)
+        break
+      }
+    }
+  })
+}
+
 async function approvalsPass(): Promise<void> {
   for (const tenantId of await activeTenantIds()) {
+    await applyEmailedDecisions(tenantId)
     await app.withTenant(tenantId, async () => {
       const ready = await app.db
         .select()
@@ -121,10 +183,13 @@ const worker = jobs.createWorker<{ pass: 'mailbox' | 'duties' | 'approvals' }>(
     else if (job.data.pass === 'duties') await dutiesPass()
     else await approvalsPass()
   },
-  { concurrency: 3 },
+  { concurrency: 1 },
 )
 
-console.log('bunkhouse worker up — mailbox 2m, duties 1m, approvals 30s')
+await heartbeat.add('tick', { pass: 'mailbox' })
+await heartbeat.add('tick', { pass: 'duties' })
+await heartbeat.add('tick', { pass: 'approvals' })
+console.log('bunkhouse worker up — mailbox 2m, duties 1m, approvals 30s (initial passes queued)')
 
 async function shutdown(): Promise<void> {
   await worker.close()

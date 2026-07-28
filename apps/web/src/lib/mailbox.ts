@@ -239,3 +239,54 @@ export async function sendReplyInThread(args: {
       .where(eq(mailThreads.id, thread.id))
   })
 }
+
+/** Compose a NEW thread from a hand's mailbox (approval requests, outreach). */
+export async function sendNewMail(args: {
+  tenantId: string
+  personId: string
+  to: { name?: string; address: string }[]
+  subject: string
+  text: string
+  runId?: string
+}): Promise<{ threadId: string }> {
+  const app = db()
+  return app.withTenant(args.tenantId, async () => {
+    const [account] = await app.db
+      .select()
+      .from(mailboxAccounts)
+      .where(eq(mailboxAccounts.personId, args.personId))
+    if (!account) throw new Error('No mailbox connected for this hand.')
+    const [owner] = await app.db.select().from(people).where(eq(people.id, args.personId))
+    const sent = await sendMail(toConnection(account), {
+      to: args.to,
+      subject: args.subject,
+      text: args.text,
+      ...(owner ? { fromName: owner.name } : {}),
+    })
+    const [thread] = await app.db
+      .insert(mailThreads)
+      .values({
+        tenantId: args.tenantId,
+        mailboxId: account.id,
+        subject: args.subject,
+        externalThreadKey: sent.messageId,
+        participants: [{ ...(owner ? { name: owner.name } : {}), address: account.address }, ...args.to],
+        lastMessageAt: sent.sentAt,
+      })
+      .returning({ id: mailThreads.id })
+    await app.db.insert(mailMessages).values({
+      tenantId: args.tenantId,
+      threadId: thread!.id,
+      direction: 'outbound',
+      from: { ...(owner ? { name: owner.name } : {}), address: account.address },
+      to: args.to,
+      cc: [],
+      subject: args.subject,
+      bodyText: args.text,
+      externalMessageId: sent.messageId,
+      runId: args.runId ?? null,
+      sentAt: sent.sentAt,
+    })
+    return { threadId: thread!.id }
+  })
+}
