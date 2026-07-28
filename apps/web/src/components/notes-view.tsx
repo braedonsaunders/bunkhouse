@@ -9,7 +9,6 @@ import {
   Label,
   RecordList,
   Select,
-  Textarea,
   type RecordColumn,
 } from '@appkit/ui'
 import {
@@ -210,7 +209,7 @@ export function NotesView({
                 </Button>
               </div>
               <p className="text-xs text-fg-muted">
-                Corrections keep history; forgetting closes the note's validity window — nothing is deleted.
+                Corrections keep history; forgetting closes the note&apos;s validity window — nothing is deleted.
               </p>
             </form>
 
@@ -296,7 +295,11 @@ export function ProposalsView({ rows }: { rows: ProposalRow[] }) {
             <p className="text-sm text-fg-muted">Rationale: {selected.rationale}</p>
             <div className="flex items-center gap-2">
               <Button onClick={() => decide('approve')} disabled={busy}>
-                Approve into company knowledge
+                {selected.kind === 'promote'
+                  ? 'Approve into company knowledge'
+                  : selected.kind === 'supersede'
+                    ? 'Approve — supersede the old note'
+                    : 'Approve this change'}
               </Button>
               <Button variant="outline" onClick={() => decide('reject')} disabled={busy}>
                 Reject

@@ -315,7 +315,10 @@ export async function proposePromotion(args: {
 }
 
 /** Human decision on a proposal. Approving a promotion creates the company
- *  note (citing the original) and supersedes the hand note by promotion. */
+ *  note (citing the original) and supersedes the hand note by promotion.
+ *  Approving a consolidator 'supersede' closes the old note behind a new one;
+ *  approving an 'edit' applies the correction (prior head snapshotted).
+ *  Everything stays append-only; rejections just close the proposal. */
 export async function decideProposal(args: {
   tenantId: string
   proposalId: string
@@ -352,6 +355,31 @@ export async function decideProposal(args: {
         .update(memories)
         .set({ validUntil: new Date(), supersededBy: companyId, pinned: false, updatedAt: new Date() })
         .where(eq(memories.id, note.id))
+    }
+  } else if (proposal.kind === 'supersede') {
+    const targetId = proposal.payload.noteIds?.[0] ?? proposal.noteId
+    if (!targetId) throw new Error('Supersede proposal has no target note.')
+    const [note] = await app.db.select().from(memories).where(eq(memories.id, targetId))
+    if (note && !note.validUntil) {
+      await supersedeNote({
+        tenantId: args.tenantId,
+        oldNoteId: targetId,
+        title: proposal.payload.title ?? note.title,
+        body: proposal.payload.body ?? note.body,
+        author: 'consolidator',
+      })
+    }
+  } else if (proposal.kind === 'edit' && proposal.noteId) {
+    const [note] = await app.db.select().from(memories).where(eq(memories.id, proposal.noteId))
+    if (note && !note.validUntil) {
+      await correctNote({
+        tenantId: args.tenantId,
+        noteId: proposal.noteId,
+        title: proposal.payload.title ?? note.title,
+        body: proposal.payload.body ?? note.body,
+        editedBy: 'consolidator',
+        reason: 'consolidator proposal',
+      })
     }
   }
   await app.db

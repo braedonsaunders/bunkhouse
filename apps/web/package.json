@@ -49,6 +49,7 @@
     "@bunkhouse/roles": "workspace:*",
     "@bunkhouse/runtime": "workspace:*",
     "@xyflow/react": "^12.10.0",
+    "ai": "^6.0.224",
     "cron-parser": "^5.6.2",
     "cronstrue": "^3.24.0",
     "drizzle-orm": "^0.45.2",
