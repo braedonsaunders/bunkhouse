@@ -6,11 +6,14 @@ import type { ActionCategory, ApprovalGate, AutonomyResolver, RunSink } from './
  * An ability is a tool plus the action category the autonomy dial governs it
  * under. Ungoverned abilities (category null) are read-only by convention —
  * anything that touches the world outside the run gets a category.
+ *
+ * Tool input/output are erased here (the loop treats tools opaquely, exactly
+ * like the AI SDK's own ToolSet); `defineAbility` keeps authoring typed.
  */
-export type Ability<INPUT = unknown, OUTPUT = unknown> = {
+export type Ability = {
   name: string
   category: ActionCategory | null
-  tool: Tool<INPUT, OUTPUT>
+  tool: Tool<any, any>
 }
 
 export function defineAbility<INPUT, OUTPUT>(args: {
@@ -19,15 +22,15 @@ export function defineAbility<INPUT, OUTPUT>(args: {
   category: ActionCategory | null
   inputSchema: z.ZodType<INPUT>
   execute: (input: INPUT) => Promise<OUTPUT>
-}): Ability<INPUT, OUTPUT> {
+}): Ability {
   return {
     name: args.name,
     category: args.category,
     tool: tool({
       description: args.description,
-      inputSchema: args.inputSchema,
+      inputSchema: args.inputSchema as z.ZodType<INPUT>,
       execute: async (input: INPUT) => args.execute(input),
-    }) as Tool<INPUT, OUTPUT>,
+    } as any),
   }
 }
 
@@ -50,7 +53,7 @@ export type GovernanceState = {
  * execute — 'notify' additionally records a notify event for the manager feed.
  */
 export function governedToolSet(args: {
-  abilities: Ability<never, unknown>[]
+  abilities: Ability[]
   autonomy: AutonomyResolver
   approvals: ApprovalGate
   sink: RunSink
@@ -66,10 +69,10 @@ export function governedToolSet(args: {
       continue
     }
     const category = ability.category
-    const execute = base.execute.bind(base) as (input: never, options: never) => Promise<unknown>
+    const execute = base.execute.bind(base)
     set[ability.name] = {
       ...base,
-      execute: async (input: never, options: never) => {
+      execute: async (input: unknown, options: unknown) => {
         const level = args.autonomy(category)
         if (level === 'forbidden') {
           return {
@@ -83,7 +86,7 @@ export function governedToolSet(args: {
           const { approvalId } = await args.approvals.request({
             category,
             description,
-            action: { toolName: ability.name, input: input as unknown as Record<string, unknown> },
+            action: { toolName: ability.name, input: input as Record<string, unknown> },
           })
           args.state.pendingApprovalId = approvalId
           await args.sink.event({ kind: 'approval_request', approvalId, category, description })
@@ -94,8 +97,7 @@ export function governedToolSet(args: {
           }
           return pending
         }
-        const output = await execute(input, options)
-        return output
+        return execute(input as any, options as any)
       },
     } as ToolSet[string]
   }
@@ -106,7 +108,7 @@ export function governedToolSet(args: {
 export function citeProcedureAbility(args: {
   sink: RunSink
   procedures: { slug: string; version: number }[]
-}): Ability<{ slug: string }, { cited: boolean }> {
+}): Ability {
   const known = new Map(args.procedures.map((p) => [p.slug, p.version]))
   return defineAbility({
     name: 'cite_procedure',

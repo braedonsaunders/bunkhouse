@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/mcp": "^1.0.64",
     "@appkit/ai": "0.2.0",
     "@modelcontextprotocol/sdk": "^1.21.0",
     "ai": "^6.0.224",

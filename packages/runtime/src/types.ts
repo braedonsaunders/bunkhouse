@@ -28,6 +28,7 @@ export type HandProfile = {
   personality: HandPersonality
   /** Provider + model for THIS hand; different hands run different models. */
   ai: AiConfig
+  temperature?: number
   responsibilities?: string
   proactivity: 'reactive' | 'duties' | 'autonomous'
 }
