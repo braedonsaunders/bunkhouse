@@ -14,6 +14,7 @@ const navigation: SidebarNavGroup[] = [
       { href: '/', label: 'Home', iconKey: 'home', exact: true, mobile: true },
       { href: '/people', label: 'Directory', iconKey: 'users', mobile: true },
       { href: '/approvals', label: 'Approvals', iconKey: 'list-checks', mobile: true },
+      { href: '/settings', label: 'Settings', iconKey: 'settings' },
     ],
   },
 ]

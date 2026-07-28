@@ -8,6 +8,7 @@ import { autonomySettings, duties, memories, people, procedures, procedureRevisi
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
 import { connectMailbox, syncPersonMailbox } from '../../lib/mailbox'
+import { listAiProviders } from '../../lib/ai'
 
 const ACTION_CATEGORIES = [
   'external_email',
@@ -224,5 +225,27 @@ export async function syncMailboxAction(formData: FormData): Promise<void> {
   if (!personId) throw new Error('personId is required')
   const tenantId = await resolveTenantId()
   await syncPersonMailbox(tenantId, personId)
+  revalidatePath(`/people/${personId}`)
+}
+
+/** Assign which brain this hand runs on: a tenant provider slug + model id. */
+export async function setHandModel(formData: FormData): Promise<void> {
+  const personId = String(formData.get('personId') ?? '')
+  const providerSlug = String(formData.get('providerSlug') ?? '')
+  const model = String(formData.get('model') ?? '').trim()
+  if (!personId || !providerSlug || !model) throw new Error('Provider and model are required.')
+
+  const tenantId = await resolveTenantId()
+  const providers = await listAiProviders(tenantId)
+  if (!providers.some((p) => p.slug === providerSlug)) {
+    throw new Error(`No provider with slug "${providerSlug}" is configured.`)
+  }
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await app.db
+      .update(people)
+      .set({ modelConfig: { provider: providerSlug, model }, updatedAt: new Date() })
+      .where(eq(people.id, personId))
+  })
   revalidatePath(`/people/${personId}`)
 }

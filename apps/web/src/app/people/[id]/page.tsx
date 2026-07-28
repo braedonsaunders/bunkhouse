@@ -25,7 +25,8 @@ import {
 import { autonomySettings, duties, memories, people } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
-import { addMemoryNote, deleteMemoryNote, setAutonomy } from '../actions'
+import { listAiProviders } from '../../../lib/ai'
+import { addMemoryNote, deleteMemoryNote, setAutonomy, setHandModel } from '../actions'
 import { MailboxSection } from './mailbox-section'
 
 const AUTONOMY_LEVELS = ['forbidden', 'approval', 'notify', 'trusted'] as const
@@ -83,6 +84,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   if (!data) notFound()
   const { person, manager, personDuties, dial, notes } = data
   const isHand = person.kind === 'hand'
+  const providers = isHand ? await listAiProviders(tenantId) : []
 
   return (
     <PageContainer className="space-y-6">
@@ -136,12 +138,32 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
               <p>
                 Proactivity: <span className="font-medium">{person.proactivity ?? '—'}</span>
               </p>
-              <p>
-                Model:{' '}
-                <span className="font-medium">
-                  {person.modelConfig ? `${person.modelConfig.provider} / ${person.modelConfig.model}` : 'not assigned yet'}
-                </span>
-              </p>
+              <div className="space-y-1">
+                <p>
+                  Model:{' '}
+                  <span className="font-medium">
+                    {person.modelConfig ? `${person.modelConfig.provider} / ${person.modelConfig.model}` : 'not assigned yet'}
+                  </span>
+                </p>
+                {providers.length === 0 ? (
+                  <p className="text-xs text-fg-muted">Add a model provider in Settings to assign a brain.</p>
+                ) : (
+                  <form action={setHandModel} className="flex flex-wrap items-center gap-1">
+                    <input type="hidden" name="personId" value={person.id} />
+                    <Select name="providerSlug" defaultValue={person.modelConfig?.provider ?? providers[0]!.slug}>
+                      {providers.map((p) => (
+                        <option key={p.slug} value={p.slug}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </Select>
+                    <Input name="model" placeholder="claude-sonnet-5" defaultValue={person.modelConfig?.model ?? providers[0]!.modelSmart ?? ''} className="w-44" />
+                    <Button type="submit" variant="outline" size="sm">
+                      Assign
+                    </Button>
+                  </form>
+                )}
+              </div>
               <p>
                 Started: <span className="font-medium">{person.startedOn ?? '—'}</span>
               </p>
