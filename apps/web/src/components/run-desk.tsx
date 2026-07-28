@@ -22,6 +22,13 @@ export type ProcedureArtifact = {
   body: string
 }
 
+export type CallTranscriptTurn = {
+  speaker: 'hand' | 'human'
+  text: string
+  /** Offset from call start, milliseconds. */
+  atMs: number
+}
+
 export type ApprovalArtifact = {
   id: string
   category: string
@@ -227,14 +234,60 @@ function Screen({
  * the hand's screen at the selected moment. Clicking a feed line selects it;
  * with nothing selected the desk follows the latest event.
  */
+function offsetLabel(atMs: number): string {
+  return `${Math.floor(atMs / 60000)}:${String(Math.floor((atMs % 60000) / 1000)).padStart(2, '0')}`
+}
+
+/** The call ledger rendered as chat bubbles — shown when a run is a call. */
+function CallTranscriptCard({ transcript, handName }: { transcript: CallTranscriptTurn[]; handName: string }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Call transcript</CardTitle>
+        <CardDescription>
+          Every turn of the call, from the append-only ledger — corrections would be new records, never edits.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {transcript.length === 0 ? (
+          <EmptyState title="No turns recorded" description="The call ended before anything was transcribed." />
+        ) : (
+          <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
+            {transcript.map((turn, index) => (
+              <div key={index} className={`flex ${turn.speaker === 'human' ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                    turn.speaker === 'human' ? 'bg-primary-subtle text-fg' : 'border border-border bg-bg-subtle text-fg'
+                  }`}
+                >
+                  <p className="mb-0.5 text-xs font-medium text-fg-muted">
+                    {turn.speaker === 'human' ? 'Caller' : handName} ·{' '}
+                    <span className="tabular-nums">{offsetLabel(turn.atMs)}</span>
+                  </p>
+                  <p className="whitespace-pre-wrap">{turn.text}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function RunDesk({
   events,
   procedures,
   approvals,
+  transcript,
+  handName,
 }: {
   events: DeskEvent[]
   procedures: Record<string, ProcedureArtifact>
   approvals: Record<string, ApprovalArtifact>
+  /** Present when a call session references this run — rendered as the call's transcript artifact. */
+  transcript?: CallTranscriptTurn[]
+  handName?: string
 }) {
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const selected = events.find((e) => e.id === selectedId) ?? events[events.length - 1] ?? null
@@ -291,6 +344,7 @@ export function RunDesk({
         </CardContent>
       </Card>
 
+      <div className="space-y-4">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between gap-2 text-base">
@@ -311,6 +365,8 @@ export function RunDesk({
           {selected ? <Screen event={selected} procedures={procedures} approvals={approvals} /> : null}
         </CardContent>
       </Card>
+      {transcript ? <CallTranscriptCard transcript={transcript} handName={handName ?? 'Hand'} /> : null}
+      </div>
     </div>
   )
 }

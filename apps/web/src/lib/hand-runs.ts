@@ -46,7 +46,8 @@ async function monthSpendUsd(tenantId: string, personId: string): Promise<number
   return Number(row?.total ?? 0)
 }
 
-async function boundProcedures(tenantId: string, person: typeof people.$inferSelect): Promise<BoundProcedure[]> {
+/** Active procedure revisions bound to a person — shared with the voice agent. */
+export async function boundProcedures(tenantId: string, person: typeof people.$inferSelect): Promise<BoundProcedure[]> {
   const app = db()
   const heads = await app.db.select().from(procedures).where(eq(procedures.status, 'active'))
   const applicable = heads.filter((p) => {
