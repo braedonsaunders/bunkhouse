@@ -40,6 +40,106 @@ html, body { min-height: 100%; }
     0 16px 34px -14px rgb(0 0 0 / 0.7);
 }
 
+/* Switching stages (components/scene-art.tsx). The incoming room is revealed by
+   an edge travelling across the frame from whichever side it sits on in the
+   picker; the outgoing room holds still underneath it. `inset()` insets are
+   top/right/bottom/left, so arriving "from the right" means retracting a
+   full-width LEFT inset. A lit seam rides the same path a touch ahead of the
+   edge, which is what makes the sweep read as one gesture rather than a
+   rectangle growing. */
+@keyframes bh-wipe-right {
+  from {
+    clip-path: inset(0 0 0 100%);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes bh-wipe-left {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+/* The seam is one full-size element whose narrow gradient is walked across it
+   with `background-position` — percentages there are relative to the room, not
+   to the seam's own width the way a percentage `translateX` would be, so the
+   light stays on the edge at every viewport size. */
+@keyframes bh-wipe-seam-right {
+  from {
+    background-position: 100% 0;
+    opacity: 0;
+  }
+  16%,
+  84% {
+    opacity: 1;
+  }
+  to {
+    background-position: 0% 0;
+    opacity: 0;
+  }
+}
+@keyframes bh-wipe-seam-left {
+  from {
+    background-position: 0% 0;
+    opacity: 0;
+  }
+  16%,
+  84% {
+    opacity: 1;
+  }
+  to {
+    background-position: 100% 0;
+    opacity: 0;
+  }
+}
+.bh-wipe-right {
+  animation: bh-wipe-right var(--bh-wipe-duration, 620ms) cubic-bezier(0.66, 0, 0.2, 1) both;
+}
+.bh-wipe-left {
+  animation: bh-wipe-left var(--bh-wipe-duration, 620ms) cubic-bezier(0.66, 0, 0.2, 1) both;
+}
+.bh-wipe-seam {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+  background-repeat: no-repeat;
+  background-size: 14% 100%;
+}
+.bh-wipe-seam-right {
+  background-image: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.1) 34%,
+    transparent 100%
+  );
+  animation: bh-wipe-seam-right var(--bh-wipe-duration, 620ms) cubic-bezier(0.66, 0, 0.2, 1) both;
+}
+.bh-wipe-seam-left {
+  background-image: linear-gradient(
+    to left,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.1) 34%,
+    transparent 100%
+  );
+  animation: bh-wipe-seam-left var(--bh-wipe-duration, 620ms) cubic-bezier(0.66, 0, 0.2, 1) both;
+}
+/* Reduced motion still needs the animation to *run* — its `animationend` is
+   what retires the outgoing room — so it is cut to a single frame rather than
+   removed, and the seam is dropped entirely. */
+@media (prefers-reduced-motion: reduce) {
+  .bh-wipe-right,
+  .bh-wipe-left {
+    --bh-wipe-duration: 1ms;
+  }
+  .bh-wipe-seam {
+    display: none;
+  }
+}
+
 /* Scene art (components/scene-art.tsx). A room holds a hundred or so moving
    parts — blinking LEDs, breathing lamps, drifting motes, swaying leaves — so
    every one of them is a CSS keyframe the compositor can own on its own thread.

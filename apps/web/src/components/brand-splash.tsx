@@ -5,9 +5,16 @@
 // fixed overlay mounted once in the root layout: it renders visible on every
 // document load, then fades out once BOTH the minimum duration has elapsed
 // AND no route fallback is holding it open. Route loading fallbacks mount
-// <SplashHold /> to keep it up (and re-show it, replaying the build-in) while
-// content streams. The minimum counts from hydration, because the logo's
-// roof geometry is measured client-side — the draw can't start any earlier.
+// <SplashHold /> to keep it up while content streams. The minimum counts from
+// hydration, because the logo's roof geometry is measured client-side — the
+// draw can't start any earlier.
+//
+// The splash is a COLD-START moment and nothing else. It used to re-show
+// whenever a hold arrived, which sounds reasonable until you notice that
+// `app/loading.tsx` is the root segment's fallback: every internal link took
+// the whole app back to the logo for two seconds. So once the splash has
+// finished its life it retires for the rest of the document — later holds are
+// ignored, and route changes are left to the page transition in the shell.
 
 import { useEffect, useRef, useState } from 'react'
 import { BrandSplash } from './brand-logo'
@@ -17,11 +24,16 @@ const REDUCED_MOTION_MIN_MS = 500 // static logo — no reason to linger
 const FADE_MS = 400
 
 let holds = 0
+/** Set once the splash has faded out. It never comes back in this document. */
+let retired = false
 const listeners = new Set<() => void>()
 const notify = () => listeners.forEach((l) => l())
 
-/** Keeps the splash on screen while mounted. Render inside route loading
- *  fallbacks that should show the full-screen splash. */
+/**
+ * Keeps the splash on screen while mounted — but only while it is still up.
+ * Render inside route loading fallbacks: on a cold load it holds the splash
+ * until content is ready, and on every navigation after that it does nothing.
+ */
 export function SplashHold() {
   useEffect(() => {
     holds++
@@ -51,13 +63,13 @@ export function SplashScreen() {
     }
 
     const sync = () => {
+      if (retired) return
       clearTimeout(fadeT)
       clearTimeout(goneT)
       if (holds > 0) {
-        // Re-showing from gone remounts the splash, replaying the build-in;
-        // a hold arriving mid-fade just keeps the already-drawn logo up.
-        if (phaseRef.current === 'gone') shownAt.current = performance.now()
-        if (phaseRef.current !== 'visible') apply('visible')
+        // A hold arriving mid-fade keeps the already-drawn logo up. Once the
+        // splash is gone it stays gone, so there is no re-show path.
+        if (phaseRef.current === 'fading') apply('visible')
         return
       }
       const min = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -66,7 +78,10 @@ export function SplashScreen() {
       const remaining = Math.max(0, shownAt.current + min - performance.now())
       fadeT = setTimeout(() => {
         apply('fading')
-        goneT = setTimeout(() => apply('gone'), FADE_MS)
+        goneT = setTimeout(() => {
+          retired = true
+          apply('gone')
+        }, FADE_MS)
       }, remaining)
     }
 

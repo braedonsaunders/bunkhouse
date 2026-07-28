@@ -3,16 +3,16 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useTheme } from '@appkit/ui'
-import {
-  CharacterScene,
-  OFFICE_SCENE_KINDS,
-  SceneArt,
-  sceneGround,
-  type SceneCharacter,
-  type SceneKind,
-} from '@appkit/scene'
-import { ComposedAvatar } from '@appkit/avatars/react'
+import { CharacterScene, type SceneCharacter } from '@appkit/scene'
 import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
+import { SeatedFigure } from './seated-figure'
+import {
+  BunkhouseSceneArt,
+  SCENE_KINDS,
+  SCENE_LABELS,
+  bunkhouseSceneGround,
+  type SceneKind,
+} from './scene-art'
 
 /**
  * A stable, person-specific walking pace. Randomising per render made the
@@ -35,21 +35,12 @@ export type LobbyPerson = {
   walkSpeed?: number
 }
 
-const SCENE_LABELS: Partial<Record<SceneKind, string>> = {
-  office: 'Office',
-  executive: 'Executive',
-  warehouse: 'Warehouse',
-  serverroom: 'Server room',
-  breakroom: 'Break room',
-  rooftop: 'Rooftop',
-}
-
 const SCENE_STORAGE_KEY = 'bunkhouse.lobby.scene'
 const SCENE_CHANGE_EVENT = 'bunkhouse.lobby.scene-change'
 
 function readStoredScene(): SceneKind {
   const stored = window.localStorage.getItem(SCENE_STORAGE_KEY)
-  return stored && (OFFICE_SCENE_KINDS as string[]).includes(stored) ? (stored as SceneKind) : 'office'
+  return stored && (SCENE_KINDS as readonly string[]).includes(stored) ? (stored as SceneKind) : 'office'
 }
 
 function subscribeToScene(onChange: () => void): () => void {
@@ -110,13 +101,11 @@ export function Lobby({
         ...(person.composition
           ? {
               figure: (
-                <ComposedAvatar
+                <SeatedFigure
                   composition={person.composition}
                   parts={parts}
                   categories={categories}
-                  variant="full"
                   size={170}
-                  animate="idle"
                   name={person.name}
                 />
               ),
@@ -136,24 +125,19 @@ export function Lobby({
     <div className="isolate relative h-full min-h-0">
       <CharacterScene
         characters={characters}
-        ground={sceneGround(scene, isDark)}
-        art={<SceneArt kind={scene} isDark={isDark} />}
+        ground={bunkhouseSceneGround(scene, isDark)}
+        art={<BunkhouseSceneArt kind={scene} isDark={isDark} />}
         height="100%"
         baseCharacterSize={170}
         className="rounded-none border-0"
-        // Keep the walkers clear of the floating widgets: the run feed on the
-        // left, and give the KPI band across the top of the floor a margin.
-        config={{
-          exclusionZones: [
-            { minX: 0, maxX: 30, minY: 44, maxY: 100 },
-            { minX: 0, maxX: 100, minY: 0, maxY: 40 },
-          ],
-        }}
+        // The only widget left over the floor is the HUD band across the top,
+        // so that is the only place a walker must not stand.
+        config={{ exclusionZones: [{ minX: 0, maxX: 100, minY: 0, maxY: 40 }] }}
         onSelect={(id) => router.push(`${selectBasePath}?person=${id}`, { scroll: false })}
       />
       {children ? <div className="pointer-events-none absolute inset-0 z-[92]">{children}</div> : null}
-      <div className="absolute bottom-3 left-1/2 z-[95] flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-surface/80 p-1 shadow-sm backdrop-blur">
-        {OFFICE_SCENE_KINDS.map((kind) => (
+      <div className="bh-hud absolute bottom-3 left-1/2 z-[95] flex -translate-x-1/2 items-center gap-1 rounded-full p-1">
+        {SCENE_KINDS.map((kind) => (
           <button
             key={kind}
             type="button"

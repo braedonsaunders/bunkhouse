@@ -1,15 +1,21 @@
-import { BrandSplash } from '@/components/brand-logo'
+import { Spinner } from '@appkit/ui'
 import { SplashHold } from '@/components/brand-splash'
 
-// Root route-loading fallback. The visible splash is the <SplashScreen />
-// overlay in the root layout (which enforces a minimum duration so the
-// build-in always completes); SplashHold keeps it up while content streams.
-// BrandSplash here just covers the frame before the hold takes effect.
+// Root route-loading fallback. This is the whole app's fallback, so it runs on
+// every internal navigation as well as the first load — it must not be the
+// brand splash. It renders inside the frame, so the nav and chrome stay put
+// and only the page area waits.
+//
+// SplashHold still asks the cold-start overlay to stay up while the first page
+// streams; once that overlay has retired it is a no-op, so navigations get the
+// quiet spinner and nothing else.
 export default function Loading() {
   return (
     <>
       <SplashHold />
-      <BrandSplash />
+      <div className="flex h-full min-h-64 w-full items-center justify-center">
+        <Spinner />
+      </div>
     </>
   )
 }
