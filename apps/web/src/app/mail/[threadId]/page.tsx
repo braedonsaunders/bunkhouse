@@ -1,14 +1,14 @@
 import { notFound, redirect } from 'next/navigation'
 import { eq } from 'drizzle-orm'
-import { mailThreads } from '../../../db/schema'
+import { mailboxAccounts, mailThreads } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
 
 export const dynamic = 'force-dynamic'
 
 /**
- * Old deep links (approval mails, run summaries) land here; the one mail
- * surface is /mail, so this resolves the thread's mailbox and forwards.
+ * Old deep links (approval mails, run summaries) land here; mail lives on the
+ * agent's flyout, so this resolves the thread's owner and forwards there.
  */
 export default async function ThreadRedirect({ params }: { params: Promise<{ threadId: string }> }) {
   const { threadId } = await params
@@ -16,10 +16,11 @@ export default async function ThreadRedirect({ params }: { params: Promise<{ thr
   const app = db()
   const [thread] = await app.withTenantContext(tenantId, () =>
     app.db
-      .select({ id: mailThreads.id, mailboxId: mailThreads.mailboxId })
+      .select({ id: mailThreads.id, personId: mailboxAccounts.personId })
       .from(mailThreads)
+      .innerJoin(mailboxAccounts, eq(mailboxAccounts.id, mailThreads.mailboxId))
       .where(eq(mailThreads.id, threadId)),
   )
   if (!thread) notFound()
-  redirect(`/mail?mailbox=${thread.mailboxId}&folder=all&thread=${thread.id}`)
+  redirect(`/organization/agents?person=${thread.personId}&tab=mailbox&thread=${thread.id}`)
 }

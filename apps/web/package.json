@@ -39,7 +39,7 @@
     "@appkit/i18n": "file:../../vendor/appkit/appkit-i18n-0.1.1.tgz",
     "@appkit/iam": "file:../../vendor/appkit/appkit-iam-1.0.0.tgz",
     "@appkit/jobs": "file:../../vendor/appkit/appkit-jobs-0.2.0.tgz",
-    "@appkit/mailbox": "file:../../vendor/appkit/appkit-mailbox-0.3.0.tgz",
+    "@appkit/mailbox": "file:../../vendor/appkit/appkit-mailbox-0.4.0.tgz",
     "@appkit/notifications": "file:../../vendor/appkit/appkit-notifications-1.0.0.tgz",
     "@appkit/pdf": "file:../../vendor/appkit/appkit-pdf-0.1.1.tgz",
     "@appkit/office": "file:../../vendor/appkit/appkit-office-0.1.0.tgz",

@@ -44,7 +44,7 @@ overrides:
   '@appkit/tokens': file:./vendor/appkit/appkit-tokens-0.1.1.tgz
   '@appkit/ui': file:./vendor/appkit/appkit-ui-0.1.7.tgz
   '@appkit/workflows': file:./vendor/appkit/appkit-workflows-1.0.0.tgz
-  '@appkit/mailbox': file:./vendor/appkit/appkit-mailbox-0.3.0.tgz
+  '@appkit/mailbox': file:./vendor/appkit/appkit-mailbox-0.4.0.tgz
   '@appkit/avatars': file:./vendor/appkit/appkit-avatars-0.5.2.tgz
   '@appkit/voice': file:./vendor/appkit/appkit-voice-0.1.0.tgz
   '@appkit/scene': file:./vendor/appkit/appkit-scene-0.3.3.tgz
@@ -116,8 +116,8 @@ importers:
         specifier: file:../../vendor/appkit/appkit-jobs-0.2.0.tgz
         version: file:vendor/appkit/appkit-jobs-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))
       '@appkit/mailbox':
-        specifier: file:../../vendor/appkit/appkit-mailbox-0.3.0.tgz
-        version: file:vendor/appkit/appkit-mailbox-0.3.0.tgz
+        specifier: file:../../vendor/appkit/appkit-mailbox-0.4.0.tgz
+        version: file:vendor/appkit/appkit-mailbox-0.4.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.7.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@appkit/notifications':
         specifier: file:../../vendor/appkit/appkit-notifications-1.0.0.tgz
         version: file:vendor/appkit/appkit-notifications-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/jobs@file:vendor/appkit/appkit-jobs-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.7.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -596,10 +596,24 @@ packages:
     version: 0.2.0
     engines: {node: '>=22'}
 
-  '@appkit/mailbox@file:vendor/appkit/appkit-mailbox-0.3.0.tgz':
-    resolution: {integrity: sha512-JrqfsCDlKOCFbtnrioCdNSuPQ4dbhboxKoqaiWW8BWpoxusfY9YYEEXk7RGPiHb+XG28x2Que0juETkGRpbwAA==, tarball: file:vendor/appkit/appkit-mailbox-0.3.0.tgz}
-    version: 0.3.0
+  '@appkit/mailbox@file:vendor/appkit/appkit-mailbox-0.4.0.tgz':
+    resolution: {integrity: sha512-jaaxHwu9tswW4Y5srlgp+LB6ecbR0B2//X/qqC9FHj/uRW8VSazWTF8RTAm9POm/ANkamK+ttKHLwhp3cZcrFw==, tarball: file:vendor/appkit/appkit-mailbox-0.4.0.tgz}
+    version: 0.4.0
     engines: {node: '>=22'}
+    peerDependencies:
+      '@appkit/ui': ^0.1.1
+      lucide-react: ^1.24.0
+      react: ^19.0.0
+      react-dom: ^19.0.0
+    peerDependenciesMeta:
+      '@appkit/ui':
+        optional: true
+      lucide-react:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
 
   '@appkit/notifications@file:vendor/appkit/appkit-notifications-1.0.0.tgz':
     resolution: {integrity: sha512-NyD5qF1JpdYnJy0hQVNtmWA5he1fylvhsDO6nJqOW8tO1axGxXNHcsk7Aw2i+iAI3fo9ipeRBab1X2KwqLilOA==, tarball: file:vendor/appkit/appkit-notifications-1.0.0.tgz}
@@ -7395,11 +7409,16 @@ snapshots:
       - redis
       - supports-color
 
-  '@appkit/mailbox@file:vendor/appkit/appkit-mailbox-0.3.0.tgz':
+  '@appkit/mailbox@file:vendor/appkit/appkit-mailbox-0.4.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.7.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       imapflow: 1.6.1
       mailparser: 3.9.14
       nodemailer: 7.0.13
+    optionalDependencies:
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.7.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      lucide-react: 1.27.0(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
 
   '@appkit/notifications@file:vendor/appkit/appkit-notifications-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/jobs@file:vendor/appkit/appkit-jobs-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.7.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     optionalDependencies:

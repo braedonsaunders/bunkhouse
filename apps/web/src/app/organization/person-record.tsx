@@ -37,6 +37,8 @@ export async function personDrawer({
   selectedId,
   basePath,
   mailboxError,
+  tab,
+  mailThreadId,
 }: {
   tenantId: string
   roster: Person[]
@@ -45,6 +47,10 @@ export async function personDrawer({
   basePath: string
   /** Set when a mailbox sign-in redirected back here without connecting. */
   mailboxError?: string | undefined
+  /** Deep-link straight to a tab (e.g. ?tab=mailbox from old mail links). */
+  tab?: string | undefined
+  /** With tab=mailbox: the conversation to open. */
+  mailThreadId?: string | undefined
 }): Promise<ReactNode> {
   const selected = selectedId ? roster.find((person) => person.id === selectedId) : undefined
   if (!selected) return null
@@ -172,7 +178,17 @@ export async function personDrawer({
           {
             key: 'mailbox',
             label: 'Mailbox',
-            content: <MailboxSection tenantId={tenantId} personId={selected.id} error={mailboxError} />,
+            // The inbox is a workbench: full drawer height, panes own their scroll.
+            fill: true,
+            content: (
+              <MailboxSection
+                tenantId={tenantId}
+                personId={selected.id}
+                basePath={basePath}
+                selectedThreadId={mailThreadId}
+                error={mailboxError}
+              />
+            ),
           },
           {
             key: 'duties',
@@ -268,7 +284,7 @@ export async function personDrawer({
       subtitle={`${selected.title}${manager ? ` · reports to ${manager.name}` : ''} · ${selected.email}`}
       kind={selected.kind}
       status={selected.status}
-      initialTabKey={mailboxError ? 'mailbox' : undefined}
+      initialTabKey={mailboxError ? 'mailbox' : tab}
       avatar={
         // Everyone in the organization gets a likeness — humans included.
         <AvatarPortrait

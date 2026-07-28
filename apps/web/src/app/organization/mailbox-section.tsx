@@ -1,5 +1,4 @@
-import Link from 'next/link'
-import { desc, eq } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import {
   Badge,
   Button,
@@ -8,13 +7,14 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  EmptyState,
   Input,
   Label,
 } from '@appkit/ui'
-import { mailboxAccounts, mailThreads } from '../../db/schema'
+import { mailboxAccounts, people } from '../../db/schema'
 import { db } from '../../db/client'
 import { listMailOauthApps } from '../../lib/mail-oauth'
+import { loadMailConversationAction, loadMailFolderAction } from '../mail/actions'
+import { AgentMailInbox, type AgentMailboxOption } from '../../components/agent-mail-inbox'
 import { connectMailboxAction, disconnectMailboxAction, syncMailboxAction } from './actions'
 
 /** A failed sign-in round-trip, shown where the operator started it. */
@@ -27,14 +27,20 @@ function MailboxError({ message }: { message: string }) {
   )
 }
 
-/** The agent's mail surface: connect form, account status, and live threads. */
+/** The agent's mail surface: their whole inbox, on their own record. */
 export async function MailboxSection({
   tenantId,
   personId,
+  basePath,
+  selectedThreadId,
   error,
 }: {
   tenantId: string
   personId: string
+  /** The organization surface the flyout lives on — mailbox switching stays there. */
+  basePath: string
+  /** Deep-linked conversation (old /mail links, run references). */
+  selectedThreadId?: string | undefined
   /** Surfaced when a Google/Microsoft sign-in came back without connecting. */
   error?: string | undefined
 }) {
@@ -44,14 +50,19 @@ export async function MailboxSection({
       .select()
       .from(mailboxAccounts)
       .where(eq(mailboxAccounts.personId, personId))
-    if (!account) return { account: null, threads: [] as (typeof mailThreads.$inferSelect)[] }
-    const threads = await app.db
-      .select()
-      .from(mailThreads)
-      .where(eq(mailThreads.mailboxId, account.id))
-      .orderBy(desc(mailThreads.lastMessageAt))
-      .limit(15)
-    return { account, threads }
+    if (!account) return { account: null, mailboxes: [] as AgentMailboxOption[] }
+    // Every connected mailbox, for the switcher — flipping agents flips the flyout.
+    const all = await app.db
+      .select({
+        id: mailboxAccounts.id,
+        personId: mailboxAccounts.personId,
+        address: mailboxAccounts.address,
+        ownerName: people.name,
+      })
+      .from(mailboxAccounts)
+      .innerJoin(people, eq(people.id, mailboxAccounts.personId))
+      .orderBy(asc(people.name))
+    return { account, mailboxes: all }
   })
   const signInApps = await listMailOauthApps(tenantId)
 
@@ -127,7 +138,7 @@ export async function MailboxSection({
     )
   }
 
-  const { account, threads } = data
+  const { account, mailboxes } = data
   // A mailbox signed in through Google/Microsoft can have its consent revoked
   // on the provider's side; re-signing in is the fix, so offer it in place.
   const signIn = signInApps.find(
@@ -135,68 +146,67 @@ export async function MailboxSection({
       (entry.provider === 'google' && account.provider === 'gmail') ||
       (entry.provider === 'microsoft' && account.provider === 'microsoft'),
   )
+
+  // The deep-linked thread opens in 'all' so it is present whatever folder
+  // semantics it matches; otherwise the inbox opens on Inbox.
+  const initialFolder = selectedThreadId ? ('all' as const) : ('inbox' as const)
+  const initial = await loadMailFolderAction({ mailboxId: account.id, folder: initialFolder })
+  const initialThreadId = selectedThreadId && initial.threads.some((t) => t.id === selectedThreadId) ? selectedThreadId : null
+  const initialConversation = initialThreadId
+    ? await loadMailConversationAction({ threadId: initialThreadId })
+    : null
+  const firstName = account.address.split('@')[0]
+  const owner = mailboxes.find((m) => m.id === account.id)
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between gap-2">
-          <span>Mailbox — {account.address}</span>
-          <span className="flex items-center gap-2">
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-bg-subtle px-3 py-2">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 text-sm font-medium text-fg">
+            <span className="truncate">{account.address}</span>
             <Badge variant={account.status === 'active' ? 'default' : 'destructive'}>{account.status}</Badge>
+          </p>
+          <p className="truncate text-xs text-fg-muted">
+            {account.lastSyncAt
+              ? `Last synced ${account.lastSyncAt.toISOString().slice(0, 16).replace('T', ' ')}`
+              : 'Never synced yet.'}
+            {account.lastError ? ` · last error: ${account.lastError}` : ''}
+          </p>
+        </div>
+        <span className="flex items-center gap-2">
+          {signIn ? (
             <Button asChild variant="outline" size="sm">
-              <Link href={`/mail?mailbox=${account.id}`}>Open inbox</Link>
+              <a href={`/api/mail-oauth/start?personId=${personId}&provider=${signIn.provider}`}>Sign in again</a>
             </Button>
-            {signIn ? (
-              <Button asChild variant="outline" size="sm">
-                <a href={`/api/mail-oauth/start?personId=${personId}&provider=${signIn.provider}`}>Sign in again</a>
-              </Button>
-            ) : null}
-            <form action={syncMailboxAction}>
-              <input type="hidden" name="personId" value={personId} />
-              <Button type="submit" variant="outline" size="sm">
-                Sync now
-              </Button>
-            </form>
-            <form action={disconnectMailboxAction}>
-              <input type="hidden" name="personId" value={personId} />
-              <Button type="submit" variant="outline" size="sm">
-                Disconnect
-              </Button>
-            </form>
-          </span>
-        </CardTitle>
-        <CardDescription>
-          {account.lastSyncAt
-            ? `Last synced ${account.lastSyncAt.toISOString().slice(0, 16).replace('T', ' ')}`
-            : 'Never synced yet.'}
-          {account.lastError ? ` · last error: ${account.lastError}` : ''}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {error ? <MailboxError message={error} /> : null}
-        {threads.length === 0 ? (
-          <EmptyState title="No threads yet" description="Inbound mail lands here after the next sync." />
-        ) : (
-          <div className="space-y-2">
-            {threads.map((thread) => (
-              <Link
-                key={thread.id}
-                href={`/mail?mailbox=${account.id}&folder=all&thread=${thread.id}`}
-                className="flex items-center justify-between gap-3 rounded-md border border-border p-3 text-sm transition-colors hover:border-primary/50"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{thread.subject}</p>
-                  <p className="truncate text-fg-muted">
-                    {thread.participants.map((p) => p.name || p.address).join(', ')}
-                  </p>
-                </div>
-                <span className="shrink-0 text-xs text-fg-muted">
-                  {thread.lastMessageAt.toISOString().slice(0, 16).replace('T', ' ')}
-                </span>
-              </Link>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          ) : null}
+          <form action={syncMailboxAction}>
+            <input type="hidden" name="personId" value={personId} />
+            <Button type="submit" variant="outline" size="sm">
+              Sync now
+            </Button>
+          </form>
+          <form action={disconnectMailboxAction}>
+            <input type="hidden" name="personId" value={personId} />
+            <Button type="submit" variant="outline" size="sm">
+              Disconnect
+            </Button>
+          </form>
+        </span>
+      </div>
+      {error ? <MailboxError message={error} /> : null}
+      <div className="min-h-0 flex-1">
+        <AgentMailInbox
+          basePath={basePath}
+          mailboxes={mailboxes}
+          activeMailboxId={account.id}
+          replyLabel={`Reply as ${owner?.ownerName ?? firstName}`}
+          initialFolder={initialFolder}
+          initialCounts={initial.counts}
+          initialThreads={initial.threads}
+          initialThreadId={initialThreadId}
+          initialConversation={initialConversation}
+        />
+      </div>
+    </div>
   )
 }
