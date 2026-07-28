@@ -6,6 +6,7 @@ import type { ReactNode } from 'react'
 import { AccountMenu, AppShell, ThemeProvider, UiLinkProvider, type SidebarNavGroup } from '@appkit/ui'
 import { PageTransition } from '@appkit/ui/page-transition'
 import { authClient } from '@/lib/auth-client'
+import { Logo } from '@/components/brand-logo'
 
 const navigation: SidebarNavGroup[] = [
   { id: 'home', label: 'Home', items: [{ href: '/', label: 'Home', iconKey: 'home', exact: true, mobile: true }] },
@@ -74,7 +75,7 @@ export function AppFrame({
         <AppShell
           groups={navigation}
           pathname={pathname}
-          brand={<strong>Bunkhouse</strong>}
+          brand={<Logo animated size={17} />}
           header={
             <AccountMenu
               name={user?.name || user?.email || 'Signed in'}

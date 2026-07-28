@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import { ConfirmRoot, getThemeScript, PromptRoot, Toaster } from '@appkit/ui'
 import { AppFrame, type FrameTenant } from '@/components/app-frame'
+import { SplashScreen } from '@/components/brand-splash'
 import { getSessionUser } from '@/lib/auth'
 import { getTenantSelectionForChrome } from '@/lib/tenant'
 import { switchTenantAction } from '@/app/tenant-actions'
@@ -36,6 +37,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <AppFrame user={user} tenant={tenant} switchTenant={switchTenantAction}>
           {children}
         </AppFrame>
+        <SplashScreen />
         <PromptRoot />
         <ConfirmRoot />
         <Toaster richColors closeButton />

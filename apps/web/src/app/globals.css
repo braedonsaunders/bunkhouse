@@ -10,3 +10,103 @@
 @source '../**/*.{ts,tsx}';
 
 html, body { min-height: 100%; }
+
+/* Brand logo animation (components/brand-logo.tsx). Roof strokes carry a
+   normalized pathLength of 1 so one dasharray rule draws any segment. Draw
+   mode builds the lockup once: the word fades in first, the roof draws from
+   the h over the ridge to the e, the chimney stacks, the attic light pops,
+   then the smoke drifts. Loop mode keeps only the smoke + light breathing.
+   --bd staggers the build order; --sd staggers the smoke curls. */
+@keyframes bh-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+@keyframes bh-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes bh-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+}
+@keyframes bh-breathe {
+  0%,
+  100% {
+    opacity: 0.22;
+  }
+  50% {
+    opacity: 0.42;
+  }
+}
+@keyframes bh-smoke {
+  0% {
+    opacity: 0;
+    transform: translateY(0.05em);
+  }
+  25% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-0.2em);
+  }
+}
+.bh-s {
+  stroke-dasharray: 1;
+}
+.bh-smoke1 {
+  opacity: 0.4;
+}
+.bh-smoke2 {
+  opacity: 0.28;
+}
+.bh-draw .bh-word {
+  animation: bh-fade 0.5s ease-out backwards;
+}
+.bh-draw .bh-s {
+  animation: bh-draw 0.8s cubic-bezier(0.65, 0, 0.35, 1) var(--bd, 0s) backwards;
+}
+.bh-draw .bh-dot {
+  animation: bh-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) var(--bd, 0s) backwards;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.bh-draw .bh-halo {
+  animation:
+    bh-fade 0.5s ease-out var(--bd, 0s) backwards,
+    bh-breathe 3s ease-in-out calc(var(--bd, 0s) + 1.2s) infinite;
+}
+.bh-loop .bh-halo {
+  animation: bh-breathe 3s ease-in-out var(--bd, 0s) infinite;
+}
+.bh-draw .bh-smoke1,
+.bh-draw .bh-smoke2,
+.bh-loop .bh-smoke1,
+.bh-loop .bh-smoke2 {
+  opacity: 0;
+  animation: bh-smoke 3.2s ease-out var(--sd, 0s) infinite;
+  transform-box: fill-box;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bh-draw .bh-word,
+  .bh-draw .bh-s,
+  .bh-draw .bh-dot,
+  .bh-draw .bh-halo,
+  .bh-loop .bh-halo {
+    animation: none;
+  }
+  .bh-draw .bh-smoke1,
+  .bh-loop .bh-smoke1 {
+    animation: none;
+    opacity: 0.4;
+  }
+  .bh-draw .bh-smoke2,
+  .bh-loop .bh-smoke2 {
+    animation: none;
+    opacity: 0.28;
+  }
+}

@@ -2,6 +2,7 @@
 
 import { AuthScreen, SignInForm } from '@appkit/auth/react'
 import { authClient } from '@/lib/auth-client'
+import { Logo } from '@/components/brand-logo'
 
 // The package's sign-in composition, themed by the app (AuthScreen renders on
 // the design tokens the AppShell already uses). No self-serve sign-up:
@@ -10,7 +11,7 @@ import { authClient } from '@/lib/auth-client'
 export function LoginForm() {
   return (
     <AuthScreen
-      logo={<span className="text-2xl font-semibold tracking-tight text-fg">Bunkhouse</span>}
+      logo={<Logo size={24} className="text-fg" />}
       title="Sign in to your workspace"
       description="Manage your company's AI employees."
       footer="Accounts are created by your administrator — there is no self-serve sign-up."
