@@ -16,6 +16,10 @@ import { listMcpIntegrations } from '../../../lib/agent-abilities'
 import { AVATAR_PART_CATEGORIES, avatarPartCategory } from '../../../lib/avatar-parts'
 import { IMAGE_MODELS } from '@appkit/avatars'
 import { resolveTenantId } from '../../../lib/tenant'
+import { getSuperAdminContext } from '../../../lib/auth'
+import { createDrizzleSuperadminService } from '@appkit/superadmin/drizzle'
+import { hashPassword } from 'better-auth/crypto'
+import type { PlatformAdminData } from '../../../components/settings-view'
 
 export const dynamic = 'force-dynamic'
 
@@ -89,6 +93,24 @@ export default async function SettingsPage({
     listAvatarPartRows(tenantId),
     loadAvatarPartLibrary(tenantId),
   ])
+  // Platform administration (global sign-in accounts + sessions) renders only
+  // for super admins; everyone else gets neither the data nor the nav entry.
+  // The server actions behind it re-authorize independently.
+  const operator = await getSuperAdminContext()
+  let platform: PlatformAdminData | undefined
+  if (operator) {
+    const superadmin = createDrizzleSuperadminService({
+      db: app.superDb,
+      hashPassword,
+      actor: { userId: operator.userId, sessionId: operator.sessionId },
+    })
+    const [userList, sessionList] = await Promise.all([
+      superadmin.listUsers({ perPage: 100, sort: 'name' }),
+      superadmin.listSessions({ perPage: 100, sort: 'created', direction: 'desc' }),
+    ])
+    platform = { users: userList.rows, sessions: sessionList.rows, currentUserId: operator.userId }
+  }
+
   const research = await getResearchSettings(tenantId)
   const phoneNumberRows = await listPhoneNumbers(tenantId)
   const activeAgents = await app.withTenantContext(tenantId, () =>
@@ -190,6 +212,7 @@ export default async function SettingsPage({
         }))}
         avatarPartCategories={AVATAR_PART_CATEGORIES}
         avatarPartLibrary={partLibrary}
+        {...(platform ? { platform } : {})}
       />
     </PageContainer>
   )

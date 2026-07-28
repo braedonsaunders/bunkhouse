@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Boxes, Brain, CircleDollarSign, Globe, ImageIcon, Mail, Phone, Plug, Shield } from 'lucide-react'
+import { Boxes, Brain, CircleDollarSign, Globe, ImageIcon, Mail, Phone, Plug, Shield, UserCog } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -32,6 +32,15 @@ import { ImageProviderForm } from './image-provider-form'
 import { AutonomySettings, type AgentDial } from './autonomy-settings'
 import { PhoneSystemRow, type AgentExtensionRow, type AgentOption, type PhoneNumberRowView, type SipTrunkSummary } from './phone-system'
 import { IntegrationsSection, ResearchSection, type IntegrationRowView } from './capability-settings'
+import { PlatformUsersAdmin, PlatformSessionsAdmin } from '@appkit/superadmin/react'
+import type { PlatformSessionRecord, PlatformUserRecord } from '@appkit/superadmin'
+import {
+  createPlatformUserAction,
+  revokePlatformSessionAction,
+  revokePlatformUserSessionsAction,
+  setPlatformUserPasswordAction,
+  updatePlatformUserAction,
+} from '../app/admin/settings/platform-actions'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
   <Link href={href} className={className} title={title}>
@@ -145,6 +154,12 @@ const MAILBOX_COLUMNS: RecordColumn<MailboxRow>[] = [
   { key: 'lastError', label: 'Last error' },
 ]
 
+export type PlatformAdminData = {
+  users: PlatformUserRecord[]
+  sessions: PlatformSessionRecord[]
+  currentUserId: string
+}
+
 export function SettingsView({
   providers,
   kinds,
@@ -162,6 +177,7 @@ export function SettingsView({
   avatarParts,
   avatarPartCategories,
   avatarPartLibrary,
+  platform,
 }: {
   providers: ProviderSummary[]
   kinds: ProviderKindOption[]
@@ -188,6 +204,11 @@ export function SettingsView({
   avatarPartCategories: AvatarPartCategory[]
   /** The same parts shaped for the composer and the previews. */
   avatarPartLibrary: AvatarPart[]
+  /**
+   * Instance-operator data — present only when the signed-in user is a super
+   * admin (the server withholds it otherwise, and the actions re-authorize).
+   */
+  platform?: PlatformAdminData
 }) {
   const [active, setActive] = React.useState(initialSection)
   const [busy, startBusy] = React.useTransition()
@@ -199,12 +220,15 @@ export function SettingsView({
   const [voiceError, setVoiceError] = React.useState<string | null>(null)
   const imageCapable = providers.filter((p) => ['openai', 'google'].includes(p.provider))
   const priceHistory = priceDrawer && priceDrawer !== '*new*' ? prices.filter((row) => row.model === priceDrawer) : []
+  const nav: SettingsNavGroup[] = platform
+    ? [...NAV, { label: 'Platform', items: [{ key: 'users', label: 'Users', icon: <UserCog /> }] }]
+    : NAV
 
   return (
     <SettingsShell
       title="Settings"
       description="Company-level configuration: how much your agents are trusted to do, and what powers them."
-      nav={NAV}
+      nav={nav}
       activeKey={active}
       onSelect={(key) => {
         setActive(key)
@@ -470,6 +494,25 @@ export function SettingsView({
             imageProviderConfigured={imageSetting !== null}
           />
         </SettingsSection>
+      ) : null}
+
+      {active === 'users' && platform ? (
+        <div className="space-y-10">
+          <PlatformUsersAdmin
+            users={platform.users}
+            currentUserId={platform.currentUserId}
+            actions={{
+              createUser: createPlatformUserAction,
+              updateUser: updatePlatformUserAction,
+              setPassword: setPlatformUserPasswordAction,
+              revokeUserSessions: revokePlatformUserSessionsAction,
+            }}
+          />
+          <PlatformSessionsAdmin
+            sessions={platform.sessions}
+            actions={{ revokeSession: revokePlatformSessionAction }}
+          />
+        </div>
       ) : null}
 
       <Drawer
