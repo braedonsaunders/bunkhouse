@@ -97,6 +97,8 @@ jobs:
           fi
           echo "::group::What it is"
           docker volume inspect "$target"
+          echo "--- contents (what removal would destroy) ---"
+          docker run --rm -v "$target":/v:ro alpine:3 sh -c 'find /v -maxdepth 3 | head -40; echo "--- size ---"; du -sh /v' || true
           echo "::endgroup::"
           users="$(docker ps -a --filter volume="$target" --format '{{.Names}}' | tr '\n' ' ')"
           if [ -n "$users" ]; then
