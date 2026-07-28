@@ -19,6 +19,7 @@ const navigation: SidebarNavGroup[] = [
     ],
   },
   { id: 'roles', label: 'Roles', items: [{ href: '/roles', label: 'Roles', iconKey: 'clipboard' }] },
+  { id: 'mail', label: 'Mail', items: [{ href: '/mail', label: 'Mail', iconKey: 'mail', mobile: true }] },
   { id: 'approvals', label: 'Approvals', items: [{ href: '/approvals', label: 'Approvals', iconKey: 'list-checks', mobile: true }] },
   { id: 'observatory', label: 'Observatory', items: [{ href: '/observatory', label: 'Observatory', iconKey: 'activity' }] },
   { id: 'knowledge', label: 'Knowledge', items: [{ href: '/knowledge', label: 'Knowledge', iconKey: 'library' }] },

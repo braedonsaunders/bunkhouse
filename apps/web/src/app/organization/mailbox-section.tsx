@@ -142,6 +142,9 @@ export async function MailboxSection({
           <span>Mailbox — {account.address}</span>
           <span className="flex items-center gap-2">
             <Badge variant={account.status === 'active' ? 'default' : 'destructive'}>{account.status}</Badge>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/mail?mailbox=${account.id}`}>Open inbox</Link>
+            </Button>
             {signIn ? (
               <Button asChild variant="outline" size="sm">
                 <a href={`/api/mail-oauth/start?personId=${personId}&provider=${signIn.provider}`}>Sign in again</a>
@@ -177,7 +180,7 @@ export async function MailboxSection({
             {threads.map((thread) => (
               <Link
                 key={thread.id}
-                href={`/mail/${thread.id}`}
+                href={`/mail?mailbox=${account.id}&folder=all&thread=${thread.id}`}
                 className="flex items-center justify-between gap-3 rounded-md border border-border p-3 text-sm transition-colors hover:border-primary/50"
               >
                 <div className="min-w-0">
