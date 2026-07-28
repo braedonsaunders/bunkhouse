@@ -15,7 +15,8 @@
     "test": "tsx scripts/duties.test.mts && tsx scripts/org.test.mts",
     "seed:avatar-parts": "tsx --env-file=.env.local scripts/seed-avatar-parts.mts",
     "worker": "NODE_OPTIONS=\"--conditions=react-server\" tsx --env-file=.env.local scripts/worker.mts",
-    "voice-agent": "NODE_OPTIONS=\"--conditions=react-server\" tsx --env-file=.env.local scripts/voice-agent.mts dev"
+    "voice-agent": "NODE_OPTIONS=\"--conditions=react-server\" tsx --env-file=.env.local scripts/voice-agent.mts dev",
+    "import:openstudio-parts": "tsx --env-file=.env.local scripts/import-openstudio-parts.mts"
   },
   "dependencies": {
     "@appkit/ai": "file:../../vendor/appkit/appkit-ai-0.2.0.tgz",
