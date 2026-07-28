@@ -1,59 +1,108 @@
-name: Ops — disk cleanup
+name: Ops — disk and storage
 
 # Run by hand from the Actions tab (or `gh workflow run ops-disk.yml`).
-# The deploy runner lives on the Dokploy host, so this is the auditable way to
-# reclaim space there: it prints the before/after picture and prunes images,
-# stopped containers, and build cache. Volumes are NEVER pruned — a stopped
-# stack's volume looks "unused" and that is how data gets destroyed.
+# The deploy runner lives on the Dokploy manager, so this is the auditable way
+# to inspect and tidy that host. Every destructive action is opt-in and named
+# explicitly — there is no wildcard delete here, and volumes are never pruned
+# in bulk: a stopped stack's volume looks "unused", and that is how data gets
+# destroyed. Dokploy's own cleanup excludes them for the same reason.
 
 on:
   workflow_dispatch:
     inputs:
       prune:
-        description: 'Actually prune (unchecked = report only)'
+        description: 'Prune images, stopped containers, build cache (never volumes)'
         type: boolean
         default: false
+      removeVolume:
+        description: 'Remove ONE volume by exact name (leave blank to skip)'
+        type: string
+        default: ''
+      nasMkdir:
+        description: 'Create this directory under the NAS dokploy-storage export (leave blank to skip)'
+        type: string
+        default: ''
+
+env:
+  NAS_EXPORT_OPTS: 'addr=10.0.1.106,nfsvers=4,rw,hard,timeo=600'
+  NAS_EXPORT_DEVICE: ':/volume1/dokploy-storage'
 
 jobs:
-  disk:
+  ops:
     runs-on: [self-hosted, linux, x64, dokploy]
     timeout-minutes: 30
     steps:
-      - name: Before
+      - name: Report
         run: |
           set -uo pipefail
           echo "::group::Filesystem"
           df -h
           echo "::endgroup::"
           if ! command -v docker >/dev/null 2>&1; then
-            echo "::warning::No docker CLI on this runner — cleanup must be run on the host itself."
+            echo "::warning::No docker CLI on this runner — nothing here can run."
             exit 0
           fi
           echo "::group::Docker disk usage"
           docker system df || true
           echo "::endgroup::"
-          echo "::group::Largest images"
-          docker images --format '{{.Size}}\t{{.Repository}}:{{.Tag}}' | sort -hr | head -30 || true
+          echo "::group::Volumes (name, driver, and whether anything mounts it)"
+          for v in $(docker volume ls -q); do
+            users="$(docker ps -a --filter volume="$v" --format '{{.Names}}' | tr '\n' ' ')"
+            driver="$(docker volume inspect "$v" --format '{{.Driver}}{{if .Options}} nfs:{{index .Options "device"}}{{end}}' 2>/dev/null)"
+            printf '%-70s %-28s %s\n' "$v" "$driver" "${users:-(unused)}"
+          done
           echo "::endgroup::"
+          echo "::group::Largest images"
+          docker images --format '{{.Size}}\t{{.Repository}}:{{.Tag}}' | sort -hr | head -20 || true
+          echo "::endgroup::"
+
+      - name: Create NAS directory
+        if: ${{ inputs.nasMkdir != '' }}
+        run: |
+          set -euo pipefail
+          target="${{ inputs.nasMkdir }}"
+          case "$target" in
+            */..*|/*|'') echo "::error::Refusing suspicious path '$target'"; exit 1 ;;
+          esac
+          vol="ops-nas-root-$$"
+          docker volume create --driver local \
+            --opt type=nfs --opt o="$NAS_EXPORT_OPTS" --opt device="$NAS_EXPORT_DEVICE" "$vol"
+          trap 'docker volume rm -f "$vol" >/dev/null 2>&1 || true' EXIT
+          docker run --rm -v "$vol":/nas alpine:3 sh -c "mkdir -p '/nas/$target' && ls -la /nas"
+          echo "Created (or already present): $NAS_EXPORT_DEVICE/$target"
+
+      - name: Remove one volume by exact name
+        if: ${{ inputs.removeVolume != '' }}
+        run: |
+          set -euo pipefail
+          target="${{ inputs.removeVolume }}"
+          echo "Requested removal: $target"
+          if ! docker volume inspect "$target" >/dev/null 2>&1; then
+            echo "::warning::No such volume — nothing to do."
+            exit 0
+          fi
+          echo "::group::What it is"
+          docker volume inspect "$target"
+          echo "::endgroup::"
+          users="$(docker ps -a --filter volume="$target" --format '{{.Names}}' | tr '\n' ' ')"
+          if [ -n "$users" ]; then
+            echo "::error::In use by: $users — refusing to remove."
+            exit 1
+          fi
+          docker volume rm "$target"
+          echo "Removed $target"
 
       - name: Prune images, stopped containers, and build cache
         if: ${{ inputs.prune }}
         run: |
           set -uo pipefail
-          command -v docker >/dev/null 2>&1 || { echo "no docker CLI; nothing to do"; exit 0; }
-          echo "::group::Stopped containers"
           docker container prune -f || true
-          echo "::endgroup::"
-          echo "::group::Unused images (anything no running container needs)"
           docker image prune -af || true
-          echo "::endgroup::"
-          echo "::group::Build cache"
           docker builder prune -af || true
-          echo "::endgroup::"
 
       - name: After
-        if: ${{ inputs.prune }}
+        if: ${{ inputs.prune || inputs.removeVolume != '' }}
         run: |
           set -uo pipefail
           df -h
-          command -v docker >/dev/null 2>&1 && docker system df || true
+          docker system df || true
