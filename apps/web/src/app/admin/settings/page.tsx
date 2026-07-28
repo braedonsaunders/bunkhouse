@@ -1,6 +1,5 @@
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { AI_PROVIDER_SPECS } from '@appkit/ai'
-import { PageContainer } from '@appkit/ui'
 import { autonomySettings, mailboxAccounts, people } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { SettingsView } from '../../../components/settings-view'
@@ -110,105 +109,103 @@ export default async function SettingsPage({
   const mailOauthApps = await listMailOauthApps(tenantId)
 
   return (
-    <PageContainer>
-      <SettingsView
-        providers={providers.map((p) => ({
-          slug: p.slug,
-          label: p.label,
-          provider: p.provider,
-          ...(p.modelSmart ? { modelSmart: p.modelSmart } : {}),
-          ...(p.modelFast ? { modelFast: p.modelFast } : {}),
-          ...(p.baseUrl ? { baseUrl: p.baseUrl } : {}),
-        }))}
-        kinds={AI_PROVIDER_SPECS.map((spec) => ({
-          value: spec.value,
-          label: spec.label,
-          needsBaseUrl: spec.kind === 'openai-compatible' && !spec.baseUrl,
-        }))}
-        prices={prices.map((p) => ({
-          id: p.id,
-          model: p.model,
-          inputUsdPerMtok: `$${Number(p.inputUsdPerMtok).toFixed(2)}`,
-          outputUsdPerMtok: `$${Number(p.outputUsdPerMtok).toFixed(2)}`,
-          source: p.source,
-          ...(p.sourceRef ? { sourceRef: p.sourceRef } : {}),
-          effectiveAt: fmt(p.effectiveAt),
-        }))}
-        mailboxes={mailboxData.boxes.map((b) => ({
-          id: b.id,
-          personId: b.personId,
-          personName: b.personName,
-          address: b.address,
-          status: b.status,
-          lastSyncAt: fmt(b.lastSyncAt),
-          lastError: b.lastError ?? '',
-        }))}
-        agentsWithoutMailbox={mailboxData.unconnected}
-        mailOauthApps={mailOauthApps}
-        mailOauthRedirectUri={mailOauthRedirectUri()}
-        imageSetting={imageSetting}
-        imageFallbackModels={IMAGE_MODELS}
-        voiceProviders={{ deepgram: Boolean(voiceProviders.deepgram), elevenlabs: Boolean(voiceProviders.elevenlabs) }}
-        research={research}
-        documents={{
-          companyName: branding.companyName ?? '',
-          accentColor: branding.accentColor ?? '',
-          footerText: branding.footerText ?? '',
-        }}
-        workspace={{ retentionDays: workspacePolicy.retentionDays }}
-        sms={{ provider: smsSettings.provider, fromNumber: smsSettings.fromNumber }}
-        integrations={integrations.map((entry) => ({
-          slug: entry.slug,
-          label: entry.label,
-          url: entry.url,
-          category: entry.category,
-          hasHeaders: Boolean(entry.sealedHeaders),
-        }))}
-        phoneSystem={{
-          trunks: trunks.map((t) => ({
-            id: t.id,
-            name: t.name,
-            flavor: t.flavor,
-            pbxHost: t.pbxHost ?? '',
-            pbxPort: t.pbxPort,
-            transport: t.transport,
-            authUsername: t.authUsername ?? '',
-            hasPassword: t.sealedAuthPassword !== null,
-            extensionRange: t.extensionRange ?? '',
-            status: t.status,
-            lastError: t.lastError ?? '',
-          })),
-          extensions: agentExtensions.map((h) => ({
-            personId: h.id,
-            name: h.name,
-            title: h.title,
-            extension: h.extension ?? '',
-          })),
-          numbers: phoneNumberRows.map((n) => ({
-            id: n.id,
-            number: n.number,
-            label: n.label,
-            personName: n.personName,
-          })),
-          agents: activeAgents,
-          ingress: sipIngressAddress(),
-        }}
-        agentDials={agentDials}
-        initialSection={section ?? 'autonomy'}
-        avatarParts={partRows.map((part) => ({
-          id: part.id,
-          categoryId: part.categoryId,
-          categoryLabel: avatarPartCategory(part.categoryId)?.label ?? part.categoryId,
-          name: part.name,
-          colorVariant: part.colorVariant ?? '',
-          tags: part.tags,
-          model: part.model,
-          prompt: part.prompt ?? '',
-          createdAt: fmt(part.createdAt),
-        }))}
-        avatarPartCategories={AVATAR_PART_CATEGORIES}
-        avatarPartLibrary={partLibrary}
-      />
-    </PageContainer>
+    <SettingsView
+      providers={providers.map((p) => ({
+        slug: p.slug,
+        label: p.label,
+        provider: p.provider,
+        ...(p.modelSmart ? { modelSmart: p.modelSmart } : {}),
+        ...(p.modelFast ? { modelFast: p.modelFast } : {}),
+        ...(p.baseUrl ? { baseUrl: p.baseUrl } : {}),
+      }))}
+      kinds={AI_PROVIDER_SPECS.map((spec) => ({
+        value: spec.value,
+        label: spec.label,
+        needsBaseUrl: spec.kind === 'openai-compatible' && !spec.baseUrl,
+      }))}
+      prices={prices.map((p) => ({
+        id: p.id,
+        model: p.model,
+        inputUsdPerMtok: `$${Number(p.inputUsdPerMtok).toFixed(2)}`,
+        outputUsdPerMtok: `$${Number(p.outputUsdPerMtok).toFixed(2)}`,
+        source: p.source,
+        ...(p.sourceRef ? { sourceRef: p.sourceRef } : {}),
+        effectiveAt: fmt(p.effectiveAt),
+      }))}
+      mailboxes={mailboxData.boxes.map((b) => ({
+        id: b.id,
+        personId: b.personId,
+        personName: b.personName,
+        address: b.address,
+        status: b.status,
+        lastSyncAt: fmt(b.lastSyncAt),
+        lastError: b.lastError ?? '',
+      }))}
+      agentsWithoutMailbox={mailboxData.unconnected}
+      mailOauthApps={mailOauthApps}
+      mailOauthRedirectUri={mailOauthRedirectUri()}
+      imageSetting={imageSetting}
+      imageFallbackModels={IMAGE_MODELS}
+      voiceProviders={{ deepgram: Boolean(voiceProviders.deepgram), elevenlabs: Boolean(voiceProviders.elevenlabs) }}
+      research={research}
+      documents={{
+        companyName: branding.companyName ?? '',
+        accentColor: branding.accentColor ?? '',
+        footerText: branding.footerText ?? '',
+      }}
+      workspace={{ retentionDays: workspacePolicy.retentionDays }}
+      sms={{ provider: smsSettings.provider, fromNumber: smsSettings.fromNumber }}
+      integrations={integrations.map((entry) => ({
+        slug: entry.slug,
+        label: entry.label,
+        url: entry.url,
+        category: entry.category,
+        hasHeaders: Boolean(entry.sealedHeaders),
+      }))}
+      phoneSystem={{
+        trunks: trunks.map((t) => ({
+          id: t.id,
+          name: t.name,
+          flavor: t.flavor,
+          pbxHost: t.pbxHost ?? '',
+          pbxPort: t.pbxPort,
+          transport: t.transport,
+          authUsername: t.authUsername ?? '',
+          hasPassword: t.sealedAuthPassword !== null,
+          extensionRange: t.extensionRange ?? '',
+          status: t.status,
+          lastError: t.lastError ?? '',
+        })),
+        extensions: agentExtensions.map((h) => ({
+          personId: h.id,
+          name: h.name,
+          title: h.title,
+          extension: h.extension ?? '',
+        })),
+        numbers: phoneNumberRows.map((n) => ({
+          id: n.id,
+          number: n.number,
+          label: n.label,
+          personName: n.personName,
+        })),
+        agents: activeAgents,
+        ingress: sipIngressAddress(),
+      }}
+      agentDials={agentDials}
+      initialSection={section ?? 'autonomy'}
+      avatarParts={partRows.map((part) => ({
+        id: part.id,
+        categoryId: part.categoryId,
+        categoryLabel: avatarPartCategory(part.categoryId)?.label ?? part.categoryId,
+        name: part.name,
+        colorVariant: part.colorVariant ?? '',
+        tags: part.tags,
+        model: part.model,
+        prompt: part.prompt ?? '',
+        createdAt: fmt(part.createdAt),
+      }))}
+      avatarPartCategories={AVATAR_PART_CATEGORIES}
+      avatarPartLibrary={partLibrary}
+    />
   )
 }

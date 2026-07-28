@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation'
 import { hashPassword } from 'better-auth/crypto'
-import { PageContainer } from '@appkit/ui'
 import { createDrizzleSuperadminService } from '@appkit/superadmin/drizzle'
 import { db } from '../../db/client'
 import { getSuperAdminContext } from '../../lib/auth'
@@ -36,17 +35,15 @@ export default async function SuperadminPage() {
   )
 
   return (
-    <PageContainer>
-      <SuperadminView
-        platform={{
-          users: userList.rows,
-          sessions: sessionList.rows,
-          currentUserId: operator.userId,
-          tenants: tenantList,
-          tenantMembers: Object.fromEntries(memberLists),
-          currentTenantId: tenantId,
-        }}
-      />
-    </PageContainer>
+    <SuperadminView
+      platform={{
+        users: userList.rows,
+        sessions: sessionList.rows,
+        currentUserId: operator.userId,
+        tenants: tenantList,
+        tenantMembers: Object.fromEntries(memberLists),
+        currentTenantId: tenantId,
+      }}
+    />
   )
 }

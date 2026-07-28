@@ -62,6 +62,7 @@ export function SuperadminView({ platform }: { platform: PlatformAdminData }) {
       nav={NAV}
       activeKey={active}
       onSelect={setActive}
+      contentWidth="wide"
       linkRender={nextLink}
     >
       {active === 'users' ? (
