@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Boxes, Brain, Building2, CircleDollarSign, FileText, Globe, ImageIcon, Mail, Phone, Plug, Shield, UserCog } from 'lucide-react'
+import { Boxes, Brain, Building2, CircleDollarSign, FileText, FolderCog, Globe, ImageIcon, Mail, Phone, Plug, Shield, UserCog } from 'lucide-react'
 import {
   Badge,
   Button,
