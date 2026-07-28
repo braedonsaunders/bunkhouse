@@ -125,7 +125,7 @@ export default async function HomePage() {
               {data.recentRuns.map((run) => (
                 <div key={run.id} className="flex items-center justify-between rounded-md border border-border p-3 text-sm">
                   <div>
-                    <Link href={`/people/${run.personId}`} className="font-medium hover:text-primary">
+                    <Link href={`/runs/${run.id}`} className="font-medium hover:text-primary">
                       {run.personName}
                     </Link>
                     <p className="text-fg-muted">{run.summary ?? 'Working…'}</p>

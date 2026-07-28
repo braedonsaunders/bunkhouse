@@ -28,11 +28,10 @@ import {
 } from '../db/schema'
 import { db } from '../db/client'
 import { resolveHandAiConfig } from './ai'
+import { resolvePrice } from './pricing'
 import { sendReplyInThread } from './mailbox'
 
-/** Crude but honest cost estimate until per-model price tables land. */
-const USD_PER_INPUT_TOKEN = 3 / 1_000_000
-const USD_PER_OUTPUT_TOKEN = 15 / 1_000_000
+
 
 async function monthSpendUsd(tenantId: string, personId: string): Promise<number> {
   const app = db()
@@ -100,7 +99,9 @@ export async function executeHandRun(args: {
         })
       },
       spend: async (usage: { provider: string; model: string; inputTokens: number; outputTokens: number }) => {
-        const cost = usage.inputTokens * USD_PER_INPUT_TOKEN + usage.outputTokens * USD_PER_OUTPUT_TOKEN
+        const price = await resolvePrice(args.tenantId, usage.model)
+        const cost =
+          (usage.inputTokens * price.inputUsdPerMtok + usage.outputTokens * price.outputUsdPerMtok) / 1_000_000
         await app.db.insert(tokenSpend).values({
           tenantId: args.tenantId,
           personId: person.id,
@@ -110,6 +111,9 @@ export async function executeHandRun(args: {
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
           costUsd: cost.toFixed(6),
+          inputUsdPerMtok: price.inputUsdPerMtok.toFixed(4),
+          outputUsdPerMtok: price.outputUsdPerMtok.toFixed(4),
+          priceSource: price.source,
         })
       },
     }

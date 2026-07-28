@@ -15,6 +15,13 @@
       "when": 1785201616649,
       "tag": "0001_complex_talon",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785202483911,
+      "tag": "0002_eminent_grey_gargoyle",
+      "breakpoints": true
     }
   ]
 }

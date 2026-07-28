@@ -5,6 +5,7 @@ import { isAiProvider, listModels } from '@appkit/ai'
 import { unsealSecret } from '@appkit/crypto'
 import { addAiProvider, listAiProviders, removeAiProvider } from '../../../lib/ai'
 import { resolveTenantId } from '../../../lib/tenant'
+import { refreshPricesFromOpenRouter, setManualPrice } from '../../../lib/pricing'
 
 export async function addProviderAction(formData: FormData): Promise<void> {
   const slug = String(formData.get('slug') ?? '').trim().toLowerCase()
@@ -79,4 +80,27 @@ export async function loadModelsForProviderAction(
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
+}
+
+/** Pull current prices from the OpenRouter catalog for models in use. */
+export async function refreshPricesAction(): Promise<void> {
+  const tenantId = await resolveTenantId()
+  const { updated, unmatched } = await refreshPricesFromOpenRouter(tenantId)
+  if (updated.length === 0 && unmatched.length > 0) {
+    throw new Error(`No prices matched for: ${unmatched.join(', ')}. Add them manually.`)
+  }
+  revalidatePath('/admin/settings')
+}
+
+/** Append a manual effective-dated price row ('*' = company default). */
+export async function setManualPriceAction(formData: FormData): Promise<void> {
+  const model = String(formData.get('model') ?? '').trim()
+  const inputUsd = Number(formData.get('inputUsdPerMtok'))
+  const outputUsd = Number(formData.get('outputUsdPerMtok'))
+  if (!Number.isFinite(inputUsd) || !Number.isFinite(outputUsd) || inputUsd < 0 || outputUsd < 0) {
+    throw new Error('Prices must be non-negative USD per million tokens.')
+  }
+  const tenantId = await resolveTenantId()
+  await setManualPrice({ tenantId, model, inputUsdPerMtok: inputUsd, outputUsdPerMtok: outputUsd })
+  revalidatePath('/admin/settings')
 }

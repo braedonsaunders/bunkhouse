@@ -105,6 +105,11 @@ export const tokenSpend = pgTable(
     inputTokens: bigint('input_tokens', { mode: 'number' }).notNull(),
     outputTokens: bigint('output_tokens', { mode: 'number' }).notNull(),
     costUsd: money('cost_usd').notNull(),
+    /** The exact price applied, stamped at spend time for audit. */
+    inputUsdPerMtok: money('input_usd_per_mtok'),
+    outputUsdPerMtok: money('output_usd_per_mtok'),
+    /** 'openrouter' | 'manual' | 'unpriced' — how the cost was derived. */
+    priceSource: text('price_source'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('token_spend_person_idx').on(t.tenantId, t.personId, t.createdAt)],

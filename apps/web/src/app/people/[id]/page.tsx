@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import {
   Avatar,
   Badge,
@@ -22,7 +22,10 @@ import {
   TableRow,
   Textarea,
 } from '@appkit/ui'
-import { autonomySettings, duties, memories, people } from '../../../db/schema'
+import { desc, sql } from 'drizzle-orm'
+import Link from 'next/link'
+import { Progress } from '@appkit/ui'
+import { autonomySettings, duties, memories, people, runs, tokenSpend } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
 import { listAiProviders } from '../../../lib/ai'
@@ -79,11 +82,24 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
       .from(memories)
       .where(eq(memories.personId, person.id))
       .orderBy(asc(memories.createdAt))
-    return { person, manager: manager ?? null, personDuties, dial, notes }
+    const monthStart = new Date()
+    monthStart.setUTCDate(1)
+    monthStart.setUTCHours(0, 0, 0, 0)
+    const [spend] = await app.db
+      .select({ cost: sql<string>`coalesce(sum(${tokenSpend.costUsd}), 0)` })
+      .from(tokenSpend)
+      .where(and(eq(tokenSpend.personId, person.id), sql`${tokenSpend.createdAt} >= ${monthStart}`))
+    const recentRuns = await app.db
+      .select({ id: runs.id, status: runs.status, summary: runs.summary, startedAt: runs.startedAt })
+      .from(runs)
+      .where(eq(runs.personId, person.id))
+      .orderBy(desc(runs.startedAt))
+      .limit(6)
+    return { person, manager: manager ?? null, personDuties, dial, notes, monthSpend: Number(spend?.cost ?? 0), recentRuns }
   })
 
   if (!data) notFound()
-  const { person, manager, personDuties, dial, notes } = data
+  const { person, manager, personDuties, dial, notes, monthSpend, recentRuns } = data
   const isHand = person.kind === 'hand'
   const providers = isHand ? await listAiProviders(tenantId) : []
 
@@ -177,6 +193,39 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
       {isHand ? (
         <>
           <MailboxSection tenantId={tenantId} personId={person.id} />
+          <Card>
+            <CardHeader>
+              <CardTitle>Payroll & work</CardTitle>
+              <CardDescription>This month's model spend against salary, and recent runs.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <div className="space-y-1">
+                <p className="tabular-nums">
+                  <span className="text-2xl font-semibold">${monthSpend.toFixed(2)}</span>
+                  <span className="text-fg-muted"> of ${person.salary?.monthlyUsd ?? 0}/mo</span>
+                </p>
+                <Progress value={person.salary?.monthlyUsd ? Math.min(100, (monthSpend / person.salary.monthlyUsd) * 100) : 0} />
+              </div>
+              {recentRuns.length === 0 ? (
+                <p className="text-fg-muted">No runs yet — work appears here once this hand starts.</p>
+              ) : (
+                <div className="space-y-1">
+                  {recentRuns.map((run) => (
+                    <Link
+                      key={run.id}
+                      href={`/runs/${run.id}`}
+                      className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 transition-colors hover:border-primary/50"
+                    >
+                      <span className="min-w-0 truncate">{run.summary ?? 'Working…'}</span>
+                      <Badge variant={run.status === 'completed' ? 'default' : run.status === 'failed' ? 'destructive' : 'outline'}>
+                        {run.status.replace('_', ' ')}
+                      </Badge>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader>
               <CardTitle>Autonomy dial</CardTitle>

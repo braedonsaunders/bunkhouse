@@ -1,14 +1,48 @@
+import { and, eq, sql } from 'drizzle-orm'
 import { AI_PROVIDER_SPECS } from '@appkit/ai'
 import { PageContainer } from '@appkit/ui'
+import { mailboxAccounts, people } from '../../../db/schema'
+import { db } from '../../../db/client'
 import { SettingsView } from '../../../components/settings-view'
 import { listAiProviders } from '../../../lib/ai'
+import { listPrices } from '../../../lib/pricing'
 import { resolveTenantId } from '../../../lib/tenant'
 
 export const dynamic = 'force-dynamic'
 
+const fmt = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 16).replace('T', ' ') : '')
+
 export default async function SettingsPage() {
   const tenantId = await resolveTenantId()
-  const providers = await listAiProviders(tenantId)
+  const app = db()
+  const [providers, prices, mailboxData] = await Promise.all([
+    listAiProviders(tenantId),
+    listPrices(tenantId),
+    app.withTenantContext(tenantId, async () => {
+      const boxes = await app.db
+        .select({
+          id: mailboxAccounts.id,
+          personId: mailboxAccounts.personId,
+          address: mailboxAccounts.address,
+          status: mailboxAccounts.status,
+          lastSyncAt: mailboxAccounts.lastSyncAt,
+          lastError: mailboxAccounts.lastError,
+          personName: people.name,
+        })
+        .from(mailboxAccounts)
+        .innerJoin(people, eq(people.id, mailboxAccounts.personId))
+      const unconnected = await app.db
+        .select({ id: people.id, name: people.name, title: people.title })
+        .from(people)
+        .where(
+          and(
+            eq(people.kind, 'hand'),
+            sql`not exists (select 1 from mailbox_accounts ma where ma.person_id = ${people.id})`,
+          ),
+        )
+      return { boxes, unconnected }
+    }),
+  ])
 
   return (
     <PageContainer>
@@ -26,6 +60,25 @@ export default async function SettingsPage() {
           label: spec.label,
           needsBaseUrl: spec.kind === 'openai-compatible' && !spec.baseUrl,
         }))}
+        prices={prices.map((p) => ({
+          id: p.id,
+          model: p.model,
+          inputUsdPerMtok: `$${Number(p.inputUsdPerMtok).toFixed(2)}`,
+          outputUsdPerMtok: `$${Number(p.outputUsdPerMtok).toFixed(2)}`,
+          source: p.source,
+          ...(p.sourceRef ? { sourceRef: p.sourceRef } : {}),
+          effectiveAt: fmt(p.effectiveAt),
+        }))}
+        mailboxes={mailboxData.boxes.map((b) => ({
+          id: b.id,
+          personId: b.personId,
+          personName: b.personName,
+          address: b.address,
+          status: b.status,
+          lastSyncAt: fmt(b.lastSyncAt),
+          lastError: b.lastError ?? '',
+        }))}
+        handsWithoutMailbox={mailboxData.unconnected}
       />
     </PageContainer>
   )
