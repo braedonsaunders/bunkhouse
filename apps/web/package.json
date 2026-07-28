@@ -52,7 +52,8 @@
     "react-dom": "^19.2.7",
     "server-only": "^0.0.1",
     "@bunkhouse/roles": "workspace:*",
-    "@bunkhouse/runtime": "workspace:*"
+    "@bunkhouse/runtime": "workspace:*",
+    "@appkit/mailbox": "file:../../vendor/appkit/appkit-mailbox-0.1.0.tgz"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.16",

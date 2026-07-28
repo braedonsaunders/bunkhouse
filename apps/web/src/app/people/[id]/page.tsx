@@ -26,6 +26,7 @@ import { autonomySettings, duties, memories, people } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
 import { addMemoryNote, deleteMemoryNote, setAutonomy } from '../actions'
+import { MailboxSection } from './mailbox-section'
 
 const AUTONOMY_LEVELS = ['forbidden', 'approval', 'notify', 'trusted'] as const
 
@@ -161,6 +162,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
 
       {isHand ? (
         <>
+          <MailboxSection tenantId={tenantId} personId={person.id} />
           <Card>
             <CardHeader>
               <CardTitle>Autonomy dial</CardTitle>

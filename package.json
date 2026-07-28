@@ -51,7 +51,8 @@
       "@appkit/tenant": "file:./vendor/appkit/appkit-tenant-0.1.1.tgz",
       "@appkit/tokens": "file:./vendor/appkit/appkit-tokens-0.1.1.tgz",
       "@appkit/ui": "file:./vendor/appkit/appkit-ui-0.1.1.tgz",
-      "@appkit/workflows": "file:./vendor/appkit/appkit-workflows-1.0.0.tgz"
+      "@appkit/workflows": "file:./vendor/appkit/appkit-workflows-1.0.0.tgz",
+      "@appkit/mailbox": "file:./vendor/appkit/appkit-mailbox-0.1.0.tgz"
     }
   }
 }

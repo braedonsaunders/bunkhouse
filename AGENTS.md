@@ -79,13 +79,23 @@ visible-by-default entrances, Server-Component-safe primitives, clean cutover (n
 shims), complete production-grade code (no stubs/TODO paths), search before building,
 no dead code, docs updated in the same change.
 
-**Extend AppKit where appropriate:** when a capability is generalizable beyond bunkhouse
-(mailbox receive engine, employee runtime, MCP client, memory store, procedures, avatar
-generation, observatory streaming, remote-shell daemon, office-doc authoring), build it as
-an AppKit-shaped package — clean contract, adapters injectable, no bunkhouse coupling — and
-plan its home in the appkit repo. Re-pack vendored tarballs from `../appkit` with
-`pnpm pack --pack-destination <here>/vendor/appkit` after changing AppKit
-(`pnpm build:packages` there first), then update the root overrides.
+**AppKit first, both directions — non-negotiable:**
+
+1. **Before building ANYTHING fresh, check AppKit.** Search `../appkit/packages/*` (and
+   `docs/for-agents/orientation.md`) for an existing primitive, package, or pattern before
+   writing a component, utility, schema helper, queue, or service. Building a local
+   version of something AppKit already ships is a bug (e.g. lists are `RecordList`/
+   `PagedTable`, secrets are `@appkit/crypto` sealers, queues are `@appkit/jobs` profiles).
+2. **Backfill the other direction.** When something built here is generalizable beyond
+   bunkhouse (mailbox receive engine, employee runtime, MCP client, memory store,
+   procedures, avatar generation, observatory streaming, remote-shell daemon, office-doc
+   authoring), build it AppKit-shaped — clean contract, adapters injectable, no bunkhouse
+   coupling — and **update the appkit repo directly with the new package** (follow appkit's
+   own AGENTS.md gates, commit there), then consume it back here via the vendored tarball.
+   Fix appkit bugs found along the way in appkit itself, autonomously.
+
+After changing AppKit: `pnpm build:packages` there, re-pack with
+`pnpm pack --pack-destination <here>/vendor/appkit`, update the root overrides, reinstall.
 
 ## Repo map
 

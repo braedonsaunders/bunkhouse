@@ -7,6 +7,7 @@ import { getRolePack } from '@bunkhouse/roles'
 import { autonomySettings, duties, memories, people, procedures, procedureRevisions } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
+import { connectMailbox, syncPersonMailbox } from '../../lib/mailbox'
 
 const ACTION_CATEGORIES = [
   'external_email',
@@ -184,5 +185,44 @@ export async function deleteMemoryNote(formData: FormData): Promise<void> {
   await app.withTenant(tenantId, async () => {
     await app.db.delete(memories).where(eq(memories.id, memoryId))
   })
+  revalidatePath(`/people/${personId}`)
+}
+
+/** Connect an IMAP/SMTP mailbox to a hand — verifies both endpoints first. */
+export async function connectMailboxAction(formData: FormData): Promise<void> {
+  const personId = String(formData.get('personId') ?? '')
+  const address = String(formData.get('address') ?? '').trim().toLowerCase()
+  const username = String(formData.get('username') ?? '').trim() || address
+  const password = String(formData.get('password') ?? '')
+  const imapHost = String(formData.get('imapHost') ?? '').trim()
+  const smtpHost = String(formData.get('smtpHost') ?? '').trim()
+  const imapPort = Number(formData.get('imapPort') ?? 993)
+  const smtpPort = Number(formData.get('smtpPort') ?? 465)
+  if (!personId || !address || !password || !imapHost || !smtpHost) {
+    throw new Error('Address, password, IMAP host, and SMTP host are required.')
+  }
+  const tenantId = await resolveTenantId()
+  await connectMailbox({
+    tenantId,
+    personId,
+    address,
+    username,
+    password,
+    imapHost,
+    imapPort,
+    imapSecure: imapPort !== 143,
+    smtpHost,
+    smtpPort,
+    smtpSecure: smtpPort === 465,
+  })
+  revalidatePath(`/people/${personId}`)
+}
+
+/** Pull new mail for a hand right now (the worker also does this on schedule). */
+export async function syncMailboxAction(formData: FormData): Promise<void> {
+  const personId = String(formData.get('personId') ?? '')
+  if (!personId) throw new Error('personId is required')
+  const tenantId = await resolveTenantId()
+  await syncPersonMailbox(tenantId, personId)
   revalidatePath(`/people/${personId}`)
 }
