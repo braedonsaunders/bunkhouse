@@ -48,7 +48,7 @@
     "@appkit/storage": "file:../../vendor/appkit/appkit-storage-0.2.0.tgz",
     "@appkit/tenant": "file:../../vendor/appkit/appkit-tenant-0.1.1.tgz",
     "@appkit/tokens": "file:../../vendor/appkit/appkit-tokens-0.1.1.tgz",
-    "@appkit/ui": "file:../../vendor/appkit/appkit-ui-0.1.6.tgz",
+    "@appkit/ui": "file:../../vendor/appkit/appkit-ui-0.1.7.tgz",
     "@appkit/voice": "file:../../vendor/appkit/appkit-voice-0.1.0.tgz",
     "@appkit/workflows": "file:../../vendor/appkit/appkit-workflows-1.0.0.tgz",
     "@bunkhouse/roles": "workspace:*",
@@ -77,7 +77,7 @@
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
     "zod": "^4.4.3",
-    "@appkit/scene": "file:../../vendor/appkit/appkit-scene-0.1.2.tgz"
+    "@appkit/scene": "file:../../vendor/appkit/appkit-scene-0.2.2.tgz"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.16",
