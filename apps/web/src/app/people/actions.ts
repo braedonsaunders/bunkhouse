@@ -298,3 +298,47 @@ export async function chooseAvatarAction(formData: FormData): Promise<void> {
   revalidatePath(`/people/${personId}`)
   revalidatePath('/people')
 }
+
+/** Full record edit from the person drawer — every field an operator owns. */
+export async function updatePerson(formData: FormData): Promise<void> {
+  const personId = String(formData.get('personId') ?? '')
+  const name = String(formData.get('name') ?? '').trim()
+  const title = String(formData.get('title') ?? '').trim()
+  const email = String(formData.get('email') ?? '').trim().toLowerCase()
+  const status = String(formData.get('status') ?? '') as 'onboarding' | 'active' | 'offboarded'
+  const reportsToId = String(formData.get('reportsToId') ?? '') || null
+  const responsibilities = String(formData.get('responsibilities') ?? '').trim() || null
+  if (!personId || !name || !title || !email) throw new Error('Name, title, and email are required.')
+  if (!['onboarding', 'active', 'offboarded'].includes(status)) throw new Error('Invalid status.')
+
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    const [person] = await app.db.select().from(people).where(eq(people.id, personId))
+    if (!person) throw new Error('Person not found.')
+
+    const update: Partial<typeof people.$inferInsert> = {
+      name, title, email, status, reportsToId, responsibilities, updatedAt: new Date(),
+    }
+    if (person.kind === 'hand') {
+      const bio = String(formData.get('bio') ?? '').trim()
+      const tone = String(formData.get('tone') ?? '').split(',').map((t) => t.trim()).filter(Boolean)
+      const signoff = String(formData.get('signoff') ?? '').trim()
+      const salaryUsd = Number(formData.get('salaryUsd'))
+      const overagePolicy = String(formData.get('overagePolicy') ?? 'ask') as 'pause' | 'overtime' | 'ask'
+      const proactivity = String(formData.get('proactivity') ?? 'duties') as 'reactive' | 'duties' | 'autonomous'
+      if (!Number.isFinite(salaryUsd) || salaryUsd <= 0) throw new Error('Salary must be a positive monthly amount.')
+      if (!['pause', 'overtime', 'ask'].includes(overagePolicy)) throw new Error('Invalid overage policy.')
+      if (!['reactive', 'duties', 'autonomous'].includes(proactivity)) throw new Error('Invalid proactivity mode.')
+      update.personality = {
+        bio: bio || person.personality?.bio || `I am the ${title}.`,
+        tone: tone.length ? tone : (person.personality?.tone ?? ['professional']),
+        signoff: signoff || person.personality?.signoff || `Best,\n${name.split(' ')[0]}`,
+      }
+      update.salary = { monthlyUsd: salaryUsd, overagePolicy }
+      update.proactivity = proactivity
+    }
+    await app.db.update(people).set(update).where(eq(people.id, personId))
+  })
+  revalidatePath('/people')
+}

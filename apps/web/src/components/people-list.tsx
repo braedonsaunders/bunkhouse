@@ -16,7 +16,7 @@ export type PersonRow = {
 }
 
 const COLUMNS: RecordColumn<PersonRow>[] = [
-  { key: 'name', label: 'Name', kind: 'reference', sortable: true, href: (row) => `/people/${row.id}` },
+  { key: 'name', label: 'Name', kind: 'reference', sortable: true, href: (row) => `/people?person=${row.id}` },
   { key: 'title', label: 'Title', sortable: true },
   {
     key: 'kind',
@@ -68,7 +68,7 @@ export function PeopleList({ rows }: { rows: PersonRow[] }) {
           {children}
         </Link>
       )}
-      onRowClick={(row) => router.push(`/people/${row.id}`)}
+      onRowClick={(row) => router.push(`/people?person=${row.id}`, { scroll: false })}
       empty={{
         title: 'Nobody here yet',
         description: 'Add your human team, then hire your first hand from a role pack.',

@@ -12,9 +12,9 @@ import {
   Input,
   Label,
 } from '@appkit/ui'
-import { mailboxAccounts, mailThreads } from '../../../db/schema'
-import { db } from '../../../db/client'
-import { connectMailboxAction, syncMailboxAction } from '../actions'
+import { mailboxAccounts, mailThreads } from '../../db/schema'
+import { db } from '../../db/client'
+import { connectMailboxAction, syncMailboxAction } from './actions'
 
 /** The hand's mail surface: connect form, account status, and live threads. */
 export async function MailboxSection({ tenantId, personId }: { tenantId: string; personId: string }) {
