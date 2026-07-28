@@ -3,6 +3,8 @@
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { eq } from 'drizzle-orm'
+import type { AgentVoiceConfig } from '@appkit/voice'
+import { listRealtimeCapableProviders } from '../../lib/voice'
 import { getRole } from '../../lib/roles'
 import { autonomySettings, duties, mailboxAccounts, memories, people, procedures, procedureRevisions } from '../../db/schema'
 import { db } from '../../db/client'
@@ -21,6 +23,7 @@ const ACTION_CATEGORIES = [
   'file_write',
   'computer_use',
   'shell',
+  'phone_call',
 ] as const
 
 /**
@@ -269,6 +272,48 @@ export async function setHandModel(formData: FormData): Promise<void> {
       .where(eq(people.id, personId))
   })
   revalidatePath(`/people/${personId}`)
+}
+
+/** Set (or clear) how a hand sounds on a call. Mode-specific fields validated. */
+export async function setHandVoiceConfig(input: {
+  personId: string
+  config: AgentVoiceConfig | null
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { personId, config } = input
+  if (!personId) return { ok: false, message: 'personId is required.' }
+  const tenantId = await resolveTenantId()
+
+  if (config !== null) {
+    if (config.mode === 'cascade') {
+      const c = config.cascade
+      if (!c || c.sttProvider !== 'deepgram' || !c.sttModel || c.ttsProvider !== 'elevenlabs' || !c.ttsVoiceId || !c.ttsModel) {
+        return { ok: false, message: 'Cascade mode needs an STT model, a TTS voice, and a TTS model.' }
+      }
+    } else if (config.mode === 'realtime') {
+      const r = config.realtime
+      if (!r || !r.model || !r.voice) {
+        return { ok: false, message: 'Realtime mode needs a provider, model, and voice.' }
+      }
+      const capable = await listRealtimeCapableProviders(tenantId)
+      if (!capable.some((p) => p.kind === r.provider)) {
+        return {
+          ok: false,
+          message: `No ${r.provider === 'openai' ? 'OpenAI' : 'Google'} provider is configured under Settings → Model providers — realtime voice runs on those keys.`,
+        }
+      }
+    } else {
+      return { ok: false, message: 'Voice mode must be cascade or realtime.' }
+    }
+  }
+
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    const [person] = await app.db.select().from(people).where(eq(people.id, personId))
+    if (!person || person.kind !== 'hand') throw new Error('Voice can only be configured on a hand.')
+    await app.db.update(people).set({ voiceConfig: config, updatedAt: new Date() }).where(eq(people.id, personId))
+  })
+  revalidatePath('/people')
+  return { ok: true }
 }
 
 /** Update a duty from its drawer: instruction, schedule (cron internal), on/off. */
