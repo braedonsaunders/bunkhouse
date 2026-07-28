@@ -11,6 +11,7 @@ import { connectMailbox, syncPersonMailbox } from '../../lib/mailbox'
 import { listAiProviders } from '../../lib/ai'
 import { CronExpressionParser } from 'cron-parser'
 import { generateHandAvatarCandidates, saveHandAvatar } from '../../lib/avatars'
+import { correctNote, createNote, expireNote, proposePromotion } from '../../lib/memory'
 
 const ACTION_CATEGORIES = [
   'external_email',
@@ -152,44 +153,59 @@ export async function setAutonomy(formData: FormData): Promise<void> {
   revalidatePath(`/people/${personId}`)
 }
 
-/** Add a human-authored note to a hand's memory. */
+/** Add a human-authored note to a hand's logbook. */
 export async function addMemoryNote(formData: FormData): Promise<void> {
   const personId = String(formData.get('personId') ?? '')
   const title = String(formData.get('title') ?? '').trim()
   const body = String(formData.get('body') ?? '').trim()
+  const kind = String(formData.get('kind') ?? 'fact') as 'fact' | 'episode' | 'procedure' | 'reflection'
   if (!personId || !title || !body) throw new Error('A note needs a title and a body.')
-
   const tenantId = await resolveTenantId()
   const app = db()
-  const slug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60)
   await app.withTenant(tenantId, async () => {
-    await app.db
-      .insert(memories)
-      .values({ tenantId, scope: 'hand', personId, slug: slug || 'note', title, body })
-      .onConflictDoUpdate({
-        target: [memories.tenantId, memories.scope, memories.personId, memories.slug],
-        set: { title, body, status: 'active', updatedAt: new Date() },
-      })
+    await createNote({ tenantId, scope: 'hand', personId, kind, title, body, author: 'human' })
   })
-  revalidatePath(`/people/${personId}`)
+  revalidatePath('/people')
 }
 
-/** Remove a memory note — the human-editable-memory doctrine in action. */
+/** Forget = expire, never delete: the note closes its validity window. */
 export async function deleteMemoryNote(formData: FormData): Promise<void> {
-  const personId = String(formData.get('personId') ?? '')
   const memoryId = String(formData.get('memoryId') ?? '')
   if (!memoryId) throw new Error('memoryId is required')
-
   const tenantId = await resolveTenantId()
   const app = db()
   await app.withTenant(tenantId, async () => {
-    await app.db.delete(memories).where(eq(memories.id, memoryId))
+    await expireNote(tenantId, memoryId)
   })
-  revalidatePath(`/people/${personId}`)
+  revalidatePath('/people')
+  revalidatePath('/admin/knowledge')
+}
+
+/** Pin/unpin: the pinned tier is always in the hand's prompt, budgeted. */
+export async function togglePinNote(formData: FormData): Promise<void> {
+  const memoryId = String(formData.get('memoryId') ?? '')
+  const pinned = String(formData.get('pinned') ?? '') === 'true'
+  if (!memoryId) throw new Error('memoryId is required')
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await app.db.update(memories).set({ pinned, updatedAt: new Date() }).where(eq(memories.id, memoryId))
+  })
+  revalidatePath('/people')
+  revalidatePath('/admin/knowledge')
+}
+
+/** Nominate a hand note for company knowledge (approval-gated). */
+export async function promoteNoteAction(formData: FormData): Promise<void> {
+  const memoryId = String(formData.get('memoryId') ?? '')
+  const rationale = String(formData.get('rationale') ?? '').trim() || 'Proposed from the hand profile.'
+  if (!memoryId) throw new Error('memoryId is required')
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await proposePromotion({ tenantId, noteId: memoryId, rationale })
+  })
+  revalidatePath('/admin/knowledge')
 }
 
 /** Connect an IMAP/SMTP mailbox to a hand — verifies both endpoints first. */
@@ -386,9 +402,8 @@ export async function deleteDuty(formData: FormData): Promise<void> {
   revalidatePath('/people')
 }
 
-/** Correct a memory note in place. */
+/** Correct a memory note in place — the prior head is snapshotted. */
 export async function updateMemoryNote(formData: FormData): Promise<void> {
-  const personId = String(formData.get('personId') ?? '')
   const memoryId = String(formData.get('memoryId') ?? '')
   const title = String(formData.get('title') ?? '').trim()
   const body = String(formData.get('body') ?? '').trim()
@@ -396,9 +411,10 @@ export async function updateMemoryNote(formData: FormData): Promise<void> {
   const tenantId = await resolveTenantId()
   const app = db()
   await app.withTenant(tenantId, async () => {
-    await app.db.update(memories).set({ title, body, updatedAt: new Date() }).where(eq(memories.id, memoryId))
+    await correctNote({ tenantId, noteId: memoryId, title, body, editedBy: 'human' })
   })
   revalidatePath('/people')
+  revalidatePath('/admin/knowledge')
 }
 
 /** Disconnect a hand's mailbox: config is deletable, the mail ledger is not. */

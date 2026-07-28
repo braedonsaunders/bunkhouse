@@ -16,7 +16,7 @@ import {
 } from '@appkit/ui'
 import type { autonomySettings, memories, people, runs } from '../../db/schema'
 import { AssignModelForm } from '../../components/assign-model-form'
-import { addMemoryNote, deleteMemoryNote, setAutonomy, updateMemoryNote, updatePerson } from './actions'
+import { addMemoryNote, deleteMemoryNote, promoteNoteAction, setAutonomy, togglePinNote, updateMemoryNote, updatePerson } from './actions'
 
 type Person = typeof people.$inferSelect
 
@@ -241,12 +241,20 @@ export function MemorySection({
         ) : (
           notes.map((note) => (
             <div key={note.id} className="rounded-md border border-border p-3">
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                <Badge variant={note.kind === 'procedure' ? 'default' : note.kind === 'reflection' ? 'secondary' : 'outline'}>
+                  {note.kind}
+                </Badge>
+                <Badge variant="outline">importance {note.importance}</Badge>
+                {note.pinned ? <Badge>pinned</Badge> : null}
+                <span className="text-fg-muted">[[{note.slug}]] · by {note.author}</span>
+              </div>
               <form action={updateMemoryNote} className="space-y-2">
                 <input type="hidden" name="personId" value={person.id} />
                 <input type="hidden" name="memoryId" value={note.id} />
                 <Input name="title" defaultValue={note.title} required />
                 <Textarea name="body" rows={2} defaultValue={note.body} required />
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button type="submit" variant="outline" size="sm">
                     Save correction
                   </Button>
@@ -255,13 +263,37 @@ export function MemorySection({
                   </Button>
                 </div>
               </form>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <form action={togglePinNote}>
+                  <input type="hidden" name="memoryId" value={note.id} />
+                  <input type="hidden" name="pinned" value={note.pinned ? 'false' : 'true'} />
+                  <Button type="submit" variant="outline" size="sm">
+                    {note.pinned ? 'Unpin' : 'Pin to prompt'}
+                  </Button>
+                </form>
+                <form action={promoteNoteAction} className="flex items-center gap-2">
+                  <input type="hidden" name="memoryId" value={note.id} />
+                  <Input name="rationale" placeholder="Why the whole company should know this" className="w-64" />
+                  <Button type="submit" variant="outline" size="sm">
+                    Propose for company knowledge
+                  </Button>
+                </form>
+              </div>
             </div>
           ))
         )}
         <form action={addMemoryNote} className="space-y-2 rounded-md border border-dashed border-border p-3">
           <input type="hidden" name="personId" value={person.id} />
-          <Input name="title" placeholder="Note title (e.g. Preferred vendor for tires)" required />
-          <Textarea name="body" rows={2} placeholder="Something this hand should always know." required />
+          <div className="flex gap-2">
+            <Select name="kind" defaultValue="fact" aria-label="Note kind">
+              <option value="fact">Fact</option>
+              <option value="episode">Episode</option>
+              <option value="procedure">Procedure</option>
+              <option value="reflection">Reflection</option>
+            </Select>
+            <Input name="title" placeholder="Note title (e.g. Preferred vendor for tires)" required className="flex-1" />
+          </div>
+          <Textarea name="body" rows={2} placeholder="Something this hand should always know. Link other notes with [[slug]]." required />
           <Button type="submit" variant="outline" size="sm">
             Add to memory
           </Button>

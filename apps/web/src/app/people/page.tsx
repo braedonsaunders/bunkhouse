@@ -56,7 +56,7 @@ export default async function PeoplePage({
       const notes = await app.db
         .select()
         .from(memories)
-        .where(eq(memories.personId, selected.id))
+        .where(and(eq(memories.personId, selected.id), sql`${memories.validUntil} is null`))
         .orderBy(asc(memories.createdAt))
       const monthStart = new Date()
       monthStart.setUTCDate(1)
