@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Button, SearchSelect, Select } from '@appkit/ui'
-import { loadModelsForProviderAction } from '../app/settings/actions'
+import { loadModelsForProviderAction } from '../app/admin/settings/actions'
 import { setHandModel } from '../app/people/actions'
 
 /** Assign a hand's brain from live model lists — provider keys stay sealed. */

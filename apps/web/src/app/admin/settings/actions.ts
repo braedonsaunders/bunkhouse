@@ -3,8 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { isAiProvider, listModels } from '@appkit/ai'
 import { unsealSecret } from '@appkit/crypto'
-import { addAiProvider, listAiProviders, removeAiProvider } from '../../lib/ai'
-import { resolveTenantId } from '../../lib/tenant'
+import { addAiProvider, listAiProviders, removeAiProvider } from '../../../lib/ai'
+import { resolveTenantId } from '../../../lib/tenant'
 
 export async function addProviderAction(formData: FormData): Promise<void> {
   const slug = String(formData.get('slug') ?? '').trim().toLowerCase()
@@ -64,7 +64,7 @@ export async function loadModelsForProviderAction(
 ): Promise<{ ok: true; models: { id: string; label?: string }[] } | { ok: false; message: string }> {
   const tenantId = await resolveTenantId()
   const providers = await listAiProviders(tenantId)
-  const entry = providers.find((p) => p.slug === slug)
+  const entry = providers.find((candidate) => candidate.slug === slug)
   if (!entry) return { ok: false, message: `No provider "${slug}".` }
   if (!isAiProvider(entry.provider)) return { ok: false, message: `Provider kind ${entry.provider} is invalid.` }
   const apiKey = unsealSecret(entry.sealedApiKey)

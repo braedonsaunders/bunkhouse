@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Button, Input, Label, SearchSelect, Select } from '@appkit/ui'
-import { addProviderAction, loadModelsAction } from '../app/settings/actions'
+import { addProviderAction, loadModelsAction } from '../app/admin/settings/actions'
 
 export type ProviderKindOption = { value: string; label: string; needsBaseUrl: boolean }
 
