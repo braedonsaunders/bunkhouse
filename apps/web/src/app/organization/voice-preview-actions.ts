@@ -98,7 +98,10 @@ async function previewGoogleVoice(tenantId: string, voice: string): Promise<Voic
       method: 'POST',
       headers: { 'x-goog-api-key': credential.apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: SAMPLE_TEXT }] }],
+        // The TTS preview model treats its input as a prompt, and short
+        // conversational text sometimes makes it answer instead of read —
+        // which the API rejects as INVALID_ARGUMENT. The directive pins it.
+        contents: [{ parts: [{ text: `Read this aloud exactly, and read nothing else: ${SAMPLE_TEXT}` }] }],
         generationConfig: {
           responseModalities: ['AUDIO'],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
