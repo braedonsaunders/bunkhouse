@@ -1,22 +1,10 @@
 import Link from 'next/link'
 import { asc } from 'drizzle-orm'
-import {
-  Avatar,
-  Badge,
-  Button,
-  EmptyState,
-  PageContainer,
-  PageHeader,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@appkit/ui'
+import { Button, PageContainer, PageHeader } from '@appkit/ui'
 import { people } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
+import { PeopleList, type PersonRow } from '../../components/people-list'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,6 +17,15 @@ export default async function PeoplePage() {
     app.db.select().from(people).orderBy(asc(people.name)),
   )
   const byId = new Map(roster.map((p) => [p.id, p]))
+  const rows: PersonRow[] = roster.map((person) => ({
+    id: person.id,
+    name: person.name,
+    title: person.title,
+    kind: person.kind === 'hand' ? 'Hand' : 'Human',
+    email: person.email,
+    reportsTo: person.reportsToId ? (byId.get(person.reportsToId)?.name ?? '—') : '—',
+    status: STATUS_LABELS[person.status],
+  }))
 
   return (
     <PageContainer className="space-y-6">
@@ -41,52 +38,7 @@ export default async function PeoplePage() {
           </Button>
         }
       />
-      {roster.length === 0 ? (
-        <EmptyState
-          title="Nobody here yet"
-          description="Add your human team, then hire your first hand from a role pack."
-        />
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Title</TableHead>
-              <TableHead>Kind</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Reports to</TableHead>
-              <TableHead>Status</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {roster.map((person) => (
-              <TableRow key={person.id}>
-                <TableCell>
-                  <Link href={`/people/${person.id}`} className="flex items-center gap-2 font-medium text-fg hover:text-primary">
-                    <Avatar name={person.name} size={28} />
-                    {person.name}
-                  </Link>
-                </TableCell>
-                <TableCell>{person.title}</TableCell>
-                <TableCell>
-                  <Badge variant={person.kind === 'hand' ? 'default' : 'secondary'}>
-                    {person.kind === 'hand' ? 'Hand' : 'Human'}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-fg-muted">{person.email}</TableCell>
-                <TableCell className="text-fg-muted">
-                  {person.reportsToId ? byId.get(person.reportsToId)?.name ?? '—' : '—'}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={person.status === 'active' ? 'default' : 'outline'}>
-                    {STATUS_LABELS[person.status]}
-                  </Badge>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
+      <PeopleList rows={rows} />
     </PageContainer>
   )
 }

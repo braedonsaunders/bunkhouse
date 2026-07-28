@@ -1,9 +1,6 @@
-import Link from 'next/link'
 import { asc, eq } from 'drizzle-orm'
 import { ROLE_PACKS, getRolePack } from '@bunkhouse/roles'
 import {
-  Avatar,
-  Badge,
   Button,
   Card,
   CardContent,
@@ -16,11 +13,11 @@ import {
   PageHeader,
   Select,
   Textarea,
-  cn,
 } from '@appkit/ui'
 import { people } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
+import { HireRoleList, type RoleRow } from '../../../components/hire-role-list'
 import { hireHand } from '../actions'
 
 export const dynamic = 'force-dynamic'
@@ -43,6 +40,16 @@ export default async function HirePage({
       .orderBy(asc(people.name)),
   )
 
+  const rows: RoleRow[] = ROLE_PACKS.map((pack) => ({
+    slug: pack.slug,
+    title: pack.title,
+    pitch: pack.pitch,
+    duties: pack.duties.length,
+    procedures: pack.procedures.length,
+    salaryUsd: pack.suggestedSalaryUsd,
+    statusLabel: selected?.slug === pack.slug ? 'Reviewing' : 'Available',
+  }))
+
   return (
     <PageContainer className="space-y-6">
       <PageHeader
@@ -51,36 +58,7 @@ export default async function HirePage({
         back={{ href: '/people', label: 'Directory' }}
       />
 
-      <div className="space-y-2">
-        {ROLE_PACKS.map((pack) => {
-          const isSelected = selected?.slug === pack.slug
-          return (
-            <div
-              key={pack.slug}
-              className={cn(
-                'flex flex-wrap items-center justify-between gap-3 rounded-md border p-4',
-                isSelected ? 'border-primary bg-primary/5' : 'border-border',
-              )}
-            >
-              <div className="flex min-w-0 items-center gap-3">
-                <Avatar name={pack.title} size={40} />
-                <div className="min-w-0">
-                  <p className="font-medium">{pack.title}</p>
-                  <p className="truncate text-sm text-fg-muted">{pack.pitch}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 text-sm text-fg-muted">
-                <span>{pack.duties.length} duties</span>
-                <span>{pack.procedures.length} procedures</span>
-                <Badge variant="secondary">${pack.suggestedSalaryUsd}/mo</Badge>
-                <Button asChild variant={isSelected ? 'default' : 'outline'} size="sm">
-                  <Link href={`/people/hire?role=${pack.slug}`}>{isSelected ? 'Reviewing' : 'Review'}</Link>
-                </Button>
-              </div>
-            </div>
-          )
-        })}
-      </div>
+      <HireRoleList rows={rows} />
 
       {selected ? (
         <Card className="border-primary/50">
