@@ -2,11 +2,11 @@ import 'server-only'
 import { and, eq, ne } from 'drizzle-orm'
 import { SipClient } from 'livekit-server-sdk'
 import { sealSecret, unsealSecret } from '@appkit/crypto'
-import { people, sipTrunks } from '../db/schema'
+import { people, phoneNumbers, sipTrunks } from '../db/schema'
 import { db } from '../db/client'
 
 /**
- * The phone system: tenant PBX trunks and hand extensions. A trunk row is
+ * The phone system: tenant PBX trunks and agent extensions. A trunk row is
  * the single source of truth; saving one mirrors it to the LiveKit SIP
  * ingress (inbound trunk + callee dispatch rule that creates `pbx-<ext>…`
  * rooms the voice agent answers). Mirroring is reconstruct-on-save: the
@@ -190,7 +190,7 @@ export async function deleteSipTrunk(tenantId: string, trunkId: string): Promise
   })
 }
 
-/** Assign (or clear, with null) a hand's phone-system extension. Extensions
+/** Assign (or clear, with null) an agent's phone-system extension. Extensions
  *  are short dialable codes, unique per tenant. */
 export async function assignExtension(args: {
   tenantId: string
@@ -217,5 +217,65 @@ export async function assignExtension(args: {
       .set({ extension, updatedAt: new Date() })
       .where(eq(people.id, args.personId))
     return { ok: true as const }
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Phone numbers — the carrier path
+// ---------------------------------------------------------------------------
+
+export type PhoneNumberRow = typeof phoneNumbers.$inferSelect
+
+/** Bare E.164 digits, or null when the input cannot be a phone number. */
+export function normalizePhoneNumber(raw: string): string | null {
+  const digits = raw.replace(/[^0-9]/g, '')
+  return digits.length >= 7 && digits.length <= 15 ? digits : null
+}
+
+export async function listPhoneNumbers(
+  tenantId: string,
+): Promise<(PhoneNumberRow & { personName: string })[]> {
+  const app = db()
+  return app.withTenantContext(tenantId, async () => {
+    const rows = await app.db
+      .select({ row: phoneNumbers, personName: people.name })
+      .from(phoneNumbers)
+      .innerJoin(people, eq(people.id, phoneNumbers.personId))
+    return rows.map((r) => ({ ...r.row, personName: r.personName }))
+  })
+}
+
+/** Point a number at an agent — one row per number, upserted. */
+export async function assignPhoneNumber(args: {
+  tenantId: string
+  number: string
+  label: string
+  personId: string
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const digits = normalizePhoneNumber(args.number)
+  if (!digits) return { ok: false, message: 'Enter the number with country code, e.g. +1 555 123 4567.' }
+  if (!args.label.trim()) return { ok: false, message: 'Give the number a label.' }
+  const app = db()
+  return app.withTenant(args.tenantId, async () => {
+    const [agent] = await app.db
+      .select({ id: people.id })
+      .from(people)
+      .where(and(eq(people.id, args.personId), eq(people.kind, 'agent'), eq(people.status, 'active')))
+    if (!agent) return { ok: false as const, message: 'Pick an active agent to answer this number.' }
+    await app.db
+      .insert(phoneNumbers)
+      .values({ tenantId: args.tenantId, number: digits, label: args.label.trim(), personId: args.personId })
+      .onConflictDoUpdate({
+        target: [phoneNumbers.tenantId, phoneNumbers.number],
+        set: { label: args.label.trim(), personId: args.personId, updatedAt: new Date() },
+      })
+    return { ok: true as const }
+  })
+}
+
+export async function removePhoneNumber(tenantId: string, numberId: string): Promise<void> {
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await app.db.delete(phoneNumbers).where(eq(phoneNumbers.id, numberId))
   })
 }

@@ -10,7 +10,7 @@ import * as silero from '@livekit/agents-plugin-silero'
 import { isAiProvider, providerSpec, type AiConfig } from '@appkit/ai'
 import { buildSystemPrompt } from '@bunkhouse/runtime'
 import { db } from '../src/db/client'
-import { approvals, autonomySettings, callSessions, callTurns, people, runs, runEvents, tokenSpend } from '../src/db/schema'
+import { approvals, autonomySettings, callSessions, callTurns, people, phoneNumbers, runs, runEvents, tokenSpend } from '../src/db/schema'
 import { assembleAbilities } from '../src/lib/agent-abilities'
 import { boundProcedures } from '../src/lib/agent-runs'
 import { governedCallTools } from '../src/lib/call-tools'
@@ -59,24 +59,48 @@ async function ensureInboundPhoneSession(ctx: JobContext, roomName: string): Pro
   const existing = await findSessionByRoom(roomName)
   if (existing) return existing
 
-  const extension = /^pbx-([0-9]+)/.exec(roomName)?.[1]
-  if (!extension) {
-    console.error(`[voice] room ${roomName}: no extension in the room name`)
+  // The dialed callee names the room: a PBX sends the short extension, a
+  // carrier sends the provisioned number (usually with a leading '+').
+  const callee = /^pbx-(\+?[0-9]+)/.exec(roomName)?.[1]
+  if (!callee) {
+    console.error(`[voice] room ${roomName}: no dialable callee in the room name`)
     return null
   }
-  const agents = await app.withSuperAdmin((superDb) =>
+  const digits = callee.replace(/[^0-9]/g, '')
+
+  // Provisioned numbers first — they are globally unique by nature — then the
+  // PBX extension path.
+  let person: PersonRow | null = null
+  const numbered = await app.withSuperAdmin((superDb) =>
     superDb
-      .select()
-      .from(people)
-      .where(and(eq(people.extension, extension), eq(people.kind, 'agent'), eq(people.status, 'active'))),
+      .select({ personId: phoneNumbers.personId })
+      .from(phoneNumbers)
+      .where(eq(phoneNumbers.number, digits)),
   )
-  if (agents.length !== 1) {
+  if (numbered.length === 1) {
+    const rows = await app.withSuperAdmin((superDb) =>
+      superDb
+        .select()
+        .from(people)
+        .where(and(eq(people.id, numbered[0]!.personId), eq(people.kind, 'agent'), eq(people.status, 'active'))),
+    )
+    person = (rows[0] as PersonRow | undefined) ?? null
+  }
+  if (!person) {
+    const agents = await app.withSuperAdmin((superDb) =>
+      superDb
+        .select()
+        .from(people)
+        .where(and(eq(people.extension, digits), eq(people.kind, 'agent'), eq(people.status, 'active'))),
+    )
     // Extensions are unique per tenant; a cross-tenant collision (or an
-    // unassigned extension) cannot be routed deterministically.
-    console.error(`[voice] room ${roomName}: extension ${extension} matches ${agents.length} active agents — cannot route`)
+    // unassigned callee) cannot be routed deterministically.
+    if (agents.length === 1) person = agents[0] as PersonRow
+  }
+  if (!person) {
+    console.error(`[voice] room ${roomName}: ${digits} matches no provisioned number and no unique extension — cannot route`)
     return null
   }
-  const person = agents[0] as PersonRow
   const tenantId = person.tenantId
 
   // The SIP participant's join is what triggered dispatch; its attributes
@@ -123,7 +147,7 @@ async function ensureInboundPhoneSession(ctx: JobContext, roomName: string): Pro
       runId: run!.id,
       seq: 0,
       kind: 'message',
-      payload: { text: `${summary} — answered on extension ${extension}. Room ${roomName}.` },
+      payload: { text: `${summary} — answered on ${digits}. Room ${roomName}.` },
     })
     const [row] = await app.db
       .update(callSessions)

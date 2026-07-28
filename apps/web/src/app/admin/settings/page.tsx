@@ -8,7 +8,7 @@ import type { AgentDial } from '../../../components/autonomy-settings'
 import { ACTION_CATEGORIES, DEFAULT_AUTONOMY_LEVEL } from '../../../lib/autonomy'
 import { listAiProviders } from '../../../lib/ai'
 import { getVoiceProviders } from '../../../lib/voice'
-import { listSipTrunks, sipIngressAddress } from '../../../lib/pbx'
+import { listPhoneNumbers, listSipTrunks, sipIngressAddress } from '../../../lib/pbx'
 import { listPrices } from '../../../lib/pricing'
 import { getImageProviderSetting, listAvatarPartRows, loadAvatarPartLibrary } from '../../../lib/avatars'
 import { getResearchSettings } from '../../../lib/research'
@@ -90,6 +90,14 @@ export default async function SettingsPage({
     loadAvatarPartLibrary(tenantId),
   ])
   const research = await getResearchSettings(tenantId)
+  const phoneNumberRows = await listPhoneNumbers(tenantId)
+  const activeAgents = await app.withTenantContext(tenantId, () =>
+    app.db
+      .select({ id: people.id, name: people.name, title: people.title })
+      .from(people)
+      .where(and(eq(people.kind, 'agent'), eq(people.status, 'active')))
+      .orderBy(asc(people.name)),
+  )
   const integrations = await app.withTenantContext(tenantId, () => listMcpIntegrations(tenantId))
 
   return (
@@ -158,6 +166,13 @@ export default async function SettingsPage({
             title: h.title,
             extension: h.extension ?? '',
           })),
+          numbers: phoneNumberRows.map((n) => ({
+            id: n.id,
+            number: n.number,
+            label: n.label,
+            personName: n.personName,
+          })),
+          agents: activeAgents,
           ingress: sipIngressAddress(),
         }}
         agentDials={agentDials}

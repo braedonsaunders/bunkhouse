@@ -30,7 +30,7 @@ import { AvatarPartsView, type AvatarPartRowView } from './avatar-parts-view'
 import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
 import { ImageProviderForm } from './image-provider-form'
 import { AutonomySettings, type AgentDial } from './autonomy-settings'
-import { PhoneSystemRow, type AgentExtensionRow, type SipTrunkSummary } from './phone-system'
+import { PhoneSystemRow, type AgentExtensionRow, type AgentOption, type PhoneNumberRowView, type SipTrunkSummary } from './phone-system'
 import { IntegrationsSection, ResearchSection, type IntegrationRowView } from './capability-settings'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
@@ -177,6 +177,8 @@ export function SettingsView({
   phoneSystem: {
     trunks: SipTrunkSummary[]
     extensions: AgentExtensionRow[]
+    numbers: PhoneNumberRowView[]
+    agents: AgentOption[]
     ingress: { host: string; port: number } | null
   }
   agentDials: AgentDial[]
@@ -414,6 +416,8 @@ export function SettingsView({
           <PhoneSystemRow
             trunks={phoneSystem.trunks}
             extensions={phoneSystem.extensions}
+            numbers={phoneSystem.numbers}
+            agents={phoneSystem.agents}
             ingress={phoneSystem.ingress}
           />
         </SettingsSection>

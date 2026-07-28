@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { assignExtension, createSipTrunk, deleteSipTrunk, updateSipTrunk, type SipTrunkInput } from '../../../lib/pbx'
+import { assignExtension, assignPhoneNumber, createSipTrunk, deleteSipTrunk, removePhoneNumber, updateSipTrunk, type SipTrunkInput } from '../../../lib/pbx'
 import { resolveTenantId } from '../../../lib/tenant'
 
 export type SipTrunkFormInput = {
@@ -55,8 +55,8 @@ export async function deleteSipTrunkAction(trunkId: string): Promise<void> {
   revalidatePath('/admin/settings')
 }
 
-/** Set or clear a hand's phone extension (unique per company). */
-export async function setHandExtensionAction(input: {
+/** Set or clear an agent's phone extension (unique per company). */
+export async function setAgentExtensionAction(input: {
   personId: string
   extension: string
 }): Promise<{ ok: true } | { ok: false; message: string }> {
@@ -67,8 +67,26 @@ export async function setHandExtensionAction(input: {
     extension: input.extension.trim() || null,
   })
   if (result.ok) {
-    revalidatePath('/people')
+    revalidatePath('/organization/agents')
     revalidatePath('/admin/settings')
   }
   return result
+}
+
+/** Point a real phone number at an agent (carrier path). */
+export async function assignPhoneNumberAction(input: {
+  number: string
+  label: string
+  personId: string
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const tenantId = await resolveTenantId()
+  const result = await assignPhoneNumber({ tenantId, ...input })
+  if (result.ok) revalidatePath('/admin/settings')
+  return result
+}
+
+export async function removePhoneNumberAction(numberId: string): Promise<void> {
+  const tenantId = await resolveTenantId()
+  await removePhoneNumber(tenantId, numberId)
+  revalidatePath('/admin/settings')
 }

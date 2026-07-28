@@ -15,7 +15,7 @@ import {
   type LinkRender,
   type RecordColumn,
 } from '@appkit/ui'
-import { deleteSipTrunkAction, saveSipTrunkAction } from '../app/admin/settings/pbx-actions'
+import { assignPhoneNumberAction, removePhoneNumberAction, deleteSipTrunkAction, saveSipTrunkAction } from '../app/admin/settings/pbx-actions'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
   <Link href={href} className={className} title={title}>
@@ -37,7 +37,17 @@ export type SipTrunkSummary = {
   lastError: string
 }
 
-export type HandExtensionRow = {
+export type PhoneNumberRowView = {
+  id: string
+  /** Bare digits as stored; shown formatted with a leading '+'. */
+  number: string
+  label: string
+  personName: string
+}
+
+export type AgentOption = { id: string; name: string; title: string }
+
+export type AgentExtensionRow = {
   personId: string
   name: string
   title: string
@@ -78,9 +88,9 @@ const TRUNK_COLUMNS: RecordColumn<TrunkListRow>[] = [
   },
 ]
 
-const EXTENSION_COLUMNS: RecordColumn<HandExtensionRow>[] = [
+const EXTENSION_COLUMNS: RecordColumn<AgentExtensionRow>[] = [
   { key: 'extension', label: 'Extension', sortable: true },
-  { key: 'name', label: 'Hand', kind: 'reference', sortable: true, href: (row) => `/people?person=${row.personId}` },
+  { key: 'name', label: 'Agent', kind: 'reference', sortable: true, href: (row) => `/organization/agents?person=${row.personId}` },
   { key: 'title', label: 'Title' },
 ]
 
@@ -88,9 +98,9 @@ const AVAYA_CHECKLIST = [
   'Confirm capacity: your SIP Trunk Channels licenses cover the concurrent calls you expect, and System → Telephony → Maximum SIP Sessions is greater than zero.',
   'Create a SIP Line whose ITSP / gateway address is the connection address shown under Connection details (port 5060, UDP or TCP). Limit codecs to G.711 ULAW and ALAW, set DTMF to RFC2833 payload 101, turn Re-invite Supported on, turn direct media off, turn Check OOS on, set the Session Timer to On-Demand, and leave REFER Incoming and Outgoing on Auto.',
   'Add a SIP URI channel on the line with matching Incoming and Outgoing Group IDs and enough Max Sessions for your concurrent calls.',
-  'Add a short code that routes the hand extension range out the line — for example Code 7XX, Feature Dial, Number 7N"@<connection address>", Line Group set to the URI channel’s group.',
+  'Add a short code that routes the agent extension range out the line — for example Code 7XX, Feature Dial, Number 7N"@<connection address>", Line Group set to the URI channel’s group.',
   'Add an Incoming Call Route for the same Line Group with Destination "." (a single period) so the dialed digits pass through.',
-  'Confirm the phone system can reach the connection address on the SIP port and the published media port range in both directions, then dial a hand’s extension from a desk phone.',
+  'Confirm the phone system can reach the connection address on the SIP port and the published media port range in both directions, then dial an agent’s extension from a desk phone.',
 ]
 
 type TrunkDraft = {
@@ -133,17 +143,23 @@ const draftFrom = (trunk: SipTrunkSummary): TrunkDraft => ({
 
 /**
  * Settings → Voice → Phone system. One SettingsRow whose drawer manages the
- * company's PBX trunks (rows mirrored to the SIP ingress), the hands'
+ * company's PBX trunks (rows mirrored to the SIP ingress), the agents'
  * extension directory, and the connection details a PBX administrator
  * enters on their side.
  */
 export function PhoneSystemRow({
   trunks,
   extensions,
+  numbers,
+  agents,
   ingress,
 }: {
   trunks: SipTrunkSummary[]
-  extensions: HandExtensionRow[]
+  extensions: AgentExtensionRow[]
+  /** Provisioned carrier numbers, mapped to the agents who answer them. */
+  numbers: PhoneNumberRowView[]
+  /** Active agents offered when pointing a number at someone. */
+  agents: AgentOption[]
   ingress: { host: string; port: number } | null
 }) {
   const [open, setOpen] = React.useState(false)
@@ -151,6 +167,8 @@ export function PhoneSystemRow({
   const [draft, setDraft] = React.useState<TrunkDraft | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [busy, startBusy] = React.useTransition()
+  const [numberDraft, setNumberDraft] = React.useState({ number: '', label: '', personId: agents[0]?.id ?? '' })
+  const [numberError, setNumberError] = React.useState<string | null>(null)
 
   const editing = draft?.id ? trunks.find((t) => t.id === draft.id) : undefined
   const localIngress = ingress !== null && ['localhost', '127.0.0.1'].includes(ingress.host)
@@ -168,8 +186,8 @@ export function PhoneSystemRow({
   const activeCount = trunks.filter((t) => t.status === 'active').length
   const summary =
     trunks.length === 0
-      ? 'Connect your office phone system so hands answer real desk-phone extensions.'
-      : `${trunks.length} trunk${trunks.length === 1 ? '' : 's'} · ${activeCount} active · ${extensions.length} extension${extensions.length === 1 ? '' : 's'} assigned`
+      ? 'Connect your office phone system so agents answer real desk-phone extensions.'
+      : `${trunks.length} trunk${trunks.length === 1 ? '' : 's'} · ${activeCount} active · ${extensions.length} extension${extensions.length === 1 ? '' : 's'} · ${numbers.length} number${numbers.length === 1 ? '' : 's'}`
 
   const save = () => {
     if (!draft) return
@@ -232,7 +250,7 @@ export function PhoneSystemRow({
         open={open}
         onClose={() => setOpen(false)}
         title="Phone system"
-        description="Point your PBX at bunkhouse and desk phones can dial hands by extension."
+        description="Two ways to call an agent, both SIP lines into this deployment: your PBX routes an extension range (desk phones dial a short code), or a carrier like Twilio or Telnyx delivers a real provisioned number."
         size="lg"
       >
         <div className="space-y-4">
@@ -243,6 +261,7 @@ export function PhoneSystemRow({
             tabs={[
               { key: 'trunks', label: 'Trunks', count: trunks.length },
               { key: 'extensions', label: 'Extensions', count: extensions.length },
+              { key: 'numbers', label: 'Numbers', count: numbers.length },
               { key: 'connection', label: 'Connection details' },
             ]}
           />
@@ -287,12 +306,109 @@ export function PhoneSystemRow({
                 linkRender={nextLink}
                 empty={{
                   title: 'No extensions assigned',
-                  description: 'Give each hand a short code on the Voice tab of its profile — that is the number desk phones dial.',
+                  description: 'Give each agent a short code on the Voice tab of its profile — that is the number desk phones dial.',
                 }}
               />
               <p className="text-xs text-fg-muted">
-                Extensions are assigned on each hand&apos;s profile, under Voice. Each code is unique across the
+                Extensions are assigned on each agent&apos;s profile, under Voice. Each code is unique across the
                 company.
+              </p>
+            </div>
+          ) : null}
+
+          {tab === 'numbers' ? (
+            <div className="space-y-4">
+              {numbers.length === 0 ? (
+                <p className="text-sm text-fg-muted">
+                  No numbers yet. Buy a number from your carrier, point its SIP trunk at the connection details, and
+                  map it to an agent here — calls to it ring that agent from any phone.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {numbers.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium tabular-nums">+{entry.number}</p>
+                        <p className="truncate text-fg-muted">
+                          {entry.label} · answered by {entry.personName}
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => startBusy(async () => removePhoneNumberAction(entry.id))}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="space-y-3 rounded-md border border-border p-3">
+                <p className="text-sm font-medium">Add a number</p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="pn-number">Number</Label>
+                    <Input
+                      id="pn-number"
+                      value={numberDraft.number}
+                      onChange={(e) => setNumberDraft((d) => ({ ...d, number: e.target.value }))}
+                      placeholder="+1 555 123 4567"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="pn-label">Label</Label>
+                    <Input
+                      id="pn-label"
+                      value={numberDraft.label}
+                      onChange={(e) => setNumberDraft((d) => ({ ...d, label: e.target.value }))}
+                      placeholder="Main line"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="pn-agent">Answered by</Label>
+                    <Select
+                      id="pn-agent"
+                      value={numberDraft.personId}
+                      onChange={(e) => setNumberDraft((d) => ({ ...d, personId: e.target.value }))}
+                    >
+                      {agents.map((agent) => (
+                        <option key={agent.id} value={agent.id}>
+                          {agent.name} — {agent.title}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Button
+                    size="sm"
+                    disabled={busy || !numberDraft.number.trim() || !numberDraft.personId}
+                    onClick={() =>
+                      startBusy(async () => {
+                        setNumberError(null)
+                        const result = await assignPhoneNumberAction(numberDraft)
+                        if (!result.ok) {
+                          setNumberError(result.message)
+                          return
+                        }
+                        setNumberDraft((d) => ({ ...d, number: '', label: '' }))
+                      })
+                    }
+                  >
+                    Add number
+                  </Button>
+                  {numberError ? <p className="text-sm text-danger">{numberError}</p> : null}
+                </div>
+              </div>
+              <p className="text-xs text-fg-muted">
+                Carrier side: create a SIP trunk (Twilio Elastic SIP Trunking, Telnyx SIP Connection, or your
+                provider&apos;s equivalent), set its origination to the SIP address under Connection details, and
+                route the number to that trunk. The dialed number arrives as the callee and rings the mapped agent.
               </p>
             </div>
           ) : null}
