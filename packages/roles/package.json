@@ -1,0 +1,16 @@
+{
+  "name": "@bunkhouse/roles",
+  "version": "0.1.0",
+  "description": "First-party bunkhouse role packs: the job descriptions AI hands are hired from.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

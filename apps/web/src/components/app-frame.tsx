@@ -7,7 +7,14 @@ import { AppShell, ThemeProvider, UiLinkProvider, type SidebarNavGroup } from '@
 import { PageTransition } from '@appkit/ui/page-transition'
 
 const navigation: SidebarNavGroup[] = [
-  { id: 'app', label: 'Application', items: [{ href: '/', label: 'Home', iconKey: 'home', exact: true, mobile: true }] },
+  {
+    id: 'app',
+    label: 'Application',
+    items: [
+      { href: '/', label: 'Home', iconKey: 'home', exact: true, mobile: true },
+      { href: '/people', label: 'Directory', iconKey: 'users', mobile: true },
+    ],
+  },
 ]
 
 export function AppFrame({ children }: { children: ReactNode }) {

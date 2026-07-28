@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "db:migrate": "tsx --env-file=.env.local scripts/migrate.mts",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:seed": "tsx --env-file=.env.local scripts/seed.mts"
   },
   "dependencies": {
     "@appkit/ai": "file:../../vendor/appkit/appkit-ai-0.2.0.tgz",
@@ -49,7 +50,9 @@
     "pg": "^8.13.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "@bunkhouse/roles": "workspace:*",
+    "@bunkhouse/runtime": "workspace:*"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.16",
