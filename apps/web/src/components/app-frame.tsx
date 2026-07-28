@@ -10,13 +10,11 @@ import { authClient } from '@/lib/auth-client'
 const navigation: SidebarNavGroup[] = [
   { id: 'home', label: 'Home', items: [{ href: '/', label: 'Home', iconKey: 'home', exact: true, mobile: true }] },
   {
-    id: 'organization',
-    label: 'Organization',
-    items: [
-      { href: '/organization/people', label: 'People', iconKey: 'users' },
-      { href: '/organization/agents', label: 'Agents', iconKey: 'hard-hat', mobile: true },
-      { href: '/organization/chart', label: 'Org chart', iconKey: 'workflow' },
-    ],
+    id: 'agents',
+    label: 'Agents',
+    // People and the org chart live behind the Agents page's own switcher —
+    // the sidebar names the destination, the page offers the views.
+    items: [{ href: '/organization', label: 'Agents', iconKey: 'hard-hat', mobile: true }],
   },
   { id: 'roles', label: 'Roles', items: [{ href: '/roles', label: 'Roles', iconKey: 'clipboard' }] },
   { id: 'approvals', label: 'Approvals', items: [{ href: '/approvals', label: 'Approvals', iconKey: 'list-checks', mobile: true }] },

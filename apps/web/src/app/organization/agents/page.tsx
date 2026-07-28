@@ -6,6 +6,7 @@ import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
 import { listAvatarCompositions, loadAvatarPartLibrary } from '../../../lib/avatars'
 import { AVATAR_PART_CATEGORIES } from '../../../lib/avatar-parts'
+import { OrganizationTabs } from '../../../components/organization-tabs'
 import { RosterAvatar } from '../../../components/roster-avatar'
 import { AGENT_COLUMNS, RosterList, type RosterRow } from '../../../components/roster-list'
 import { personDrawer } from '../person-record'
@@ -68,6 +69,7 @@ export default async function AgentsPage({
           </Button>
         }
       />
+      <OrganizationTabs active="agents" />
       <RosterList
         rows={rows}
         columns={AGENT_COLUMNS}

@@ -1,5 +1,6 @@
 import { asc } from 'drizzle-orm'
 import { PageContainer, PageHeader } from '@appkit/ui'
+import { OrganizationTabs } from '../../../components/organization-tabs'
 import { people } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
@@ -69,6 +70,7 @@ export default async function PeoplePage({
           />
         }
       />
+      <OrganizationTabs active="people" />
       <RosterList
         rows={rows}
         columns={PEOPLE_COLUMNS}

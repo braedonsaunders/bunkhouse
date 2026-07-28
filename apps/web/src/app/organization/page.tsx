@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 
-/** The organization section opens on the people who work here. */
+/** The organization opens on the agents — People and the chart sit on the page's switcher. */
 export default function OrganizationIndex() {
-  redirect('/organization/people')
+  redirect('/organization/agents')
 }

@@ -1,6 +1,7 @@
 import { asc } from 'drizzle-orm'
 import type { OrgChartNode } from '@appkit/ui'
 import { EmptyState, FilterChips, PageContainer, PageHeader } from '@appkit/ui'
+import { OrganizationTabs } from '../../../components/organization-tabs'
 import { people } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
@@ -75,6 +76,7 @@ export default async function OrgChartPage({
         title="Org chart"
         description="Who reports to whom. Drag a card onto someone to change their manager, or open a record to edit it."
       />
+      <OrganizationTabs active="chart" />
       {nodes.length === 0 ? (
         <EmptyState
           title="Nobody to chart yet"
