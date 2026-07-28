@@ -198,12 +198,23 @@ work is **published** into the files ledger. Execution is fail-closed sandboxing
 - `list_workspace_files` / `read_workspace_file` (ungoverned, read-only) and
   `publish_workspace_file` (`file_write`) — the desk-to-deliverable bridge.
 
-**SHIPPED (first pass).** Still open for the next slice: a workspace browser on the
-agent profile (see the desk from the HR record), tenant-configurable retention/tidy
-policy for old workspace files (a destructive default was deliberately not shipped),
-per-tenant disk quotas, and network egress policy for sandboxed processes (currently
-the sandbox shares host networking — bubblewrap's design; an egress proxy is the
-right shape).
+**SHIPPED (first pass)**, including housekeeping: Settings → Workspace holds the
+tenant retention policy (`workspace.policy`; default **keep everything** — nothing is
+deleted until an operator turns retention on, minimum 7 days), and a daily worker
+pass retires only workspace files untouched past the window — the files ledger,
+mail attachments, and deliverables are never in scope. Still open for the next
+slice: a workspace browser on the agent profile (see the desk from the HR record),
+per-tenant disk quotas, and network egress policy for sandboxed processes
+(currently the sandbox shares host networking — bubblewrap's design; an egress
+proxy is the right shape).
+
+**Generality note.** Assignments are not a "research report" feature: `take_assignment`
+accepts any committed work a colleague could take on (formats optional — many
+assignments are answered in the delivery email itself, no file), and the same
+governed toolset — research, documents, spreadsheets, workspace/shell, scripts,
+memory, scheduling, email, every tenant MCP integration — is live on every channel:
+browser calls, PBX phone calls, inbound email, duties, and background assignment
+runs. New abilities added to `assembleAbilities` appear everywhere at once.
 
 AppKit backfill: `@appkit/office` (authoring specs + renderers) and the
 `@appkit/mailbox` attachments change are made in the appkit repo per AGENTS.md and
