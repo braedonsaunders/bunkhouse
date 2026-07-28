@@ -1,0 +1,407 @@
+import 'server-only'
+import { and, eq, sql } from 'drizzle-orm'
+import { z } from 'zod'
+import { unsealSecret } from '@appkit/crypto'
+import {
+  connectMcpServers,
+  defineAbility,
+  type Ability,
+  type ActionCategory,
+} from '@bunkhouse/runtime'
+import { duties, memories, people, tenantSettings, MCP_INTEGRATIONS_KEY, type McpIntegrationEntry } from '../db/schema'
+import { db } from '../db/client'
+import { sendNewMail } from './mailbox'
+import { createNote, retrieveNotes, supersedeNote } from './memory'
+import { firstOccurrence, gapMinutes } from './duties'
+import { readWebpage, webSearch } from './research'
+
+/**
+ * The one place an agent's working abilities are assembled — email runs, duty
+ * runs, and live voice calls all draw from here, so an agent can do the same
+ * work wherever you reach it. Governance (the autonomy dial, approvals) wraps
+ * these at the call site; abilities carry only their action category.
+ */
+
+type PersonRow = typeof people.$inferSelect
+
+/** Ceilings on what an agent may book for itself — see `schedule_task`. */
+const MAX_SELF_SCHEDULED_DUTIES = 25
+const MIN_SELF_SCHEDULE_GAP_MINUTES = 15
+
+/** The logbook: save and search notes. Ungoverned — it is the agent's own head. */
+export function memoryAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {
+  const app = db()
+  const { tenantId, person, runId } = args
+  return [
+    defineAbility({
+      name: 'save_memory',
+      description:
+        'Save a note to your logbook. kind: fact (currently true), episode (what happened), procedure (how to do something), reflection (a conclusion — cite evidence with [[slug]] links). If a live note with the same title exists, yours supersedes it (the old one is kept in history). Use [[wikilinks]] to connect notes.',
+      category: null,
+      inputSchema: z.object({
+        title: z.string(),
+        body: z.string(),
+        kind: z.enum(['fact', 'episode', 'procedure', 'reflection']).default('fact'),
+        importance: z.number().min(1).max(5).default(3),
+      }),
+      execute: async ({ title, body, kind, importance }) => {
+        const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'note'
+        const [existing] = await app.db
+          .select()
+          .from(memories)
+          .where(
+            and(
+              eq(memories.scope, 'agent'),
+              eq(memories.personId, person.id),
+              eq(memories.slug, slug),
+              sql`${memories.validUntil} is null`,
+            ),
+          )
+        if (existing) {
+          await supersedeNote({ tenantId, oldNoteId: existing.id, title, body, author: 'agent', sourceRunId: runId })
+          return { saved: true, superseded: existing.slug }
+        }
+        await createNote({
+          tenantId,
+          scope: 'agent',
+          personId: person.id,
+          kind,
+          title,
+          body,
+          author: 'agent',
+          importance,
+          sourceRunId: runId,
+        })
+        return { saved: true }
+      },
+    }),
+    defineAbility({
+      name: 'search_memory',
+      description:
+        'Search your logbook and company knowledge for notes relevant to a query. Returns the best matches with their [[slug]] handles.',
+      category: null,
+      inputSchema: z.object({ query: z.string() }),
+      execute: async ({ query }) => {
+        const found = await retrieveNotes({ tenantId, personId: person.id, query, limit: 6 })
+        return {
+          notes: found.map((n) => ({ slug: n.slug, kind: n.kind, title: n.title, body: n.body })),
+        }
+      },
+    }),
+  ]
+}
+
+/**
+ * Web research: search and read. Ungoverned — both are read-only toward the
+ * world (the page fetch is SSRF-guarded in lib/research). The search provider
+ * is tenant configuration; without one, the keyless fallback serves.
+ */
+export function researchAbilities(args: { tenantId: string }): Ability[] {
+  const { tenantId } = args
+  return [
+    defineAbility({
+      name: 'web_search',
+      description:
+        'Search the web. Returns titles, URLs, and snippets. Use read_webpage on a result to get its full content.',
+      category: null,
+      inputSchema: z.object({ query: z.string() }),
+      execute: async ({ query }) => {
+        const results = await webSearch(tenantId, query)
+        return results.length > 0 ? { results } : { results: [], note: 'No results — try different terms.' }
+      },
+    }),
+    defineAbility({
+      name: 'read_webpage',
+      description: 'Fetch a public web page and return its readable text content.',
+      category: null,
+      inputSchema: z.object({ url: z.string() }),
+      execute: async ({ url }) => readWebpage(url),
+    }),
+  ]
+}
+
+/**
+ * Fresh outbound email from the agent's own mailbox — the follow-up channel
+ * for work agreed on a call or discovered mid-run. Two abilities because the
+ * dial governs them separately: writing to a colleague is internal_email;
+ * writing to anyone else is external_email.
+ */
+export function emailAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {
+  const app = db()
+  const { tenantId, person, runId } = args
+
+  const send = async (to: string, subject: string, body: string) => {
+    await sendNewMail({
+      tenantId,
+      personId: person.id,
+      to: [{ address: to }],
+      subject,
+      text: body,
+      runId,
+    })
+    return { sent: true, to }
+  }
+
+  return [
+    defineAbility({
+      name: 'email_colleague',
+      description:
+        'Send an email from your mailbox to someone on staff — a person or agent from the company directory. Use their directory email address.',
+      category: 'internal_email',
+      inputSchema: z.object({
+        to: z.string().describe('A staff email address from the directory'),
+        subject: z.string(),
+        body: z.string().describe('Plain text; sign it as yourself.'),
+      }),
+      execute: async ({ to, subject, body }) => {
+        const [colleague] = await app.db
+          .select({ id: people.id })
+          .from(people)
+          .where(and(eq(people.status, 'active'), sql`lower(${people.email}) = ${to.toLowerCase()}`))
+        if (!colleague) {
+          return { sent: false, reason: `${to} is not in the company directory — use send_email for outside addresses.` }
+        }
+        return send(to, subject, body)
+      },
+    }),
+    defineAbility({
+      name: 'send_email',
+      description: 'Send an email from your mailbox to any outside address.',
+      category: 'external_email',
+      inputSchema: z.object({
+        to: z.string().describe('The recipient email address'),
+        subject: z.string(),
+        body: z.string().describe('Plain text; sign it as yourself.'),
+      }),
+      execute: async ({ to, subject, body }) => send(to, subject, body),
+    }),
+  ]
+}
+
+/** Self-scheduling — gated on the proactivity dial at the assembly site. */
+export function schedulingAbilities(args: { tenantId: string; person: PersonRow }): Ability[] {
+  const app = db()
+  const { tenantId, person } = args
+  return [
+    defineAbility({
+      name: 'schedule_task',
+      description:
+        'Schedule work for your future self — once at a specific date and time, or on a repeating schedule. Use it for follow-ups ("chase this invoice on Friday"), reminders, and standing routines you decide you need. Returns when it will first run.',
+      category: null,
+      inputSchema: z.object({
+        title: z.string().describe('Short name, e.g. "Chase Acme invoice"'),
+        instruction: z.string().describe('What to do when it runs, written to your future self.'),
+        when: z.discriminatedUnion('kind', [
+          z.object({
+            kind: z.literal('once'),
+            at: z.string().describe('ISO 8601 date-time, e.g. 2026-08-01T15:00:00Z'),
+          }),
+          z.object({
+            kind: z.literal('cron'),
+            pattern: z.string().describe('Five-field cron, e.g. "0 9 * * 1" for 9am every Monday'),
+            timezone: z.string().optional().describe('IANA zone the pattern means, e.g. America/New_York'),
+          }),
+        ]),
+        endsAt: z.string().optional().describe('ISO 8601; a repeating task stops after this.'),
+        maxRuns: z.number().int().min(1).optional().describe('A repeating task stops after this many runs.'),
+      }),
+      execute: async ({ title, instruction, when, endsAt, maxRuns }) => {
+        const open = await app.db
+          .select({ id: duties.id })
+          .from(duties)
+          .where(and(eq(duties.personId, person.id), eq(duties.enabled, 'on')))
+        if (open.length >= MAX_SELF_SCHEDULED_DUTIES) {
+          return {
+            scheduled: false,
+            reason: `You already have ${open.length} active scheduled tasks, which is the limit. Cancel one before booking another.`,
+          }
+        }
+
+        const ends = endsAt ? new Date(endsAt) : null
+        if (ends && Number.isNaN(ends.getTime())) return { scheduled: false, reason: 'endsAt is not a valid date.' }
+
+        const spec =
+          when.kind === 'once'
+            ? { scheduleKind: 'once' as const, schedule: when.at, timezone: null, startsAt: null, endsAt: ends }
+            : {
+                scheduleKind: 'cron' as const,
+                schedule: when.pattern,
+                timezone: when.timezone ?? person.timezone ?? null,
+                startsAt: null,
+                endsAt: ends,
+              }
+
+        let nextDueAt: Date | null
+        try {
+          nextDueAt = firstOccurrence(spec)
+        } catch (error) {
+          return { scheduled: false, reason: (error as Error).message }
+        }
+        if (!nextDueAt) return { scheduled: false, reason: 'That schedule has no upcoming run.' }
+        if (nextDueAt.getTime() <= Date.now()) {
+          return { scheduled: false, reason: 'That time has already passed — pick a future one.' }
+        }
+        const gap = gapMinutes(spec)
+        if (gap < MIN_SELF_SCHEDULE_GAP_MINUTES) {
+          return {
+            scheduled: false,
+            reason: `That repeats every ${Math.round(gap)} minutes; the closest you can schedule yourself is every ${MIN_SELF_SCHEDULE_GAP_MINUTES}.`,
+          }
+        }
+
+        const base = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'task'
+        const taken = new Set(
+          (await app.db.select({ slug: duties.slug }).from(duties).where(eq(duties.personId, person.id))).map(
+            (d) => d.slug,
+          ),
+        )
+        let slug = base
+        for (let n = 2; taken.has(slug); n += 1) slug = `${base}-${n}`
+
+        await app.db.insert(duties).values({
+          tenantId,
+          personId: person.id,
+          slug,
+          title,
+          instruction,
+          ...spec,
+          maxRuns: when.kind === 'once' ? null : (maxRuns ?? null),
+          nextDueAt,
+          // Audit provenance: this duty was booked by the agent, not an operator.
+          createdBy: person.id,
+        })
+        return { scheduled: true, slug, firstRunAt: nextDueAt.toISOString() }
+      },
+    }),
+    defineAbility({
+      name: 'list_scheduled_tasks',
+      description: 'List the tasks you have scheduled for yourself, with their schedules and next run times.',
+      category: null,
+      inputSchema: z.object({}),
+      execute: async () => {
+        const mine = await app.db
+          .select()
+          .from(duties)
+          .where(eq(duties.personId, person.id))
+          .orderBy(duties.nextDueAt)
+        return {
+          tasks: mine.map((d) => ({
+            slug: d.slug,
+            title: d.title,
+            kind: d.scheduleKind,
+            schedule: d.schedule,
+            timezone: d.timezone,
+            active: d.enabled === 'on',
+            nextRunAt: d.nextDueAt?.toISOString() ?? null,
+            runsSoFar: d.runCount,
+          })),
+        }
+      },
+    }),
+    defineAbility({
+      name: 'cancel_scheduled_task',
+      description: 'Cancel a task you scheduled for yourself, by its slug from list_scheduled_tasks.',
+      category: null,
+      inputSchema: z.object({ slug: z.string() }),
+      execute: async ({ slug }) => {
+        const [gone] = await app.db
+          .delete(duties)
+          .where(and(eq(duties.personId, person.id), eq(duties.slug, slug)))
+          .returning({ title: duties.title })
+        return gone ? { cancelled: true, title: gone.title } : { cancelled: false, reason: 'No such task.' }
+      },
+    }),
+  ]
+}
+
+// ---------------------------------------------------------------------------
+// MCP integrations — tenant-configured external systems
+// ---------------------------------------------------------------------------
+
+export async function listMcpIntegrations(tenantId: string): Promise<McpIntegrationEntry[]> {
+  const app = db()
+  const [row] = await app.db
+    .select({ value: tenantSettings.value })
+    .from(tenantSettings)
+    .where(and(eq(tenantSettings.tenantId, tenantId), eq(tenantSettings.key, MCP_INTEGRATIONS_KEY)))
+  return (row?.value as McpIntegrationEntry[] | undefined) ?? []
+}
+
+export async function saveMcpIntegrations(tenantId: string, entries: McpIntegrationEntry[]): Promise<void> {
+  const app = db()
+  await app.db
+    .insert(tenantSettings)
+    .values({ tenantId, key: MCP_INTEGRATIONS_KEY, value: entries })
+    .onConflictDoUpdate({
+      target: [tenantSettings.tenantId, tenantSettings.key],
+      set: { value: entries, updatedAt: new Date() },
+    })
+}
+
+/**
+ * Connect the tenant's MCP integrations and return their abilities. A server
+ * that fails to connect is reported, not fatal — the agent works with what is
+ * reachable and says so.
+ */
+export async function connectIntegrationAbilities(tenantId: string): Promise<{
+  abilities: Ability[]
+  failures: string[]
+  close: () => Promise<void>
+}> {
+  const entries = await listMcpIntegrations(tenantId)
+  const abilities: Ability[] = []
+  const failures: string[] = []
+  const closers: (() => Promise<void>)[] = []
+  for (const entry of entries) {
+    try {
+      let headers: Record<string, string> | undefined
+      if (entry.sealedHeaders) {
+        const raw = unsealSecret(entry.sealedHeaders)
+        if (!raw) throw new Error('its credentials could not be unsealed — re-enter them in Settings → Integrations.')
+        headers = JSON.parse(raw) as Record<string, string>
+      }
+      const connection = await connectMcpServers([
+        {
+          slug: entry.slug,
+          url: entry.url,
+          category: entry.category as ActionCategory,
+          ...(headers ? { headers } : {}),
+        },
+      ])
+      abilities.push(...connection.abilities)
+      closers.push(connection.close)
+    } catch (error) {
+      failures.push(`${entry.label}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  return {
+    abilities,
+    failures,
+    close: async () => {
+      await Promise.allSettled(closers.map((close) => close()))
+    },
+  }
+}
+
+/**
+ * Everything an agent can do, assembled for one run or call. `reply_to_thread`
+ * stays with the email loop — it is bound to a live thread, not a capability.
+ */
+export async function assembleAbilities(args: {
+  tenantId: string
+  person: PersonRow
+  runId: string
+}): Promise<{ abilities: Ability[]; integrationFailures: string[]; close: () => Promise<void> }> {
+  const { tenantId, person, runId } = args
+  const integrations = await connectIntegrationAbilities(tenantId)
+  const abilities: Ability[] = [
+    ...memoryAbilities({ tenantId, person, runId }),
+    ...researchAbilities({ tenantId }),
+    ...emailAbilities({ tenantId, person, runId }),
+    // Self-scheduling follows the proactivity dial: an agent set to react only
+    // answers what reaches it, and has no business booking its own future work.
+    ...((person.proactivity ?? 'duties') !== 'reactive' ? schedulingAbilities({ tenantId, person }) : []),
+    ...integrations.abilities,
+  ]
+  return { abilities, integrationFailures: integrations.failures, close: integrations.close }
+}

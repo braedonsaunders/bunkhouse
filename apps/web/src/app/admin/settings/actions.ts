@@ -8,6 +8,11 @@ import { listTenantElevenLabsVoices, removeSpeechProvider, setSpeechProviderKey,
 import { resolveTenantId } from '../../../lib/tenant'
 import { refreshPricesFromOpenRouter, setManualPrice } from '../../../lib/pricing'
 import { setImageProviderSetting } from '../../../lib/avatars'
+import { removeSearchProvider, setSearchProvider } from '../../../lib/research'
+import { listMcpIntegrations, saveMcpIntegrations } from '../../../lib/agent-abilities'
+import { connectMcpServers } from '@bunkhouse/runtime'
+import { sealSecret } from '@appkit/crypto'
+import { db } from '../../../db/client'
 import { listImageModels, type ImageModelId } from '@appkit/avatars'
 
 export async function addProviderAction(formData: FormData): Promise<void> {
@@ -127,7 +132,7 @@ export async function setSpeechProviderKeyAction(input: {
   return { ok: true }
 }
 
-/** Remove a speech-provider key. Hands configured to use it stop being callable. */
+/** Remove a speech-provider key. Agents configured to use it stop being callable. */
 export async function removeSpeechProviderAction(formData: FormData): Promise<void> {
   const provider = String(formData.get('provider') ?? '') as SpeechProvider
   if (provider !== 'deepgram' && provider !== 'elevenlabs') throw new Error('Unknown speech provider.')
@@ -175,5 +180,124 @@ export async function setImageProviderAction(formData: FormData): Promise<void> 
   if (!providerSlug || !model) throw new Error('Pick a provider and an image model.')
   const tenantId = await resolveTenantId()
   await setImageProviderSetting({ tenantId, providerSlug, model })
+  revalidatePath('/admin/settings')
+}
+
+// --- Research (web search) --------------------------------------------------
+
+/** Save the web-search provider key — live-verified before sealing. */
+export async function setSearchProviderAction(input: {
+  provider: string
+  apiKey: string
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (input.provider !== 'brave' && input.provider !== 'tavily') {
+    return { ok: false, message: `Unknown search provider: ${input.provider}` }
+  }
+  if (!input.apiKey.trim()) return { ok: false, message: 'Enter the API key first.' }
+  try {
+    const tenantId = await resolveTenantId()
+    await setSearchProvider({ tenantId, provider: input.provider, apiKey: input.apiKey.trim() })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  revalidatePath('/admin/settings')
+  return { ok: true }
+}
+
+/** Remove the search provider; agents fall back to keyless search. */
+export async function removeSearchProviderAction(): Promise<void> {
+  const tenantId = await resolveTenantId()
+  await removeSearchProvider(tenantId)
+  revalidatePath('/admin/settings')
+}
+
+// --- Integrations (MCP) -----------------------------------------------------
+
+/** Add or replace an MCP integration; the connection is probed before saving. */
+export async function saveMcpIntegrationAction(input: {
+  slug: string
+  label: string
+  url: string
+  /** One header per line, `Name: value`. Sealed at rest, never echoed back. */
+  headersText: string
+  category: string
+}): Promise<{ ok: true; toolCount: number } | { ok: false; message: string }> {
+  const slug = input.slug.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '')
+  if (!slug) return { ok: false, message: 'Give the integration a short slug.' }
+  if (!input.label.trim()) return { ok: false, message: 'Give the integration a name.' }
+  let url: URL
+  try {
+    url = new URL(input.url.trim())
+  } catch {
+    return { ok: false, message: 'That URL is not valid.' }
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return { ok: false, message: 'The server URL must be http(s).' }
+  }
+  const categories = [
+    'external_email',
+    'internal_email',
+    'record_write',
+    'money_adjacent',
+    'file_write',
+    'computer_use',
+    'shell',
+    'phone_call',
+  ]
+  if (!categories.includes(input.category)) return { ok: false, message: 'Pick the action category it is governed under.' }
+
+  const headers: Record<string, string> = {}
+  for (const line of input.headersText.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const colon = trimmed.indexOf(':')
+    if (colon <= 0) return { ok: false, message: `Header line "${trimmed.slice(0, 40)}" is not "Name: value".` }
+    headers[trimmed.slice(0, colon).trim()] = trimmed.slice(colon + 1).trim()
+  }
+
+  // Probe the connection so a typo'd URL or bad token fails here, not mid-call.
+  let toolCount = 0
+  try {
+    const probe = await connectMcpServers([
+      {
+        slug,
+        url: url.toString(),
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
+      },
+    ])
+    toolCount = probe.abilities.length
+    await probe.close()
+  } catch (error) {
+    return {
+      ok: false,
+      message: `Could not connect: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
+
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    const entries = (await listMcpIntegrations(tenantId)).filter((entry) => entry.slug !== slug)
+    entries.push({
+      slug,
+      label: input.label.trim(),
+      url: url.toString(),
+      ...(Object.keys(headers).length > 0 ? { sealedHeaders: sealSecret(JSON.stringify(headers)) } : {}),
+      category: input.category,
+    })
+    await saveMcpIntegrations(tenantId, entries)
+  })
+  revalidatePath('/admin/settings')
+  return { ok: true, toolCount }
+}
+
+export async function removeMcpIntegrationAction(formData: FormData): Promise<void> {
+  const slug = String(formData.get('slug') ?? '')
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    const entries = (await listMcpIntegrations(tenantId)).filter((entry) => entry.slug !== slug)
+    await saveMcpIntegrations(tenantId, entries)
+  })
   revalidatePath('/admin/settings')
 }

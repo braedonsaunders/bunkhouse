@@ -11,6 +11,8 @@ import { getVoiceProviders } from '../../../lib/voice'
 import { listSipTrunks, sipIngressAddress } from '../../../lib/pbx'
 import { listPrices } from '../../../lib/pricing'
 import { getImageProviderSetting, listAvatarPartRows, loadAvatarPartLibrary } from '../../../lib/avatars'
+import { getResearchSettings } from '../../../lib/research'
+import { listMcpIntegrations } from '../../../lib/agent-abilities'
 import { AVATAR_PART_CATEGORIES, avatarPartCategory } from '../../../lib/avatar-parts'
 import { IMAGE_MODELS } from '@appkit/avatars'
 import { resolveTenantId } from '../../../lib/tenant'
@@ -87,6 +89,8 @@ export default async function SettingsPage({
     listAvatarPartRows(tenantId),
     loadAvatarPartLibrary(tenantId),
   ])
+  const research = await getResearchSettings(tenantId)
+  const integrations = await app.withTenantContext(tenantId, () => listMcpIntegrations(tenantId))
 
   return (
     <PageContainer>
@@ -126,6 +130,14 @@ export default async function SettingsPage({
         imageSetting={imageSetting}
         imageFallbackModels={IMAGE_MODELS}
         voiceProviders={{ deepgram: Boolean(voiceProviders.deepgram), elevenlabs: Boolean(voiceProviders.elevenlabs) }}
+        research={research}
+        integrations={integrations.map((entry) => ({
+          slug: entry.slug,
+          label: entry.label,
+          url: entry.url,
+          category: entry.category,
+          hasHeaders: Boolean(entry.sealedHeaders),
+        }))}
         phoneSystem={{
           trunks: trunks.map((t) => ({
             id: t.id,

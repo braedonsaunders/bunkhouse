@@ -3,7 +3,7 @@ import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import {
   defineAbility,
-  runHand,
+  runAgent,
   type Ability,
   type ActionCategory,
   type AutonomyLevel,
@@ -27,10 +27,11 @@ import {
   type RunTrigger,
 } from '../db/schema'
 import { db } from '../db/client'
-import { resolveHandAiConfig } from './ai'
+import { resolveAgentAiConfig } from './ai'
+import { assembleAbilities } from './agent-abilities'
 import { resolvePrice } from './pricing'
 import { sendNewMail, sendReplyInThread } from './mailbox'
-import { createNote, pinnedNotes, retrieveNotes, supersedeNote } from './memory'
+import { pinnedNotes, retrieveNotes } from './memory'
 
 
 
@@ -68,11 +69,11 @@ export async function boundProcedures(tenantId: string, person: typeof people.$i
 }
 
 /**
- * Execute one unit of work for a hand, end to end: run row, governed loop,
+ * Execute one unit of work for an agent, end to end: run row, governed loop,
  * event/spend ledger, approval suspension, outcome. Runs inside the caller's
  * process (web action or worker) — all state is in the database.
  */
-export async function executeHandRun(args: {
+export async function executeAgentRun(args: {
   tenantId: string
   personId: string
   trigger: RunTrigger
@@ -81,7 +82,7 @@ export async function executeHandRun(args: {
   const app = db()
   return app.withTenant(args.tenantId, async () => {
     const [person] = await app.db.select().from(people).where(eq(people.id, args.personId))
-    if (!person || person.kind !== 'hand') throw new Error('Run target is not a hand.')
+    if (!person || person.kind !== 'agent') throw new Error('Run target is not an agent.')
 
     const [run] = await app.db
       .insert(runs)
@@ -120,7 +121,7 @@ export async function executeHandRun(args: {
       },
     }
 
-    const ai = await resolveHandAiConfig(args.tenantId, person.id)
+    const ai = await resolveAgentAiConfig(args.tenantId, person.id)
     if (!ai) {
       await sink.event({ kind: 'error', message: 'No model assigned — set a provider and model on the profile.' })
       await app.db
@@ -152,62 +153,12 @@ export async function executeHandRun(args: {
     const retrieved = await retrieveNotes({ tenantId: args.tenantId, personId: person.id, query: retrievalQuery })
     const notes = [...pinned, ...retrieved.filter((r) => !pinned.some((p) => p.id === r.id))]
 
-    const abilities: Ability[] = [
-      defineAbility({
-        name: 'save_memory',
-        description:
-          'Save a note to your logbook. kind: fact (currently true), episode (what happened), procedure (how to do something), reflection (a conclusion — cite evidence with [[slug]] links). If a live note with the same title exists, yours supersedes it (the old one is kept in history). Use [[wikilinks]] to connect notes.',
-        category: null,
-        inputSchema: z.object({
-          title: z.string(),
-          body: z.string(),
-          kind: z.enum(['fact', 'episode', 'procedure', 'reflection']).default('fact'),
-          importance: z.number().min(1).max(5).default(3),
-        }),
-        execute: async ({ title, body, kind, importance }) => {
-          const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'note'
-          const [existing] = await app.db
-            .select()
-            .from(memories)
-            .where(
-              and(
-                eq(memories.scope, 'hand'),
-                eq(memories.personId, person.id),
-                eq(memories.slug, slug),
-                sql`${memories.validUntil} is null`,
-              ),
-            )
-          if (existing) {
-            await supersedeNote({ tenantId: args.tenantId, oldNoteId: existing.id, title, body, author: 'hand', sourceRunId: runId })
-            return { saved: true, superseded: existing.slug }
-          }
-          await createNote({
-            tenantId: args.tenantId,
-            scope: 'hand',
-            personId: person.id,
-            kind,
-            title,
-            body,
-            author: 'hand',
-            importance,
-            sourceRunId: runId,
-          })
-          return { saved: true }
-        },
-      }),
-      defineAbility({
-        name: 'search_memory',
-        description: 'Search your logbook and company knowledge for notes relevant to a query. Returns the best matches with their [[slug]] handles.',
-        category: null,
-        inputSchema: z.object({ query: z.string() }),
-        execute: async ({ query }) => {
-          const found = await retrieveNotes({ tenantId: args.tenantId, personId: person.id, query, limit: 6 })
-          return {
-            notes: found.map((n) => ({ slug: n.slug, kind: n.kind, title: n.title, body: n.body })),
-          }
-        },
-      }),
-    ]
+    // The shared capability set — the same abilities voice calls carry.
+    const assembled = await assembleAbilities({ tenantId: args.tenantId, person, runId })
+    for (const failure of assembled.integrationFailures) {
+      await sink.event({ kind: 'message', text: `Integration unavailable — ${failure}` })
+    }
+    const abilities: Ability[] = [...assembled.abilities]
     if (args.trigger.type === 'email') {
       const threadId = args.trigger.threadId
       abilities.push(
@@ -224,8 +175,8 @@ export async function executeHandRun(args: {
       )
     }
 
-    const outcome = await runHand({
-      hand: {
+    const outcome = await runAgent({
+      agent: {
         id: person.id,
         name: person.name,
         title: person.title,
@@ -237,6 +188,7 @@ export async function executeHandRun(args: {
         },
         ai,
         ...(person.responsibilities ? { responsibilities: person.responsibilities } : {}),
+        ...(person.reportsToId ? { reportsToId: person.reportsToId } : {}),
         proactivity: person.proactivity ?? 'duties',
       },
       company: {
@@ -276,7 +228,7 @@ export async function executeHandRun(args: {
         overagePolicy: person.salary?.overagePolicy ?? 'ask',
       },
       sink,
-    })
+    }).finally(() => assembled.close())
 
     const status =
       outcome.status === 'completed'
@@ -373,7 +325,7 @@ function senderPermitted(policy: 'staff_only' | 'known_contacts' | 'anyone', tru
 }
 
 /**
- * Inbound messages that never got a run: gate each by the hand's inbound
+ * Inbound messages that never got a run: gate each by the agent's inbound
  * policy, then start a run — or record an auditable declined run so the
  * message is never silently reprocessed.
  */
@@ -401,15 +353,15 @@ export async function startRunsForNewInbound(tenantId: string): Promise<number> 
   for (const item of pending) {
     if (!item.personId) continue
     const decision = await app.withTenantContext(tenantId, async () => {
-      const [hand] = await app.db.select().from(people).where(eq(people.id, item.personId))
-      if (!hand) return { allowed: false as const, policy: 'staff_only' as const, trust: 'unknown' as const }
-      const policy = hand.inboundPolicy ?? 'staff_only'
+      const [agent] = await app.db.select().from(people).where(eq(people.id, item.personId))
+      if (!agent) return { allowed: false as const, policy: 'staff_only' as const, trust: 'unknown' as const }
+      const policy = agent.inboundPolicy ?? 'staff_only'
       const trust = await classifySender(tenantId, item.sender ?? '', item.sentAt)
       return { allowed: senderPermitted(policy, trust), policy, trust }
     })
     if (!decision.allowed) {
       await app.withTenant(tenantId, async () => {
-        const summary = `Declined: ${item.sender ?? 'unknown sender'} (${decision.trust}) is not permitted by this hand's inbound policy (${decision.policy.replace('_', ' ')}).`
+        const summary = `Declined: ${item.sender ?? 'unknown sender'} (${decision.trust}) is not permitted by this agent's inbound policy (${decision.policy.replace('_', ' ')}).`
         const [run] = await app.db
           .insert(runs)
           .values({
@@ -432,7 +384,7 @@ export async function startRunsForNewInbound(tenantId: string): Promise<number> 
       continue
     }
     const { subject, conversation } = await threadConversation(tenantId, item.threadId)
-    await executeHandRun({
+    await executeAgentRun({
       tenantId,
       personId: item.personId,
       trigger: { type: 'email', threadId: item.threadId, messageId: item.messageId },
@@ -443,7 +395,7 @@ export async function startRunsForNewInbound(tenantId: string): Promise<number> 
   return started
 }
 
-/** Due duties → runs; nextDueAt advanced by the caller-provided cron parser. */
+/** Due duties → runs; the kind-aware next occurrence comes from lib/duties. */
 export async function dueDuties(tenantId: string): Promise<(typeof duties.$inferSelect)[]> {
   const app = db()
   return app.withTenantContext(tenantId, () =>
@@ -454,9 +406,29 @@ export async function dueDuties(tenantId: string): Promise<(typeof duties.$infer
   )
 }
 
-export async function markDutyRun(tenantId: string, dutyId: string, nextDueAt: Date): Promise<void> {
+/**
+ * Record a duty's fire and arm the next one. A null `nextDueAt` means the duty
+ * is spent — a one-shot that has now happened, or a recurrence past its end
+ * date or run budget — so it retires itself rather than staying permanently
+ * due. `ran` is false for the first-sighting pass that only anchors a
+ * schedule, which must not consume the run budget.
+ */
+export async function markDutyRun(
+  tenantId: string,
+  dutyId: string,
+  nextDueAt: Date | null,
+  ran = true,
+): Promise<void> {
   const app = db()
   await app.withTenant(tenantId, async () => {
-    await app.db.update(duties).set({ lastRunAt: new Date(), nextDueAt }).where(eq(duties.id, dutyId))
+    await app.db
+      .update(duties)
+      .set({
+        nextDueAt,
+        updatedAt: new Date(),
+        ...(ran ? { lastRunAt: new Date(), runCount: sql`${duties.runCount} + 1` } : {}),
+        ...(nextDueAt === null ? { enabled: 'off' as const } : {}),
+      })
+      .where(eq(duties.id, dutyId))
   })
 }

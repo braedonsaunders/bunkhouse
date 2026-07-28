@@ -10,8 +10,10 @@ import * as silero from '@livekit/agents-plugin-silero'
 import { isAiProvider, providerSpec, type AiConfig } from '@appkit/ai'
 import { buildSystemPrompt } from '@bunkhouse/runtime'
 import { db } from '../src/db/client'
-import { callSessions, callTurns, people, runs, runEvents, tokenSpend } from '../src/db/schema'
+import { approvals, autonomySettings, callSessions, callTurns, people, runs, runEvents, tokenSpend } from '../src/db/schema'
+import { assembleAbilities } from '../src/lib/agent-abilities'
 import { boundProcedures } from '../src/lib/agent-runs'
+import { governedCallTools } from '../src/lib/call-tools'
 import { resolveAgentAiConfig } from '../src/lib/ai'
 import { resolveRealtimeCredential, resolveSpeechCredential } from '../src/lib/voice'
 import { pinnedNotes, retrieveNotes } from '../src/lib/memory'
@@ -203,7 +205,9 @@ async function buildInstructions(session: SessionRow, person: PersonRow, ai: AiC
     `You are on a live voice call with ${caller}. Speak naturally, in short turns — one to three sentences, then let them respond. Plain spoken words only: no markdown, no lists, no headings, nothing that only works on a screen.`,
     `Speak ${config.language && config.language !== 'en' ? `in the language with BCP-47 tag "${config.language}"` : 'English'}.`,
     ...(config.style ? [`Speaking style: ${config.style}.`] : []),
-    'You cannot take actions, send email, or change records during this call yet. If asked to do work, capture exactly what is needed and say you will follow up from your mailbox.',
+    'You have your working tools on this call: search the web, read pages, send email, search and save your logbook, schedule follow-ups, and use the company integrations. Use them mid-conversation when they help — say what you are doing in a few words ("give me a second, I am looking that up"), keep talking naturally, and report what you found or did.',
+    'If the caller speaks while you are mid-task, just talk with them — the work keeps running in the background and you can share the result when it lands. Never restart a task because you were interrupted.',
+    'Some actions need human sign-off first. When a tool answers pending_approval, tell the caller it is queued for approval and will happen once signed off — never claim it is done.',
   ].join('\n')
 
   return `${base}\n\n${voiceAddendum}`
@@ -449,10 +453,60 @@ export default defineAgent({
     }
     ctx.addShutdownCallback(finalize)
 
+    // --- The working toolset: same abilities as email runs, call posture ---
+    // Tool activity lands on the call's run as ordinary run events; seq starts
+    // high above the fixed rows the session setup writes.
+    let eventSeq = 100
+    const recordEvent = async (kind: string, payload: Record<string, unknown>) => {
+      if (!session.runId) return
+      const mySeq = eventSeq++
+      await app.withTenant(session.tenantId, async () => {
+        await app.db.insert(runEvents).values({
+          tenantId: session.tenantId,
+          runId: session.runId!,
+          seq: mySeq,
+          kind: kind as 'tool_call',
+          payload,
+        })
+      })
+    }
+    const assembled = await app.withTenantContext(session.tenantId, () =>
+      assembleAbilities({ tenantId: session.tenantId, person, runId: session.runId ?? session.id }),
+    )
+    for (const failure of assembled.integrationFailures) {
+      console.error(`[voice] room ${roomName}: integration unavailable — ${failure}`)
+    }
+    const dialRows = await app.withTenantContext(session.tenantId, () =>
+      app.db.select().from(autonomySettings).where(eq(autonomySettings.personId, person.id)),
+    )
+    const dial = new Map(dialRows.map((r) => [r.category, r.level]))
+    const tools = governedCallTools({
+      abilities: assembled.abilities,
+      // Missing categories default to 'approval' — the safe posture for
+      // anything nobody configured, same as email runs.
+      autonomy: (category) => dial.get(category) ?? 'approval',
+      fileApproval: async (input) =>
+        app.withTenant(session.tenantId, async () => {
+          const [row] = await app.db
+            .insert(approvals)
+            .values({
+              tenantId: session.tenantId,
+              ...(session.runId ? { runId: session.runId } : {}),
+              personId: person.id,
+              category: input.category,
+              payload: { description: input.description, action: input.action },
+            })
+            .returning({ id: approvals.id })
+          return { approvalId: row!.id }
+        }),
+      record: (kind, payload) => recordEvent(kind, payload),
+    })
+    ctx.addShutdownCallback(() => assembled.close())
+
     try {
       const instructions = await buildInstructions(session, person, ai)
       await agentSession.start({
-        agent: new voice.Agent({ instructions }),
+        agent: new voice.Agent({ instructions, tools }),
         room: ctx.room,
       })
       agentSession.generateReply({

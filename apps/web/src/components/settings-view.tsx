@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Boxes, Brain, CircleDollarSign, ImageIcon, Mail, Phone, Shield } from 'lucide-react'
+import { Boxes, Brain, CircleDollarSign, Globe, ImageIcon, Mail, Phone, Plug, Shield } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -31,6 +31,7 @@ import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
 import { ImageProviderForm } from './image-provider-form'
 import { AutonomySettings, type AgentDial } from './autonomy-settings'
 import { PhoneSystemRow, type AgentExtensionRow, type SipTrunkSummary } from './phone-system'
+import { IntegrationsSection, ResearchSection, type IntegrationRowView } from './capability-settings'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
   <Link href={href} className={className} title={title}>
@@ -109,6 +110,8 @@ const NAV: SettingsNavGroup[] = [
       { key: 'pricing', label: 'Model pricing', icon: <CircleDollarSign /> },
       { key: 'mailboxes', label: 'Mailboxes', icon: <Mail /> },
       { key: 'voice', label: 'Voice', icon: <Phone /> },
+      { key: 'research', label: 'Research', icon: <Globe /> },
+      { key: 'integrations', label: 'Integrations', icon: <Plug /> },
       { key: 'images', label: 'Image generation', icon: <ImageIcon /> },
       { key: 'avatar-parts', label: 'Avatar parts', icon: <Boxes /> },
     ],
@@ -151,6 +154,8 @@ export function SettingsView({
   imageSetting,
   imageFallbackModels,
   voiceProviders,
+  research,
+  integrations,
   phoneSystem,
   agentDials,
   initialSection,
@@ -167,6 +172,8 @@ export function SettingsView({
   /** Static catalog offered only when the live provider model list fails. */
   imageFallbackModels: { id: string; name: string; provider: string }[]
   voiceProviders: VoiceProviderState
+  research: { provider: string | null }
+  integrations: IntegrationRowView[]
   phoneSystem: {
     trunks: SipTrunkSummary[]
     extensions: AgentExtensionRow[]
@@ -411,6 +418,10 @@ export function SettingsView({
           />
         </SettingsSection>
       ) : null}
+
+      {active === 'research' ? <ResearchSection provider={research.provider} /> : null}
+
+      {active === 'integrations' ? <IntegrationsSection integrations={integrations} /> : null}
 
       {active === 'images' ? (
         <SettingsSection

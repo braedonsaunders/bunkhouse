@@ -20,14 +20,14 @@ export const tenantSettings = pgTable(
 
 /** settings key: 'ai.providers' — the tenant's model providers, keys sealed. */
 export type AiProviderEntry = {
-  /** Stable slug hands reference from their modelConfig.provider. */
+  /** Stable slug agents reference from their modelConfig.provider. */
   slug: string
   /** @appkit/ai provider kind: anthropic | openai | google | openrouter | … */
   provider: string
   label: string
   sealedApiKey: SealedSecret
   baseUrl?: string
-  /** Default models offered when assigning a hand. */
+  /** Default models offered when assigning an agent. */
   modelSmart?: string
   modelFast?: string
 }
@@ -43,5 +43,21 @@ export type VoiceProviderSettings = {
 }
 
 export const VOICE_PROVIDERS_KEY = 'voice.providers'
+
+/** settings key: 'integrations.mcp' — external systems agents can use, over
+ *  MCP. Every tool a server exposes is governed under the one action category
+ *  chosen here; auth headers are sealed at rest like every other credential. */
+export type McpIntegrationEntry = {
+  /** Stable slug; tool names are namespaced under it (`slug_toolName`). */
+  slug: string
+  label: string
+  url: string
+  /** Sealed JSON object of request headers (e.g. an Authorization token). */
+  sealedHeaders?: SealedSecret
+  /** Action category the autonomy dial governs this integration under. */
+  category: string
+}
+
+export const MCP_INTEGRATIONS_KEY = 'integrations.mcp'
 
 export const SETTINGS_TENANT_TABLES = ['tenant_settings'] as const
