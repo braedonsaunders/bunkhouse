@@ -58,9 +58,12 @@ export default async function KnowledgePage() {
       appliesTo,
       updatedAt: stamp(head.updatedAt),
       body: current?.body ?? '',
+      content: current?.content ?? null,
+      steps: current?.content?.steps.length ?? 0,
       revisions: revs.map((r) => ({
         version: r.version,
         body: r.body,
+        content: r.content ?? null,
         changeNote: r.changeNote ?? '',
         createdAt: stamp(r.createdAt),
       })),

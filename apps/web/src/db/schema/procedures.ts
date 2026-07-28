@@ -22,6 +22,29 @@ export type ProcedureSource =
   | { type: 'upload'; fileId: string }
   | { type: 'role-pack'; pack: string; procedure: string }
 
+/** One numbered step of a procedure. Detail is markdown. */
+export type ProcedureStep = {
+  id: string
+  title: string
+  detail: string
+  /** Stop here and get a human's decision before carrying on. */
+  checkWithHuman: boolean
+}
+
+/**
+ * The authored structure of a revision. Rendered to `body` on every write —
+ * `body` is what a hand reads, this is what an operator edits.
+ */
+export type ProcedureContent = {
+  /** The trigger: when this procedure applies. */
+  whenToUse: string
+  steps: ProcedureStep[]
+  /** What must be true before the work counts as done. */
+  successCriteria: string[]
+  /** When to stop and hand the work to a person instead. */
+  escalation: string
+}
+
 export const procedures = pgTable(
   'procedures',
   {
@@ -45,8 +68,17 @@ export const procedureRevisions = pgTable(
     tenantId: tenantRef(),
     procedureId: uuid('procedure_id').notNull(),
     version: integer('version').notNull(),
-    /** Markdown. The revision a hand followed is pinned by (procedureId, version). */
+    /**
+     * Markdown, rendered from `content` — the text a hand reads. The revision a
+     * hand followed is pinned by (procedureId, version), so this is never edited
+     * in place; a change is a new row.
+     */
     body: text('body').notNull(),
+    /**
+     * The authored structure this body was rendered from. Null on revisions
+     * written before procedures had steps, and on role-pack-shipped prose.
+     */
+    content: jsonb('content').$type<ProcedureContent>(),
     changeNote: text('change_note'),
     ...auditColumns,
   },
