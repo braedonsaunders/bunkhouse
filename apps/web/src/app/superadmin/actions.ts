@@ -35,14 +35,21 @@ export async function createPlatformUserAction(input: {
   email: string
   password: string
   isSuperAdmin?: boolean
+  tenantId: string
 }): Promise<SuperadminActionResult> {
   try {
     const service = await operatorService()
-    const created = await service.createUser(input)
     // Identity is global; membership is app-level. A user who cannot reach any
-    // workspace is stranded, so new accounts join the creating admin's current
-    // tenant. Move them later from Platform → Tenants.
-    const tenantId = await resolveTenantId()
+    // workspace is stranded, so the drawer picks the workspace explicitly and
+    // the account joins it here. Validate before creating the account so a bad
+    // choice never leaves a stranded identity behind.
+    const { tenantId, ...userInput } = input
+    const tenant = await service.getTenant(tenantId)
+    if (!tenant) return { ok: false, message: 'The chosen workspace no longer exists.' }
+    if (tenant.status !== 'active') {
+      return { ok: false, message: `${tenant.name} is not active — reactivate it before adding members.` }
+    }
+    const created = await service.createUser(userInput)
     await service.addTenantMember(tenantId, { email: created.email })
     revalidatePath('/superadmin')
     return { ok: true }

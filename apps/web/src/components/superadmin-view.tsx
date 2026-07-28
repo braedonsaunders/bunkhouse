@@ -69,6 +69,10 @@ export function SuperadminView({ platform }: { platform: PlatformAdminData }) {
           <PlatformUsersAdmin
             users={platform.users}
             currentUserId={platform.currentUserId}
+            tenants={platform.tenants
+              .filter((tenant) => tenant.status === 'active')
+              .map((tenant) => ({ id: tenant.id, name: tenant.name }))}
+            defaultTenantId={platform.currentTenantId}
             actions={{
               createUser: createPlatformUserAction,
               updateUser: updatePlatformUserAction,
