@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "tsx --env-file=.env.local scripts/migrate.mts",
     "db:generate": "drizzle-kit generate",
-    "db:seed": "tsx --env-file=.env.local scripts/seed.mts"
+    "db:seed": "tsx --env-file=.env.local scripts/seed.mts",
+    "worker": "NODE_OPTIONS=\"--conditions=react-server\" tsx --env-file=.env.local scripts/worker.mts"
   },
   "dependencies": {
     "@appkit/ai": "file:../../vendor/appkit/appkit-ai-0.2.0.tgz",
@@ -33,6 +34,7 @@
     "@appkit/i18n": "file:../../vendor/appkit/appkit-i18n-0.1.1.tgz",
     "@appkit/iam": "file:../../vendor/appkit/appkit-iam-1.0.0.tgz",
     "@appkit/jobs": "file:../../vendor/appkit/appkit-jobs-0.2.0.tgz",
+    "@appkit/mailbox": "file:../../vendor/appkit/appkit-mailbox-0.1.0.tgz",
     "@appkit/notifications": "file:../../vendor/appkit/appkit-notifications-1.0.0.tgz",
     "@appkit/pdf": "file:../../vendor/appkit/appkit-pdf-0.1.1.tgz",
     "@appkit/sandbox": "file:../../vendor/appkit/appkit-sandbox-0.1.0.tgz",
@@ -43,7 +45,10 @@
     "@appkit/tokens": "file:../../vendor/appkit/appkit-tokens-0.1.1.tgz",
     "@appkit/ui": "file:../../vendor/appkit/appkit-ui-0.1.1.tgz",
     "@appkit/workflows": "file:../../vendor/appkit/appkit-workflows-1.0.0.tgz",
+    "@bunkhouse/roles": "workspace:*",
+    "@bunkhouse/runtime": "workspace:*",
     "@xyflow/react": "^12.10.0",
+    "cron-parser": "^5.6.2",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.24.0",
     "next": "16.2.10",
@@ -51,9 +56,7 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "server-only": "^0.0.1",
-    "@bunkhouse/roles": "workspace:*",
-    "@bunkhouse/runtime": "workspace:*",
-    "@appkit/mailbox": "file:../../vendor/appkit/appkit-mailbox-0.1.0.tgz"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.16",

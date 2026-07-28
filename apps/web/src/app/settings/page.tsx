@@ -7,16 +7,14 @@ import {
   CardHeader,
   CardTitle,
   EmptyState,
-  Input,
-  Label,
   PageContainer,
   PageHeader,
-  Select,
 } from '@appkit/ui'
 import { AI_PROVIDER_SPECS } from '@appkit/ai'
+import { AddProviderForm } from '../../components/add-provider-form'
 import { listAiProviders } from '../../lib/ai'
 import { resolveTenantId } from '../../lib/tenant'
-import { addProviderAction, removeProviderAction } from './actions'
+import { removeProviderAction } from './actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -75,41 +73,13 @@ export default async function SettingsPage() {
             </div>
           )}
 
-          <form action={addProviderAction} className="grid gap-4 rounded-md border border-dashed border-border p-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="provider">Provider</Label>
-              <Select id="provider" name="provider" required defaultValue="anthropic">
-                {AI_PROVIDER_SPECS.map((spec) => (
-                  <option key={spec.value} value={spec.value}>
-                    {spec.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="slug">Slug</Label>
-              <Input id="slug" name="slug" placeholder="anthropic-main" required />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="label">Label</Label>
-              <Input id="label" name="label" placeholder="Anthropic (company account)" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="apiKey">API key</Label>
-              <Input id="apiKey" name="apiKey" type="password" required />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="modelSmart">Default model</Label>
-              <Input id="modelSmart" name="modelSmart" placeholder="claude-sonnet-5" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="baseUrl">Base URL (custom/openai-compatible only)</Label>
-              <Input id="baseUrl" name="baseUrl" placeholder="https://…" />
-            </div>
-            <div className="md:col-span-2">
-              <Button type="submit">Verify & add provider</Button>
-            </div>
-          </form>
+          <AddProviderForm
+            kinds={AI_PROVIDER_SPECS.map((spec) => ({
+              value: spec.value,
+              label: spec.label,
+              needsBaseUrl: spec.kind === 'openai-compatible' && !spec.baseUrl,
+            }))}
+          />
         </CardContent>
       </Card>
     </PageContainer>

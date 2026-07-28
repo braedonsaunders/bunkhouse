@@ -26,7 +26,8 @@ import { autonomySettings, duties, memories, people } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
 import { listAiProviders } from '../../../lib/ai'
-import { addMemoryNote, deleteMemoryNote, setAutonomy, setHandModel } from '../actions'
+import { AssignModelForm } from '../../../components/assign-model-form'
+import { addMemoryNote, deleteMemoryNote, setAutonomy } from '../actions'
 import { MailboxSection } from './mailbox-section'
 
 const AUTONOMY_LEVELS = ['forbidden', 'approval', 'notify', 'trusted'] as const
@@ -148,20 +149,11 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
                 {providers.length === 0 ? (
                   <p className="text-xs text-fg-muted">Add a model provider in Settings to assign a brain.</p>
                 ) : (
-                  <form action={setHandModel} className="flex flex-wrap items-center gap-1">
-                    <input type="hidden" name="personId" value={person.id} />
-                    <Select name="providerSlug" defaultValue={person.modelConfig?.provider ?? providers[0]!.slug}>
-                      {providers.map((p) => (
-                        <option key={p.slug} value={p.slug}>
-                          {p.label}
-                        </option>
-                      ))}
-                    </Select>
-                    <Input name="model" placeholder="claude-sonnet-5" defaultValue={person.modelConfig?.model ?? providers[0]!.modelSmart ?? ''} className="w-44" />
-                    <Button type="submit" variant="outline" size="sm">
-                      Assign
-                    </Button>
-                  </form>
+                  <AssignModelForm
+                    personId={person.id}
+                    providers={providers.map((p) => ({ slug: p.slug, label: p.label }))}
+                    {...(person.modelConfig ? { currentProvider: person.modelConfig.provider, currentModel: person.modelConfig.model } : {})}
+                  />
                 )}
               </div>
               <p>
