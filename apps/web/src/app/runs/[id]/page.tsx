@@ -13,6 +13,7 @@ import {
 import { approvals, callSessions, callTurns, people, procedureRevisions, procedures, runEvents, runs, tokenSpend } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
+import { toolActivityFromEvents, type CallActivityEvent } from '../../../lib/call-activity'
 import { RunDesk, type ApprovalArtifact, type DeskEvent, type ProcedureArtifact } from '../../../components/run-desk'
 import { LiveToggle } from '../../../components/live-toggle'
 
@@ -59,7 +60,7 @@ export default async function RunPage({
   const data = await app.withTenantContext(tenantId, async () => {
     const [run] = await app.db.select().from(runs).where(eq(runs.id, id))
     if (!run) return null
-    const [hand] = await app.db
+    const [agent] = await app.db
       .select({ id: people.id, name: people.name, title: people.title })
       .from(people)
       .where(eq(people.id, run.personId))
@@ -122,7 +123,12 @@ export default async function RunPage({
       .where(eq(approvals.runId, id))
     // A call run carries its transcript ledger as an artifact in the desk.
     const [callSession] = await app.db
-      .select({ id: callSessions.id, status: callSessions.status, durationSeconds: callSessions.durationSeconds })
+      .select({
+        id: callSessions.id,
+        status: callSessions.status,
+        durationSeconds: callSessions.durationSeconds,
+        startedAt: callSessions.startedAt,
+      })
       .from(callSessions)
       .where(eq(callSessions.runId, id))
     const transcript = callSession
@@ -132,11 +138,11 @@ export default async function RunPage({
           .where(eq(callTurns.sessionId, callSession.id))
           .orderBy(asc(callTurns.seq))
       : null
-    return { run, hand: hand ?? null, events, spend, citedProcedures, revisions, approvalRows, transcript }
+    return { run, agent: agent ?? null, events, spend, citedProcedures, revisions, approvalRows, callSession: callSession ?? null, transcript }
   })
 
   if (!data) notFound()
-  const { run, hand, events, spend } = data
+  const { run, agent, events, spend } = data
   const unpriced = (spend?.sources ?? []).includes('unpriced')
   const isOpen = OPEN_STATUSES.has(run.status)
 
@@ -174,16 +180,33 @@ export default async function RunPage({
     payload: event.payload,
   }))
 
+  // Tool activity during a call, offset onto the call clock so the transcript
+  // card can interleave what the agent did with what was said.
+  const callStartMs = data.callSession?.startedAt.getTime() ?? null
+  const callActivity =
+    callStartMs !== null
+      ? toolActivityFromEvents(
+          events
+            .filter((e) => e.kind === 'tool_call' || e.kind === 'tool_result' || e.kind === 'approval_request')
+            .map((e) => ({
+              seq: e.seq,
+              kind: e.kind as CallActivityEvent['kind'],
+              atMs: Math.max(0, e.createdAt.getTime() - callStartMs),
+              payload: e.payload,
+            })),
+        )
+      : []
+
   return (
     <PageContainer className="space-y-6">
       <DetailHeader
         back={
-          from === 'person' && hand
-            ? { href: `/people?person=${hand.id}`, label: hand.name }
+          from === 'person' && agent
+            ? { href: `/organization/agents?person=${agent.id}`, label: agent.name }
             : { href: '/observatory', label: 'Observatory' }
         }
         title={run.summary ?? describeTrigger(run.trigger)}
-        subtitle={`${hand ? `${hand.name} · ${hand.title} · ` : ''}${describeTrigger(run.trigger)} · started ${run.startedAt.toISOString().slice(0, 16).replace('T', ' ')}`}
+        subtitle={`${agent ? `${agent.name} · ${agent.title} · ` : ''}${describeTrigger(run.trigger)} · started ${run.startedAt.toISOString().slice(0, 16).replace('T', ' ')}`}
         badge={<Badge variant={STATUS_BADGES[run.status] ?? 'outline'}>{run.status.replace('_', ' ')}</Badge>}
         actions={isOpen ? <LiveToggle defaultOn /> : undefined}
       />
@@ -217,7 +240,7 @@ export default async function RunPage({
         events={deskEvents}
         procedures={procedureArtifacts}
         approvals={approvalArtifacts}
-        {...(data.transcript ? { transcript: data.transcript, handName: hand?.name ?? 'Hand' } : {})}
+        {...(data.transcript ? { transcript: data.transcript, callActivity, agentName: agent?.name ?? 'Agent' } : {})}
       />
     </PageContainer>
   )

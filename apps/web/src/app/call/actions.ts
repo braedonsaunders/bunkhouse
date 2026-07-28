@@ -1,22 +1,28 @@
 'use server'
 
-import { asc, eq } from 'drizzle-orm'
-import { callSessions, callTurns, runs } from '../../db/schema'
+import { and, asc, eq, inArray } from 'drizzle-orm'
+import { callSessions, callTurns, runEvents, runs } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
+import type { CallActivityEvent } from '../../lib/call-activity'
 
-export type TranscriptTurn = { seq: number; speaker: 'hand' | 'human'; text: string; atMs: number }
+export type TranscriptTurn = { seq: number; speaker: 'agent' | 'human'; text: string; atMs: number }
 
-/** Live captions for the call page — polled while the call is up. */
+/**
+ * Live captions and tool activity for the call page — polled while the call
+ * is up. Tool activity is the call run's own event ledger (the audit trail),
+ * offset onto the call clock so it interleaves with the transcript.
+ */
 export async function getCallTranscriptAction(sessionId: string): Promise<{
   status: 'active' | 'ended' | 'failed'
   turns: TranscriptTurn[]
+  activity: CallActivityEvent[]
 }> {
   const tenantId = await resolveTenantId()
   const app = db()
   return app.withTenantContext(tenantId, async () => {
     const [session] = await app.db
-      .select({ status: callSessions.status })
+      .select({ status: callSessions.status, runId: callSessions.runId, startedAt: callSessions.startedAt })
       .from(callSessions)
       .where(eq(callSessions.id, sessionId))
     if (!session) throw new Error('Call session not found.')
@@ -25,7 +31,27 @@ export async function getCallTranscriptAction(sessionId: string): Promise<{
       .from(callTurns)
       .where(eq(callTurns.sessionId, sessionId))
       .orderBy(asc(callTurns.seq))
-    return { status: session.status, turns }
+    const startedAtMs = session.startedAt.getTime()
+    const activity: CallActivityEvent[] = session.runId
+      ? (
+          await app.db
+            .select({ seq: runEvents.seq, kind: runEvents.kind, payload: runEvents.payload, createdAt: runEvents.createdAt })
+            .from(runEvents)
+            .where(
+              and(
+                eq(runEvents.runId, session.runId),
+                inArray(runEvents.kind, ['tool_call', 'tool_result', 'approval_request']),
+              ),
+            )
+            .orderBy(asc(runEvents.seq))
+        ).map((e) => ({
+            seq: e.seq,
+            kind: e.kind as CallActivityEvent['kind'],
+            atMs: Math.max(0, e.createdAt.getTime() - startedAtMs),
+            payload: e.payload,
+          }))
+      : []
+    return { status: session.status, turns, activity }
   })
 }
 

@@ -11,6 +11,10 @@ import type { Ability, ActionCategory, AutonomyLevel } from '@bunkhouse/runtime'
  *
  * Imported only by the voice agent process; the web app never bundles this.
  */
+
+/** A tool still running after this long earns the caller a short filler line. */
+const SLOW_TOOL_MS = 2500
+
 export function governedCallTools(args: {
   abilities: Ability[]
   autonomy: (category: ActionCategory) => AutonomyLevel
@@ -21,6 +25,18 @@ export function governedCallTools(args: {
   }) => Promise<{ approvalId: string }>
   /** Append a run event — the call's audit trail matches an email run's. */
   record: (kind: 'tool_call' | 'tool_result' | 'approval_request', payload: Record<string, unknown>) => Promise<void>
+  /**
+   * Fired once per tool call, only if the tool is still running after
+   * SLOW_TOOL_MS — the voice agent uses it to keep the caller company with a
+   * short filler line. Never fires after the tool has settled.
+   */
+  onSlow?: (info: { toolName: string }) => void
+  /**
+   * Fired once per tool call when it settles — success, failure, forbidden, or
+   * queued for approval — so the voice agent can make sure the conversation
+   * resumes if the session went quiet while the tool ran.
+   */
+  onSettled?: (info: { toolName: string }) => void
 }): Record<string, llm.FunctionTool> {
   const tools: Record<string, llm.FunctionTool> = {}
   for (const ability of args.abilities) {
@@ -43,14 +59,26 @@ export function governedCallTools(args: {
         await args
           .record('tool_call', { toolName: ability.name, category: ability.category, input })
           .catch(() => {})
+        // One filler timer per tool call: it fires once, and only while the
+        // tool is genuinely still running — settling clears it first.
+        const slowTimer = args.onSlow
+          ? setTimeout(() => args.onSlow?.({ toolName: ability.name }), SLOW_TOOL_MS)
+          : null
+        const settle = () => {
+          if (slowTimer) clearTimeout(slowTimer)
+          args.onSettled?.({ toolName: ability.name })
+        }
         try {
           if (ability.category !== null) {
             const level = args.autonomy(ability.category)
             if (level === 'forbidden') {
-              return {
+              const output = {
                 status: 'forbidden',
                 note: `The ${ability.category} ability is disabled for you. Tell the caller a colleague or a human has to do this, and offer to pass it on.`,
               }
+              await args.record('tool_result', { toolName: ability.name, output }).catch(() => {})
+              settle()
+              return output
             }
             if (level === 'approval') {
               const description = `${ability.name} with ${JSON.stringify(input)}`
@@ -60,8 +88,9 @@ export function governedCallTools(args: {
                 action: { toolName: ability.name, input: input as Record<string, unknown> },
               })
               await args
-                .record('approval_request', { approvalId, category: ability.category, description })
+                .record('approval_request', { approvalId, toolName: ability.name, category: ability.category, description })
                 .catch(() => {})
+              settle()
               return {
                 status: 'pending_approval',
                 approvalId,
@@ -71,10 +100,12 @@ export function governedCallTools(args: {
           }
           const output = await execute(input as never, { toolCallId: randomUUID(), messages: [] } as never)
           await args.record('tool_result', { toolName: ability.name, output }).catch(() => {})
+          settle()
           return output
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           await args.record('tool_result', { toolName: ability.name, output: { error: message } }).catch(() => {})
+          settle()
           return { error: message, note: 'Tell the caller this did not work, plainly, and offer an alternative.' }
         }
       },

@@ -3,6 +3,8 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState } from '@appkit/ui'
+import type { ToolActivityItem } from '../lib/call-activity'
+import { ToolActivityCard } from './tool-activity'
 
 export type DeskEvent = {
   id: string
@@ -18,12 +20,12 @@ export type ProcedureArtifact = {
   version: number
   title: string
   status: string
-  /** Markdown body of the exact revision the hand followed. */
+  /** Markdown body of the exact revision the agent followed. */
   body: string
 }
 
 export type CallTranscriptTurn = {
-  speaker: 'hand' | 'human'
+  speaker: 'agent' | 'human'
   text: string
   /** Offset from call start, milliseconds. */
   atMs: number
@@ -179,7 +181,7 @@ function Screen({
             {artifact.body}
           </div>
           <p className="text-xs text-fg-muted">
-            The exact revision the hand followed — pinned by version, so later edits never rewrite this record.
+            The exact revision the agent followed — pinned by version, so later edits never rewrite this record.
           </p>
         </div>
       )
@@ -231,43 +233,67 @@ function Screen({
 
 /**
  * The desk view: the event feed on the left, and on the right whatever was on
- * the hand's screen at the selected moment. Clicking a feed line selects it;
+ * the agent's screen at the selected moment. Clicking a feed line selects it;
  * with nothing selected the desk follows the latest event.
  */
 function offsetLabel(atMs: number): string {
   return `${Math.floor(atMs / 60000)}:${String(Math.floor((atMs % 60000) / 1000)).padStart(2, '0')}`
 }
 
-/** The call ledger rendered as chat bubbles — shown when a run is a call. */
-function CallTranscriptCard({ transcript, handName }: { transcript: CallTranscriptTurn[]; handName: string }) {
+/**
+ * The call ledger rendered as chat bubbles — shown when a run is a call. Tool
+ * activity from the same run interleaves on the call clock, so the record
+ * reads the way the call happened: said, did, said.
+ */
+function CallTranscriptCard({
+  transcript,
+  activity,
+  agentName,
+}: {
+  transcript: CallTranscriptTurn[]
+  activity: ToolActivityItem[]
+  agentName: string
+}) {
+  const feed: ({ sort: number } & ({ type: 'turn'; turn: CallTranscriptTurn } | { type: 'tool'; item: ToolActivityItem }))[] = [
+    ...transcript.map((turn) => ({ type: 'turn' as const, sort: turn.atMs, turn })),
+    ...activity.map((item) => ({ type: 'tool' as const, sort: item.atMs, item })),
+  ]
+  feed.sort((a, b) => a.sort - b.sort)
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Call transcript</CardTitle>
         <CardDescription>
-          Every turn of the call, from the append-only ledger — corrections would be new records, never edits.
+          Every turn of the call and everything the agent did during it, from the append-only ledger — corrections
+          would be new records, never edits.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {transcript.length === 0 ? (
+        {feed.length === 0 ? (
           <EmptyState title="No turns recorded" description="The call ended before anything was transcribed." />
         ) : (
           <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
-            {transcript.map((turn, index) => (
-              <div key={index} className={`flex ${turn.speaker === 'human' ? 'justify-end' : 'justify-start'}`}>
-                <div
-                  className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                    turn.speaker === 'human' ? 'bg-primary-subtle text-fg' : 'border border-border bg-bg-subtle text-fg'
-                  }`}
-                >
-                  <p className="mb-0.5 text-xs font-medium text-fg-muted">
-                    {turn.speaker === 'human' ? 'Caller' : handName} ·{' '}
-                    <span className="tabular-nums">{offsetLabel(turn.atMs)}</span>
-                  </p>
-                  <p className="whitespace-pre-wrap">{turn.text}</p>
+            {feed.map((entry, index) =>
+              entry.type === 'tool' ? (
+                <ToolActivityCard key={entry.item.key} item={entry.item} />
+              ) : (
+                <div key={index} className={`flex ${entry.turn.speaker === 'human' ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                      entry.turn.speaker === 'human'
+                        ? 'bg-primary-subtle text-fg'
+                        : 'border border-border bg-bg-subtle text-fg'
+                    }`}
+                  >
+                    <p className="mb-0.5 text-xs font-medium text-fg-muted">
+                      {entry.turn.speaker === 'human' ? 'Caller' : agentName} ·{' '}
+                      <span className="tabular-nums">{offsetLabel(entry.turn.atMs)}</span>
+                    </p>
+                    <p className="whitespace-pre-wrap">{entry.turn.text}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ),
+            )}
           </div>
         )}
       </CardContent>
@@ -280,14 +306,17 @@ export function RunDesk({
   procedures,
   approvals,
   transcript,
-  handName,
+  callActivity,
+  agentName,
 }: {
   events: DeskEvent[]
   procedures: Record<string, ProcedureArtifact>
   approvals: Record<string, ApprovalArtifact>
   /** Present when a call session references this run — rendered as the call's transcript artifact. */
   transcript?: CallTranscriptTurn[]
-  handName?: string
+  /** Tool activity during the call, interleaved with the transcript on the call clock. */
+  callActivity?: ToolActivityItem[]
+  agentName?: string
 }) {
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const selected = events.find((e) => e.id === selectedId) ?? events[events.length - 1] ?? null
@@ -365,7 +394,9 @@ export function RunDesk({
           {selected ? <Screen event={selected} procedures={procedures} approvals={approvals} /> : null}
         </CardContent>
       </Card>
-      {transcript ? <CallTranscriptCard transcript={transcript} handName={handName ?? 'Hand'} /> : null}
+      {transcript ? (
+        <CallTranscriptCard transcript={transcript} activity={callActivity ?? []} agentName={agentName ?? 'Agent'} />
+      ) : null}
       </div>
     </div>
   )

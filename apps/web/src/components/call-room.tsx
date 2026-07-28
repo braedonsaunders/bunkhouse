@@ -15,6 +15,8 @@ import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitl
 import { ComposedAvatar } from '@appkit/avatars/react'
 import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
 import { endCallAction, getCallTranscriptAction, type TranscriptTurn } from '../app/call/actions'
+import { toolActivityFromEvents, type CallActivityEvent, type ToolActivityItem } from '../lib/call-activity'
+import { ToolActivityCard } from './tool-activity'
 
 const CONNECTION_LABELS: Record<string, string> = {
   [ConnectionState.Connecting]: 'connecting',
@@ -24,16 +26,24 @@ const CONNECTION_LABELS: Record<string, string> = {
   [ConnectionState.SignalReconnecting]: 'reconnecting',
 }
 
-/** Live captions: the call ledger polled from the browser, as chat bubbles. */
+/**
+ * Live captions and tool activity: the call's two ledgers polled together and
+ * interleaved on the call clock — chat bubbles for what was said, tool widgets
+ * for what the agent is doing while it talks.
+ */
 function Captions({ sessionId, agentName }: { sessionId: string; agentName: string }) {
   const [turns, setTurns] = React.useState<TranscriptTurn[]>([])
+  const [activity, setActivity] = React.useState<CallActivityEvent[]>([])
   const scrollRef = React.useRef<HTMLDivElement>(null)
   React.useEffect(() => {
     let cancelled = false
     const poll = async () => {
       try {
         const result = await getCallTranscriptAction(sessionId)
-        if (!cancelled) setTurns(result.turns)
+        if (!cancelled) {
+          setTurns(result.turns)
+          setActivity(result.activity)
+        }
       } catch {
         // transient — next poll retries
       }
@@ -45,38 +55,61 @@ function Captions({ sessionId, agentName }: { sessionId: string; agentName: stri
       clearInterval(interval)
     }
   }, [sessionId])
+
+  const feed = React.useMemo(() => {
+    const items = toolActivityFromEvents(activity)
+    const entries: ({ sort: number } & ({ type: 'turn'; turn: TranscriptTurn } | { type: 'tool'; item: ToolActivityItem }))[] = [
+      ...turns.map((turn) => ({ type: 'turn' as const, sort: turn.atMs, turn })),
+      ...items.map((item) => ({ type: 'tool' as const, sort: item.atMs, item })),
+    ]
+    entries.sort((a, b) => a.sort - b.sort)
+    return entries
+  }, [turns, activity])
+
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [turns.length])
+  }, [feed.length])
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Captions</CardTitle>
-        <CardDescription>The transcript ledger, live. It stays on the call record after you hang up.</CardDescription>
+        <CardTitle className="text-base">Live transcript</CardTitle>
+        <CardDescription>
+          What is said and what {agentName} is doing, as it happens. It stays on the call record after you hang up.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <div ref={scrollRef} className="max-h-[24rem] space-y-2 overflow-y-auto pr-1">
-          {turns.length === 0 ? (
+          {feed.length === 0 ? (
             <p className="text-sm text-fg-muted">Say hello — captions appear as the call is transcribed.</p>
           ) : (
-            turns.map((turn) => (
-              <div key={turn.seq} className={`flex ${turn.speaker === 'human' ? 'justify-end' : 'justify-start'}`}>
+            feed.map((entry) =>
+              entry.type === 'tool' ? (
+                <ToolActivityCard key={entry.item.key} item={entry.item} />
+              ) : (
                 <div
-                  className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                    turn.speaker === 'human' ? 'bg-primary-subtle text-fg' : 'border border-border bg-bg-subtle text-fg'
-                  }`}
+                  key={`turn-${entry.turn.seq}`}
+                  className={`flex ${entry.turn.speaker === 'human' ? 'justify-end' : 'justify-start'}`}
                 >
-                  <p className="mb-0.5 text-xs font-medium text-fg-muted">
-                    {turn.speaker === 'human' ? 'You' : agentName} ·{' '}
-                    <span className="tabular-nums">
-                      {Math.floor(turn.atMs / 60000)}:{String(Math.floor((turn.atMs % 60000) / 1000)).padStart(2, '0')}
-                    </span>
-                  </p>
-                  <p className="whitespace-pre-wrap">{turn.text}</p>
+                  <div
+                    className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                      entry.turn.speaker === 'human'
+                        ? 'bg-primary-subtle text-fg'
+                        : 'border border-border bg-bg-subtle text-fg'
+                    }`}
+                  >
+                    <p className="mb-0.5 text-xs font-medium text-fg-muted">
+                      {entry.turn.speaker === 'human' ? 'You' : agentName} ·{' '}
+                      <span className="tabular-nums">
+                        {Math.floor(entry.turn.atMs / 60000)}:
+                        {String(Math.floor((entry.turn.atMs % 60000) / 1000)).padStart(2, '0')}
+                      </span>
+                    </p>
+                    <p className="whitespace-pre-wrap">{entry.turn.text}</p>
+                  </div>
                 </div>
-              </div>
-            ))
+              ),
+            )
           )}
         </div>
       </CardContent>

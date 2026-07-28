@@ -504,6 +504,50 @@ export default defineAgent({
       app.db.select().from(autonomySettings).where(eq(autonomySettings.personId, person.id)),
     )
     const dial = new Map(dialRows.map((r) => [r.category, r.level]))
+
+    // --- Human pacing around slow tools ------------------------------------
+    // When a tool runs past the slow threshold, the agent says one short
+    // filler line — never stacked (one filler at a time), and never over the
+    // caller's or its own speech. The model's tool-result continuation is
+    // native; the only quiet failure mode is the filler having consumed the
+    // turn, so a settle after a filler watches briefly and nudges the agent
+    // to share the result only if nobody resumed on their own.
+    let fillerToolName: string | null = null
+    const speakFiller = (toolName: string) => {
+      if (finalized || fillerToolName !== null) return
+      if (agentSession.userState === 'speaking' || agentSession.agentState === 'speaking') return
+      fillerToolName = toolName
+      try {
+        agentSession.generateReply({
+          instructions:
+            'The lookup is still running. Say one very short natural filler line to keep the caller company. Do not repeat yourself.',
+        })
+      } catch {
+        // The session is draining or closed — skip the nicety, keep the call.
+        fillerToolName = null
+      }
+    }
+    const resumeAfterSettle = (toolName: string) => {
+      if (fillerToolName !== toolName) return
+      fillerToolName = null
+      let resumed = false
+      const onState = (event: { newState: string }) => {
+        if (event.newState === 'thinking' || event.newState === 'speaking') resumed = true
+      }
+      agentSession.on(voice.AgentSessionEventTypes.AgentStateChanged, onState)
+      setTimeout(() => {
+        agentSession.off(voice.AgentSessionEventTypes.AgentStateChanged, onState)
+        if (finalized || resumed) return
+        if (agentSession.agentState === 'thinking' || agentSession.agentState === 'speaking') return
+        if (agentSession.userState === 'speaking') return
+        try {
+          agentSession.generateReply({ instructions: 'Share what you found, naturally.' })
+        } catch {
+          // The session closed while we waited — nothing to resume.
+        }
+      }, 2000)
+    }
+
     const tools = governedCallTools({
       abilities: assembled.abilities,
       // Missing categories default to 'approval' — the safe posture for
@@ -524,6 +568,8 @@ export default defineAgent({
           return { approvalId: row!.id }
         }),
       record: (kind, payload) => recordEvent(kind, payload),
+      onSlow: ({ toolName }) => speakFiller(toolName),
+      onSettled: ({ toolName }) => resumeAfterSettle(toolName),
     })
     ctx.addShutdownCallback(() => assembled.close())
 
