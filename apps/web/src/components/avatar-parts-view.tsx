@@ -6,13 +6,14 @@ import {
   Badge,
   Button,
   Drawer,
+  EmptyState,
   Input,
   Label,
-  RecordList,
+  PagedTable,
   SearchSelect,
   SubtabNav,
   Textarea,
-  type RecordColumn,
+  type PagedColumn,
 } from '@appkit/ui'
 import { ComposedAvatar } from '@appkit/avatars/react'
 import { createEmptyComposition, type AvatarPart, type AvatarPartCategory } from '@appkit/avatars/composition'
@@ -35,6 +36,57 @@ export type AvatarPartRowView = {
   createdAt: string
 }
 
+const PART_COLUMNS: PagedColumn<AvatarPartRowView>[] = [
+  {
+    key: 'name',
+    header: 'Part',
+    cell: (row) => (
+      <span className="flex items-center gap-2 font-medium text-primary">
+        <span className="size-8 shrink-0 overflow-hidden rounded border border-border bg-bg-subtle">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={`/api/avatar-parts/${row.id}`} alt="" className="h-full w-full object-contain" />
+        </span>
+        {row.name}
+      </span>
+    ),
+    search: (row) => row.name,
+    sortValue: (row) => row.name,
+  },
+  {
+    key: 'categoryLabel',
+    header: 'Slot',
+    cell: (row) => row.categoryLabel,
+    search: (row) => row.categoryLabel,
+    sortValue: (row) => row.categoryLabel,
+  },
+  {
+    key: 'colorVariant',
+    header: 'Colour',
+    cell: (row) => row.colorVariant || <span className="text-fg-muted">—</span>,
+    search: (row) => row.colorVariant,
+    sortValue: (row) => row.colorVariant,
+  },
+  {
+    key: 'tags',
+    header: 'Tags',
+    cell: (row) =>
+      row.tags.length === 0 ? (
+        <span className="text-fg-muted">—</span>
+      ) : (
+        <span className="flex flex-wrap gap-1">
+          {row.tags.map((tag) => (
+            <Badge key={tag} variant="outline">
+              {tag}
+            </Badge>
+          ))}
+        </span>
+      ),
+    search: (row) => row.tags.join(' '),
+  },
+  { key: 'model', header: 'Model', cell: (row) => row.model, search: (row) => row.model, sortValue: (row) => row.model },
+  { key: 'createdAt', header: 'Added', cell: (row) => row.createdAt, sortValue: (row) => row.createdAt },
+]
+
 /**
  * The parts library — the raw material every figure in the company is built
  * from. Parts are shared: one good safety vest is worn by the whole crew.
@@ -51,98 +103,57 @@ export function AvatarPartsView({
   library: AvatarPart[]
   imageProviderConfigured: boolean
 }) {
-  const [search, setSearch] = React.useState('')
   const [categoryFilter, setCategoryFilter] = React.useState('all')
   const [generateOpen, setGenerateOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<AvatarPartRowView | null>(null)
 
-  const visible = parts.filter((part) => {
-    if (categoryFilter !== 'all' && part.categoryId !== categoryFilter) return false
-    if (!search.trim()) return true
-    const query = search.trim().toLowerCase()
-    return (
-      part.name.toLowerCase().includes(query) ||
-      part.categoryLabel.toLowerCase().includes(query) ||
-      part.tags.some((tag) => tag.toLowerCase().includes(query))
-    )
-  })
-
-  const columns: RecordColumn<AvatarPartRowView>[] = [
-    {
-      key: 'name',
-      label: 'Part',
-      sortable: true,
-      render: (row) => (
-        <span className="flex items-center gap-2 font-medium text-primary">
-          <span className="size-8 overflow-hidden rounded border border-border bg-bg-subtle">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={`/api/avatar-parts/${row.id}`} alt="" className="h-full w-full object-contain" />
-          </span>
-          {row.name}
-        </span>
-      ),
-    },
-    { key: 'categoryLabel', label: 'Slot', sortable: true },
-    { key: 'colorVariant', label: 'Colour' },
-    {
-      key: 'tags',
-      label: 'Tags',
-      render: (row) =>
-        row.tags.length === 0 ? (
-          <span className="text-fg-muted">—</span>
-        ) : (
-          <span className="flex flex-wrap gap-1">
-            {row.tags.map((tag) => (
-              <Badge key={tag} variant="outline">
-                {tag}
-              </Badge>
-            ))}
-          </span>
-        ),
-    },
-    { key: 'model', label: 'Model' },
-    { key: 'createdAt', label: 'Added', sortable: true },
-  ]
+  const visible =
+    categoryFilter === 'all' ? parts : parts.filter((part) => part.categoryId === categoryFilter)
 
   return (
-    <div className="space-y-4">
-      <RecordList
-        columns={columns}
+    <div className="space-y-4 px-5 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="w-52">
+          <SearchSelect
+            value={categoryFilter}
+            onChange={setCategoryFilter}
+            options={[
+              { value: 'all', label: 'Every slot' },
+              ...categories.map((category) => ({ value: category.id, label: category.label })),
+            ]}
+            ariaLabel="Filter by slot"
+          />
+        </div>
+        <Button type="button" onClick={() => setGenerateOpen(true)} disabled={!imageProviderConfigured}>
+          Generate parts
+        </Button>
+      </div>
+
+      <PagedTable
+        columns={PART_COLUMNS}
         rows={visible}
-        getRowId={(row) => row.id}
-        search={{ value: search, onChange: setSearch, placeholder: 'Search parts' }}
-        filters={
-          <div className="w-52">
-            <SearchSelect
-              value={categoryFilter}
-              onChange={setCategoryFilter}
-              options={[
-                { value: 'all', label: 'Every slot' },
-                ...categories.map((category) => ({ value: category.id, label: category.label })),
-              ]}
-              ariaLabel="Filter by slot"
-            />
-          </div>
-        }
-        toolbarActions={
-          <Button type="button" onClick={() => setGenerateOpen(true)} disabled={!imageProviderConfigured}>
-            Generate parts
-          </Button>
-        }
+        rowKey={(row) => row.id}
+        pageSize={15}
+        searchable
+        defaultSort={{ key: 'createdAt', dir: 'desc' }}
         onRowClick={(row) => setEditing(row)}
-        empty={{
-          icon: <Boxes />,
-          title: parts.length === 0 ? 'The library is empty' : 'No parts match',
-          description:
-            parts.length === 0
-              ? imageProviderConfigured
-                ? 'Generate a set of parts — bodies, outfits, faces, hair — and everyone in the company is built from them.'
-                : 'Choose an image provider under Image generation first; parts are generated with the same key.'
-              : 'Clear the search or pick another slot.',
-          ...(parts.length === 0 && imageProviderConfigured
-            ? { action: <Button onClick={() => setGenerateOpen(true)}>Generate parts</Button> }
-            : {}),
-        }}
+        labels={{ searchPlaceholder: 'Search parts…', searchLabel: 'Search parts' }}
+        empty={
+          <EmptyState
+            icon={<Boxes />}
+            title={parts.length === 0 ? 'The library is empty' : 'No parts in this slot'}
+            description={
+              parts.length === 0
+                ? imageProviderConfigured
+                  ? 'Generate a set of parts — bodies, outfits, faces, hair — and everyone in the company is built from them.'
+                  : 'Choose an image provider under Intelligence → Image generation first; parts are generated with the same key.'
+                : 'Pick another slot, or generate parts for this one.'
+            }
+            {...(imageProviderConfigured
+              ? { action: <Button onClick={() => setGenerateOpen(true)}>Generate parts</Button> }
+              : {})}
+          />
+        }
       />
 
       <GeneratePartsDrawer

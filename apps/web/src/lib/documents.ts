@@ -12,6 +12,7 @@ import {
 } from '@appkit/office'
 import { people, tenantSettings, DOCUMENT_BRANDING_KEY, type DocumentBrandingSettings } from '../db/schema'
 import { db } from '../db/client'
+import { getCompanyIdentity } from './company-identity'
 import { saveFile } from './files'
 import { readLedgeredFile, reviseDocxFile } from './file-reading'
 import { fileDeliverable } from './filing'
@@ -33,6 +34,18 @@ export async function getDocumentBranding(tenantId: string): Promise<DocumentBra
       .where(and(eq(tenantSettings.tenantId, tenantId), eq(tenantSettings.key, DOCUMENT_BRANDING_KEY))),
   )
   return (row?.value as DocumentBrandingSettings | undefined) ?? {}
+}
+
+/**
+ * Letterhead as a document actually renders it. The company is named once, in
+ * Company → Identity; the letterhead field is only an override for the rare
+ * case where documents carry a different name (a legal entity, a division).
+ * Every renderer resolves through here so the two can never drift.
+ */
+export async function resolveDocumentBranding(tenantId: string): Promise<DocumentBrandingSettings> {
+  const [branding, identity] = await Promise.all([getDocumentBranding(tenantId), getCompanyIdentity(tenantId)])
+  const companyName = branding.companyName?.trim() || identity.name.trim()
+  return { ...branding, ...(companyName ? { companyName } : {}) }
 }
 
 export async function saveDocumentBranding(tenantId: string, value: DocumentBrandingSettings): Promise<void> {
@@ -94,7 +107,7 @@ export function documentAbilities(args: { tenantId: string; person: PersonRow; r
         const html = officeDocumentHtml({
           bodyHtml: sanitizeOfficeHtml(bodyHtml),
           title,
-          branding: await getDocumentBranding(tenantId),
+          branding: await resolveDocumentBranding(tenantId),
         })
         const bytes = format === 'docx' ? await htmlToDocx(html) : await htmlToPdf(html)
         const record = await saveFile({

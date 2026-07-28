@@ -9,15 +9,15 @@ import {
   Badge,
   Button,
   Drawer,
+  EmptyState,
   Input,
   Label,
-  RecordList,
+  PagedTable,
   Select,
   SettingsRow,
   SubtabNav,
   Textarea,
-  type LinkRender,
-  type RecordColumn,
+  type PagedColumn,
 } from '@appkit/ui'
 import {
   assignPhoneNumberAction,
@@ -36,12 +36,6 @@ import {
   type PhoneSystemDetail,
   type TrunkDetailView,
 } from '../app/admin/settings/pbx-actions'
-
-const nextLink: LinkRender = ({ href, children, className, title }) => (
-  <Link href={href} className={className} title={title}>
-    {children}
-  </Link>
-)
 
 export type SipTrunkSummary = {
   id: string
@@ -116,50 +110,140 @@ type TrunkListRow = {
   statusLabel: string
 }
 
-const TRUNK_COLUMNS: RecordColumn<TrunkListRow>[] = [
-  { key: 'name', label: 'Name', sortable: true },
-  { key: 'modeLabel', label: 'Connection', sortable: true },
-  { key: 'address', label: 'PBX address' },
-  { key: 'range', label: 'Extensions' },
+const agentLink = (personId: string, label: string) => (
+  <Link href={`/organization/agents?person=${personId}`} className="font-medium text-primary hover:underline">
+    {label}
+  </Link>
+)
+
+const TRUNK_COLUMNS: PagedColumn<TrunkListRow>[] = [
+  { key: 'name', header: 'Name', cell: (row) => row.name, search: (row) => row.name, sortValue: (row) => row.name },
+  {
+    key: 'modeLabel',
+    header: 'Connection',
+    cell: (row) => row.modeLabel,
+    search: (row) => row.modeLabel,
+    sortValue: (row) => row.modeLabel,
+  },
+  { key: 'address', header: 'PBX address', cell: (row) => row.address, search: (row) => row.address },
+  { key: 'range', header: 'Extensions', cell: (row) => row.range },
   {
     key: 'healthLabel',
-    label: 'Line check',
-    kind: 'status',
-    statusVariant: (value) =>
-      value === 'answering' ? 'default' : value === 'not answering' ? 'destructive' : 'outline',
+    header: 'Line check',
+    cell: (row) => (
+      <Badge
+        variant={
+          row.healthLabel === 'answering'
+            ? 'default'
+            : row.healthLabel === 'not answering'
+              ? 'destructive'
+              : 'outline'
+        }
+      >
+        {row.healthLabel}
+      </Badge>
+    ),
+    sortValue: (row) => row.healthLabel,
   },
   {
     key: 'statusLabel',
-    label: 'Status',
-    kind: 'status',
-    statusVariant: (value) => (value === 'active' ? 'default' : value === 'error' ? 'destructive' : 'outline'),
+    header: 'Status',
+    cell: (row) => (
+      <Badge
+        variant={row.statusLabel === 'active' ? 'default' : row.statusLabel === 'error' ? 'destructive' : 'outline'}
+      >
+        {row.statusLabel}
+      </Badge>
+    ),
+    sortValue: (row) => row.statusLabel,
   },
 ]
 
-const EXTENSION_COLUMNS: RecordColumn<AgentExtensionRow>[] = [
-  { key: 'extension', label: 'Extension', sortable: true },
-  { key: 'name', label: 'Agent', kind: 'reference', sortable: true, href: (row) => `/organization/agents?person=${row.personId}` },
-  { key: 'title', label: 'Title' },
+const EXTENSION_COLUMNS: PagedColumn<AgentExtensionRow>[] = [
+  {
+    key: 'extension',
+    header: 'Extension',
+    cell: (row) => <span className="tabular-nums">{row.extension}</span>,
+    search: (row) => row.extension,
+    sortValue: (row) => row.extension,
+  },
+  {
+    key: 'name',
+    header: 'Agent',
+    cell: (row) => agentLink(row.personId, row.name),
+    search: (row) => row.name,
+    sortValue: (row) => row.name,
+  },
+  { key: 'title', header: 'Title', cell: (row) => row.title, search: (row) => row.title, sortValue: (row) => row.title },
 ]
 
-const BRIDGE_COLUMNS: RecordColumn<BridgeExtensionView>[] = [
-  { key: 'extension', label: 'Extension', sortable: true },
+const BRIDGE_COLUMNS: PagedColumn<BridgeExtensionView>[] = [
+  {
+    key: 'extension',
+    header: 'Extension',
+    cell: (row) => <span className="tabular-nums">{row.extension}</span>,
+    search: (row) => row.extension,
+    sortValue: (row) => row.extension,
+  },
   {
     key: 'personName',
-    label: 'Agent',
-    kind: 'reference',
-    sortable: true,
-    href: (row) => `/organization/agents?person=${row.personId}`,
+    header: 'Agent',
+    cell: (row) => agentLink(row.personId, row.personName),
+    search: (row) => row.personName,
+    sortValue: (row) => row.personName,
   },
-  { key: 'trunkName', label: 'Phone system', sortable: true },
+  {
+    key: 'trunkName',
+    header: 'Phone system',
+    cell: (row) => row.trunkName,
+    search: (row) => row.trunkName,
+    sortValue: (row) => row.trunkName,
+  },
   {
     key: 'regStatus',
-    label: 'Registration',
-    kind: 'status',
-    statusVariant: (value) => (value === 'registered' ? 'default' : value === 'failed' ? 'destructive' : 'outline'),
-    format: (value) => REG_LABELS[value as BridgeExtensionView['regStatus']],
+    header: 'Registration',
+    cell: (row) => (
+      <Badge
+        variant={row.regStatus === 'registered' ? 'default' : row.regStatus === 'failed' ? 'destructive' : 'outline'}
+      >
+        {REG_LABELS[row.regStatus]}
+      </Badge>
+    ),
+    search: (row) => REG_LABELS[row.regStatus],
+    sortValue: (row) => row.regStatus,
   },
-  { key: 'regExpiresAt', label: 'Renews', format: (value) => (value ? String(value) : '—') },
+  { key: 'regExpiresAt', header: 'Renews', cell: (row) => row.regExpiresAt || '—', sortValue: (row) => row.regExpiresAt ?? '' },
+]
+
+const numberColumns = (
+  busy: boolean,
+  remove: (id: string) => void,
+): PagedColumn<PhoneNumberRowView>[] => [
+  {
+    key: 'number',
+    header: 'Number',
+    cell: (row) => <span className="font-medium tabular-nums">+{row.number}</span>,
+    search: (row) => row.number,
+    sortValue: (row) => row.number,
+  },
+  { key: 'label', header: 'Label', cell: (row) => row.label, search: (row) => row.label, sortValue: (row) => row.label },
+  {
+    key: 'personName',
+    header: 'Answered by',
+    cell: (row) => row.personName,
+    search: (row) => row.personName,
+    sortValue: (row) => row.personName,
+  },
+  {
+    key: 'actions',
+    header: '',
+    align: 'right',
+    cell: (row) => (
+      <Button variant="outline" size="sm" disabled={busy} onClick={() => remove(row.id)}>
+        Remove
+      </Button>
+    ),
+  },
 ]
 
 const AVAYA_CHECKLIST = [
@@ -439,68 +523,75 @@ export function PhoneSystemRow({
           ) : null}
 
           {tab === 'trunks' && detail !== null ? (
-            <RecordList
-              columns={TRUNK_COLUMNS}
-              rows={rows}
-              getRowId={(row) => row.id}
-              linkRender={nextLink}
-              onRowClick={(row) => {
-                const trunk = detailTrunks.find((t) => t.id === row.id)
-                if (!trunk) return
-                setError(null)
-                setTestReport(null)
-                setTrunkTab('connection')
-                setDraft(trunkDraftFrom(trunk))
-              }}
-              toolbarActions={
-                <span className="flex items-center gap-2">
-                  {detailTrunks.length > 0 ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() =>
-                        startBusy(async () => {
-                          await probeAllTrunksAction()
-                          await refresh()
-                        })
-                      }
-                    >
-                      Check lines
-                    </Button>
-                  ) : null}
+            <div className="space-y-3">
+              <div className="flex items-center justify-end gap-2">
+                {detailTrunks.length > 0 ? (
                   <Button
                     size="sm"
-                    onClick={() => {
-                      setError(null)
-                      setTestReport(null)
-                      setTrunkTab('connection')
-                      setDraft(emptyTrunkDraft())
-                    }}
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() =>
+                      startBusy(async () => {
+                        await probeAllTrunksAction()
+                        await refresh()
+                      })
+                    }
                   >
-                    Add trunk
+                    Check lines
                   </Button>
-                </span>
-              }
-              empty={{
-                title: 'No trunks yet',
-                description:
-                  'A trunk is the SIP line your PBX points at bunkhouse. Add one, then route an extension range to it from the PBX.',
-              }}
-            />
+                ) : null}
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setError(null)
+                    setTestReport(null)
+                    setTrunkTab('connection')
+                    setDraft(emptyTrunkDraft())
+                  }}
+                >
+                  Add trunk
+                </Button>
+              </div>
+              <PagedTable
+                columns={TRUNK_COLUMNS}
+                rows={rows}
+                rowKey={(row) => row.id}
+                pageSize={10}
+                defaultSort={{ key: 'name', dir: 'asc' }}
+                onRowClick={(row) => {
+                  const trunk = detailTrunks.find((t) => t.id === row.id)
+                  if (!trunk) return
+                  setError(null)
+                  setTestReport(null)
+                  setTrunkTab('connection')
+                  setDraft(trunkDraftFrom(trunk))
+                }}
+                empty={
+                  <EmptyState
+                    title="No trunks yet"
+                    description="A trunk is the SIP line your PBX points at bunkhouse. Add one, then route an extension range to it from the PBX."
+                  />
+                }
+              />
+            </div>
           ) : null}
 
           {tab === 'extensions' ? (
             <div className="space-y-3">
-              <RecordList
+              <PagedTable
                 columns={EXTENSION_COLUMNS}
                 rows={extensions}
-                getRowId={(row) => row.personId}
-                linkRender={nextLink}
-                empty={{
-                  title: 'No extensions assigned',
-                  description: 'Give each agent a short code on the Voice tab of its profile — that is the number desk phones dial.',
-                }}
+                rowKey={(row) => row.personId}
+                pageSize={10}
+                searchable
+                defaultSort={{ key: 'extension', dir: 'asc' }}
+                labels={{ searchPlaceholder: 'Search extensions…', searchLabel: 'Search extensions' }}
+                empty={
+                  <EmptyState
+                    title="No extensions assigned"
+                    description="Give each agent a short code on the Voice tab of its profile — that is the number desk phones dial."
+                  />
+                }
               />
               <p className="text-xs text-fg-muted">
                 Extensions are assigned on each agent&apos;s profile, under Voice. Each code is unique across the
@@ -515,11 +606,50 @@ export function PhoneSystemRow({
 
           {tab === 'bridge' && detail !== null ? (
             <div className="space-y-3">
-              <RecordList
+              <div className="flex items-center justify-end gap-2">
+                {bridgeExtensions.length > 0 ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() =>
+                      startBusy(async () => {
+                        setBridgeNotice(null)
+                        const result = await refreshBridgeRegistrationsAction()
+                        setBridgeNotice(result.detail)
+                        await refresh()
+                      })
+                    }
+                  >
+                    Check registrations
+                  </Button>
+                ) : null}
+                <Button
+                  size="sm"
+                  disabled={bridgeTrunks.length === 0 || agentOptions.length === 0}
+                  onClick={() => {
+                    setBridgeError(null)
+                    setBridgeDraft({
+                      trunkId: bridgeTrunks[0]?.id ?? '',
+                      extension: '',
+                      personId: agentOptions[0]?.id ?? '',
+                      authUsername: '',
+                      authPassword: '',
+                      clearPassword: false,
+                    })
+                  }}
+                >
+                  Add extension
+                </Button>
+              </div>
+              <PagedTable
                 columns={BRIDGE_COLUMNS}
                 rows={bridgeExtensions}
-                getRowId={(row) => row.id}
-                linkRender={nextLink}
+                rowKey={(row) => row.id}
+                pageSize={10}
+                searchable
+                defaultSort={{ key: 'extension', dir: 'asc' }}
+                labels={{ searchPlaceholder: 'Search extensions…', searchLabel: 'Search extensions' }}
                 onRowClick={(row) => {
                   setBridgeError(null)
                   setBridgeDraft({
@@ -532,49 +662,12 @@ export function PhoneSystemRow({
                     clearPassword: false,
                   })
                 }}
-                toolbarActions={
-                  <span className="flex items-center gap-2">
-                    {bridgeExtensions.length > 0 ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() =>
-                          startBusy(async () => {
-                            setBridgeNotice(null)
-                            const result = await refreshBridgeRegistrationsAction()
-                            setBridgeNotice(result.detail)
-                            await refresh()
-                          })
-                        }
-                      >
-                        Check registrations
-                      </Button>
-                    ) : null}
-                    <Button
-                      size="sm"
-                      disabled={bridgeTrunks.length === 0 || agentOptions.length === 0}
-                      onClick={() => {
-                        setBridgeError(null)
-                        setBridgeDraft({
-                          trunkId: bridgeTrunks[0]?.id ?? '',
-                          extension: '',
-                          personId: agentOptions[0]?.id ?? '',
-                          authUsername: '',
-                          authPassword: '',
-                          clearPassword: false,
-                        })
-                      }}
-                    >
-                      Add extension
-                    </Button>
-                  </span>
+                empty={
+                  <EmptyState
+                    title="No registered extensions"
+                    description="Set a trunk to Registered extensions, then map an agent to each extension the phone system has been given. This deployment signs in as those extensions and answers when a desk phone dials them."
+                  />
                 }
-                empty={{
-                  title: 'No registered extensions',
-                  description:
-                    'Set a trunk to Registered extensions, then map an agent to each extension the phone system has been given. This deployment signs in as those extensions and answers when a desk phone dials them.',
-                }}
               />
               {bridgeExtensions.some((row) => row.lastError) ? (
                 <div className="space-y-2">
@@ -615,36 +708,21 @@ export function PhoneSystemRow({
 
           {tab === 'numbers' ? (
             <div className="space-y-4">
-              {numbers.length === 0 ? (
-                <p className="text-sm text-fg-muted">
-                  No numbers yet. Buy a number from your carrier, point its SIP trunk at the connection details, and
-                  map it to an agent here — calls to it ring that agent from any phone.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {numbers.map((entry) => (
-                    <div
-                      key={entry.id}
-                      className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-medium tabular-nums">+{entry.number}</p>
-                        <p className="truncate text-fg-muted">
-                          {entry.label} · answered by {entry.personName}
-                        </p>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => startBusy(async () => removePhoneNumberAction(entry.id))}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <PagedTable
+                columns={numberColumns(busy, (id) => startBusy(async () => removePhoneNumberAction(id)))}
+                rows={numbers}
+                rowKey={(row) => row.id}
+                pageSize={10}
+                searchable
+                defaultSort={{ key: 'number', dir: 'asc' }}
+                labels={{ searchPlaceholder: 'Search numbers…', searchLabel: 'Search numbers' }}
+                empty={
+                  <EmptyState
+                    title="No numbers yet"
+                    description="Buy a number from your carrier, point its SIP trunk at the connection details, and map it to an agent here — calls to it ring that agent from any phone."
+                  />
+                }
+              />
               <div className="space-y-3 rounded-md border border-border p-3">
                 <p className="text-sm font-medium">Add a number</p>
                 <div className="grid gap-3 sm:grid-cols-3">

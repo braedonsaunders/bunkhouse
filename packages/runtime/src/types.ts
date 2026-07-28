@@ -48,9 +48,35 @@ export type DirectoryEntry = {
   reportsToId?: string
 }
 
+/**
+ * The company an agent works for, as the operator maintains it. Everything
+ * here is stated by the business about itself — an agent may repeat it to a
+ * customer, so nothing may be inferred or embellished downstream.
+ */
+export type CompanyIdentity = {
+  legalName?: string
+  tagline?: string
+  industry?: string
+  websiteUrl?: string
+  /** Services or products offered. */
+  services?: string[]
+  serviceArea?: string
+  /** Who the company serves. */
+  customers?: string[]
+  differentiators?: string[]
+  values?: string[]
+  /** How the company writes and speaks; sits under the agent's own tone. */
+  brandVoice?: string
+  hours?: string
+  contact?: { phone?: string; email?: string; address?: string }
+  /** Anything else every agent should know, in markdown. */
+  notes?: string
+}
+
 export type CompanyProfile = {
   name: string
   description?: string
+  identity?: CompanyIdentity
   directory: DirectoryEntry[]
 }
 

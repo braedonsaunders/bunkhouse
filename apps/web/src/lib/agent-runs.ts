@@ -30,6 +30,7 @@ import {
 } from '../db/schema'
 import { db } from '../db/client'
 import { resolveAgentAiConfig } from './ai'
+import { companyDisplayName, getCompanyIdentity } from './company-identity'
 import { assembleAbilities } from './agent-abilities'
 import { resolvePrice } from './pricing'
 import { sendNewMail, sendReplyInThread } from './mailbox'
@@ -205,6 +206,7 @@ export async function executeAgentRun(args: {
     const dial = new Map(dialRows.map((r) => [r.category, r.level]))
 
     const directory = await app.db.select().from(people).where(eq(people.status, 'active'))
+    const identity = await getCompanyIdentity(args.tenantId)
     // The Logbook: pinned tier always in prompt; the rest scored per task.
     const retrievalQuery =
       args.input.type === 'email'
@@ -267,7 +269,31 @@ export async function executeAgentRun(args: {
         proactivity: person.proactivity ?? 'duties',
       },
       company: {
-        name: 'the company',
+        name: companyDisplayName(identity),
+        ...(identity.description ? { description: identity.description } : {}),
+        identity: {
+          ...(identity.legalName ? { legalName: identity.legalName } : {}),
+          ...(identity.tagline ? { tagline: identity.tagline } : {}),
+          ...(identity.industry ? { industry: identity.industry } : {}),
+          ...(identity.websiteUrl ? { websiteUrl: identity.websiteUrl } : {}),
+          ...(identity.services.length > 0 ? { services: identity.services } : {}),
+          ...(identity.serviceArea ? { serviceArea: identity.serviceArea } : {}),
+          ...(identity.customers.length > 0 ? { customers: identity.customers } : {}),
+          ...(identity.differentiators.length > 0 ? { differentiators: identity.differentiators } : {}),
+          ...(identity.values.length > 0 ? { values: identity.values } : {}),
+          ...(identity.brandVoice ? { brandVoice: identity.brandVoice } : {}),
+          ...(identity.hours ? { hours: identity.hours } : {}),
+          ...(identity.contact.phone || identity.contact.email || identity.contact.address
+            ? {
+                contact: {
+                  ...(identity.contact.phone ? { phone: identity.contact.phone } : {}),
+                  ...(identity.contact.email ? { email: identity.contact.email } : {}),
+                  ...(identity.contact.address ? { address: identity.contact.address } : {}),
+                },
+              }
+            : {}),
+          ...(identity.notes ? { notes: identity.notes } : {}),
+        },
         directory: directory.map((p) => ({
           id: p.id,
           kind: p.kind,

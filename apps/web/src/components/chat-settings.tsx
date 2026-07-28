@@ -1,7 +1,19 @@
 'use client'
 
 import * as React from 'react'
-import { Badge, Button, Drawer, Input, Label, Select, SettingsRow, SubtabNav } from '@appkit/ui'
+import {
+  Badge,
+  Button,
+  Drawer,
+  EmptyState,
+  Input,
+  Label,
+  PagedTable,
+  Select,
+  SettingsRow,
+  SubtabNav,
+  type PagedColumn,
+} from '@appkit/ui'
 import {
   removeChatChannelRouteAction,
   removeSlackConnectionAction,
@@ -422,6 +434,51 @@ function TeamsTab({ connection, webhookUrl }: { connection: ChatConnectionsView[
 
 // --- Channel routing ----------------------------------------------------------
 
+/** Routes are short-lived mappings: one row, one channel, one agent. */
+const routeColumns = (
+  busy: boolean,
+  remove: (id: string) => void,
+): PagedColumn<ChatChannelRouteRowView>[] => [
+  {
+    key: 'provider',
+    header: 'Provider',
+    cell: (row) => <Badge variant="outline">{row.provider === 'slack' ? 'Slack' : 'Teams'}</Badge>,
+    search: (row) => row.provider,
+    sortValue: (row) => row.provider,
+  },
+  {
+    key: 'channel',
+    header: 'Channel',
+    cell: (row) => (
+      <span className="min-w-0">
+        <span className="block truncate font-medium">
+          {row.channelId === '*' ? 'Default (unmapped)' : row.channelId}
+        </span>
+        {row.channelLabel ? <span className="block truncate text-xs text-fg-muted">{row.channelLabel}</span> : null}
+      </span>
+    ),
+    search: (row) => `${row.channelId} ${row.channelLabel ?? ''}`,
+    sortValue: (row) => row.channelId,
+  },
+  {
+    key: 'personName',
+    header: 'Answered by',
+    cell: (row) => row.personName,
+    search: (row) => row.personName,
+    sortValue: (row) => row.personName,
+  },
+  {
+    key: 'actions',
+    header: '',
+    align: 'right',
+    cell: (row) => (
+      <Button variant="outline" size="sm" disabled={busy} onClick={() => remove(row.id)}>
+        Remove
+      </Button>
+    ),
+  },
+]
+
 function RoutingTab({ routes, agents }: { routes: ChatChannelRouteRowView[]; agents: ChatAgentOption[] }) {
   const [provider, setProvider] = React.useState<'slack' | 'teams'>('slack')
   const [channelId, setChannelId] = React.useState('')
@@ -436,31 +493,21 @@ function RoutingTab({ routes, agents }: { routes: ChatChannelRouteRowView[]; age
         Which agent answers which channel or direct message. A route with channel ID <code>*</code> is the default agent —
         it answers any mention or DM that has no specific mapping, so a message never goes unanswered.
       </p>
-      {routes.length === 0 ? (
-        <p className="text-fg-muted">No channels routed yet. Add one below, or add a <code>*</code> route for a single default agent.</p>
-      ) : (
-        <div className="space-y-2">
-          {routes.map((route) => (
-            <div key={route.id} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-              <div className="min-w-0">
-                <p className="font-medium">
-                  {route.provider === 'slack' ? 'Slack' : 'Teams'} · {route.channelId === '*' ? 'Default (unmapped)' : route.channelId}
-                  {route.channelLabel ? ` — ${route.channelLabel}` : ''}
-                </p>
-                <p className="truncate text-fg-muted">Answered by {route.personName}</p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => startBusy(async () => removeChatChannelRouteAction(route.id))}
-              >
-                Remove
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
+      <PagedTable
+        columns={routeColumns(busy, (id) => startBusy(async () => removeChatChannelRouteAction(id)))}
+        rows={routes}
+        rowKey={(row) => row.id}
+        pageSize={8}
+        searchable
+        defaultSort={{ key: 'channel', dir: 'asc' }}
+        labels={{ searchPlaceholder: 'Search routes…', searchLabel: 'Search routes' }}
+        empty={
+          <EmptyState
+            title="No channels routed yet"
+            description="Add one below, or add a * route so a single default agent answers anything unmapped."
+          />
+        }
+      />
       <div className="space-y-3 rounded-md border border-border p-3">
         <p className="font-medium">Add a route</p>
         <div className="grid gap-3 sm:grid-cols-2">

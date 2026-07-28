@@ -13,7 +13,7 @@ import {
 } from '../db/schema/templates'
 import { db } from '../db/client'
 import { saveFile, type FileRecord } from './files'
-import { getDocumentBranding } from './documents'
+import { resolveDocumentBranding } from './documents'
 import { fileDeliverable } from './filing'
 import {
   findPlaceholders,
@@ -254,7 +254,7 @@ export async function renderTemplateHtml(args: {
   const html = officeDocumentHtml({
     bodyHtml: sanitizeOfficeHtml(merged.value),
     title: args.title?.trim() || args.template.name,
-    branding: await getDocumentBranding(args.tenantId),
+    branding: await resolveDocumentBranding(args.tenantId),
   })
   return { html, unfilled: merged.unfilled }
 }

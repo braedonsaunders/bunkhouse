@@ -5,13 +5,16 @@ import {
   Badge,
   Button,
   Drawer,
+  EmptyState,
   Input,
   Label,
-  RecordList,
+  PagedTable,
   Select,
+  SettingsRow,
+  SettingsSection,
   SubtabNav,
   Textarea,
-  type RecordColumn,
+  type PagedColumn,
 } from '@appkit/ui'
 import { RichTextEditor } from '@appkit/editor'
 import {
@@ -59,26 +62,42 @@ export type TemplateRowView = {
   updatedAt: string
 }
 
-const COLUMNS: RecordColumn<TemplateRowView>[] = [
-  { key: 'name', label: 'Template', sortable: true },
+const COLUMNS: PagedColumn<TemplateRowView>[] = [
+  {
+    key: 'name',
+    header: 'Template',
+    cell: (row) => (
+      <span className="min-w-0">
+        <span className="block truncate font-medium text-primary">{row.name}</span>
+        {row.description ? <span className="block truncate text-xs text-fg-muted">{row.description}</span> : null}
+      </span>
+    ),
+    search: (row) => `${row.name} ${row.slug} ${row.description}`,
+    sortValue: (row) => row.name,
+  },
   {
     key: 'kind',
-    label: 'Kind',
-    kind: 'status',
-    sortable: true,
-    statusVariant: () => 'outline',
-    format: (value) => (value === 'spreadsheet' ? 'Spreadsheet' : 'Document'),
+    header: 'Kind',
+    cell: (row) => <Badge variant="outline">{row.kind === 'spreadsheet' ? 'Spreadsheet' : 'Document'}</Badge>,
+    search: (row) => row.kind,
+    sortValue: (row) => row.kind,
   },
-  { key: 'produces', label: 'Produces' },
-  { key: 'fieldCount', label: 'Merge fields', align: 'right', sortable: true },
+  { key: 'produces', header: 'Produces', cell: (row) => row.produces, sortValue: (row) => row.produces },
+  {
+    key: 'fieldCount',
+    header: 'Merge fields',
+    align: 'right',
+    cell: (row) => row.fieldCount,
+    sortValue: (row) => row.fieldCount,
+  },
   {
     key: 'status',
-    label: 'Status',
-    kind: 'status',
-    sortable: true,
-    statusVariant: (value) => (value === 'active' ? 'default' : 'outline'),
+    header: 'Status',
+    cell: (row) => <Badge variant={row.status === 'active' ? 'default' : 'outline'}>{row.status}</Badge>,
+    search: (row) => row.status,
+    sortValue: (row) => row.status,
   },
-  { key: 'updatedAt', label: 'Updated', sortable: true },
+  { key: 'updatedAt', header: 'Updated', cell: (row) => row.updatedAt, sortValue: (row) => row.updatedAt },
 ]
 
 type Draft = {
@@ -129,7 +148,6 @@ function detectFields(draft: Draft): { names: string[]; error: string | null } {
 }
 
 export function DocumentTemplatesView({ rows }: { rows: TemplateRowView[] }) {
-  const [search, setSearch] = React.useState('')
   const [draft, setDraft] = React.useState<Draft | null>(null)
   const [editorKey, setEditorKey] = React.useState(0)
   const [tab, setTab] = React.useState('template')
@@ -142,12 +160,6 @@ export function DocumentTemplatesView({ rows }: { rows: TemplateRowView[] }) {
 
   const detected = draft ? detectFields(draft) : { names: [], error: null }
   const current = draft?.id ? (rows.find((row) => row.id === draft.id) ?? null) : null
-
-  const visible = rows.filter((row) =>
-    search.trim()
-      ? `${row.name} ${row.slug} ${row.description}`.toLowerCase().includes(search.trim().toLowerCase())
-      : true,
-  )
 
   const open = (next: Draft) => {
     setDraft(next)
@@ -254,29 +266,44 @@ export function DocumentTemplatesView({ rows }: { rows: TemplateRowView[] }) {
 
   return (
     <div className="space-y-4">
-      <RecordList
-        columns={COLUMNS}
-        rows={visible}
-        getRowId={(row) => row.id}
-        search={{ value: search, onChange: setSearch, placeholder: 'Search templates' }}
-        toolbarActions={
-          <span className="flex gap-2">
-            <Button size="sm" onClick={() => open(newDraft('document'))}>
-              New document template
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => open(newDraft('spreadsheet'))}>
-              New spreadsheet template
-            </Button>
-          </span>
-        }
-        onRowClick={(row) => open(draftFromRow(row))}
-        empty={{
-          title: 'No templates yet',
-          description:
-            'Write the paperwork your company sends every week — an engagement letter, a quote, an inspection report — and agents fill it in instead of composing from scratch.',
-          action: <Button onClick={() => open(newDraft('document'))}>New document template</Button>,
-        }}
-      />
+      <SettingsSection
+        title="Document templates"
+        description="The paperwork your company sends every week — an engagement letter, a quote, an inspection report. Agents fill a template in instead of composing from scratch, and the merge fields are derived from the wording itself."
+      >
+        <SettingsRow
+          title="Your templates"
+          description="Open one to edit its wording, its merge fields, and a live preview of a filled copy."
+          control={
+            <span className="flex gap-2">
+              <Button size="sm" onClick={() => open(newDraft('document'))}>
+                New document template
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => open(newDraft('spreadsheet'))}>
+                New spreadsheet template
+              </Button>
+            </span>
+          }
+        />
+        <div className="px-5 py-4">
+          <PagedTable
+            columns={COLUMNS}
+            rows={rows}
+            rowKey={(row) => row.id}
+            pageSize={10}
+            searchable
+            defaultSort={{ key: 'updatedAt', dir: 'desc' }}
+            onRowClick={(row) => open(draftFromRow(row))}
+            labels={{ searchPlaceholder: 'Search templates…', searchLabel: 'Search templates' }}
+            empty={
+              <EmptyState
+                title="No templates yet"
+                description="Write the paperwork your company sends every week and agents fill it in instead of composing from scratch."
+                action={<Button onClick={() => open(newDraft('document'))}>New document template</Button>}
+              />
+            }
+          />
+        </div>
+      </SettingsSection>
 
       <Drawer
         open={draft !== null}

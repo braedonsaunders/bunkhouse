@@ -1,7 +1,20 @@
 'use client'
 
 import * as React from 'react'
-import { Badge, Button, EmptyState, Input, Label, Select, SettingsRow, SettingsSection, Textarea } from '@appkit/ui'
+import {
+  Badge,
+  Button,
+  Drawer,
+  EmptyState,
+  Input,
+  Label,
+  PagedTable,
+  Select,
+  SettingsRow,
+  SettingsSection,
+  Textarea,
+  type PagedColumn,
+} from '@appkit/ui'
 import { isSmsProvider, smsProviderSpec, SMS_PROVIDER_SPECS, type SmsProvider } from '@appkit/sms/providers'
 import {
   removeMcpIntegrationAction,
@@ -124,56 +137,111 @@ const CATEGORY_OPTIONS = [
   { value: 'phone_call', label: 'Phone calls' },
 ]
 
+const categoryLabel = (value: string) => CATEGORY_OPTIONS.find((c) => c.value === value)?.label ?? value
+
+const INTEGRATION_COLUMNS: PagedColumn<IntegrationRowView>[] = [
+  {
+    key: 'label',
+    header: 'Connection',
+    cell: (row) => (
+      <span className="min-w-0">
+        <span className="block truncate font-medium text-primary">{row.label}</span>
+        <span className="block truncate text-xs text-fg-muted">{row.slug}</span>
+      </span>
+    ),
+    search: (row) => `${row.label} ${row.slug}`,
+    sortValue: (row) => row.label,
+  },
+  {
+    key: 'url',
+    header: 'Server',
+    cell: (row) => <span className="block max-w-xs truncate">{row.url}</span>,
+    search: (row) => row.url,
+    sortValue: (row) => row.url,
+  },
+  {
+    key: 'category',
+    header: 'Governed as',
+    cell: (row) => <Badge variant="secondary">{categoryLabel(row.category)}</Badge>,
+    search: (row) => categoryLabel(row.category),
+    sortValue: (row) => categoryLabel(row.category),
+  },
+  {
+    key: 'credentials',
+    header: 'Credentials',
+    cell: (row) => (row.hasHeaders ? <Badge variant="outline">sealed</Badge> : <span className="text-fg-muted">none</span>),
+    sortValue: (row) => (row.hasHeaders ? 1 : 0),
+  },
+]
+
+/**
+ * The MCP connections agents work through. The list is the record; adding or
+ * changing one happens in a drawer, so a long form never sits under the table.
+ */
 export function IntegrationsSection({ integrations }: { integrations: IntegrationRowView[] }) {
-  const [label, setLabel] = React.useState('')
-  const [slug, setSlug] = React.useState('')
-  const [url, setUrl] = React.useState('')
-  const [headersText, setHeadersText] = React.useState('')
-  const [category, setCategory] = React.useState('record_write')
-  const [notice, setNotice] = React.useState<string | null>(null)
-  const [error, setError] = React.useState<string | null>(null)
-  const [busy, startBusy] = React.useTransition()
+  const [editing, setEditing] = React.useState<IntegrationRowView | 'new' | null>(null)
 
   return (
     <SettingsSection
       title="Integrations"
       description="External systems your agents can work in, connected over MCP — accounting, CRM, ticketing, anything that speaks it. Every tool a connection exposes is governed by the autonomy dial under the action category you choose here."
     >
-      {integrations.length === 0 ? (
-        <EmptyState
-          title="No integrations yet"
-          description="Connect a server and its tools appear in every agent's toolbox — on calls and in runs — governed like everything else."
+      <SettingsRow
+        title="Connected servers"
+        description="Each server's tools appear in every agent's toolbox — on calls and in runs — governed like everything else."
+        control={<Button size="sm" onClick={() => setEditing('new')}>Connect a server</Button>}
+      />
+      <div className="px-5 py-4">
+        <PagedTable
+          columns={INTEGRATION_COLUMNS}
+          rows={integrations}
+          rowKey={(row) => row.slug}
+          pageSize={10}
+          searchable
+          defaultSort={{ key: 'label', dir: 'asc' }}
+          onRowClick={(row) => setEditing(row)}
+          labels={{ searchPlaceholder: 'Search integrations…', searchLabel: 'Search integrations' }}
+          empty={
+            <EmptyState
+              title="No integrations yet"
+              description="Connect a server and its tools appear in every agent's toolbox, governed like everything else."
+              action={<Button onClick={() => setEditing('new')}>Connect a server</Button>}
+            />
+          }
         />
-      ) : (
-        integrations.map((entry) => (
-          <SettingsRow
-            key={entry.slug}
-            title={`${entry.label} · ${entry.slug}`}
-            description={entry.url}
-            control={
-              <span className="flex items-center gap-2">
-                <Badge variant="secondary">{CATEGORY_OPTIONS.find((c) => c.value === entry.category)?.label ?? entry.category}</Badge>
-                {entry.hasHeaders ? <Badge variant="outline">credentials sealed</Badge> : null}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() =>
-                    startBusy(async () => {
-                      const form = new FormData()
-                      form.set('slug', entry.slug)
-                      await removeMcpIntegrationAction(form)
-                    })
-                  }
-                >
-                  Remove
-                </Button>
-              </span>
-            }
-          />
-        ))
-      )}
-      <SettingsRow title="Connect a server" description="The connection is tested before it is saved." stacked>
+      </div>
+
+      {editing ? (
+        <IntegrationDrawer
+          key={editing === 'new' ? 'new' : editing.slug}
+          entry={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
+    </SettingsSection>
+  )
+}
+
+/** Add or replace one MCP connection. The server is probed before it saves. */
+function IntegrationDrawer({ entry, onClose }: { entry: IntegrationRowView | null; onClose: () => void }) {
+  const [label, setLabel] = React.useState(entry?.label ?? '')
+  const [slug, setSlug] = React.useState(entry?.slug ?? '')
+  const [url, setUrl] = React.useState(entry?.url ?? '')
+  const [headersText, setHeadersText] = React.useState('')
+  const [category, setCategory] = React.useState(entry?.category ?? 'record_write')
+  const [notice, setNotice] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [busy, startBusy] = React.useTransition()
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={entry ? entry.label : 'Connect a server'}
+      description="Every tool this server exposes is governed by the autonomy dial under the action category you choose. The connection is tested before it is saved."
+      size="md"
+    >
+      <div className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <Label htmlFor="mcp-label">Name</Label>
@@ -181,13 +249,19 @@ export function IntegrationsSection({ integrations }: { integrations: Integratio
           </div>
           <div className="space-y-1">
             <Label htmlFor="mcp-slug">Slug</Label>
-            <Input id="mcp-slug" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="openbooks — prefixes its tool names" />
+            <Input
+              id="mcp-slug"
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              disabled={entry !== null}
+              placeholder="openbooks — prefixes its tool names"
+            />
           </div>
           <div className="space-y-1 sm:col-span-2">
             <Label htmlFor="mcp-url">Server URL</Label>
             <Input id="mcp-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…/mcp" />
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1 sm:col-span-2">
             <Label htmlFor="mcp-headers">Headers (optional, sealed at rest)</Label>
             <Textarea
               id="mcp-headers"
@@ -196,8 +270,14 @@ export function IntegrationsSection({ integrations }: { integrations: Integratio
               rows={2}
               placeholder={'Authorization: Bearer …\nOne per line'}
             />
+            {entry?.hasHeaders ? (
+              <p className="text-xs text-fg-muted">
+                Credentials are already sealed for this server. Leave this blank to keep them, or enter new headers to
+                replace them.
+              </p>
+            ) : null}
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1 sm:col-span-2">
             <Label htmlFor="mcp-category">Governed as</Label>
             <Select id="mcp-category" value={category} onChange={(e) => setCategory(e.target.value)}>
               {CATEGORY_OPTIONS.map((c) => (
@@ -209,7 +289,7 @@ export function IntegrationsSection({ integrations }: { integrations: Integratio
             <p className="text-xs text-fg-muted">The autonomy dial governs all of this server&apos;s tools under this category.</p>
           </div>
         </div>
-        <div className="mt-3 flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Button
             disabled={busy || !label.trim() || !url.trim()}
             onClick={() =>
@@ -228,20 +308,33 @@ export function IntegrationsSection({ integrations }: { integrations: Integratio
                   return
                 }
                 setNotice(`Connected — ${result.toolCount} tool${result.toolCount === 1 ? '' : 's'} available.`)
-                setLabel('')
-                setSlug('')
-                setUrl('')
-                setHeadersText('')
+                onClose()
               })
             }
           >
-            Test &amp; save
+            {busy ? 'Testing…' : 'Test & save'}
           </Button>
+          {entry ? (
+            <Button
+              variant="destructive"
+              disabled={busy}
+              onClick={() =>
+                startBusy(async () => {
+                  const form = new FormData()
+                  form.set('slug', entry.slug)
+                  await removeMcpIntegrationAction(form)
+                  onClose()
+                })
+              }
+            >
+              Remove
+            </Button>
+          ) : null}
           {notice ? <p className="text-sm text-fg-muted">{notice}</p> : null}
           {error ? <p className="text-sm text-danger">{error}</p> : null}
         </div>
-      </SettingsRow>
-    </SettingsSection>
+      </div>
+    </Drawer>
   )
 }
 
@@ -250,8 +343,17 @@ export type DocumentBrandingView = { companyName: string; accentColor: string; f
 /**
  * How agent-authored documents present the company: the letterhead line,
  * accent color, and footer on every generated .docx and .pdf deliverable.
+ * The company is named once, under Company → Identity; the field here is only
+ * for the rare case where documents carry a different name.
  */
-export function DocumentsSection({ branding }: { branding: DocumentBrandingView }) {
+export function DocumentsSection({
+  branding,
+  identityName,
+}: {
+  branding: DocumentBrandingView
+  /** The company name from Company → Identity, used when this is left blank. */
+  identityName: string
+}) {
   const [companyName, setCompanyName] = React.useState(branding.companyName)
   const [accentColor, setAccentColor] = React.useState(branding.accentColor)
   const [footerText, setFooterText] = React.useState(branding.footerText)
@@ -272,8 +374,13 @@ export function DocumentsSection({ branding }: { branding: DocumentBrandingView 
               id="doc-company"
               value={companyName}
               onChange={(event) => setCompanyName(event.target.value)}
-              placeholder="Shown at the top of every document"
+              placeholder={identityName || 'Set your company name under Company → Identity'}
             />
+            <p className="text-xs text-fg-muted">
+              {identityName
+                ? `Leave blank and documents are headed "${identityName}" — your company name.`
+                : 'Set your company name under Company → Identity; this field only overrides it on documents.'}
+            </p>
           </div>
           <div className="space-y-1">
             <Label htmlFor="doc-accent">Accent color</Label>

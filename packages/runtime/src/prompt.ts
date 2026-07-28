@@ -1,4 +1,48 @@
-import type { BoundProcedure, CompanyProfile, AgentProfile, MemoryNote, RunInput } from './types'
+import type { BoundProcedure, CompanyIdentity, CompanyProfile, AgentProfile, MemoryNote, RunInput } from './types'
+
+/**
+ * The company an agent speaks for, in the operator's own words. Rendered as
+ * labelled lines rather than prose so the model can quote a service or a
+ * phone number back to a customer without paraphrasing it into something the
+ * business never said. Empty fields are omitted entirely — an agent must not
+ * learn that the company "has no stated values".
+ */
+function renderIdentity(name: string, identity: CompanyIdentity): string {
+  const lines: string[] = []
+  const add = (label: string, value?: string) => {
+    if (value?.trim()) lines.push(`- ${label}: ${value.trim()}`)
+  }
+  const addList = (label: string, values?: string[]) => {
+    const kept = (values ?? []).map((v) => v.trim()).filter(Boolean)
+    if (kept.length > 0) lines.push(`- ${label}: ${kept.join('; ')}`)
+  }
+
+  add('Legal name', identity.legalName)
+  add('Tagline', identity.tagline)
+  add('Industry', identity.industry)
+  addList('What we do', identity.services)
+  add('Where we work', identity.serviceArea)
+  addList('Who we serve', identity.customers)
+  addList('What sets us apart', identity.differentiators)
+  addList('What we stand for', identity.values)
+  add('Hours', identity.hours)
+  add('Phone', identity.contact?.phone)
+  add('Email', identity.contact?.email)
+  add('Address', identity.contact?.address)
+  add('Website', identity.websiteUrl)
+
+  if (lines.length === 0 && !identity.brandVoice?.trim() && !identity.notes?.trim()) return ''
+
+  const sections = [`Facts about ${name} you may state to anyone who asks:\n${lines.join('\n')}`]
+  if (identity.brandVoice?.trim()) {
+    sections.push(`How ${name} sounds: ${identity.brandVoice.trim()} Keep your own voice inside that.`)
+  }
+  if (identity.notes?.trim()) sections.push(`Also true of ${name}:\n${identity.notes.trim()}`)
+  sections.push(
+    `Anything about ${name} that is not stated above, you do not know — find out or ask, never guess on the company's behalf.`,
+  )
+  return sections.join('\n\n')
+}
 
 /**
  * Context assembly. The system prompt is the agent's whole working identity:
@@ -22,6 +66,10 @@ export function buildSystemPrompt(args: {
   if (agent.responsibilities) sections.push(`Your responsibilities: ${agent.responsibilities}`)
 
   if (company.description) sections.push(`About ${company.name}: ${company.description}`)
+  if (company.identity) {
+    const identity = renderIdentity(company.name, company.identity)
+    if (identity) sections.push(identity)
+  }
 
   const nameOf = new Map(company.directory.map((p) => [p.id, p.name]))
   const directory = company.directory

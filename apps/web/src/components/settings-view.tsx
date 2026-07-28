@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Boxes, Brain, CircleDollarSign, FileText, FolderCog, Globe, ImageIcon, Mail, MessageSquare,
+import { Boxes, Brain, Building2, FileText, FolderCog, Globe, ImageIcon, Mail, MessageSquare,
   MessagesSquare, Phone, Plug, Shield } from 'lucide-react'
 import {
   Badge,
@@ -11,12 +11,13 @@ import {
   EmptyState,
   Input,
   Label,
-  RecordList,
+  PagedTable,
   SettingsRow,
   SettingsSection,
   SettingsShell,
+  SubtabNav,
   type LinkRender,
-  type RecordColumn,
+  type PagedColumn,
   type SettingsNavGroup,
 } from '@appkit/ui'
 import {
@@ -31,6 +32,7 @@ import { AvatarPartsView, type AvatarPartRowView } from './avatar-parts-view'
 import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
 import { ImageProviderForm } from './image-provider-form'
 import { AutonomySettings, type AgentDial } from './autonomy-settings'
+import { CompanyIdentitySettings, type CompanyIdentityView, type IdentityProviderOption } from './company-identity-settings'
 import { PhoneSystemRow, type AgentExtensionRow, type AgentOption, type PhoneNumberRowView, type SipTrunkSummary } from './phone-system'
 import { MailOauthApps, type MailOauthAppView } from './mail-oauth-apps'
 import { DocumentsSection, IntegrationsSection, ResearchSection, SmsSection, WorkspaceSection, type DocumentBrandingView, type IntegrationRowView, type SmsSettingsView, type WorkspacePolicyView } from './capability-settings'
@@ -59,6 +61,9 @@ export type PriceRow = {
   model: string
   inputUsdPerMtok: string
   outputUsdPerMtok: string
+  /** Raw dollars behind the formatted columns, so sorting is numeric. */
+  inputUsd: number
+  outputUsd: number
   source: string
   sourceRef?: string
   effectiveAt: string
@@ -104,60 +109,132 @@ const SPEECH_PROVIDERS: {
   },
 ]
 
+/**
+ * The settings sidebar, grouped the way an operator thinks about the company:
+ * who we are, how far agents are trusted, what powers them, how they are
+ * reached, and where their work lands. Sections that belong together share one
+ * page and split across subtabs rather than stacking lists on top of each other.
+ */
 const NAV: SettingsNavGroup[] = [
+  {
+    label: 'Company',
+    items: [
+      { key: 'identity', label: 'Identity', icon: <Building2 /> },
+      { key: 'documents', label: 'Documents', icon: <FileText /> },
+      { key: 'avatar-parts', label: 'Avatar parts', icon: <Boxes /> },
+    ],
+  },
   {
     label: 'Trust',
     items: [{ key: 'autonomy', label: 'Autonomy', icon: <Shield /> }],
   },
   {
-    label: 'Company',
+    label: 'Intelligence',
     items: [
-      { key: 'ai', label: 'Model providers', icon: <Brain /> },
-      { key: 'pricing', label: 'Model pricing', icon: <CircleDollarSign /> },
-      { key: 'mailboxes', label: 'Mailboxes', icon: <Mail /> },
-      { key: 'voice', label: 'Voice', icon: <Phone /> },
+      { key: 'ai', label: 'Models', icon: <Brain /> },
+      { key: 'images', label: 'Image generation', icon: <ImageIcon /> },
+      { key: 'research', label: 'Research', icon: <Globe /> },
+    ],
+  },
+  {
+    label: 'Channels',
+    items: [
+      { key: 'mail', label: 'Mail', icon: <Mail /> },
+      { key: 'voice', label: 'Voice & phone', icon: <Phone /> },
       { key: 'sms', label: 'Text messaging', icon: <MessageSquare /> },
       { key: 'chat', label: 'Chat bridge', icon: <MessagesSquare /> },
-      { key: 'research', label: 'Research', icon: <Globe /> },
-      { key: 'documents', label: 'Documents', icon: <FileText /> },
-      { key: 'templates', label: 'Document templates', icon: <FileText /> },
-      { key: 'filing', label: 'Filing', icon: <FolderCog /> },
-      { key: 'callcosts', label: 'Call costs & recordings', icon: <Phone /> },
+    ],
+  },
+  {
+    label: 'Systems',
+    items: [
       { key: 'workspace', label: 'Workspace', icon: <FolderCog /> },
       { key: 'integrations', label: 'Integrations', icon: <Plug /> },
-      { key: 'images', label: 'Image generation', icon: <ImageIcon /> },
-      { key: 'avatar-parts', label: 'Avatar parts', icon: <Boxes /> },
     ],
   },
 ]
 
-const PRICE_COLUMNS: RecordColumn<PriceRow>[] = [
-  { key: 'model', label: 'Model', sortable: true },
-  { key: 'inputUsdPerMtok', label: 'Input $/Mtok', kind: 'amount', sortable: true },
-  { key: 'outputUsdPerMtok', label: 'Output $/Mtok', kind: 'amount', sortable: true },
+const SECTION_KEYS = new Set(NAV.flatMap((group) => group.items.map((item) => item.key)))
+
+/**
+ * Sections that used to have their own sidebar entry now live as a subtab of
+ * the page they belong to. Old `?section=` links keep working and land on the
+ * right tab — a deep link an operator bookmarked never dead-ends.
+ */
+const SECTION_ALIASES: Record<string, { section: string; tab: string }> = {
+  pricing: { section: 'ai', tab: 'pricing' },
+  mailboxes: { section: 'mail', tab: 'mailboxes' },
+  templates: { section: 'documents', tab: 'templates' },
+  filing: { section: 'documents', tab: 'filing' },
+  callcosts: { section: 'voice', tab: 'costs' },
+}
+
+function resolveSection(requested: string): { section: string; tab: string | null } {
+  const alias = SECTION_ALIASES[requested]
+  if (alias) return { section: alias.section, tab: alias.tab }
+  if (SECTION_KEYS.has(requested)) return { section: requested, tab: null }
+  return { section: 'identity', tab: null }
+}
+
+const PRICE_COLUMNS: PagedColumn<PriceRow>[] = [
+  { key: 'model', header: 'Model', cell: (row) => row.model, search: (row) => row.model, sortValue: (row) => row.model },
+  {
+    key: 'input',
+    header: 'Input $/Mtok',
+    align: 'right',
+    cell: (row) => row.inputUsdPerMtok,
+    sortValue: (row) => row.inputUsd,
+  },
+  {
+    key: 'output',
+    header: 'Output $/Mtok',
+    align: 'right',
+    cell: (row) => row.outputUsdPerMtok,
+    sortValue: (row) => row.outputUsd,
+  },
   {
     key: 'source',
-    label: 'Source',
-    kind: 'status',
-    statusVariant: (value) => (value === 'openrouter' ? 'secondary' : 'outline'),
+    header: 'Source',
+    cell: (row) => <Badge variant={row.source === 'openrouter' ? 'secondary' : 'outline'}>{row.source}</Badge>,
+    search: (row) => row.source,
+    sortValue: (row) => row.source,
   },
-  { key: 'effectiveAt', label: 'Effective', sortable: true },
+  {
+    key: 'effectiveAt',
+    header: 'Effective',
+    cell: (row) => row.effectiveAt,
+    sortValue: (row) => row.effectiveAt,
+  },
 ]
 
-const MAILBOX_COLUMNS: RecordColumn<MailboxRow>[] = [
-  { key: 'personName', label: 'Agent', kind: 'reference', sortable: true, href: (row) => `/organization/agents?person=${row.personId}` },
-  { key: 'address', label: 'Address', sortable: true },
+const MAILBOX_COLUMNS: PagedColumn<MailboxRow>[] = [
+  {
+    key: 'personName',
+    header: 'Agent',
+    cell: (row) => <span className="font-medium text-primary">{row.personName}</span>,
+    search: (row) => row.personName,
+    sortValue: (row) => row.personName,
+  },
+  { key: 'address', header: 'Address', cell: (row) => row.address, search: (row) => row.address, sortValue: (row) => row.address },
   {
     key: 'status',
-    label: 'Status',
-    kind: 'status',
-    sortable: true,
-    statusVariant: (value) => (value === 'active' ? 'default' : value === 'error' ? 'destructive' : 'outline'),
+    header: 'Status',
+    cell: (row) => (
+      <Badge variant={row.status === 'active' ? 'default' : row.status === 'error' ? 'destructive' : 'outline'}>
+        {row.status}
+      </Badge>
+    ),
+    search: (row) => row.status,
+    sortValue: (row) => row.status,
   },
-  { key: 'lastSyncAt', label: 'Last sync' },
-  { key: 'lastError', label: 'Last error' },
+  { key: 'lastSyncAt', header: 'Last sync', cell: (row) => row.lastSyncAt || 'never', sortValue: (row) => row.lastSyncAt ?? '' },
+  {
+    key: 'lastError',
+    header: 'Last error',
+    cell: (row) => (row.lastError ? <span className="text-danger">{row.lastError}</span> : '—'),
+    search: (row) => row.lastError ?? '',
+  },
 ]
-
 
 export function SettingsView({
   providers,
@@ -172,6 +249,7 @@ export function SettingsView({
   voiceProviders,
   research,
   documents,
+  companyIdentity,
   workspace,
   chat,
   callCosts,
@@ -201,6 +279,8 @@ export function SettingsView({
   voiceProviders: VoiceProviderState
   research: { provider: string | null }
   documents: DocumentBrandingView
+  /** Who the company is — the profile every agent works from. */
+  companyIdentity: CompanyIdentityView
   workspace: WorkspacePolicyView
   callCosts: VoiceCostSettingsView
   templates: TemplateRowView[]
@@ -227,12 +307,13 @@ export function SettingsView({
   avatarPartCategories: AvatarPartCategory[]
   /** The same parts shaped for the composer and the previews. */
   avatarPartLibrary: AvatarPart[]
-  /**
-   * Instance-operator data — present only when the signed-in user is a super
-   * admin (the server withholds it otherwise, and the actions re-authorize).
-   */
 }) {
-  const [active, setActive] = React.useState(initialSection)
+  const arrival = React.useMemo(() => resolveSection(initialSection), [initialSection])
+  const [active, setActive] = React.useState(arrival.section)
+  const [modelTab, setModelTab] = React.useState(arrival.tab ?? 'providers')
+  const [documentTab, setDocumentTab] = React.useState(arrival.tab ?? 'letterhead')
+  const [mailTab, setMailTab] = React.useState(arrival.tab ?? 'mailboxes')
+  const [voiceTab, setVoiceTab] = React.useState(arrival.tab ?? 'pipeline')
   const [busy, startBusy] = React.useTransition()
   const [notice, setNotice] = React.useState<string | null>(null)
   const [priceDrawer, setPriceDrawer] = React.useState<string | null>(null)
@@ -242,13 +323,16 @@ export function SettingsView({
   const [voiceError, setVoiceError] = React.useState<string | null>(null)
   const imageCapable = providers.filter((p) => ['openai', 'google'].includes(p.provider))
   const priceHistory = priceDrawer && priceDrawer !== '*new*' ? prices.filter((row) => row.model === priceDrawer) : []
-  const nav: SettingsNavGroup[] = NAV
+  const identityProviders: IdentityProviderOption[] = providers.map((provider) => ({
+    slug: provider.slug,
+    label: `${provider.label} · ${provider.slug}`,
+  }))
 
   return (
     <SettingsShell
       title="Settings"
-      description="Company-level configuration: how much your agents are trusted to do, and what powers them."
-      nav={nav}
+      description="Company-level configuration: who your agents work for, how far they are trusted, and what powers them."
+      nav={NAV}
       activeKey={active}
       onSelect={(key) => {
         setActive(key)
@@ -256,6 +340,10 @@ export function SettingsView({
       }}
       linkRender={nextLink}
     >
+      {active === 'identity' ? (
+        <CompanyIdentitySettings identity={companyIdentity} providers={identityProviders} />
+      ) : null}
+
       {active === 'autonomy' ? (
         <SettingsSection
           title="Autonomy"
@@ -266,215 +354,304 @@ export function SettingsView({
       ) : null}
 
       {active === 'ai' ? (
-        <SettingsSection
-          title="Model providers"
-          description="Your own API keys, sealed at rest and live-verified before saving. Each agent is assigned a provider and model on its profile."
-        >
-          {providers.length === 0 ? (
-            <EmptyState title="No providers yet" description="Add one API key and your agents can start thinking." />
-          ) : (
-            providers.map((entry) => (
+        <div className="space-y-4">
+          <SubtabNav
+            ariaLabel="Models"
+            active={modelTab}
+            onSelect={setModelTab}
+            tabs={[
+              { key: 'providers', label: 'Providers', count: providers.length },
+              { key: 'pricing', label: 'Pricing', count: prices.length },
+            ]}
+          />
+
+          {modelTab === 'providers' ? (
+            <SettingsSection
+              title="Model providers"
+              description="Your own API keys, sealed at rest and live-verified before saving. Each agent is assigned a provider and model on its profile."
+            >
+              {providers.length === 0 ? (
+                <EmptyState title="No providers yet" description="Add one API key and your agents can start thinking." />
+              ) : (
+                providers.map((entry) => (
+                  <SettingsRow
+                    key={entry.slug}
+                    title={`${entry.label} · ${entry.slug}`}
+                    description={`${entry.provider}${entry.modelSmart ? ` · default ${entry.modelSmart}` : ''}${entry.modelFast ? ` · fast ${entry.modelFast}` : ''}${entry.baseUrl ? ` · ${entry.baseUrl}` : ''}`}
+                    control={
+                      <span className="flex items-center gap-2">
+                        <Badge variant="secondary">key sealed</Badge>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() =>
+                            startBusy(async () => {
+                              const form = new FormData()
+                              form.set('slug', entry.slug)
+                              await removeProviderAction(form)
+                            })
+                          }
+                        >
+                          Remove
+                        </Button>
+                      </span>
+                    }
+                  />
+                ))
+              )}
+              <SettingsRow title="Add a provider" description="Verify the key, pick defaults from its live model list." stacked>
+                <AddProviderForm kinds={kinds} />
+              </SettingsRow>
+            </SettingsSection>
+          ) : null}
+
+          {modelTab === 'pricing' ? (
+            <SettingsSection
+              title="Model pricing"
+              description="Effective-dated, append-only price rows — every spend record stamps the exact price it used, so costs are auditable forever. Refresh pulls live prices from the OpenRouter catalog for models your agents use; '*' is the company default."
+            >
               <SettingsRow
-                key={entry.slug}
-                title={`${entry.label} · ${entry.slug}`}
-                description={`${entry.provider}${entry.modelSmart ? ` · default ${entry.modelSmart}` : ''}${entry.modelFast ? ` · fast ${entry.modelFast}` : ''}${entry.baseUrl ? ` · ${entry.baseUrl}` : ''}`}
+                title="Keeping prices current"
+                description="Refreshing appends a new effective row only where the price actually changed."
                 control={
                   <span className="flex items-center gap-2">
-                    <Badge variant="secondary">key sealed</Badge>
+                    <Button variant="outline" size="sm" onClick={() => setPriceDrawer('*new*')}>
+                      Add manual price
+                    </Button>
                     <Button
-                      variant="outline"
                       size="sm"
                       disabled={busy}
                       onClick={() =>
                         startBusy(async () => {
-                          const form = new FormData()
-                          form.set('slug', entry.slug)
-                          await removeProviderAction(form)
+                          setNotice(null)
+                          try {
+                            await refreshPricesAction()
+                            setNotice('Prices refreshed.')
+                          } catch (err) {
+                            setNotice(err instanceof Error ? err.message : String(err))
+                          }
                         })
                       }
                     >
-                      Remove
+                      {busy ? 'Refreshing…' : 'Refresh from OpenRouter'}
                     </Button>
                   </span>
                 }
               />
-            ))
-          )}
-          <SettingsRow title="Add a provider" description="Verify the key, pick defaults from its live model list." stacked>
-            <AddProviderForm kinds={kinds} />
-          </SettingsRow>
-        </SettingsSection>
-      ) : null}
-
-      {active === 'pricing' ? (
-        <SettingsSection
-          title="Model pricing"
-          description="Effective-dated, append-only price rows — every spend record stamps the exact price it used, so costs are auditable forever. Refresh pulls live prices from the OpenRouter catalog for models your agents use; '*' is the company default."
-        >
-          <SettingsRow
-            title="Refresh from OpenRouter"
-            description="Appends a new effective row only where the price actually changed."
-            control={
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() =>
-                  startBusy(async () => {
-                    setNotice(null)
-                    try {
-                      await refreshPricesAction()
-                      setNotice('Prices refreshed.')
-                    } catch (err) {
-                      setNotice(err instanceof Error ? err.message : String(err))
-                    }
-                  })
-                }
-              >
-                {busy ? 'Refreshing…' : 'Refresh prices'}
-              </Button>
-            }
-          />
-          {notice ? <p className="text-sm text-fg-muted">{notice}</p> : null}
-          <RecordList
-            columns={PRICE_COLUMNS}
-            rows={prices}
-            getRowId={(row) => row.id}
-            linkRender={nextLink}
-            onRowClick={(row) => setPriceDrawer(row.model)}
-            toolbarActions={
-              <Button variant="outline" size="sm" onClick={() => setPriceDrawer('*new*')}>
-                Add manual price
-              </Button>
-            }
-            empty={{
-              title: 'No prices yet',
-              description: 'Refresh from OpenRouter or add a manual price. Unpriced spend records cost $0 and is flagged.',
-            }}
-          />
-
-        </SettingsSection>
-      ) : null}
-
-      {active === 'mailboxes' ? (
-        <SettingsSection
-          title="Mailboxes"
-          description="Every agent's connected email account: status, sync health, and errors. Connect a mailbox from the agent's profile."
-        >
-          <RecordList
-            columns={MAILBOX_COLUMNS}
-            rows={mailboxes}
-            getRowId={(row) => row.id}
-            linkRender={nextLink}
-            onRowClick={(row) => setMailboxDrawer(row)}
-            empty={{
-              title: 'No mailboxes connected',
-              description: 'Open an agent’s profile and connect their address to bring them online.',
-            }}
-          />
-          {agentsWithoutMailbox.length > 0 ? (
-            <SettingsRow
-              title="Agents without a mailbox"
-              description="These agents cannot receive work until an address is connected."
-              stacked
-            >
-              <div className="flex flex-wrap gap-2">
-                {agentsWithoutMailbox.map((agent) => (
-                  <Link
-                    key={agent.id}
-                    href={`/organization/agents?person=${agent.id}`}
-                    className="rounded-md border border-border px-3 py-1.5 text-sm text-fg-muted transition-colors hover:border-primary/50 hover:text-fg"
-                  >
-                    {agent.name} · {agent.title}
-                  </Link>
-                ))}
+              {notice ? <p className="px-5 py-3 text-sm text-fg-muted">{notice}</p> : null}
+              <div className="px-5 py-4">
+                <PagedTable
+                  columns={PRICE_COLUMNS}
+                  rows={prices}
+                  rowKey={(row) => row.id}
+                  pageSize={15}
+                  searchable
+                  defaultSort={{ key: 'effectiveAt', dir: 'desc' }}
+                  onRowClick={(row) => setPriceDrawer(row.model)}
+                  labels={{ searchPlaceholder: 'Search prices…', searchLabel: 'Search prices' }}
+                  empty={
+                    <EmptyState
+                      title="No prices yet"
+                      description="Refresh from OpenRouter or add a manual price. Unpriced spend records cost $0 and are flagged."
+                    />
+                  }
+                />
               </div>
-            </SettingsRow>
+            </SettingsSection>
           ) : null}
-          <MailOauthApps apps={mailOauthApps} redirectUri={mailOauthRedirectUri} />
-        </SettingsSection>
+        </div>
       ) : null}
+
+      {active === 'mail' ? (
+        <div className="space-y-4">
+          <SubtabNav
+            ariaLabel="Mail"
+            active={mailTab}
+            onSelect={setMailTab}
+            tabs={[
+              { key: 'mailboxes', label: 'Mailboxes', count: mailboxes.length },
+              { key: 'applications', label: 'Sign-in applications' },
+            ]}
+          />
+
+          {mailTab === 'mailboxes' ? (
+            <SettingsSection
+              title="Mailboxes"
+              description="Every agent's connected email account: status, sync health, and errors. Connect a mailbox from the agent's profile."
+            >
+              <div className="px-5 py-4">
+                <PagedTable
+                  columns={MAILBOX_COLUMNS}
+                  rows={mailboxes}
+                  rowKey={(row) => row.id}
+                  pageSize={15}
+                  searchable
+                  defaultSort={{ key: 'personName', dir: 'asc' }}
+                  onRowClick={(row) => setMailboxDrawer(row)}
+                  labels={{ searchPlaceholder: 'Search mailboxes…', searchLabel: 'Search mailboxes' }}
+                  empty={
+                    <EmptyState
+                      title="No mailboxes connected"
+                      description="Open an agent’s profile and connect their address to bring them online."
+                    />
+                  }
+                />
+              </div>
+              {agentsWithoutMailbox.length > 0 ? (
+                <SettingsRow
+                  title="Agents without a mailbox"
+                  description="These agents cannot receive work until an address is connected."
+                  stacked
+                >
+                  <div className="flex flex-wrap gap-2">
+                    {agentsWithoutMailbox.map((agent) => (
+                      <Link
+                        key={agent.id}
+                        href={`/organization/agents?person=${agent.id}`}
+                        className="rounded-md border border-border px-3 py-1.5 text-sm text-fg-muted transition-colors hover:border-primary/50 hover:text-fg"
+                      >
+                        {agent.name} · {agent.title}
+                      </Link>
+                    ))}
+                  </div>
+                </SettingsRow>
+              ) : null}
+            </SettingsSection>
+          ) : null}
+
+          {mailTab === 'applications' ? (
+            <SettingsSection
+              title="Sign-in applications"
+              description="Your own Google Workspace and Microsoft 365 applications — the identity agents sign into their mailboxes with."
+            >
+              <MailOauthApps apps={mailOauthApps} redirectUri={mailOauthRedirectUri} />
+            </SettingsSection>
+          ) : null}
+        </div>
+      ) : null}
+
       {active === 'voice' ? (
-        <SettingsSection
-          title="Voice"
-          description="What powers a phone or browser call with an agent."
-        >
-          <SettingsRow title="The call pipeline" stacked>
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              {SPEECH_PROVIDERS.map(({ provider, label, stage }, index) => (
-                <React.Fragment key={provider}>
-                  {index > 0 ? (
-                    <>
+        <div className="space-y-4">
+          <SubtabNav
+            ariaLabel="Voice and phone"
+            active={voiceTab}
+            onSelect={setVoiceTab}
+            tabs={[
+              { key: 'pipeline', label: 'Call pipeline' },
+              { key: 'phone', label: 'Phone system', count: phoneSystem.trunks.length + phoneSystem.numbers.length },
+              { key: 'costs', label: 'Costs & recordings' },
+            ]}
+          />
+
+          {voiceTab === 'pipeline' ? (
+            <SettingsSection title="Call pipeline" description="What powers a phone or browser call with an agent.">
+              <SettingsRow title="How a call is put together" stacked>
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  {SPEECH_PROVIDERS.map(({ provider, label, stage }, index) => (
+                    <React.Fragment key={provider}>
+                      {index > 0 ? (
+                        <>
+                          <span className="rounded-md border border-border px-3 py-2">
+                            <span className="text-fg-muted">Thinking</span>{' '}
+                            <span className="font-medium">the agent&apos;s own model</span>{' '}
+                            <Badge variant={providers.length > 0 ? 'default' : 'destructive'}>
+                              {providers.length > 0 ? `${providers.length} configured` : 'none'}
+                            </Badge>
+                          </span>
+                          <span className="text-fg-subtle">→</span>
+                        </>
+                      ) : null}
                       <span className="rounded-md border border-border px-3 py-2">
-                        <span className="text-fg-muted">Thinking</span>{' '}
-                        <span className="font-medium">the agent&apos;s own model</span>{' '}
-                        <Badge variant={providers.length > 0 ? 'default' : 'destructive'}>
-                          {providers.length > 0 ? `${providers.length} configured` : 'none'}
+                        <span className="text-fg-muted">{stage}</span> <span className="font-medium">{label}</span>{' '}
+                        <Badge variant={voiceProviders[provider] ? 'default' : 'outline'}>
+                          {voiceProviders[provider] ? 'connected' : 'not connected'}
                         </Badge>
                       </span>
-                      <span className="text-fg-subtle">→</span>
-                    </>
-                  ) : null}
-                  <span className="rounded-md border border-border px-3 py-2">
-                    <span className="text-fg-muted">{stage}</span> <span className="font-medium">{label}</span>{' '}
-                    <Badge variant={voiceProviders[provider] ? 'default' : 'outline'}>
-                      {voiceProviders[provider] ? 'connected' : 'not connected'}
-                    </Badge>
-                  </span>
-                  {index === 0 ? <span className="text-fg-subtle">→</span> : null}
-                </React.Fragment>
+                      {index === 0 ? <span className="text-fg-subtle">→</span> : null}
+                    </React.Fragment>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-fg-muted">
+                  Realtime speech-to-speech skips this pipeline and talks through your{' '}
+                  {imageCapable.length > 0 ? (
+                    <>OpenAI/Google model provider keys — available now.</>
+                  ) : (
+                    <>OpenAI or Google model provider key — add one under Models to enable it.</>
+                  )}{' '}
+                  Each agent picks its mode and voice on its profile&apos;s Voice tab.
+                </p>
+              </SettingsRow>
+              {SPEECH_PROVIDERS.map(({ provider, label, line }) => (
+                <SettingsRow
+                  key={provider}
+                  title={label}
+                  description={line}
+                  control={
+                    <span className="flex items-center gap-2">
+                      {voiceProviders[provider] ? <Badge variant="secondary">key sealed</Badge> : null}
+                      <Button
+                        variant={voiceProviders[provider] ? 'outline' : 'default'}
+                        size="sm"
+                        onClick={() => {
+                          setVoiceKey('')
+                          setVoiceError(null)
+                          setVoiceDrawer(provider)
+                        }}
+                      >
+                        {voiceProviders[provider] ? 'Manage' : 'Connect'}
+                      </Button>
+                    </span>
+                  }
+                />
               ))}
-            </div>
-            <p className="mt-2 text-xs text-fg-muted">
-              Realtime speech-to-speech skips this pipeline and talks through your{' '}
-              {imageCapable.length > 0 ? (
-                <>OpenAI/Google Model provider keys — available now.</>
-              ) : (
-                <>OpenAI or Google Model provider key — add one under Model providers to enable it.</>
-              )}{' '}
-              Each agent picks its mode and voice on its profile&apos;s Voice tab.
-            </p>
-          </SettingsRow>
-          {SPEECH_PROVIDERS.map(({ provider, label, line }) => (
-            <SettingsRow
-              key={provider}
-              title={label}
-              description={line}
-              control={
-                <span className="flex items-center gap-2">
-                  {voiceProviders[provider] ? <Badge variant="secondary">key sealed</Badge> : null}
-                  <Button
-                    variant={voiceProviders[provider] ? 'outline' : 'default'}
-                    size="sm"
-                    onClick={() => {
-                      setVoiceKey('')
-                      setVoiceError(null)
-                      setVoiceDrawer(provider)
-                    }}
-                  >
-                    {voiceProviders[provider] ? 'Manage' : 'Connect'}
-                  </Button>
-                </span>
-              }
-            />
-          ))}
-          <PhoneSystemRow
-            trunks={phoneSystem.trunks}
-            extensions={phoneSystem.extensions}
-            numbers={phoneSystem.numbers}
-            agents={phoneSystem.agents}
-            ingress={phoneSystem.ingress}
+            </SettingsSection>
+          ) : null}
+
+          {voiceTab === 'phone' ? (
+            <SettingsSection
+              title="Phone system"
+              description="The SIP lines that carry a call to an agent: your own PBX routing an extension range, or a carrier delivering a provisioned number."
+            >
+              <PhoneSystemRow
+                trunks={phoneSystem.trunks}
+                extensions={phoneSystem.extensions}
+                numbers={phoneSystem.numbers}
+                agents={phoneSystem.agents}
+                ingress={phoneSystem.ingress}
+              />
+            </SettingsSection>
+          ) : null}
+
+          {voiceTab === 'costs' ? <VoiceCostSettings settings={callCosts} /> : null}
+        </div>
+      ) : null}
+
+      {active === 'documents' ? (
+        <div className="space-y-4">
+          <SubtabNav
+            ariaLabel="Documents"
+            active={documentTab}
+            onSelect={setDocumentTab}
+            tabs={[
+              { key: 'letterhead', label: 'Letterhead' },
+              { key: 'templates', label: 'Templates', count: templates.length },
+              { key: 'filing', label: 'Filing' },
+            ]}
           />
-        </SettingsSection>
+          {documentTab === 'letterhead' ? (
+            <DocumentsSection branding={documents} identityName={companyIdentity.name} />
+          ) : null}
+          {documentTab === 'templates' ? <DocumentTemplatesView rows={templates} /> : null}
+          {documentTab === 'filing' ? (
+            <FilingSection settings={filing.settings} activity={filing.activity} />
+          ) : null}
+        </div>
       ) : null}
 
       {active === 'sms' ? <SmsSection settings={sms} /> : null}
       {active === 'research' ? <ResearchSection provider={research.provider} /> : null}
-      {active === 'documents' ? <DocumentsSection branding={documents} /> : null}
       {active === 'workspace' ? <WorkspaceSection policy={workspace} /> : null}
-      {active === 'templates' ? <DocumentTemplatesView rows={templates} /> : null}
-      {active === 'filing' ? <FilingSection settings={filing.settings} activity={filing.activity} /> : null}
-      {active === 'callcosts' ? <VoiceCostSettings settings={callCosts} /> : null}
       {active === 'chat' ? (
         <ChatSettingsSection
           connections={chat.connections}
@@ -489,7 +666,7 @@ export function SettingsView({
       {active === 'images' ? (
         <SettingsSection
           title="Image generation"
-          description="Powers the avatar studio. Reuses your Model providers — same keys, same connection layer — with an image-capable model (OpenAI or Google)."
+          description="Powers the avatar studio. Reuses your model providers — same keys, same connection layer — with an image-capable model (OpenAI or Google)."
         >
           {imageSetting ? (
             <SettingsRow
@@ -503,7 +680,7 @@ export function SettingsView({
           {imageCapable.length === 0 ? (
             <EmptyState
               title="No image-capable providers"
-              description="Add an OpenAI or Google provider under Model providers first — image generation shares those keys."
+              description="Add an OpenAI or Google provider under Models first — image generation shares those keys."
             />
           ) : (
             <SettingsRow title={imageSetting ? 'Change' : 'Choose provider & model'} stacked>

@@ -61,9 +61,67 @@ export type McpIntegrationEntry = {
 
 export const MCP_INTEGRATIONS_KEY = 'integrations.mcp'
 
+/**
+ * settings key: 'company.identity' — who the company is, in the company's own
+ * words. Every agent works here, so this is the ground an agent stands on:
+ * what the business does, who it serves, how it sounds, and how to reach it.
+ * The runtime folds it into every system prompt; nothing here is a secret, and
+ * an operator can write all of it by hand or draft it from the website.
+ */
+export type CompanyIdentitySettings = {
+  /** Trading name — what agents call the company in conversation. */
+  name?: string
+  /** Registered/legal entity name, when it differs from the trading name. */
+  legalName?: string
+  tagline?: string
+  websiteUrl?: string
+  industry?: string
+  /** Markdown. What the business does, in prose. */
+  description?: string
+  services?: string[]
+  /** Where the company works — "Southwestern Ontario", "nationwide", … */
+  serviceArea?: string
+  /** Who it serves: segments, industries, customer types. */
+  customers?: string[]
+  /** What sets it apart — the claims an agent may repeat truthfully. */
+  differentiators?: string[]
+  values?: string[]
+  /** How the company sounds; steers every agent's tone alongside its own. */
+  brandVoice?: string
+  /** Business hours in plain language. */
+  hours?: string
+  contact?: {
+    phone?: string
+    email?: string
+    address?: string
+  }
+  /** Public profiles, keyed by network (linkedin, facebook, …). */
+  socialLinks?: Record<string, string>
+  /** Markdown. Anything else every agent should know about the company. */
+  notes?: string
+  /**
+   * Provenance of the last website draft. Present only when a capture ran;
+   * an operator's edits since then are not tracked here — the settings row's
+   * own audit columns carry who changed it and when.
+   */
+  capture?: {
+    websiteUrl: string
+    /** ISO timestamp of the capture that produced the draft. */
+    capturedAt: string
+    /** Provider slug + model that read the site, for the record. */
+    provider: string
+    model: string
+    pagesRead: number
+  }
+}
+
+export const COMPANY_IDENTITY_KEY = 'company.identity'
+
 /** settings key: 'documents.branding' — how agent-authored documents present
  *  the company: the letterhead line, accent color, and footer on every
- *  generated .docx and .pdf. */
+ *  generated .docx and .pdf. The letterhead name is an OVERRIDE — left empty,
+ *  documents use the company name from `company.identity`, which stays the
+ *  single source of truth for what the company is called. */
 export type DocumentBrandingSettings = {
   companyName?: string
   /** Hex accent for headings/rules, e.g. #1a4d8f. */

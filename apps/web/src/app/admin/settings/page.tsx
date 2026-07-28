@@ -12,6 +12,7 @@ import { listPrices } from '../../../lib/pricing'
 import { getImageProviderSetting, listAvatarPartRows, loadAvatarPartLibrary } from '../../../lib/avatars'
 import { getResearchSettings } from '../../../lib/research'
 import { getDocumentBranding } from '../../../lib/documents'
+import { getCompanyIdentity } from '../../../lib/company-identity'
 import { getSmsSettings } from '../../../lib/sms'
 import { getWorkspacePolicy } from '../../../lib/workspace'
 import { chatWebhookUrls, listChatChannelRoutes, listChatConnections } from '../../../lib/chat-bridge'
@@ -100,6 +101,7 @@ export default async function SettingsPage({
   ])
   const research = await getResearchSettings(tenantId)
   const branding = await getDocumentBranding(tenantId)
+  const identity = await getCompanyIdentity(tenantId)
   const workspacePolicy = await getWorkspacePolicy(tenantId)
   const [voiceRetention, voicePricing, templates, filingSettings, filingActivity] = await Promise.all([
     getVoiceRetention(tenantId),
@@ -144,6 +146,8 @@ export default async function SettingsPage({
         model: p.model,
         inputUsdPerMtok: `$${Number(p.inputUsdPerMtok).toFixed(2)}`,
         outputUsdPerMtok: `$${Number(p.outputUsdPerMtok).toFixed(2)}`,
+        inputUsd: Number(p.inputUsdPerMtok),
+        outputUsd: Number(p.outputUsdPerMtok),
         source: p.source,
         ...(p.sourceRef ? { sourceRef: p.sourceRef } : {}),
         effectiveAt: fmt(p.effectiveAt),
@@ -168,6 +172,25 @@ export default async function SettingsPage({
         companyName: branding.companyName ?? '',
         accentColor: branding.accentColor ?? '',
         footerText: branding.footerText ?? '',
+      }}
+      companyIdentity={{
+        name: identity.name,
+        legalName: identity.legalName,
+        tagline: identity.tagline,
+        websiteUrl: identity.websiteUrl,
+        industry: identity.industry,
+        description: identity.description,
+        services: identity.services,
+        serviceArea: identity.serviceArea,
+        customers: identity.customers,
+        differentiators: identity.differentiators,
+        values: identity.values,
+        brandVoice: identity.brandVoice,
+        hours: identity.hours,
+        contact: identity.contact,
+        socialLinks: identity.socialLinks,
+        notes: identity.notes,
+        ...(identity.capture ? { capture: identity.capture } : {}),
       }}
       workspace={{ retentionDays: workspacePolicy.retentionDays }}
       callCosts={{
@@ -254,7 +277,7 @@ export default async function SettingsPage({
         ingress: sipIngressAddress(),
       }}
       agentDials={agentDials}
-      initialSection={section ?? 'autonomy'}
+      initialSection={section ?? 'identity'}
       avatarParts={partRows.map((part) => ({
         id: part.id,
         categoryId: part.categoryId,

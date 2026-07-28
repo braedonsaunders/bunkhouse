@@ -8,12 +8,12 @@ import {
   EmptyState,
   Input,
   Label,
-  RecordList,
+  PagedTable,
   Select,
   SettingsRow,
   SettingsSection,
   Switch,
-  type RecordColumn,
+  type PagedColumn,
 } from '@appkit/ui'
 import {
   disconnectFilingTargetAction,
@@ -66,17 +66,39 @@ const LAYOUTS: { value: FilingLayoutView; label: string }[] = [
   { value: 'month', label: 'A subfolder per month' },
 ]
 
-const ACTIVITY_COLUMNS: RecordColumn<FilingActivityRow>[] = [
-  { key: 'file', label: 'File', kind: 'reference', href: (row) => `/api/files/${row.fileId}` },
+const ACTIVITY_COLUMNS: PagedColumn<FilingActivityRow>[] = [
+  {
+    key: 'file',
+    header: 'File',
+    cell: (row) => (
+      <a href={`/api/files/${row.fileId}`} className="font-medium text-primary hover:underline">
+        {row.file}
+      </a>
+    ),
+    search: (row) => row.file,
+    sortValue: (row) => row.file,
+  },
   {
     key: 'status',
-    label: 'Result',
-    kind: 'status',
-    statusVariant: (value) => (value === 'filed' ? 'default' : 'destructive'),
+    header: 'Result',
+    cell: (row) => <Badge variant={row.status === 'filed' ? 'default' : 'destructive'}>{row.status}</Badge>,
+    search: (row) => row.status,
+    sortValue: (row) => row.status,
   },
-  { key: 'destination', label: 'Destination' },
-  { key: 'detail', label: 'Location or reason' },
-  { key: 'when', label: 'When', sortable: true },
+  {
+    key: 'destination',
+    header: 'Destination',
+    cell: (row) => row.destination,
+    search: (row) => row.destination,
+    sortValue: (row) => row.destination,
+  },
+  {
+    key: 'detail',
+    header: 'Location or reason',
+    cell: (row) => <span className="block max-w-md truncate">{row.detail}</span>,
+    search: (row) => row.detail,
+  },
+  { key: 'when', header: 'When', cell: (row) => row.when, sortValue: (row) => row.when },
 ]
 
 const PROVIDER_LABELS: Record<FilingProviderView, string> = {
@@ -411,14 +433,23 @@ export function FilingSection({
         title="Filing activity"
         description="The last copies attempted. Filing never holds a deliverable back, so a failure here means the file is still in the company record and still went out by email — it just did not reach your storage."
       >
-        {activity.length === 0 ? (
-          <EmptyState
-            title="Nothing filed yet"
-            description="Once filing is on, every copy — successful or not — is recorded here."
+        <div className="px-5 py-4">
+          <PagedTable
+            columns={ACTIVITY_COLUMNS}
+            rows={activity}
+            rowKey={(row) => row.id}
+            pageSize={10}
+            searchable
+            defaultSort={{ key: 'when', dir: 'desc' }}
+            labels={{ searchPlaceholder: 'Search filing activity…', searchLabel: 'Search filing activity' }}
+            empty={
+              <EmptyState
+                title="Nothing filed yet"
+                description="Once filing is on, every copy — successful or not — is recorded here."
+              />
+            }
           />
-        ) : (
-          <RecordList columns={ACTIVITY_COLUMNS} rows={activity} getRowId={(row) => row.id} />
-        )}
+        </div>
       </SettingsSection>
     </div>
   )
