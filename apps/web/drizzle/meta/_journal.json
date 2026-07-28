@@ -57,6 +57,13 @@
       "when": 1785210561888,
       "tag": "0007_charming_bruce_banner",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785212729747,
+      "tag": "0008_wide_namora",
+      "breakpoints": true
     }
   ]
 }

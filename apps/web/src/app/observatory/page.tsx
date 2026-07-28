@@ -1,6 +1,6 @@
 import { desc, eq, sql } from 'drizzle-orm'
 import { PageContainer, PageHeader } from '@appkit/ui'
-import { avatarImages, people, runs, tokenSpend } from '../../db/schema'
+import { avatarImages, callSessions, people, runs, tokenSpend } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
 import { ObservatoryList, type ObservatoryRunRow } from '../../components/observatory-list'
@@ -53,17 +53,24 @@ export default async function ObservatoryPage() {
       .from(tokenSpend)
       .groupBy(tokenSpend.runId)
     const avatarRows = await app.db.select({ personId: avatarImages.personId }).from(avatarImages)
-    return { runRows, spendRows, avatarRows }
+    // Phone calls run under a call session; the direction distinguishes an
+    // inbound ring from an in-app conversation.
+    const inboundCallRows = await app.db
+      .select({ runId: callSessions.runId })
+      .from(callSessions)
+      .where(eq(callSessions.direction, 'inbound_phone'))
+    return { runRows, spendRows, avatarRows, inboundCallRows }
   })
 
   const costByRun = new Map(data.spendRows.map((s) => [s.runId, Number(s.cost)]))
   const hasAvatar = new Set(data.avatarRows.map((a) => a.personId))
+  const inboundCallRuns = new Set(data.inboundCallRows.map((s) => s.runId))
   const rows: ObservatoryRunRow[] = data.runRows.map((run) => ({
     id: run.id,
     hand: run.personName,
     handTitle: run.personTitle,
     ...(hasAvatar.has(run.personId) ? { avatarSrc: `/api/avatars/${run.personId}` } : {}),
-    trigger: TRIGGER_LABELS[String(run.trigger.type)] ?? 'Manual',
+    trigger: inboundCallRuns.has(run.id) ? 'Inbound call' : (TRIGGER_LABELS[String(run.trigger.type)] ?? 'Manual'),
     status: run.status,
     statusLabel: STATUS_LABELS[run.status] ?? run.status,
     summary: run.summary ?? 'Working…',

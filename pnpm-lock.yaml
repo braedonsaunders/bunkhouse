@@ -192,6 +192,9 @@ importers:
       livekit-client:
         specifier: ^2.21.0
         version: 2.21.0(@types/dom-mediacapture-record@1.0.22)
+      livekit-server-sdk:
+        specifier: ^2.17.0
+        version: 2.17.0
       lucide-react:
         specifier: ^1.24.0
         version: 1.27.0(react@19.2.8)

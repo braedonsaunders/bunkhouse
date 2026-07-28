@@ -73,6 +73,9 @@ export const people = pgTable(
     salary: jsonb('salary').$type<HandSalary>(),
     /** How this hand sounds on a call — null until voice is configured. */
     voiceConfig: jsonb('voice_config').$type<AgentVoiceConfig>(),
+    /** The hand's phone-system short code (e.g. '701') — unique per tenant
+     *  where set; desk phones reach the hand by dialing it. */
+    extension: text('extension'),
     proactivity: proactivityMode('proactivity').default('duties'),
     inboundPolicy: inboundPolicy('inbound_policy').default('staff_only'),
     startedOn: date('started_on'),
@@ -81,6 +84,9 @@ export const people = pgTable(
   },
   (t) => [
     uniqueIndex('people_tenant_email_key').on(t.tenantId, sql`lower(${t.email})`),
+    uniqueIndex('people_tenant_extension_key')
+      .on(t.tenantId, t.extension)
+      .where(sql`${t.extension} is not null`),
     index('people_tenant_kind_idx').on(t.tenantId, t.kind),
     foreignKey({ columns: [t.reportsToId], foreignColumns: [t.id], name: 'people_reports_to_fk' }),
   ],

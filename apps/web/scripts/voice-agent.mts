@@ -1,5 +1,6 @@
+import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { cli, defineAgent, voice, ServerOptions, type JobContext, type JobProcess } from '@livekit/agents'
 import * as deepgram from '@livekit/agents-plugin-deepgram'
 import * as elevenlabs from '@livekit/agents-plugin-elevenlabs'
@@ -16,11 +17,13 @@ import { resolveRealtimeCredential, resolveSpeechCredential } from '../src/lib/v
 import { pinnedNotes, retrieveNotes } from '../src/lib/memory'
 import { resolvePrice } from '../src/lib/pricing'
 
-// The bunkhouse voice agent: joins every `call-*` LiveKit room, loads the
-// session's hand, and holds the conversation. Media I/O lives here; identity,
-// procedures, and memory come from the same context assembly email runs use.
-// Every utterance is appended to the call_turns ledger; the run is completed
-// with a deterministic summary and LLM usage is metered into token_spend.
+// The bunkhouse voice agent: joins every `call-*` (browser call, session
+// pre-created by the call page) and `pbx-*` (inbound phone call dispatched
+// by LiveKit SIP, session created here) room, loads the session's hand, and
+// holds the conversation. Media I/O lives here; identity, procedures, and
+// memory come from the same context assembly email runs use. Every utterance
+// is appended to the call_turns ledger; the run is completed with a
+// deterministic summary and LLM usage is metered into token_spend.
 //
 // Provider support (engineering notes, never surfaced as-is to operators):
 // - cascade LLM: OpenAI + OpenAI-compatible providers (OpenRouter, Groq, …)
@@ -40,6 +43,93 @@ async function findSessionByRoom(room: string): Promise<SessionRow | null> {
     superDb.select().from(callSessions).where(eq(callSessions.room, room)),
   )
   return (rows[0] as SessionRow | undefined) ?? null
+}
+
+/**
+ * Inbound phone calls arrive with no pre-created session: LiveKit SIP's
+ * dispatch rule names the room `pbx-<extension>` plus a random suffix, and
+ * the agent is the first to learn the call exists. Resolve the hand by its
+ * tenant-unique extension, then create the run and call_sessions row here —
+ * idempotently: the room's unique key makes a concurrent second dispatch a
+ * plain read of the winner's session.
+ */
+async function ensureInboundPhoneSession(ctx: JobContext, roomName: string): Promise<SessionRow | null> {
+  const existing = await findSessionByRoom(roomName)
+  if (existing) return existing
+
+  const extension = /^pbx-([0-9]+)/.exec(roomName)?.[1]
+  if (!extension) {
+    console.error(`[voice] room ${roomName}: no extension in the room name`)
+    return null
+  }
+  const hands = await app.withSuperAdmin((superDb) =>
+    superDb
+      .select()
+      .from(people)
+      .where(and(eq(people.extension, extension), eq(people.kind, 'hand'), eq(people.status, 'active'))),
+  )
+  if (hands.length !== 1) {
+    // Extensions are unique per tenant; a cross-tenant collision (or an
+    // unassigned extension) cannot be routed deterministically.
+    console.error(`[voice] room ${roomName}: extension ${extension} matches ${hands.length} active hands — cannot route`)
+    return null
+  }
+  const person = hands[0] as PersonRow
+  const tenantId = person.tenantId
+
+  // The SIP participant's join is what triggered dispatch; its attributes
+  // carry the caller's number.
+  const participant = await ctx.waitForParticipant()
+  const callerNumber = participant.attributes?.['sip.phoneNumber'] || null
+  const counterparty = {
+    name: callerNumber ? `Caller ${callerNumber}` : 'Caller',
+    identity: participant.identity,
+    ...(callerNumber ? { number: callerNumber } : {}),
+  }
+  const sessionId = randomUUID()
+  const summary = `Inbound call from ${callerNumber ?? 'an unknown number'}`
+
+  return app.withTenant(tenantId, async () => {
+    const inserted = await app.db
+      .insert(callSessions)
+      .values({
+        id: sessionId,
+        tenantId,
+        personId: person.id,
+        room: roomName,
+        direction: 'inbound_phone',
+        counterparty,
+      })
+      .onConflictDoNothing({ target: callSessions.room })
+      .returning({ id: callSessions.id })
+    if (!inserted[0]) {
+      const rows = await app.db.select().from(callSessions).where(eq(callSessions.room, roomName))
+      return (rows[0] as SessionRow | undefined) ?? null
+    }
+    const [run] = await app.db
+      .insert(runs)
+      .values({
+        tenantId,
+        personId: person.id,
+        status: 'running',
+        trigger: { type: 'chat', conversationId: sessionId },
+        summary,
+      })
+      .returning({ id: runs.id })
+    await app.db.insert(runEvents).values({
+      tenantId,
+      runId: run!.id,
+      seq: 0,
+      kind: 'message',
+      payload: { text: `${summary} — answered on extension ${extension}. Room ${roomName}.` },
+    })
+    const [row] = await app.db
+      .update(callSessions)
+      .set({ runId: run!.id, updatedAt: new Date() })
+      .where(eq(callSessions.id, sessionId))
+      .returning()
+    return (row as SessionRow | undefined) ?? null
+  })
 }
 
 async function markFailed(session: SessionRow, message: string): Promise<void> {
@@ -126,17 +216,26 @@ export default defineAgent({
   entry: async (ctx: JobContext) => {
     await ctx.connect()
     const roomName = ctx.room.name ?? ''
-    if (!roomName.startsWith('call-')) {
+    let resolvedSession: SessionRow | null = null
+    if (roomName.startsWith('call-')) {
+      resolvedSession = await findSessionByRoom(roomName)
+      if (!resolvedSession) {
+        console.error(`[voice] no call_sessions row for room ${roomName}`)
+        ctx.shutdown('unknown call session')
+        return
+      }
+    } else if (roomName.startsWith('pbx-')) {
+      resolvedSession = await ensureInboundPhoneSession(ctx, roomName)
+      if (!resolvedSession) {
+        ctx.shutdown('unroutable inbound call')
+        return
+      }
+    } else {
       // Automatic dispatch offers every room; only call rooms are ours.
       ctx.shutdown('not a call room')
       return
     }
-    const session = await findSessionByRoom(roomName)
-    if (!session) {
-      console.error(`[voice] no call_sessions row for room ${roomName}`)
-      ctx.shutdown('unknown call session')
-      return
-    }
+    const session = resolvedSession
 
     const person = await app.withTenantContext(session.tenantId, async () => {
       const [row] = await app.db.select().from(people).where(eq(people.id, session.personId))
@@ -325,12 +424,16 @@ export default defineAgent({
         if (session.runId) {
           const [run] = await app.db.select().from(runs).where(eq(runs.id, session.runId))
           if (run && run.status === 'running') {
+            const tail = `${turnCount} turn${turnCount === 1 ? '' : 's'}, ${minutes} minute${minutes === 1 ? '' : 's'}.`
             await app.db
               .update(runs)
               .set({
                 status: 'completed',
                 finishedAt: endedAt,
-                summary: `Voice call with ${session.counterparty.name ?? 'the caller'}: ${turnCount} turn${turnCount === 1 ? '' : 's'}, ${minutes} minute${minutes === 1 ? '' : 's'}.`,
+                summary:
+                  session.direction === 'inbound_phone'
+                    ? `Inbound call from ${session.counterparty.number ?? 'an unknown number'}: ${tail}`
+                    : `Voice call with ${session.counterparty.name ?? 'the caller'}: ${tail}`,
               })
               .where(eq(runs.id, session.runId))
           }
