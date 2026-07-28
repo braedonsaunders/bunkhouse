@@ -23,7 +23,16 @@ networks:
     external: true
 
 volumes:
-  agent-homes:
+  # Agent workspaces live on the NAS like every other durable volume here —
+  # nothing bunkhouse keeps should sit on a swarm node's local disk. The key is
+  # deliberately NOT 'agent-homes': that name already exists as a local volume,
+  # and Docker reuses an existing volume verbatim, driver options and all.
+  agent-workspaces:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: "addr=10.0.1.106,nfsvers=4,rw,hard,timeo=600"
+      device: ":/volume1/dokploy-storage/bunkhouse-agent-homes"
 
 services:
   web:
@@ -54,7 +63,7 @@ services:
       APPKIT_STORAGE_BUCKET: ${APPKIT_STORAGE_BUCKET:-bunkhouse}
       BUNKHOUSE_AGENT_HOMES: /data/agent-homes
     volumes:
-      - agent-homes:/data/agent-homes
+      - agent-workspaces:/data/agent-homes
     networks:
       - dokploy-network
       - infra-net
@@ -102,7 +111,7 @@ services:
       APPKIT_STORAGE_BUCKET: ${APPKIT_STORAGE_BUCKET:-bunkhouse}
       BUNKHOUSE_AGENT_HOMES: /data/agent-homes
     volumes:
-      - agent-homes:/data/agent-homes
+      - agent-workspaces:/data/agent-homes
     networks:
       - dokploy-network
       - infra-net
@@ -139,7 +148,7 @@ services:
       APPKIT_STORAGE_BUCKET: ${APPKIT_STORAGE_BUCKET:-bunkhouse}
       BUNKHOUSE_AGENT_HOMES: /data/agent-homes
     volumes:
-      - agent-homes:/data/agent-homes
+      - agent-workspaces:/data/agent-homes
     networks:
       - dokploy-network
       - infra-net
