@@ -61,7 +61,7 @@ services:
   # resume, memory consolidation. Same image, no ingress; web owns migrations.
   worker:
     image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
-    command: ["sh", "-c", "NODE_OPTIONS=--conditions=react-server exec node_modules/.bin/tsx apps/web/scripts/worker.mts"]
+    command: ["sh", "-c", "NODE_OPTIONS=--conditions=react-server exec apps/web/node_modules/.bin/tsx apps/web/scripts/worker.mts"]
     environment:
       NODE_ENV: production
       BUNKHOUSE_DB_URL: ${BUNKHOUSE_DB_URL}
@@ -88,7 +88,7 @@ services:
   # The voice agent: registers against LiveKit and answers every call room.
   voice-agent:
     image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
-    command: ["sh", "-c", "NODE_OPTIONS=--conditions=react-server exec node_modules/.bin/tsx apps/web/scripts/voice-agent.mts start"]
+    command: ["sh", "-c", "NODE_OPTIONS=--conditions=react-server exec apps/web/node_modules/.bin/tsx apps/web/scripts/voice-agent.mts start"]
     environment:
       NODE_ENV: production
       BUNKHOUSE_DB_URL: ${BUNKHOUSE_DB_URL}

@@ -37,4 +37,5 @@ EXPOSE 3000
 
 # Migrations are tracked and idempotent (scripts/migrate.mts); the server must
 # not take traffic before they have run.
-CMD ["sh", "-c", "node_modules/.bin/tsx apps/web/scripts/migrate.mts && exec node_modules/.bin/next start apps/web -p 3000 -H 0.0.0.0"]
+# pnpm keeps bins package-local, so run through the web package's own .bin.
+CMD ["sh", "-c", "apps/web/node_modules/.bin/tsx apps/web/scripts/migrate.mts && cd apps/web && exec node_modules/.bin/next start -p 3000 -H 0.0.0.0"]
