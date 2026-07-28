@@ -12,7 +12,8 @@
     "db:migrate": "tsx --env-file=.env.local scripts/migrate.mts",
     "db:generate": "drizzle-kit generate",
     "db:seed": "tsx --env-file=.env.local scripts/seed.mts",
-    "worker": "NODE_OPTIONS=\"--conditions=react-server\" tsx --env-file=.env.local scripts/worker.mts"
+    "worker": "NODE_OPTIONS=\"--conditions=react-server\" tsx --env-file=.env.local scripts/worker.mts",
+    "voice-agent": "NODE_OPTIONS=\"--conditions=react-server\" tsx --env-file=.env.local scripts/voice-agent.mts dev"
   },
   "dependencies": {
     "@appkit/ai": "file:../../vendor/appkit/appkit-ai-0.2.0.tgz",
@@ -48,6 +49,13 @@
     "@appkit/workflows": "file:../../vendor/appkit/appkit-workflows-1.0.0.tgz",
     "@bunkhouse/roles": "workspace:*",
     "@bunkhouse/runtime": "workspace:*",
+    "@livekit/agents": "^1.6.0",
+    "@livekit/agents-plugin-deepgram": "^1.6.0",
+    "@livekit/agents-plugin-elevenlabs": "^1.6.0",
+    "@livekit/agents-plugin-openai": "^1.6.0",
+    "@livekit/agents-plugin-silero": "^1.6.0",
+    "@livekit/components-react": "^2.9.23",
+    "livekit-client": "^2.21.0",
     "@xyflow/react": "^12.10.0",
     "ai": "^6.0.224",
     "cron-parser": "^5.6.2",

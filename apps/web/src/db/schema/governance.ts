@@ -15,6 +15,7 @@ export const actionCategory = pgEnum('action_category', [
   'file_write',
   'computer_use',
   'shell',
+  'phone_call',
 ])
 
 export const autonomyLevel = pgEnum('autonomy_level', ['forbidden', 'approval', 'notify', 'trusted'])

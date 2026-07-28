@@ -50,6 +50,13 @@
       "when": 1785208413561,
       "tag": "0006_lazy_pandemic",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785210561888,
+      "tag": "0007_charming_bruce_banner",
+      "breakpoints": true
     }
   ]
 }

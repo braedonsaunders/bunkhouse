@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { date, foreignKey, index, jsonb, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { auditColumns, id, tenantRef } from '@appkit/db'
+import type { AgentVoiceConfig } from '@appkit/voice'
 
 /**
  * The mixed directory: real human employees and AI hands live in one table so
@@ -70,6 +71,8 @@ export const people = pgTable(
     personality: jsonb('personality').$type<HandPersonality>(),
     modelConfig: jsonb('model_config').$type<HandModelConfig>(),
     salary: jsonb('salary').$type<HandSalary>(),
+    /** How this hand sounds on a call — null until voice is configured. */
+    voiceConfig: jsonb('voice_config').$type<AgentVoiceConfig>(),
     proactivity: proactivityMode('proactivity').default('duties'),
     inboundPolicy: inboundPolicy('inbound_policy').default('staff_only'),
     startedOn: date('started_on'),

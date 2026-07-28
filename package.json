@@ -15,6 +15,14 @@
     "test": "pnpm -r test"
   },
   "pnpm": {
+    "onlyBuiltDependencies": [
+      "@livekit/local-inference",
+      "esbuild",
+      "msgpackr-extract",
+      "onnxruntime-node",
+      "sharp",
+      "unrs-resolver"
+    ],
     "overrides": {
       "@appkit/ai": "file:./vendor/appkit/appkit-ai-0.2.0.tgz",
       "@appkit/analytics": "file:./vendor/appkit/appkit-analytics-0.2.0.tgz",

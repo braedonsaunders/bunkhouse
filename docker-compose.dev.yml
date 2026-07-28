@@ -3,7 +3,20 @@
 # GreenMail provides accept-anything IMAP/SMTP so hands can be connected
 # end-to-end with no real mail account (IMAP localhost:3143, SMTP :3025 —
 # send test mail INTO a hand with any SMTP client against :3025).
+# LiveKit is the voice/media plane (browser calls join rooms here; the
+# voice agent worker registers against it). --dev mode fixes the API key
+# pair to devkey/secret — matching LIVEKIT_* in .env.local.
 services:
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: bunkhouse-livekit
+    restart: unless-stopped
+    command: '--dev --bind 0.0.0.0'
+    ports:
+      - '7880:7880'
+      - '7881:7881'
+      - '7882:7882/udp'
+
   mailpit:
     image: axllent/mailpit:latest
     container_name: bunkhouse-mailpit

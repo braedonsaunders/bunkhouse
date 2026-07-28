@@ -30,6 +30,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   file_write: 'File writes',
   computer_use: 'Computer use',
   shell: 'Terminal / shell',
+  phone_call: 'Phone calls',
 }
 
 const LEVEL_BADGES: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
@@ -234,7 +235,7 @@ export function MemorySection({
       <CardHeader>
         <CardTitle>Memory</CardTitle>
         <CardDescription>
-          This hand's logbook — human-readable, append-only. Corrections keep history; forgetting closes validity.
+          This hand&apos;s logbook — human-readable, append-only. Corrections keep history; forgetting closes validity.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -272,7 +273,7 @@ export function PayrollSection({
     <Card>
       <CardHeader>
         <CardTitle>Payroll & work</CardTitle>
-        <CardDescription>This month's model spend against salary, and recent runs.</CardDescription>
+        <CardDescription>This month&apos;s model spend against salary, and recent runs.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
         <div className="space-y-1">
