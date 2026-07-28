@@ -1,6 +1,6 @@
 import type { AiConfig } from '@appkit/ai'
 
-/** The seven governed action categories. Must stay in sync with the app's
+/** The governed action categories. Must stay in sync with the app's
  *  `action_category` enum — the dial is enforced here, not in prompts. */
 export type ActionCategory =
   | 'external_email'
@@ -10,6 +10,7 @@ export type ActionCategory =
   | 'file_write'
   | 'computer_use'
   | 'shell'
+  | 'phone_call'
 
 export type AutonomyLevel = 'forbidden' | 'approval' | 'notify' | 'trusted'
 

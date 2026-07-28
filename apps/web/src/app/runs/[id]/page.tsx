@@ -10,7 +10,7 @@ import {
   DetailHeader,
   PageContainer,
 } from '@appkit/ui'
-import { approvals, people, procedureRevisions, procedures, runEvents, runs, tokenSpend } from '../../../db/schema'
+import { approvals, callSessions, callTurns, people, procedureRevisions, procedures, runEvents, runs, tokenSpend } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
 import { RunDesk, type ApprovalArtifact, type DeskEvent, type ProcedureArtifact } from '../../../components/run-desk'
@@ -113,7 +113,19 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
       .from(approvals)
       .leftJoin(people, eq(people.id, approvals.decidedById))
       .where(eq(approvals.runId, id))
-    return { run, hand: hand ?? null, events, spend, citedProcedures, revisions, approvalRows }
+    // A call run carries its transcript ledger as an artifact in the desk.
+    const [callSession] = await app.db
+      .select({ id: callSessions.id, status: callSessions.status, durationSeconds: callSessions.durationSeconds })
+      .from(callSessions)
+      .where(eq(callSessions.runId, id))
+    const transcript = callSession
+      ? await app.db
+          .select({ speaker: callTurns.speaker, text: callTurns.text, atMs: callTurns.atMs })
+          .from(callTurns)
+          .where(eq(callTurns.sessionId, callSession.id))
+          .orderBy(asc(callTurns.seq))
+      : null
+    return { run, hand: hand ?? null, events, spend, citedProcedures, revisions, approvalRows, transcript }
   })
 
   if (!data) notFound()
@@ -190,7 +202,12 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
         </Card>
       </div>
 
-      <RunDesk events={deskEvents} procedures={procedureArtifacts} approvals={approvalArtifacts} />
+      <RunDesk
+        events={deskEvents}
+        procedures={procedureArtifacts}
+        approvals={approvalArtifacts}
+        {...(data.transcript ? { transcript: data.transcript, handName: hand?.name ?? 'Hand' } : {})}
+      />
     </PageContainer>
   )
 }

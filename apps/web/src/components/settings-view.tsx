@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Brain, CircleDollarSign, ImageIcon, Mail } from 'lucide-react'
+import { Brain, CircleDollarSign, ImageIcon, Mail, Phone } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -22,8 +22,10 @@ import {
 import {
   refreshPricesAction,
   removeProviderAction,
+  removeSpeechProviderAction,
   setImageProviderAction,
   setManualPriceAction,
+  setSpeechProviderKeyAction,
 } from '../app/admin/settings/actions'
 import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
 
@@ -64,6 +66,64 @@ export type MailboxRow = {
 
 export type HandWithoutMailbox = { id: string; name: string; title: string }
 
+export type VoiceProviderState = { deepgram: boolean; elevenlabs: boolean }
+
+const SPEECH_PROVIDERS: { provider: 'deepgram' | 'elevenlabs'; label: string; role: string; keyHint: string }[] = [
+  {
+    provider: 'deepgram',
+    label: 'Deepgram',
+    role: 'Speech-to-text for cascade calls — the hand hears through this.',
+    keyHint: 'Deepgram API key',
+  },
+  {
+    provider: 'elevenlabs',
+    label: 'ElevenLabs',
+    role: 'Text-to-speech for cascade calls — the hand speaks through this, and its voice is picked from your account’s catalog.',
+    keyHint: 'ElevenLabs API key',
+  },
+]
+
+/** Enter/replace one speech-provider key: verified live, sealed on save. */
+function SpeechKeyForm({ provider, replace }: { provider: 'deepgram' | 'elevenlabs'; replace: boolean }) {
+  const [apiKey, setApiKey] = React.useState('')
+  const [error, setError] = React.useState<string | null>(null)
+  const [saving, startSaving] = React.useTransition()
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder={replace ? 'New API key' : 'API key'}
+          aria-label={`${provider} API key`}
+          className="min-w-64"
+        />
+        <Button
+          type="button"
+          size="sm"
+          variant={replace ? 'outline' : 'default'}
+          disabled={saving || !apiKey.trim()}
+          onClick={() =>
+            startSaving(async () => {
+              setError(null)
+              const result = await setSpeechProviderKeyAction({ provider, apiKey })
+              if (!result.ok) {
+                setError(result.message)
+                return
+              }
+              setApiKey('')
+            })
+          }
+        >
+          {saving ? 'Verifying…' : replace ? 'Replace key' : 'Verify & save'}
+        </Button>
+      </div>
+      {error ? <p className="text-xs text-danger">{error}</p> : null}
+    </div>
+  )
+}
+
 const NAV: SettingsNavGroup[] = [
   {
     label: 'Company',
@@ -71,6 +131,7 @@ const NAV: SettingsNavGroup[] = [
       { key: 'ai', label: 'Model providers', icon: <Brain /> },
       { key: 'pricing', label: 'Model pricing', icon: <CircleDollarSign /> },
       { key: 'mailboxes', label: 'Mailboxes', icon: <Mail /> },
+      { key: 'voice', label: 'Voice', icon: <Phone /> },
       { key: 'images', label: 'Image generation', icon: <ImageIcon /> },
     ],
   },
@@ -111,6 +172,7 @@ export function SettingsView({
   handsWithoutMailbox,
   imageSetting,
   imageModels,
+  voiceProviders,
 }: {
   providers: ProviderSummary[]
   kinds: ProviderKindOption[]
@@ -119,12 +181,14 @@ export function SettingsView({
   handsWithoutMailbox: HandWithoutMailbox[]
   imageSetting: { providerSlug: string; model: string } | null
   imageModels: { id: string; name: string; provider: string }[]
+  voiceProviders: VoiceProviderState
 }) {
   const [active, setActive] = React.useState('ai')
   const [busy, startBusy] = React.useTransition()
   const [notice, setNotice] = React.useState<string | null>(null)
   const [priceDrawer, setPriceDrawer] = React.useState<string | null>(null)
   const [mailboxDrawer, setMailboxDrawer] = React.useState<MailboxRow | null>(null)
+  const [replacingSpeech, setReplacingSpeech] = React.useState<'deepgram' | 'elevenlabs' | null>(null)
   const imageCapable = providers.filter((p) => ['openai', 'google'].includes(p.provider))
   const [imageProviderSlug, setImageProviderSlug] = React.useState(
     imageSetting?.providerSlug ?? imageCapable[0]?.slug ?? '',
@@ -273,6 +337,65 @@ export function SettingsView({
           ) : null}
         </SettingsSection>
       ) : null}
+      {active === 'voice' ? (
+        <SettingsSection
+          title="Voice"
+          description="Speech providers for talking to your hands. Cascade calls hear with Deepgram and speak with ElevenLabs — the hand's own governed model does the thinking. Realtime calls reuse your OpenAI/Google Model providers; no extra key is needed here."
+        >
+          {SPEECH_PROVIDERS.map(({ provider, label, role, keyHint }) => {
+            const configured = voiceProviders[provider]
+            const replacing = replacingSpeech === provider
+            return (
+              <SettingsRow
+                key={provider}
+                title={label}
+                description={configured ? role : `${role} Paste your ${keyHint} — it is verified against the live API before it is sealed.`}
+                stacked={!configured || replacing}
+                control={
+                  configured && !replacing ? (
+                    <span className="flex items-center gap-2">
+                      <Badge variant="secondary">key sealed</Badge>
+                      <Button variant="outline" size="sm" onClick={() => setReplacingSpeech(provider)}>
+                        Replace
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() =>
+                          startBusy(async () => {
+                            const form = new FormData()
+                            form.set('provider', provider)
+                            await removeSpeechProviderAction(form)
+                          })
+                        }
+                      >
+                        Remove
+                      </Button>
+                    </span>
+                  ) : undefined
+                }
+              >
+                {!configured || replacing ? <SpeechKeyForm provider={provider} replace={replacing} /> : null}
+              </SettingsRow>
+            )
+          })}
+          <SettingsRow
+            title="Realtime speech-to-speech"
+            description={
+              imageCapable.length > 0
+                ? `Uses your Model provider keys: ${imageCapable.map((p) => `${p.label} (${p.provider})`).join(', ')}. Pick realtime mode on a hand's Voice tab.`
+                : 'No OpenAI or Google provider is configured under Model providers — realtime voice needs one of those keys.'
+            }
+            control={imageCapable.length > 0 ? <Badge variant="secondary">uses provider keys</Badge> : undefined}
+          />
+          <SettingsRow
+            title="Per-hand voices"
+            description="Each hand's voice — mode, model, and the voice itself — is configured on its profile under the Voice tab."
+          />
+        </SettingsSection>
+      ) : null}
+
       {active === 'images' ? (
         <SettingsSection
           title="Image generation"

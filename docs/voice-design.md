@@ -93,6 +93,18 @@ meeting_links(id, tenant_id, session_id, token, created_by_person_id, expires_at
    schema; Company Settings → Voice (feature gate `voice`, provider keys sealed);
    hand profile Voice section with live preview; "Call" button on the hand profile;
    call record drawer with transcript + observatory live view.
+   **SHIPPED (first pass):** `@appkit/voice` (config types, catalogs, key
+   verification, LiveKit token minting) + `0010/0011` migrations
+   (`people.voice_config`, `call_sessions`, `call_turns`, `phone_call`
+   category), Settings → Voice (Deepgram/ElevenLabs keys, verified + sealed),
+   per-hand Voice tab (cascade/realtime picker, live ElevenLabs voice list,
+   Call button), `/call/[personId]` browser room with live captions, the
+   `voice-agent` worker (`apps/web/scripts/voice-agent.mts`, LiveKit Agents),
+   and the call transcript on the run desk. Honest limits, for now: cascade
+   LLM speaks the OpenAI protocol only (OpenAI/OpenRouter/Groq/… keys;
+   Anthropic/Google text bridge is a follow-up); realtime is OpenAI-only
+   (Gemini Live plugin is a follow-up); LLM tokens are metered into
+   token_spend, STT/TTS minutes are not yet priced.
 2. **Inbound phone.** livekit/sip in compose; Settings → Telephony (gate `telephony`,
    dependent on `voice`): trunk setup (Twilio/Telnyx recipes), numbers directory,
    number→hand assignment + answering policy. Ring a real number, the hand answers as

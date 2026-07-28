@@ -11,7 +11,14 @@ export type RoleDuty = { slug: string; title: string; instruction: string; cron:
 export type RoleProcedure = { slug: string; title: string; body: string }
 export type RoleAutonomyDefaults = Partial<
   Record<
-    'external_email' | 'internal_email' | 'record_write' | 'money_adjacent' | 'file_write' | 'computer_use' | 'shell',
+    | 'external_email'
+    | 'internal_email'
+    | 'record_write'
+    | 'money_adjacent'
+    | 'file_write'
+    | 'computer_use'
+    | 'shell'
+    | 'phone_call',
     'forbidden' | 'approval' | 'notify' | 'trusted'
   >
 >

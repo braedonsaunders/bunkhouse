@@ -30,6 +30,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   file_write: 'File writes',
   computer_use: 'Computer use',
   shell: 'Terminal / shell',
+  phone_call: 'Phone calls',
 }
 
 const COLUMNS: RecordColumn<Role>[] = [

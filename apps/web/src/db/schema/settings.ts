@@ -34,4 +34,14 @@ export type AiProviderEntry = {
 
 export const AI_PROVIDERS_KEY = 'ai.providers'
 
+/** settings key: 'voice.providers' — the tenant's speech-provider keys
+ *  (STT/TTS for cascade voice), sealed at rest like AI provider keys.
+ *  Realtime speech-to-speech reuses the AI providers above — no second key. */
+export type VoiceProviderSettings = {
+  deepgram?: { sealedApiKey: SealedSecret }
+  elevenlabs?: { sealedApiKey: SealedSecret }
+}
+
+export const VOICE_PROVIDERS_KEY = 'voice.providers'
+
 export const SETTINGS_TENANT_TABLES = ['tenant_settings'] as const

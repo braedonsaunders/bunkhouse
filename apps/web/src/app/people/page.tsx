@@ -4,13 +4,23 @@ import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import { Avatar, Button, FilterChips, PageContainer, PageHeader } from '@appkit/ui'
 import { autonomySettings, avatarImages, duties, memories, people, runs, tokenSpend } from '../../db/schema'
 import { db } from '../../db/client'
+import {
+  DEEPGRAM_STT_MODELS,
+  ELEVENLABS_TTS_MODELS,
+  GEMINI_LIVE_MODELS,
+  GEMINI_LIVE_VOICES,
+  OPENAI_REALTIME_MODELS,
+  OPENAI_REALTIME_VOICES,
+} from '@appkit/voice'
 import { resolveTenantId } from '../../lib/tenant'
 import { listAiProviders } from '../../lib/ai'
+import { getVoiceProviders, listRealtimeCapableProviders } from '../../lib/voice'
 import { getImageProviderSetting } from '../../lib/avatars'
 import { cronToHuman } from '../../lib/schedule'
 import { PeopleList, type PersonRow } from '../../components/people-list'
 import { PersonDrawer, type PersonDrawerTab } from '../../components/person-drawer'
 import { AvatarStudio } from '../../components/avatar-studio'
+import { VoiceConfigForm } from '../../components/voice-config-form'
 import { DutiesCard } from '../../components/duties-card'
 import { MailboxSection } from './mailbox-section'
 import { AutonomySection, MemorySection, OverviewSection, PayrollSection } from './person-sections'
@@ -86,6 +96,8 @@ export default async function PeoplePage({
     })
     const providers = isHand ? await listAiProviders(tenantId) : []
     const imageSetting = isHand ? await getImageProviderSetting(tenantId) : null
+    const voiceProviders: Awaited<ReturnType<typeof getVoiceProviders>> = isHand ? await getVoiceProviders(tenantId) : {}
+    const realtimeProviders = isHand ? await listRealtimeCapableProviders(tenantId) : []
     const rosterOptions = roster
       .filter((p) => p.status === 'active' || p.id === selected.reportsToId)
       .map((p) => ({ id: p.id, name: p.name, title: p.title }))
@@ -135,6 +147,31 @@ export default async function PeoplePage({
                     enabled: duty.enabled,
                     lastRunAt: duty.lastRunAt ? duty.lastRunAt.toISOString().slice(0, 16).replace('T', ' ') : '',
                   }))}
+                />
+              ),
+            },
+            {
+              key: 'voice',
+              label: 'Voice',
+              content: (
+                <VoiceConfigForm
+                  personId={selected.id}
+                  name={selected.name}
+                  status={selected.status}
+                  current={selected.voiceConfig ?? null}
+                  realtimeProviders={realtimeProviders}
+                  speechConfigured={{
+                    deepgram: Boolean(voiceProviders.deepgram),
+                    elevenlabs: Boolean(voiceProviders.elevenlabs),
+                  }}
+                  catalogs={{
+                    deepgramSttModels: DEEPGRAM_STT_MODELS,
+                    elevenLabsTtsModels: ELEVENLABS_TTS_MODELS,
+                    openaiRealtimeModels: OPENAI_REALTIME_MODELS,
+                    openaiRealtimeVoices: OPENAI_REALTIME_VOICES,
+                    geminiLiveModels: GEMINI_LIVE_MODELS,
+                    geminiLiveVoices: GEMINI_LIVE_VOICES,
+                  }}
                 />
               ),
             },

@@ -13,6 +13,7 @@ export type ActionCategory =
   | 'file_write'
   | 'computer_use'
   | 'shell'
+  | 'phone_call'
 
 export type AutonomyLevel = 'forbidden' | 'approval' | 'notify' | 'trusted'
 
