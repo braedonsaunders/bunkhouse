@@ -17,6 +17,10 @@
 networks:
   dokploy-network:
     external: true
+  # The shared services network: the NAS-backed MinIO lives here, alongside
+  # the rest of the company's infrastructure stacks.
+  infra-net:
+    external: true
 
 volumes:
   agent-homes:
@@ -53,6 +57,7 @@ services:
       - agent-homes:/data/agent-homes
     networks:
       - dokploy-network
+      - infra-net
     healthcheck:
       test:
         - CMD
@@ -100,6 +105,7 @@ services:
       - agent-homes:/data/agent-homes
     networks:
       - dokploy-network
+      - infra-net
     deploy:
       replicas: 1
       placement:
@@ -136,6 +142,7 @@ services:
       - agent-homes:/data/agent-homes
     networks:
       - dokploy-network
+      - infra-net
     deploy:
       replicas: 1
       placement:
