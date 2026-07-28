@@ -37,6 +37,7 @@ export function VoiceConfigForm({
   current,
   realtimeProviders,
   speechConfigured,
+  cascadeModelSupported,
   catalogs,
 }: {
   personId: string
@@ -45,6 +46,10 @@ export function VoiceConfigForm({
   current: AgentVoiceConfig | null
   realtimeProviders: RealtimeProviderOption[]
   speechConfigured: { deepgram: boolean; elevenlabs: boolean }
+  /** Whether this hand's assigned model can hold a cascade call (resolved
+   *  server-side from its provider). When false, the cascade combo is not
+   *  offered — realtime remains fully available. */
+  cascadeModelSupported: boolean
   catalogs: {
     deepgramSttModels: VoiceCatalogOption[]
     elevenLabsTtsModels: VoiceCatalogOption[]
@@ -54,7 +59,9 @@ export function VoiceConfigForm({
     geminiLiveVoices: VoiceCatalogOption[]
   }
 }) {
-  const [mode, setMode] = React.useState<'cascade' | 'realtime'>(current?.mode ?? 'cascade')
+  const [mode, setMode] = React.useState<'cascade' | 'realtime'>(
+    current?.mode ?? (cascadeModelSupported ? 'cascade' : 'realtime'),
+  )
   const [sttModel, setSttModel] = React.useState(current?.cascade?.sttModel ?? catalogs.deepgramSttModels[0]?.id ?? '')
   const [ttsVoiceId, setTtsVoiceId] = React.useState(current?.cascade?.ttsVoiceId ?? '')
   const [ttsModel, setTtsModel] = React.useState(current?.cascade?.ttsModel ?? catalogs.elevenLabsTtsModels[0]?.id ?? '')
@@ -164,9 +171,17 @@ export function VoiceConfigForm({
           <div className="space-y-1">
             <Label htmlFor="voice-mode">Mode</Label>
             <Select id="voice-mode" value={mode} onChange={(e) => setMode(e.target.value as 'cascade' | 'realtime')}>
-              <option value="cascade">Cascade — their own model thinks; Deepgram hears, ElevenLabs speaks</option>
+              <option value="cascade" disabled={!cascadeModelSupported && mode !== 'cascade'}>
+                Cascade — their own model thinks; Deepgram hears, ElevenLabs speaks
+              </option>
               <option value="realtime">Realtime — one speech-to-speech model (OpenAI or Google key)</option>
             </Select>
+            {!cascadeModelSupported ? (
+              <p className="text-xs text-fg-muted">
+                Voice calls in cascade mode are available for hands running OpenAI-compatible models. Choose realtime
+                mode for this hand, or assign an OpenAI-compatible model on the Overview tab.
+              </p>
+            ) : null}
           </div>
 
           {mode === 'cascade' ? (
@@ -326,7 +341,9 @@ export function VoiceConfigForm({
               onClick={save}
               disabled={
                 saving ||
-                (mode === 'cascade' ? !sttModel || !ttsModel || !ttsVoiceId : !realtimeModel || !realtimeVoice)
+                (mode === 'cascade'
+                  ? !cascadeModelSupported || !sttModel || !ttsModel || !ttsVoiceId
+                  : !realtimeModel || !realtimeVoice)
               }
             >
               {saving ? 'Saving…' : 'Save voice'}

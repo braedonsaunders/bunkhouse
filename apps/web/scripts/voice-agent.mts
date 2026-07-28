@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import { cli, defineAgent, voice, ServerOptions, type JobContext, type JobProcess } from '@livekit/agents'
 import * as deepgram from '@livekit/agents-plugin-deepgram'
 import * as elevenlabs from '@livekit/agents-plugin-elevenlabs'
+import * as google from '@livekit/agents-plugin-google'
 import * as openai from '@livekit/agents-plugin-openai'
 import * as silero from '@livekit/agents-plugin-silero'
 import { isAiProvider, providerSpec, type AiConfig } from '@appkit/ai'
@@ -21,12 +22,13 @@ import { resolvePrice } from '../src/lib/pricing'
 // Every utterance is appended to the call_turns ledger; the run is completed
 // with a deterministic summary and LLM usage is metered into token_spend.
 //
-// Provider support today (honest limits, surfaced to the operator):
+// Provider support (engineering notes, never surfaced as-is to operators):
 // - cascade LLM: OpenAI + OpenAI-compatible providers (OpenRouter, Groq, …)
-//   via the openai plugin's baseURL. Anthropic/Google text models need a
-//   bridge plugin — documented follow-up; such calls fail with a clear note.
-// - realtime: OpenAI Realtime only. Gemini Live needs the google plugin —
-//   documented follow-up.
+//   via the openai plugin's baseURL. Anthropic text models still need a
+//   bridge; the UI disables the cascade combo for such hands.
+// - realtime: OpenAI Realtime and Gemini Live. The Gemini plugin enables
+//   input+output audio transcription by default, so both speakers land in
+//   the transcript ledger on either provider.
 
 const app = db()
 
@@ -158,10 +160,10 @@ export default defineAgent({
         }
         const kind = isAiProvider(ai.provider) ? providerSpec(ai.provider).kind : null
         if (kind !== 'openai' && kind !== 'openai-compatible') {
-          // Honest limit: the cascade LLM leg speaks the OpenAI protocol today.
-          // An Anthropic/Google bridge is a documented follow-up.
+          // The cascade LLM leg speaks the OpenAI protocol; the Voice tab
+          // disables this combo up front — this guard covers stale configs.
           throw new Error(
-            `Cascade voice supports OpenAI and OpenAI-compatible model providers today; this hand thinks on "${ai.provider}". Assign an OpenAI-family provider for calls, or switch to realtime mode.`,
+            'Voice calls in cascade mode are available for hands running OpenAI-compatible models. Choose realtime mode for this hand, or assign an OpenAI-compatible model.',
           )
         }
         const deepgramKey = await resolveSpeechCredential(session.tenantId, 'deepgram')
@@ -192,23 +194,31 @@ export default defineAgent({
         })
       } else {
         const realtime = config.realtime!
-        if (realtime.provider !== 'openai') {
-          // Gemini Live needs @livekit/agents-plugin-google — documented follow-up.
+        const credential = await resolveRealtimeCredential(session.tenantId, realtime.provider)
+        if (!credential) {
           throw new Error(
-            'Realtime voice runs on OpenAI today; Gemini Live support is a follow-up. Switch the hand to OpenAI realtime or cascade mode.',
+            `No ${realtime.provider === 'google' ? 'Google' : 'OpenAI'} provider is configured under Settings → Model providers — realtime voice runs on its key.`,
           )
         }
-        const credential = await resolveRealtimeCredential(session.tenantId, 'openai')
-        if (!credential) {
-          throw new Error('No OpenAI provider is configured under Settings → Model providers — realtime voice needs its key.')
-        }
-        agentSession = new voice.AgentSession({
-          llm: new openai.realtime.RealtimeModel({
-            apiKey: credential.apiKey,
-            model: realtime.model,
-            voice: realtime.voice,
-          }),
-        })
+        agentSession =
+          realtime.provider === 'google'
+            ? new voice.AgentSession({
+                // Gemini Live. Input and output audio transcription are on by
+                // default in the plugin, so both speakers reach the ledger.
+                llm: new google.realtime.RealtimeModel({
+                  apiKey: credential.apiKey,
+                  model: realtime.model,
+                  voice: realtime.voice,
+                  ...(config.language ? { language: config.language } : {}),
+                }),
+              })
+            : new voice.AgentSession({
+                llm: new openai.realtime.RealtimeModel({
+                  apiKey: credential.apiKey,
+                  model: realtime.model,
+                  voice: realtime.voice,
+                }),
+              })
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)

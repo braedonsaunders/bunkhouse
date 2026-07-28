@@ -109,7 +109,7 @@ function CallControls({
             ? 'Connecting you to the room…'
             : handJoined
               ? `${hand.name} is on the call.`
-              : `Waiting for ${hand.name} to pick up… (the voice agent worker answers — make sure it is running)`}
+              : `Ringing — waiting for ${hand.name} to pick up…`}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex items-center gap-2">

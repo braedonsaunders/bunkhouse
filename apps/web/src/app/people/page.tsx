@@ -12,6 +12,7 @@ import {
   OPENAI_REALTIME_MODELS,
   OPENAI_REALTIME_VOICES,
 } from '@appkit/voice'
+import { isAiProvider, providerSpec } from '@appkit/ai'
 import { resolveTenantId } from '../../lib/tenant'
 import { listAiProviders } from '../../lib/ai'
 import { getVoiceProviders, listRealtimeCapableProviders } from '../../lib/voice'
@@ -95,6 +96,16 @@ export default async function PeoplePage({
       return { personDuties, dial, notes, monthSpend: Number(spend?.cost ?? 0), recentRuns, hasAvatar: !!avatar }
     })
     const providers = isHand ? await listAiProviders(tenantId) : []
+    // Cascade calls run the hand's own model over the OpenAI protocol; resolve
+    // whether this hand's assigned provider speaks it so the Voice tab only
+    // offers combos that can actually hold a call.
+    const assignedProvider = providers.find((p) => p.slug === selected.modelConfig?.provider)
+    const assignedKind =
+      assignedProvider && isAiProvider(assignedProvider.provider)
+        ? providerSpec(assignedProvider.provider).kind
+        : null
+    const cascadeModelSupported =
+      !selected.modelConfig || assignedKind === 'openai' || assignedKind === 'openai-compatible'
     const imageSetting = isHand ? await getImageProviderSetting(tenantId) : null
     const voiceProviders: Awaited<ReturnType<typeof getVoiceProviders>> = isHand ? await getVoiceProviders(tenantId) : {}
     const realtimeProviders = isHand ? await listRealtimeCapableProviders(tenantId) : []
@@ -164,6 +175,7 @@ export default async function PeoplePage({
                     deepgram: Boolean(voiceProviders.deepgram),
                     elevenlabs: Boolean(voiceProviders.elevenlabs),
                   }}
+                  cascadeModelSupported={cascadeModelSupported}
                   catalogs={{
                     deepgramSttModels: DEEPGRAM_STT_MODELS,
                     elevenLabsTtsModels: ELEVENLABS_TTS_MODELS,

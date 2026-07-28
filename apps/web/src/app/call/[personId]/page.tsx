@@ -92,10 +92,10 @@ export default async function CallPage({ params }: { params: Promise<{ personId:
     if (kind !== 'openai' && kind !== 'openai-compatible') {
       return (
         <Blocked
-          title="This model cannot take calls yet"
-          description={`${person.name} thinks on a ${ai.provider} model. Cascade voice currently supports OpenAI and OpenAI-compatible providers (OpenRouter, Groq, …) — an Anthropic/Google bridge is a documented follow-up. Assign an OpenAI-family provider for calls, or use realtime mode.`}
+          title="Cascade calls need an OpenAI-compatible model"
+          description={`Voice calls in cascade mode are available for hands running OpenAI-compatible models. Choose realtime mode for ${person.name}, or assign an OpenAI-compatible model on their profile.`}
           href={profileHref}
-          linkLabel="Open profile"
+          linkLabel="Open Voice tab"
         />
       )
     }
@@ -109,16 +109,6 @@ export default async function CallPage({ params }: { params: Promise<{ personId:
           description={`This hand's realtime voice runs on ${providerKind === 'google' ? 'a Google' : 'an OpenAI'} key, but none is configured. Add one under Settings → Model providers.`}
           href="/admin/settings"
           linkLabel="Open Settings"
-        />
-      )
-    }
-    if (providerKind === 'google') {
-      return (
-        <Blocked
-          title="Gemini Live calls are not wired up yet"
-          description={`${person.name} is configured for Gemini Live, but the voice worker currently drives realtime calls through OpenAI only — the Google realtime plugin is a documented follow-up. Switch the hand's realtime provider to OpenAI, or use cascade mode.`}
-          href={profileHref}
-          linkLabel="Open Voice tab"
         />
       )
     }
