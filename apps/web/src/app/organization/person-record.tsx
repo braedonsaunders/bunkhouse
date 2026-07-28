@@ -17,7 +17,7 @@ import { createEmptyComposition, getAvatarComposition, loadAvatarPartLibrary } f
 import { AVATAR_PART_CATEGORIES } from '../../lib/avatar-parts'
 import { scheduleToHuman } from '../../lib/schedule'
 import { PersonDrawer, type PersonDrawerTab } from '../../components/person-drawer'
-import { AvatarStudio } from '../../components/avatar-studio'
+import { AvatarPortrait, AvatarStudio } from '../../components/avatar-studio'
 import { VoiceConfigForm } from '../../components/voice-config-form'
 import { DutiesCard } from '../../components/duties-card'
 import { MailboxSection } from './mailbox-section'
@@ -109,6 +109,8 @@ export async function personDrawer({
     .filter((p) => p.status === 'active' || p.id === selected.reportsToId)
     .map((p) => ({ id: p.id, name: p.name, title: p.title }))
 
+  const figure = composition ?? createEmptyComposition()
+
   const tabs: PersonDrawerTab[] = [
     {
       key: 'overview',
@@ -118,6 +120,22 @@ export async function personDrawer({
           person={selected}
           providers={providers.map((p) => ({ slug: p.slug, label: p.label }))}
           roster={rosterOptions}
+        />
+      ),
+    },
+    {
+      key: 'avatar',
+      label: 'Avatar',
+      // The composer is a workbench: it manages its own scrolling and wants
+      // the drawer's full height, like an app panel.
+      fill: true,
+      content: (
+        <AvatarStudio
+          personId={selected.id}
+          name={selected.name}
+          composition={figure}
+          parts={partLibrary}
+          categories={AVATAR_PART_CATEGORIES}
         />
       ),
     },
@@ -217,14 +235,14 @@ export async function personDrawer({
       status={selected.status}
       avatar={
         // Everyone in the organization gets a likeness — humans included.
-        <AvatarStudio
-          personId={selected.id}
+        <AvatarPortrait
           name={selected.name}
-          composition={composition ?? createEmptyComposition()}
+          composition={figure}
           parts={partLibrary}
           categories={AVATAR_PART_CATEGORIES}
         />
       }
+      avatarTabKey="avatar"
       tabs={tabs}
     />
   )
