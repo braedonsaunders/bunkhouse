@@ -69,6 +69,22 @@ and configuration writes. Turning a feature off preserves its data and audit his
 retention) must be UI-configurable from the app — never hardcoded, never env-only, unless
 it is genuinely deployment infrastructure.
 
+## Definition of done — UI or it doesn't exist
+
+**NOTHING IS DONE UNLESS ITS UI IS BUILT AND PROPERLY TENANT-CONFIGURABLE.** An engine,
+schema, or service without its management surface is an unfinished slice — do not report
+it done, do not move on. Every capability ships with, in the same slice:
+
+1. the screen where an operator configures it (on the appkit admin/settings templates —
+   AdminHub, SettingsShell, RecordList — never bespoke layouts);
+2. every knob a reasonable operator expects, tenant-scoped in the database (never env,
+   never code constants);
+3. visible state: status, last activity, last error, and the audit trail where one exists;
+4. discoverability — reachable from the admin hub or the natural record page, not only by
+   knowing the URL.
+
+If a slice is intentionally engine-first, its task stays open until the UI lands.
+
 ## Foundation rules
 
 Built on AppKit (repo: `../appkit`, vendored tarballs in `vendor/appkit`, wired via `file:`
