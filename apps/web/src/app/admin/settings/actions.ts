@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { isAiProvider, listModels } from '@appkit/ai'
 import { unsealSecret } from '@appkit/crypto'
 import { addAiProvider, listAiProviders, removeAiProvider } from '../../../lib/ai'
+import { listTenantElevenLabsVoices, removeSpeechProvider, setSpeechProviderKey, type SpeechProvider } from '../../../lib/voice'
 import { resolveTenantId } from '../../../lib/tenant'
 import { refreshPricesFromOpenRouter, setManualPrice } from '../../../lib/pricing'
 import { setImageProviderSetting } from '../../../lib/avatars'
@@ -105,6 +106,42 @@ export async function setManualPriceAction(formData: FormData): Promise<void> {
   const tenantId = await resolveTenantId()
   await setManualPrice({ tenantId, model, inputUsdPerMtok: inputUsd, outputUsdPerMtok: outputUsd })
   revalidatePath('/admin/settings')
+}
+
+/** Save a speech-provider key (cascade voice) — live-verified before sealing. */
+export async function setSpeechProviderKeyAction(input: {
+  provider: string
+  apiKey: string
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (input.provider !== 'deepgram' && input.provider !== 'elevenlabs') {
+    return { ok: false, message: `Unknown speech provider: ${input.provider}` }
+  }
+  if (!input.apiKey.trim()) return { ok: false, message: 'Enter the API key first.' }
+  try {
+    const tenantId = await resolveTenantId()
+    await setSpeechProviderKey({ tenantId, provider: input.provider, apiKey: input.apiKey.trim() })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  revalidatePath('/admin/settings')
+  return { ok: true }
+}
+
+/** Remove a speech-provider key. Hands configured to use it stop being callable. */
+export async function removeSpeechProviderAction(formData: FormData): Promise<void> {
+  const provider = String(formData.get('provider') ?? '') as SpeechProvider
+  if (provider !== 'deepgram' && provider !== 'elevenlabs') throw new Error('Unknown speech provider.')
+  const tenantId = await resolveTenantId()
+  await removeSpeechProvider(tenantId, provider)
+  revalidatePath('/admin/settings')
+}
+
+/** Live ElevenLabs voice catalog for the voice picker (key stays sealed here). */
+export async function listVoicesForTenantAction(): Promise<
+  { ok: true; voices: { id: string; name: string; hint?: string }[] } | { ok: false; message: string }
+> {
+  const tenantId = await resolveTenantId()
+  return listTenantElevenLabsVoices(tenantId)
 }
 
 /** Point avatar generation at one of the tenant's AI providers + image model. */
