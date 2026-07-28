@@ -16,7 +16,7 @@ const indent = (text: string, pad = '   ') =>
     .map((line) => (line.trim() ? `${pad}${line}` : ''))
     .join('\n')
 
-/** The markdown a hand reads. Sections with nothing in them are left out. */
+/** The markdown an agent reads. Sections with nothing in them are left out. */
 export function renderProcedureBody(content: ProcedureContent): string {
   const parts: string[] = []
 

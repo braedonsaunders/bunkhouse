@@ -14,30 +14,32 @@ export type ActionCategory =
 
 export type AutonomyLevel = 'forbidden' | 'approval' | 'notify' | 'trusted'
 
-export type HandPersonality = {
+export type AgentPersonality = {
   bio: string
   tone: string[]
   signoff: string
 }
 
-/** Everything the loop needs to know about the hand it is running. */
-export type HandProfile = {
+/** Everything the loop needs to know about the agent it is running. */
+export type AgentProfile = {
   id: string
   name: string
   title: string
   email: string
-  personality: HandPersonality
-  /** Provider + model for THIS hand; different hands run different models. */
+  personality: AgentPersonality
+  /** Provider + model for THIS agent; different agents run different models. */
   ai: AiConfig
   temperature?: number
   responsibilities?: string
+  /** This agent's manager on the org chart — its escalation path. */
+  reportsToId?: string
   proactivity: 'reactive' | 'duties' | 'autonomous'
 }
 
-/** A directory entry — human or hand — the hand may route work to. */
+/** A directory entry — human or agent — the agent may route work to. */
 export type DirectoryEntry = {
   id: string
-  kind: 'human' | 'hand'
+  kind: 'human' | 'agent'
   name: string
   title: string
   email: string
@@ -51,7 +53,7 @@ export type CompanyProfile = {
   directory: DirectoryEntry[]
 }
 
-/** An active procedure revision bound to this hand, loaded verbatim. */
+/** An active procedure revision bound to this agent, loaded verbatim. */
 export type BoundProcedure = {
   id: string
   slug: string
@@ -60,9 +62,9 @@ export type BoundProcedure = {
   body: string
 }
 
-/** A human-readable memory note (hand or company scope). */
+/** A human-readable memory note (agent or company scope). */
 export type MemoryNote = {
-  scope: 'hand' | 'company'
+  scope: 'agent' | 'company'
   slug: string
   title: string
   body: string
@@ -92,7 +94,7 @@ export type RunSink = {
   spend: (usage: TokenUsage & { provider: string; model: string }) => Promise<void>
 }
 
-/** Resolves the dial for this hand. Missing categories default to 'approval' —
+/** Resolves the dial for this agent. Missing categories default to 'approval' —
  *  the safe posture for anything nobody configured. */
 export type AutonomyResolver = (category: ActionCategory) => AutonomyLevel
 

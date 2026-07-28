@@ -16,6 +16,7 @@ import {
 import type { autonomySettings, memories, people, runs } from '../../db/schema'
 import { AssignModelForm } from '../../components/assign-model-form'
 import { NotesView } from '../../components/notes-view'
+import { PersonRecordForm } from '../../components/person-record-form'
 import {
   ACTION_CATEGORIES,
   AUTONOMY_LEVELS,
@@ -23,7 +24,7 @@ import {
   DEFAULT_AUTONOMY_LEVEL,
   LEVEL_BADGES,
 } from '../../lib/autonomy'
-import { setAutonomy, updatePerson } from './actions'
+import { setAutonomy } from './actions'
 
 type Person = typeof people.$inferSelect
 
@@ -37,7 +38,7 @@ export function OverviewSection({
   providers: { slug: string; label: string }[]
   roster: { id: string; name: string; title: string }[]
 }) {
-  const isHand = person.kind === 'hand'
+  const isAgent = person.kind === 'agent'
   return (
     <div className="space-y-4">
       <Card>
@@ -46,7 +47,7 @@ export function OverviewSection({
           <CardDescription>Everything here saves in one go.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={updatePerson} className="grid gap-4 sm:grid-cols-2">
+          <PersonRecordForm>
             <input type="hidden" name="personId" value={person.id} />
             <div className="space-y-2">
               <Label htmlFor="p-name">Name</Label>
@@ -71,7 +72,7 @@ export function OverviewSection({
             <div className="space-y-2">
               <Label htmlFor="p-reports">Reports to</Label>
               <Select id="p-reports" name="reportsToId" defaultValue={person.reportsToId ?? ''}>
-                <option value="">— Nobody —</option>
+                <option value="">— Top level —</option>
                 {roster
                   .filter((r) => r.id !== person.id)
                   .map((r) => (
@@ -80,12 +81,38 @@ export function OverviewSection({
                     </option>
                   ))}
               </Select>
+              <p className="text-xs text-fg-muted">Sets their place on the org chart and where work escalates to.</p>
             </div>
+            {isAgent ? null : (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="p-phone">Phone</Label>
+                  <Input id="p-phone" name="phone" type="tel" defaultValue={person.phone ?? ''} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="p-timezone">Time zone</Label>
+                  <Input
+                    id="p-timezone"
+                    name="timezone"
+                    placeholder="America/New_York"
+                    defaultValue={person.timezone ?? ''}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="p-started">Start date</Label>
+                  <Input id="p-started" name="startedOn" type="date" defaultValue={person.startedOn ?? ''} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="p-ended">Last day</Label>
+                  <Input id="p-ended" name="endedOn" type="date" defaultValue={person.endedOn ?? ''} />
+                </div>
+              </>
+            )}
             <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="p-resp">Responsibilities (hands route work using this)</Label>
+              <Label htmlFor="p-resp">Responsibilities (agents route work using this)</Label>
               <Textarea id="p-resp" name="responsibilities" rows={2} defaultValue={person.responsibilities ?? ''} />
             </div>
-            {isHand ? (
+            {isAgent ? (
               <>
                 <div className="space-y-2 sm:col-span-2">
                   <Label htmlFor="p-bio">Personality bio</Label>
@@ -129,20 +156,17 @@ export function OverviewSection({
                 </div>
               </>
             ) : null}
-            <div className="sm:col-span-2">
-              <Button type="submit">Save record</Button>
-            </div>
-          </form>
+          </PersonRecordForm>
         </CardContent>
       </Card>
-      {isHand ? (
+      {isAgent ? (
         <Card>
           <CardHeader>
             <CardTitle>Model</CardTitle>
             <CardDescription>
               {person.modelConfig
                 ? `${person.modelConfig.provider} / ${person.modelConfig.model}`
-                : 'Not assigned yet — this hand cannot work without a brain.'}
+                : 'Not assigned yet — this agent cannot work without a brain.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -209,7 +233,7 @@ export function AutonomySection({
   )
 }
 
-/** The hand's logbook: RecordList + drawers via the shared NotesView. */
+/** The agent's logbook: RecordList + drawers via the shared NotesView. */
 export function MemorySection({
   person,
   notes,
@@ -222,12 +246,12 @@ export function MemorySection({
       <CardHeader>
         <CardTitle>Memory</CardTitle>
         <CardDescription>
-          This hand&apos;s logbook — human-readable, append-only. Corrections keep history; forgetting closes validity.
+          This agent&apos;s logbook — human-readable, append-only. Corrections keep history; forgetting closes validity.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <NotesView
-          scope="hand"
+          scope="agent"
           personId={person.id}
           rows={notes.map((note) => ({
             id: note.id,
@@ -273,7 +297,7 @@ export function PayrollSection({
           />
         </div>
         {recentRuns.length === 0 ? (
-          <p className="text-fg-muted">No runs yet — work appears here once this hand starts.</p>
+          <p className="text-fg-muted">No runs yet — work appears here once this agent starts.</p>
         ) : (
           <div className="space-y-1">
             {recentRuns.map((run) => (

@@ -39,7 +39,7 @@ const humans = [
     name: 'Demo Owner',
     title: 'Owner',
     email: OWNER_EMAIL,
-    responsibilities: 'Final say on money, pricing, legal, and anything a hand escalates.',
+    responsibilities: 'Final say on money, pricing, legal, and anything an agent escalates.',
   },
   {
     name: 'Sam Ellis',

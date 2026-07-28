@@ -11,13 +11,13 @@ export function KnowledgeView({
   proposals,
   procedures,
   rolePackOptions,
-  handOptions,
+  agentOptions,
 }: {
   notes: NoteRow[]
   proposals: ProposalRow[]
   procedures: ProcedureRow[]
   rolePackOptions: AssignOption[]
-  handOptions: AssignOption[]
+  agentOptions: AssignOption[]
 }) {
   const [active, setActive] = React.useState('notes')
   const tabs: SubtabItem[] = [
@@ -32,10 +32,10 @@ export function KnowledgeView({
       {active === 'procedures' ? (
         <div className="space-y-3">
           <p className="text-sm text-fg-muted">
-            Versioned company doctrine. Hands follow the active revision and cite it in their work — changes are new
+            Versioned company doctrine. Agents follow the active revision and cite it in their work — changes are new
             versions, never edits.
           </p>
-          <ProceduresView rows={procedures} rolePackOptions={rolePackOptions} handOptions={handOptions} />
+          <ProceduresView rows={procedures} rolePackOptions={rolePackOptions} agentOptions={agentOptions} />
         </div>
       ) : null}
       {active === 'proposals' ? <ProposalsView rows={proposals} /> : null}

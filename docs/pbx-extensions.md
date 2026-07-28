@@ -1,6 +1,6 @@
-# The Front Desk — hands as PBX extensions (design, researched 2026-07-27)
+# The Front Desk — agents as PBX extensions (design, researched 2026-07-27)
 
-Owner's epic: dial a hand from any desk phone on the office PBX — hands get extension
+Owner's epic: dial an agent from any desk phone on the office PBX — agents get extension
 numbers like human employees. Reference deployment: **Avaya IP Office** (the owner runs
 one). This extends voice-design.md; the LiveKit media plane, voice-worker, and
 call_sessions ledger from that doc are assumed.
@@ -24,7 +24,7 @@ deterministically from tenant settings.
 **Option (a) — 3rd-party SIP extensions (mode B target).** IP Office registers non-Avaya
 SIP endpoints against its built-in SIP Registrar. Each endpoint consumes one **3rd Party
 IP Endpoint** license (R10+: "IP Office SIP Endpoint" PLDS license; subscription-mode
-systems license per user) — **one license per hand**, consumed at registration, reservable
+systems license per user) — **one license per agent**, consumed at registration, reservable
 per-extension via "Reserve 3rd Party IP Endpoint License". Setup per extension: SIP
 Extension record + User record; the user's Telephony → Supervisor Settings → **Login
 Code is the SIP password**; auth name = extension number. System-level: LAN1/LAN2 → VoIP →
@@ -44,7 +44,7 @@ and an **Incoming Call Route** (Bearer: Any Voice, Line Group = same ID, Destina
 match from URI"). Licensing: **SIP Trunk Channels** licenses cap concurrent trunk calls
 (1/5/10/20 packs, consumed per call in progress, central on the Server Edition primary;
 subscription-mode systems bundle SIP trunk entitlements) — so mode A needs *channels for
-concurrent calls*, not per-hand licenses. Also verify System → Telephony → Maximum SIP
+concurrent calls*, not per-agent licenses. Also verify System → Telephony → Maximum SIP
 Sessions > 0.
 
 **IP Office quirks (versions 11.1/12.x, from Avaya KB + Asterisk/FreePBX/3CX interop):**
@@ -80,25 +80,25 @@ carriers and PBXes are config, not code.
   Desk phone dials 701 → short code sends `701@ingress` down the line → LiveKit inbound
   trunk (matched by tenant's PBX source IP/credentials) → dispatch rule creates the call
   room → voice-worker reads the called number attribute, resolves **(trunk → tenant,
-  called number → hand)** via the extension map, loads that hand's runtime context, and
-  answers as the hand. Extension numbers are unique only per tenant; resolution is always
+  called number → agent)** via the extension map, loads that agent's runtime context, and
+  answers as the agent. Extension numbers are unique only per tenant; resolution is always
   trunk-scoped.
 - **Mode B (registered extensions).** A bunkhouse-operated Asterisk container (one per
   deployment, multi-tenant via per-extension config) holds a PJSIP outbound
-  `registration` per mapped hand against the tenant's IP Office registrar, using sealed
+  `registration` per mapped agent against the tenant's IP Office registrar, using sealed
   per-extension credentials. Inbound: IP Office rings the registered contact → Asterisk
   dialplan bridges to the LiveKit inbound trunk carrying the extension as the called
   number → same dispatch path as mode A. The container's pjsip.conf is **generated from
-  tenant settings** (template + reload, never hand-edited); registration state per
+  tenant settings** (template + reload, never agent-edited); registration state per
   extension is scraped and surfaced in the UI.
-- **Outbound (hand → humans).** `place_call` to an internal extension uses the tenant's
+- **Outbound (agent → humans).** `place_call` to an internal extension uses the tenant's
   PBX trunk: mode A, CreateSIPParticipant dials `ext@ipoffice-host` via a LiveKit
   outbound trunk (IP Office's Incoming Call Route `.` destination routes the digits);
-  mode B, Asterisk originates from the hand's registered identity. Caller ID: From-user =
-  the hand's extension so desk phones show "701 — Junie (AR clerk)" once the IP Office
+  mode B, Asterisk originates from the agent's registered identity. Caller ID: From-user =
+  the agent's extension so desk phones show "701 — Junie (AR clerk)" once the IP Office
   user record names it; mode A callers see whatever the Incoming Call Route presents.
   Internal dials are still gated by the `phone_call` autonomy category.
-- **Transfers to humans.** Hand says "let me get Dana" → tool call →
+- **Transfers to humans.** Agent says "let me get Dana" → tool call →
   TransferSIPParticipant REFERs the caller to Dana's extension over the same trunk; IP
   Office completes it (REFER Support Auto). The transfer is a `tool_call` turn in the
   ledger; the session ends `transferred`.
@@ -113,7 +113,7 @@ sip_trunks + flavor 'carrier'|'pbx_line'|'pbx_extensions', pbx_type, pbx_config 
   (host, port, transport, registrar domain), auth sealed
 pbx_extensions(id, tenant_id, trunk_id, extension, person_id, auth sealed NULLABLE
   (mode B only), reg_status unregistered|registered|failed, reg_expires_at, last_error)
-  -- unique (trunk_id, extension); THE extension map, one row per hand mapping
+  -- unique (trunk_id, extension); THE extension map, one row per agent mapping
 call_sessions + peer_kind pstn|pbx_extension, peer_extension
 
 ## Tenant UI (Settings → Voice → Phone system)
@@ -121,9 +121,9 @@ call_sessions + peer_kind pstn|pbx_extension, peer_extension
 Under the `telephony` gate (dependent on `voice`), a Phone system subtab on
 SettingsShell: PBX type select (Avaya IP Office / Generic SIP), mode radio (SIP line /
 Registered extensions) with an honest explainer of the licensing difference (trunk
-channels vs per-hand endpoint licenses), PBX host/transport, sealed credentials, and the
-**extension map** — a RecordList of pbx_extensions rows (extension ⇄ hand picker,
-registration status + last error in mode B), row drawer for credentials. The hand's
+channels vs per-agent endpoint licenses), PBX host/transport, sealed credentials, and the
+**extension map** — a RecordList of pbx_extensions rows (extension ⇄ agent picker,
+registration status + last error in mode B), row drawer for credentials. The agent's
 profile Voice section shows its own extension read/write (rehomed view of the same row —
 one source of truth). A **Test call** button: mode A places a loopback INVITE to a
 configured test extension and reports the SIP response chain; mode B shows live
@@ -135,9 +135,9 @@ credentials, and extension maps are sealed tenant settings.
 ## Build order (each slice ships its UI)
 
 1. **Mode A inbound.** sip_trunks flavor + pbx_extensions schema; Phone system settings
-   subtab + extension map UI + hand-profile extension field; trunk-scoped
-   called-number→hand resolution in the voice-worker dispatch path; call ledger
-   peer_kind/peer_extension. Desk phone rings a hand.
+   subtab + extension map UI + agent-profile extension field; trunk-scoped
+   called-number→agent resolution in the voice-worker dispatch path; call ledger
+   peer_kind/peer_extension. Desk phone rings an agent.
    **SHIPPED (trunk-first first pass):** livekit-sip + media-redis in compose
    (`--dev` server now on the same redis bus); migration `0012_pbx` — sip_trunks
    (flavor avaya_ip_office|generic_sip, mode trunk|extension column reserved,
@@ -145,10 +145,10 @@ credentials, and extension maps are sealed tenant settings.
    RLS) + `people.extension` (per-tenant partial unique) instead of a separate
    pbx_extensions table for this slice; lib/pbx.ts CRUD + reconstruct-on-save
    provisioning (inbound trunk + `pbx-` callee dispatch rule via SipClient);
-   voice-agent answers `pbx-<ext>…` rooms, resolves the hand by extension, and
+   voice-agent answers `pbx-<ext>…` rooms, resolves the agent by extension, and
    creates the run + call_sessions row (direction inbound_phone) itself;
    Settings → Voice → Phone system drawer (Trunks / Extensions / Connection
-   details subtabs, Avaya checklist) + Phone extension card on the hand's
+   details subtabs, Avaya checklist) + Phone extension card on the agent's
    Voice tab; observatory labels the runs 'Inbound call'. Still open from this
    slice's full spec: peer_kind/peer_extension ledger columns, trunk-scoped
    (vs extension-global) resolution, and the Test call button.
@@ -176,18 +176,18 @@ Must be verified against the real system; docs above are Avaya KB + interop folk
 4. Short code: Code `7XX`, Feature Dial, Number `7N"@<ingress-host>"`, Line Group 700
    (pick a 7xx range clear of existing extensions).
 5. Incoming Call Route: Bearer Any Voice, Line Group 700, Destination `.` (for
-   hand-initiated outbound dials landing back on the PBX).
+   agent-initiated outbound dials landing back on the PBX).
 6. Network: IP Office → ingress reachability on 5060 + the RTP port range (LAN, VPN, or
    firewall allowlist both directions). Then dial 701 from a desk phone.
 Mode B pilot instead: SIP Registrar Enable + domain (reboot), SIP Extension + User per
-hand (Login Code = password), one 3rd Party IP Endpoint license per hand, reserve it on
+agent (Login Code = password), one 3rd Party IP Endpoint license per agent, reserve it on
 the extension.
 
 ## Recommendation (5 lines)
 
 Ship PBX reachability as trunk-first: mode A "PBX line" is the default — an IP Office
 SIP Line to bunkhouse's existing LiveKit SIP ingress, a 7xx short-code range, and a
-per-hand extension map; no new containers, no per-hand PBX licenses. Because LiveKit SIP
+per-agent extension map; no new containers, no per-agent PBX licenses. Because LiveKit SIP
 cannot REGISTER (trunk-only, confirmed July 2026), offer mode B via a config-generated
 Asterisk PJSIP bridge only for tenants who can't touch trunk config. Pilot on the
 owner's IP Office with the Manager checklist above, UDP/G.711 first, TLS later.

@@ -72,7 +72,7 @@ export async function saveRoleDef(formData: FormData): Promise<void> {
   revalidatePath('/roles')
 }
 
-/** Remove a custom role definition (hands already onboarded keep working). */
+/** Remove a custom role definition (agents already onboarded keep working). */
 export async function deleteRoleDef(formData: FormData): Promise<void> {
   const id = String(formData.get('roleId') ?? '')
   if (!id) throw new Error('roleId is required.')

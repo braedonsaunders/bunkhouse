@@ -8,7 +8,7 @@ import type {
   BoundProcedure,
   BudgetMeter,
   CompanyProfile,
-  HandProfile,
+  AgentProfile,
   MemoryNote,
   RunInput,
   RunOutcome,
@@ -16,8 +16,8 @@ import type {
   TokenUsage,
 } from './types'
 
-export type RunHandArgs = {
-  hand: HandProfile
+export type RunAgentArgs = {
+  agent: AgentProfile
   company: CompanyProfile
   procedures: BoundProcedure[]
   memories: MemoryNote[]
@@ -37,13 +37,13 @@ export type RunHandArgs = {
 const DEFAULT_MAX_STEPS = 24
 
 /**
- * One complete unit of a hand's work, headless. The loop enforces what prompts
+ * One complete unit of an agent's work, headless. The loop enforces what prompts
  * cannot: the autonomy dial (via governed tools), the salary budget (checked
  * before starting and per step), and the append-only event record. A gated
  * action suspends the run with 'waiting_approval'; the caller resumes it later
  * with priorMessages + the approved tool result.
  */
-export async function runHand(args: RunHandArgs): Promise<RunOutcome> {
+export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
   const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
 
   const remaining = await args.budget.remainingUsd()
@@ -55,9 +55,9 @@ export async function runHand(args: RunHandArgs): Promise<RunOutcome> {
     return { status: 'budget_paused', usage }
   }
 
-  const model = getModel(args.hand.ai, 'smart')
+  const model = getModel(args.agent.ai, 'smart')
   if (!model) {
-    const message = `No model available for ${args.hand.name} (provider ${args.hand.ai.provider}).`
+    const message = `No model available for ${args.agent.name} (provider ${args.agent.ai.provider}).`
     await args.sink.event({ kind: 'error', message })
     return { status: 'failed', error: message, usage }
   }
@@ -74,7 +74,7 @@ export async function runHand(args: RunHandArgs): Promise<RunOutcome> {
   })
 
   const system = buildSystemPrompt({
-    hand: args.hand,
+    agent: args.agent,
     company: args.company,
     procedures: args.procedures,
     memories: args.memories,
@@ -90,7 +90,7 @@ export async function runHand(args: RunHandArgs): Promise<RunOutcome> {
       system,
       messages,
       tools,
-      temperature: args.hand.temperature,
+      temperature: args.agent.temperature,
       stopWhen: [stepCountIs(args.maxSteps ?? DEFAULT_MAX_STEPS), () => state.pendingApprovalId !== null],
       abortSignal: args.abortSignal,
       onStepFinish: async (step) => {
@@ -114,8 +114,8 @@ export async function runHand(args: RunHandArgs): Promise<RunOutcome> {
         }
         if (step.text) await args.sink.event({ kind: 'message', text: step.text })
         await args.sink.spend({
-          provider: args.hand.ai.provider,
-          model: args.hand.ai.modelSmart ?? '',
+          provider: args.agent.ai.provider,
+          model: args.agent.ai.modelSmart ?? '',
           inputTokens: step.usage.inputTokens ?? 0,
           outputTokens: step.usage.outputTokens ?? 0,
         })

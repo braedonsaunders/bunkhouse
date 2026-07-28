@@ -17,7 +17,7 @@ import {
   promoteNoteAction,
   togglePinNote,
   updateMemoryNote,
-} from '../app/people/actions'
+} from '../app/organization/actions'
 import { addCompanyNote, decideMemoryProposal } from '../app/knowledge/actions'
 import { MarkdownEditor } from './markdown-editor'
 
@@ -50,7 +50,7 @@ const COLUMNS: RecordColumn<NoteRow>[] = [
 ]
 
 /**
- * The Logbook list: one component for a hand's memory and for company
+ * The Logbook list: one component for an agent's memory and for company
  * knowledge — RecordList rows, drawers for the record and for authoring.
  */
 export function NotesView({
@@ -59,7 +59,7 @@ export function NotesView({
   personId,
 }: {
   rows: NoteRow[]
-  scope: 'hand' | 'company'
+  scope: 'agent' | 'company'
   personId?: string
 }) {
   const [selected, setSelected] = React.useState<NoteRow | null>(null)
@@ -100,8 +100,8 @@ export function NotesView({
           title: scope === 'company' ? 'No company knowledge yet' : 'Nothing remembered yet',
           description:
             scope === 'company'
-              ? 'Write the facts every hand should share, or approve a proposal below.'
-              : 'Notes appear here as this hand works — or add one yourself.',
+              ? 'Write the facts every agent should share, or approve a proposal below.'
+              : 'Notes appear here as this agent works — or add one yourself.',
         }}
       />
 
@@ -110,7 +110,7 @@ export function NotesView({
         onClose={() => setCreating(false)}
         title="New note"
         description="Markdown; link other notes with [[slug]]. Facts stay true until superseded; episodes fade; procedures bind."
-        size="md"
+        size="2xl"
       >
         <form
           action={(form) => {
@@ -154,7 +154,7 @@ export function NotesView({
         onClose={() => setSelected(null)}
         title={selected?.title ?? ''}
         description={selected ? `[[${selected.slug}]] · by ${selected.author} · updated ${selected.updatedAt}` : undefined}
-        size="lg"
+        size="2xl"
       >
         {selected ? (
           <div className="space-y-5">
@@ -213,7 +213,7 @@ export function NotesView({
               </p>
             </form>
 
-            {scope === 'hand' ? (
+            {scope === 'agent' ? (
               <form
                 action={(form) => {
                   form.set('memoryId', selected.id)
@@ -280,14 +280,14 @@ export function ProposalsView({ rows }: { rows: ProposalRow[] }) {
         rows={rows}
         getRowId={(row) => row.id}
         onRowClick={(row) => setSelected(row)}
-        empty={{ title: 'No open proposals', description: 'Hands nominate knowledge here; you decide what crosses.' }}
+        empty={{ title: 'No open proposals', description: 'Agents nominate knowledge here; you decide what crosses.' }}
       />
       <Drawer
         open={selected !== null}
         onClose={() => setSelected(null)}
         title={selected ? `Proposal — ${selected.title}` : ''}
         description={selected ? `${selected.kind} · from ${selected.from} · ${selected.createdAt}` : undefined}
-        size="md"
+        size="2xl"
       >
         {selected ? (
           <div className="space-y-4">

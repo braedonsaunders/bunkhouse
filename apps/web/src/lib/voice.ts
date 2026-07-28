@@ -41,7 +41,7 @@ async function writeVoiceProviders(tenantId: string, value: VoiceProviderSetting
     })
 }
 
-/** Sealed provider entries — safe to hand to the settings page. */
+/** Sealed provider entries — safe to agent to the settings page. */
 export async function getVoiceProviders(tenantId: string): Promise<VoiceProviderSettings> {
   const app = db()
   return app.withTenantContext(tenantId, () => readVoiceProviders(tenantId))
@@ -100,7 +100,7 @@ export async function resolveRealtimeCredential(
   return { slug: entry.slug, apiKey: config.apiKey, baseUrl: config.baseUrl ?? null }
 }
 
-/** AI providers a hand's realtime voice can run on (openai/google kinds). */
+/** AI providers an agent's realtime voice can run on (openai/google kinds). */
 export async function listRealtimeCapableProviders(
   tenantId: string,
 ): Promise<{ slug: string; label: string; kind: 'openai' | 'google' }[]> {

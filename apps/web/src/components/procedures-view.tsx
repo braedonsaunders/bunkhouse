@@ -59,11 +59,11 @@ const COLUMNS: RecordColumn<ProcedureRow>[] = [
 
 function AssignmentFields({
   rolePackOptions,
-  handOptions,
+  agentOptions,
   current,
 }: {
   rolePackOptions: AssignOption[]
-  handOptions: AssignOption[]
+  agentOptions: AssignOption[]
   current?: ProcedureRow['assignment']
 }) {
   const [everyone, setEveryone] = React.useState(current?.everyone ?? false)
@@ -106,7 +106,7 @@ function AssignmentFields({
             ))
           : null}
         {!everyone
-          ? handOptions.map((option) => (
+          ? agentOptions.map((option) => (
               <button
                 key={option.value}
                 type="button"
@@ -138,11 +138,11 @@ type Mode = { kind: 'read' } | { kind: 'edit'; draft: ProcedureContent }
 export function ProceduresView({
   rows,
   rolePackOptions,
-  handOptions,
+  agentOptions,
 }: {
   rows: ProcedureRow[]
   rolePackOptions: AssignOption[]
-  handOptions: AssignOption[]
+  agentOptions: AssignOption[]
 }) {
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [tab, setTab] = React.useState('procedure')
@@ -236,7 +236,7 @@ export function ProceduresView({
         }
         empty={{
           title: 'No procedures yet',
-          description: 'Write your first SOP — every hand it binds to will follow it step by step and cite it.',
+          description: 'Write your first SOP — every agent it binds to will follow it step by step and cite it.',
         }}
       />
 
@@ -245,7 +245,7 @@ export function ProceduresView({
         open={creating}
         onClose={closeAuthoring}
         title="New procedure"
-        description="Versioned company doctrine — hands follow these steps and cite the version they followed."
+        description="Versioned company doctrine — agents follow these steps and cite the version they followed."
         size="2xl"
       >
         {/*
@@ -267,7 +267,7 @@ export function ProceduresView({
 
           <div className="space-y-2">
             <Label>Applies to</Label>
-            <AssignmentFields rolePackOptions={rolePackOptions} handOptions={handOptions} />
+            <AssignmentFields rolePackOptions={rolePackOptions} agentOptions={agentOptions} />
           </div>
 
           <div className="flex items-center gap-2">
@@ -369,7 +369,7 @@ export function ProceduresView({
                 {selected.content === null ? (
                   <p className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-fg-muted">
                     This procedure was written as one block. Its text is kept below as the first step — split it into
-                    the steps a hand should work through.
+                    the steps an agent should work through.
                   </p>
                 ) : null}
 
@@ -410,7 +410,7 @@ export function ProceduresView({
                   <Label>Who follows this</Label>
                   <AssignmentFields
                     rolePackOptions={rolePackOptions}
-                    handOptions={handOptions}
+                    agentOptions={agentOptions}
                     current={selected.assignment}
                   />
                 </div>

@@ -3,9 +3,9 @@
 import * as React from 'react'
 import { Button, SearchSelect, Select } from '@appkit/ui'
 import { loadModelsForProviderAction } from '../app/admin/settings/actions'
-import { setHandModel } from '../app/people/actions'
+import { setAgentModel } from '../app/organization/actions'
 
-/** Assign a hand's brain from live model lists — provider keys stay sealed. */
+/** Assign an agent's brain from live model lists — provider keys stay sealed. */
 export function AssignModelForm({
   personId,
   providers,
@@ -47,7 +47,7 @@ export function AssignModelForm({
       form.set('providerSlug', providerSlug)
       form.set('model', model)
       try {
-        await setHandModel(form)
+        await setAgentModel(form)
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       }

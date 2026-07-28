@@ -49,7 +49,7 @@ export default async function ApprovalsPage() {
     <PageContainer className="space-y-6">
       <PageHeader
         title="Approvals"
-        description="Actions your hands queued for human sign-off. Approve, or decline with a note they learn from."
+        description="Actions your agents queued for human sign-off. Approve, or decline with a note they learn from."
       />
       {pending.length === 0 ? (
         <EmptyState title="Queue is clear" description="Nothing is waiting on you." />
@@ -59,7 +59,7 @@ export default async function ApprovalsPage() {
             <CardHeader>
               <CardTitle className="flex items-center justify-between gap-2 text-base">
                 <span>
-                  <Link href={`/people/${row.personId}`} className="hover:text-primary">
+                  <Link href={`/organization/agents?person=${row.personId}`} className="hover:text-primary">
                     {row.personName}
                   </Link>{' '}
                   <span className="text-fg-muted">· {row.personTitle}</span>
@@ -72,7 +72,7 @@ export default async function ApprovalsPage() {
               <p>{row.payload.description}</p>
               <form className="flex flex-wrap items-center gap-2">
                 <input type="hidden" name="approvalId" value={row.id} />
-                <Input name="note" placeholder="Optional note back to the hand" className="max-w-sm" />
+                <Input name="note" placeholder="Optional note back to the agent" className="max-w-sm" />
                 <Button formAction={approveAction}>Approve</Button>
                 <Button formAction={rejectAction} variant="outline">
                   Decline

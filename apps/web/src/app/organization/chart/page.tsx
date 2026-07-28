@@ -47,8 +47,12 @@ export default async function OrgChartPage({
     name: person.name,
     subtitle: person.title,
     meta: person.email,
+    // Keyed because this element travels inside the `nodes` array: React
+    // validates elements reached through an array as list children, even
+    // though the chart renders each one as a single child of its card.
     avatar: (
       <RosterAvatar
+        key={person.id}
         name={person.name}
         composition={compositions.get(person.id) ?? null}
         parts={partLibrary}

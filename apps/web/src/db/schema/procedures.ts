@@ -3,17 +3,17 @@ import { auditColumns, id, tenantRef } from '@appkit/db'
 
 /**
  * Procedures are the governed form of company doctrine: versioned SOPs that
- * hands provably follow and cite. A hand's context assembly loads the active
+ * agents provably follow and cite. An agent's context assembly loads the active
  * revision of every procedure assigned to it; run events record citations.
  */
 export const procedureStatus = pgEnum('procedure_status', ['draft', 'active', 'retired'])
 
 export type ProcedureAssignment = {
-  /** Role-pack slugs this procedure binds to (every hand hired from the pack). */
+  /** Role-pack slugs this procedure binds to (every agent hired from the pack). */
   rolePacks?: string[]
-  /** Specific people (hands) it binds to. */
+  /** Specific people (agents) it binds to. */
   personIds?: string[]
-  /** True = binds to every hand in the company. */
+  /** True = binds to every agent in the company. */
   everyone?: boolean
 }
 
@@ -33,7 +33,7 @@ export type ProcedureStep = {
 
 /**
  * The authored structure of a revision. Rendered to `body` on every write —
- * `body` is what a hand reads, this is what an operator edits.
+ * `body` is what an agent reads, this is what an operator edits.
  */
 export type ProcedureContent = {
   /** The trigger: when this procedure applies. */
@@ -41,7 +41,7 @@ export type ProcedureContent = {
   steps: ProcedureStep[]
   /** What must be true before the work counts as done. */
   successCriteria: string[]
-  /** When to stop and hand the work to a person instead. */
+  /** When to stop and agent the work to a person instead. */
   escalation: string
 }
 
@@ -69,8 +69,8 @@ export const procedureRevisions = pgTable(
     procedureId: uuid('procedure_id').notNull(),
     version: integer('version').notNull(),
     /**
-     * Markdown, rendered from `content` — the text a hand reads. The revision a
-     * hand followed is pinned by (procedureId, version), so this is never edited
+     * Markdown, rendered from `content` — the text an agent reads. The revision a
+     * agent followed is pinned by (procedureId, version), so this is never edited
      * in place; a change is a new row.
      */
     body: text('body').notNull(),

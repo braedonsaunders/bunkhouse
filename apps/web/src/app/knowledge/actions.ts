@@ -31,5 +31,5 @@ export async function decideMemoryProposal(formData: FormData): Promise<void> {
     await decideProposal({ tenantId, proposalId, approve, decidedBy: 'human' })
   })
   revalidatePath('/knowledge')
-  revalidatePath('/people')
+  revalidatePath('/organization/agents')
 }

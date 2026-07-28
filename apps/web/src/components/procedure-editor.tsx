@@ -57,7 +57,7 @@ export function ProcedureEditor({
           onChange={(e) => set({ whenToUse: e.target.value })}
           placeholder="A customer asks for a refund outside the return window"
         />
-        <p className="text-xs text-fg-muted">The trigger a hand matches against before following these steps.</p>
+        <p className="text-xs text-fg-muted">The trigger an agent matches against before following these steps.</p>
       </div>
 
       <div className="space-y-2">
@@ -146,7 +146,7 @@ export function ProcedureEditor({
 
       <div className="space-y-2">
         <Label>Done when</Label>
-        <p className="text-xs text-fg-muted">What must be true before a hand calls this finished.</p>
+        <p className="text-xs text-fg-muted">What must be true before an agent calls this finished.</p>
         <div className="space-y-2">
           {value.successCriteria.map((criterion, index) => (
             <div key={index} className="flex items-center gap-2">
@@ -189,7 +189,7 @@ export function ProcedureEditor({
           onChange={(e) => set({ escalation: e.target.value })}
           placeholder="The refund is over $500, or the customer disputes the charge"
         />
-        <p className="text-xs text-fg-muted">Where the hand hands the work back to a person instead of finishing it.</p>
+        <p className="text-xs text-fg-muted">Where the agent hands the work back to a person instead of finishing it.</p>
       </div>
     </div>
   )

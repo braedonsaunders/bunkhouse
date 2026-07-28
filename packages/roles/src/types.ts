@@ -1,5 +1,5 @@
 /**
- * A role pack is the job description a hand is hired from: title, default
+ * A role pack is the job description an agent is hired from: title, default
  * personality seeds, standing duties, starter procedures, and the autonomy
  * posture a sensible employer would start the role at. Packs are data — the
  * community can publish them from git repos; these first-party ones are the

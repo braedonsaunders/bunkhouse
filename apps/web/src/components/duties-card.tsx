@@ -13,22 +13,42 @@ import {
   Input,
   Label,
   RecordList,
-  Textarea,
   type RecordColumn,
 } from '@appkit/ui'
-import { addDuty, deleteDuty, updateDuty } from '../app/people/actions'
-import { cronToHuman } from '../lib/schedule'
+import { addDuty, deleteDuty, updateDuty } from '../app/organization/actions'
+import { toLocalInput, type DutySchedule } from '../lib/schedule'
 import { MarkdownEditor } from './markdown-editor'
 import { ScheduleBuilder } from './schedule-builder'
+
+export type DutyBounds = { endsAt: string; maxRuns: string }
 
 export type DutyRow = {
   id: string
   title: string
   instruction: string
+  scheduleKind: 'cron' | 'once'
   schedule: string
   scheduleHuman: string
+  endsAt: string | null
+  maxRuns: number | null
   enabled: 'on' | 'off'
   lastRunAt: string
+}
+
+const NEW_SCHEDULE: DutySchedule = { kind: 'cron', schedule: '0 8 * * 1-5' }
+const NO_BOUNDS: DutyBounds = { endsAt: '', maxRuns: '' }
+
+/**
+ * The operator's own zone travels with the form: a recurring pattern is
+ * resolved in it server-side, so "9am" means 9am where the operator is rather
+ * than wherever the worker process happens to run.
+ */
+function applySchedule(form: FormData, schedule: DutySchedule, bounds: DutyBounds): void {
+  form.set('scheduleKind', schedule.kind)
+  form.set('schedule', schedule.schedule)
+  form.set('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone)
+  form.set('endsAt', schedule.kind === 'once' ? '' : bounds.endsAt)
+  form.set('maxRuns', schedule.kind === 'once' ? '' : bounds.maxRuns)
 }
 
 const COLUMNS: RecordColumn<DutyRow>[] = [
@@ -47,15 +67,21 @@ const COLUMNS: RecordColumn<DutyRow>[] = [
 export function DutiesCard({ personId, duties }: { personId: string; duties: DutyRow[] }) {
   const [selected, setSelected] = React.useState<DutyRow | null>(null)
   const [creating, setCreating] = React.useState(false)
-  const [newSchedule, setNewSchedule] = React.useState('0 8 * * 1-5')
-  const [schedule, setSchedule] = React.useState('')
+  const [newSchedule, setNewSchedule] = React.useState<DutySchedule>(NEW_SCHEDULE)
+  const [newBounds, setNewBounds] = React.useState<DutyBounds>(NO_BOUNDS)
+  const [schedule, setSchedule] = React.useState<DutySchedule>(NEW_SCHEDULE)
+  const [bounds, setBounds] = React.useState<DutyBounds>(NO_BOUNDS)
   const [enabled, setEnabled] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [saving, startSaving] = React.useTransition()
 
   const open = (duty: DutyRow) => {
     setSelected(duty)
-    setSchedule(duty.schedule)
+    setSchedule({ kind: duty.scheduleKind, schedule: duty.schedule })
+    setBounds({
+      endsAt: duty.endsAt ? toLocalInput(new Date(duty.endsAt)) : '',
+      maxRuns: duty.maxRuns === null ? '' : String(duty.maxRuns),
+    })
     setEnabled(duty.enabled === 'on')
     setError(null)
   }
@@ -65,7 +91,7 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
       setError(null)
       form.set('personId', personId)
       form.set('dutyId', selected!.id)
-      form.set('schedule', schedule)
+      applySchedule(form, schedule, bounds)
       form.set('enabled', enabled ? 'on' : 'off')
       try {
         await updateDuty(form)
@@ -79,7 +105,7 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
     <Card>
       <CardHeader>
         <CardTitle>Standing duties</CardTitle>
-        <CardDescription>Work this hand initiates on schedule. Click a duty to adjust it.</CardDescription>
+        <CardDescription>Work this agent initiates on schedule. Click a duty to adjust it.</CardDescription>
       </CardHeader>
       <CardContent>
         <RecordList
@@ -92,13 +118,13 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
               New duty
             </Button>
           }
-          empty={{ title: 'No duties', description: 'This hand only reacts to inbound work. Add one to make it proactive.' }}
+          empty={{ title: 'No duties', description: 'This agent only reacts to inbound work. Add one to make it proactive.' }}
         />
         <Drawer
           open={creating}
           onClose={() => setCreating(false)}
           title="New duty"
-          description="Standing work this hand initiates on schedule."
+          description="Standing work this agent initiates on schedule."
           size="md"
         >
           <form
@@ -106,10 +132,12 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
               startSaving(async () => {
                 setError(null)
                 form.set('personId', personId)
-                form.set('schedule', newSchedule)
+                applySchedule(form, newSchedule, newBounds)
                 try {
                   await addDuty(form)
                   setCreating(false)
+                  setNewSchedule(NEW_SCHEDULE)
+                  setNewBounds(NO_BOUNDS)
                 } catch (err) {
                   setError(err instanceof Error ? err.message : String(err))
                 }
@@ -123,11 +151,17 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
             </div>
             <div className="space-y-2">
               <Label htmlFor="new-duty-instruction">Instruction</Label>
-              <MarkdownEditor name="instruction" placeholder="What to do, in the hand's own terms." />
+              <MarkdownEditor name="instruction" placeholder="What to do, in the agent's own terms." />
             </div>
             <div className="space-y-2">
               <Label>Schedule</Label>
-              <ScheduleBuilder value={newSchedule} onChange={setNewSchedule} idPrefix="new-duty" />
+              <ScheduleBuilder
+                value={newSchedule}
+                onChange={setNewSchedule}
+                idPrefix="new-duty"
+                bounds={newBounds}
+                onBoundsChange={setNewBounds}
+              />
             </div>
             <Button type="submit" disabled={saving}>
               {saving ? 'Adding…' : 'Add duty'}
@@ -139,7 +173,7 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
           open={selected !== null}
           onClose={() => setSelected(null)}
           title={selected ? `Duty — ${selected.title}` : ''}
-          description={selected ? cronToHuman(selected.schedule) : undefined}
+          description={selected?.scheduleHuman}
           size="md"
         >
           {selected ? (
@@ -154,7 +188,14 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
               </div>
               <div className="space-y-2">
                 <Label>Schedule</Label>
-                <ScheduleBuilder value={selected.schedule} onChange={setSchedule} idPrefix="duty" />
+                <ScheduleBuilder
+                  key={selected.id}
+                  value={{ kind: selected.scheduleKind, schedule: selected.schedule }}
+                  onChange={setSchedule}
+                  idPrefix="duty"
+                  bounds={bounds}
+                  onBoundsChange={setBounds}
+                />
               </div>
               <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
                 <div>

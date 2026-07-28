@@ -51,7 +51,7 @@ export default async function ThreadPage({ params }: { params: Promise<{ threadI
   return (
     <PageContainer className="space-y-6">
       <DetailHeader
-        back={owner ? { href: `/people/${owner.id}`, label: owner.name } : { href: '/people', label: 'Directory' }}
+        back={owner ? { href: `/organization/agents?person=${owner.id}`, label: owner.name } : { href: '/organization/agents', label: 'Agents' }}
         title={thread.subject}
         subtitle={owner ? `${owner.name}'s mailbox · ${thread.participants.length} participants` : undefined}
         badge={<Badge variant={thread.open ? 'default' : 'outline'}>{thread.open ? 'open' : 'closed'}</Badge>}
@@ -84,7 +84,7 @@ export default async function ThreadPage({ params }: { params: Promise<{ threadI
 
       <Card>
         <CardHeader>
-          <CardTitle>Reply as {owner?.name ?? 'the hand'}</CardTitle>
+          <CardTitle>Reply as {owner?.name ?? 'the agent'}</CardTitle>
         </CardHeader>
         <CardContent>
           <form action={replyAction} className="space-y-3">

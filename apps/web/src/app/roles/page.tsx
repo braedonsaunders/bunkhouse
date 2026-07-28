@@ -26,7 +26,7 @@ export default async function RolesPage() {
     <PageContainer className="space-y-6">
       <PageHeader
         title="Roles"
-        description="The jobs hands can hold. Browse the built-ins, build your own, and onboard a hand from any of them."
+        description="The jobs agents can hold. Browse the built-ins, build your own, and onboard an agent from any of them."
       />
       <RolesView roles={roles} roster={roster} />
     </PageContainer>

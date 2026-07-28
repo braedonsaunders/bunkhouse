@@ -30,15 +30,15 @@ export default async function KnowledgePage() {
       .orderBy(asc(memoryProposals.createdAt))
     const procedureHeads = await app.db.select().from(procedures).orderBy(asc(procedures.title))
     const revisions = await app.db.select().from(procedureRevisions).orderBy(desc(procedureRevisions.version))
-    const hands = await app.db
+    const agents = await app.db
       .select({ id: people.id, name: people.name })
       .from(people)
-      .where(eq(people.kind, 'hand'))
+      .where(eq(people.kind, 'agent'))
       .orderBy(asc(people.name))
-    return { notes, proposals, procedureHeads, revisions, hands }
+    return { notes, proposals, procedureHeads, revisions, agents }
   })
 
-  const handNames = new Map(data.hands.map((h) => [h.id, h.name]))
+  const agentNames = new Map(data.agents.map((h) => [h.id, h.name]))
   const packTitles = new Map(ROLE_PACKS.map((p) => [p.slug, p.title]))
   const procedureRows: ProcedureRow[] = data.procedureHeads.map((head) => {
     const revs = data.revisions.filter((r) => r.procedureId === head.id)
@@ -47,7 +47,7 @@ export default async function KnowledgePage() {
       ? 'Everyone'
       : [
           ...(head.assignment.rolePacks ?? []).map((slug) => packTitles.get(slug) ?? slug),
-          ...(head.assignment.personIds ?? []).map((id) => handNames.get(id) ?? 'a hand'),
+          ...(head.assignment.personIds ?? []).map((id) => agentNames.get(id) ?? 'an agent'),
         ].join(', ') || 'Nobody yet'
     return {
       id: head.id,
@@ -75,7 +75,7 @@ export default async function KnowledgePage() {
     <PageContainer className="space-y-6">
       <PageHeader
         title="Company knowledge"
-        description="The governed shared layer every hand loads: the notes they read, the procedures they follow, and the changes they nominate. Hands can only nominate — humans decide what crosses this boundary."
+        description="The governed shared layer every agent loads: the notes they read, the procedures they follow, and the changes they nominate. Agents can only nominate — humans decide what crosses this boundary."
       />
 
       <KnowledgeView
@@ -101,7 +101,7 @@ export default async function KnowledgePage() {
         }))}
         procedures={procedureRows}
         rolePackOptions={ROLE_PACKS.map((p) => ({ value: p.slug, label: p.title }))}
-        handOptions={data.hands.map((h) => ({ value: h.id, label: h.name }))}
+        agentOptions={data.agents.map((h) => ({ value: h.id, label: h.name }))}
       />
     </PageContainer>
   )

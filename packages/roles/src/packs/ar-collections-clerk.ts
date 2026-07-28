@@ -42,7 +42,7 @@ export const arCollectionsClerk: RolePack = {
     {
       slug: 'dispute-handling',
       title: 'Dispute handling',
-      body: 'If a customer disputes a charge, stop the dunning clock for that invoice immediately, acknowledge the dispute the same day, gather the specifics (what is disputed and why), and hand the thread to the responsible human with a one-paragraph summary. Resume reminders only after the dispute is resolved.',
+      body: 'If a customer disputes a charge, stop the dunning clock for that invoice immediately, acknowledge the dispute the same day, gather the specifics (what is disputed and why), and agent the thread to the responsible human with a one-paragraph summary. Resume reminders only after the dispute is resolved.',
     },
   ],
   autonomyDefaults: {

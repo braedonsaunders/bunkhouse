@@ -16,7 +16,7 @@ import { mailboxAccounts, mailThreads } from '../../db/schema'
 import { db } from '../../db/client'
 import { connectMailboxAction, disconnectMailboxAction, syncMailboxAction } from './actions'
 
-/** The hand's mail surface: connect form, account status, and live threads. */
+/** The agent's mail surface: connect form, account status, and live threads. */
 export async function MailboxSection({ tenantId, personId }: { tenantId: string; personId: string }) {
   const app = db()
   const data = await app.withTenantContext(tenantId, async () => {

@@ -18,7 +18,7 @@ export const ACTION_CATEGORIES = [
 
 export const AUTONOMY_LEVELS = ['forbidden', 'approval', 'notify', 'trusted'] as const satisfies readonly AutonomyLevel[]
 
-/** The level a hand falls back to wherever the dial has no explicit setting. */
+/** The level an agent falls back to wherever the dial has no explicit setting. */
 export const DEFAULT_AUTONOMY_LEVEL: AutonomyLevel = 'approval'
 
 export const CATEGORY_LABELS: Record<ActionCategory, string> = {
@@ -34,7 +34,7 @@ export const CATEGORY_LABELS: Record<ActionCategory, string> = {
 
 /** What each level means, in the operator's terms. */
 export const LEVEL_DESCRIPTIONS: Record<AutonomyLevel, string> = {
-  forbidden: 'Blocked outright — the hand cannot take this action.',
+  forbidden: 'Blocked outright — the agent cannot take this action.',
   approval: 'Pauses and waits for a human decision every time.',
   notify: 'Proceeds on its own and tells you afterwards.',
   trusted: 'Proceeds on its own, no notification.',

@@ -1,35 +1,57 @@
-import type { BoundProcedure, CompanyProfile, HandProfile, MemoryNote, RunInput } from './types'
+import type { BoundProcedure, CompanyProfile, AgentProfile, MemoryNote, RunInput } from './types'
 
 /**
- * Context assembly. The system prompt is the hand's whole working identity:
+ * Context assembly. The system prompt is the agent's whole working identity:
  * who it is, who it works with, what rules bind it, and what it remembers.
  * Procedures are quoted verbatim and must be cited by slug when followed —
  * the loop turns citations into run events.
  */
 export function buildSystemPrompt(args: {
-  hand: HandProfile
+  agent: AgentProfile
   company: CompanyProfile
   procedures: BoundProcedure[]
   memories: MemoryNote[]
 }): string {
-  const { hand, company, procedures, memories } = args
+  const { agent, company, procedures, memories } = args
   const sections: string[] = []
 
   sections.push(
-    `You are ${hand.name}, ${hand.title} at ${company.name}. You are a real member of staff: you do the work yourself, produce finished results, and communicate like a capable, considerate colleague — never like a chatbot.`,
+    `You are ${agent.name}, ${agent.title} at ${company.name}. You are a real member of staff: you do the work yourself, produce finished results, and communicate like a capable, considerate colleague — never like a chatbot.`,
   )
-  sections.push(`About you: ${hand.personality.bio}\nTone: ${hand.personality.tone.join(', ')}.\nSign outbound mail exactly: "${hand.personality.signoff}".`)
-  if (hand.responsibilities) sections.push(`Your responsibilities: ${hand.responsibilities}`)
+  sections.push(`About you: ${agent.personality.bio}\nTone: ${agent.personality.tone.join(', ')}.\nSign outbound mail exactly: "${agent.personality.signoff}".`)
+  if (agent.responsibilities) sections.push(`Your responsibilities: ${agent.responsibilities}`)
 
   if (company.description) sections.push(`About ${company.name}: ${company.description}`)
 
+  const nameOf = new Map(company.directory.map((p) => [p.id, p.name]))
   const directory = company.directory
-    .filter((p) => p.id !== hand.id)
-    .map((p) => `- ${p.name} — ${p.title}${p.kind === 'hand' ? ' (AI colleague)' : ''} <${p.email}>${p.responsibilities ? `: ${p.responsibilities}` : ''}`)
+    .filter((p) => p.id !== agent.id)
+    .map((p) => {
+      const manager = p.reportsToId ? nameOf.get(p.reportsToId) : undefined
+      return `- ${p.name} — ${p.title}${p.kind === 'agent' ? ' (AI colleague)' : ''} <${p.email}>${manager ? `, reports to ${manager}` : ''}${p.responsibilities ? `: ${p.responsibilities}` : ''}`
+    })
     .join('\n')
   if (directory) {
     sections.push(
       `Company directory — route work to whoever owns it, ask them questions by email when something is theirs to answer, and escalate to your manager when unsure:\n${directory}`,
+    )
+  }
+
+  // The reporting line is the escalation path, so name the manager outright
+  // rather than leaving "escalate to your manager" for the model to resolve.
+  const manager = agent.reportsToId
+    ? company.directory.find((p) => p.id === agent.reportsToId)
+    : undefined
+  const reports = company.directory.filter((p) => p.reportsToId === agent.id)
+  if (manager) {
+    sections.push(
+      `You report to ${manager.name}, ${manager.title} <${manager.email}>. Escalate to them by email when something exceeds your role, needs approval, or you are unsure.`,
+    )
+  }
+  if (reports.length > 0) {
+    const team = reports.map((p) => `- ${p.name} — ${p.title} <${p.email}>`).join('\n')
+    sections.push(
+      `These colleagues report to you. Delegate work that is theirs, and answer when they escalate to you:\n${team}`,
     )
   }
 

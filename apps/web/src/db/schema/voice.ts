@@ -2,11 +2,11 @@ import { bigint, index, integer, jsonb, pgEnum, pgTable, text, timestamp, unique
 import { auditColumns, id, money, tenantRef } from '@appkit/db'
 
 /**
- * The call ledger. Every voice conversation with a hand is a call_sessions
+ * The call ledger. Every voice conversation with an agent is a call_sessions
  * row (one LiveKit room) plus an append-only transcript in call_turns —
  * the same shape as the mail ledger: the session is the thread, the turns
  * are the messages. Calls also create a run, so they surface in the
- * observatory next to everything else the hand does.
+ * observatory next to everything else the agent does.
  */
 export const callDirection = pgEnum('call_direction', ['web', 'inbound_phone', 'outbound_phone'])
 export const callSessionStatus = pgEnum('call_session_status', ['active', 'ended', 'failed'])
@@ -24,7 +24,7 @@ export const callSessions = pgTable(
   {
     id: id(),
     tenantId: tenantRef(),
-    /** The hand on the call. */
+    /** The agent on the call. */
     personId: uuid('person_id').notNull(),
     /** The run this call is recorded under (null only if run creation failed). */
     runId: uuid('run_id'),
@@ -47,7 +47,7 @@ export const callSessions = pgTable(
   ],
 )
 
-export const callSpeaker = pgEnum('call_speaker', ['hand', 'human'])
+export const callSpeaker = pgEnum('call_speaker', ['agent', 'human'])
 
 /** Append-only transcript ledger — rows are only ever inserted, never updated. */
 export const callTurns = pgTable(

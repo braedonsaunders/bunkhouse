@@ -8,7 +8,15 @@ import { PageTransition } from '@appkit/ui/page-transition'
 
 const navigation: SidebarNavGroup[] = [
   { id: 'home', label: 'Home', items: [{ href: '/', label: 'Home', iconKey: 'home', exact: true, mobile: true }] },
-  { id: 'directory', label: 'Directory', items: [{ href: '/people', label: 'Directory', iconKey: 'users', mobile: true }] },
+  {
+    id: 'organization',
+    label: 'Organization',
+    items: [
+      { href: '/organization/people', label: 'People', iconKey: 'users' },
+      { href: '/organization/agents', label: 'Agents', iconKey: 'hard-hat', mobile: true },
+      { href: '/organization/chart', label: 'Org chart', iconKey: 'workflow' },
+    ],
+  },
   { id: 'roles', label: 'Roles', items: [{ href: '/roles', label: 'Roles', iconKey: 'clipboard' }] },
   { id: 'approvals', label: 'Approvals', items: [{ href: '/approvals', label: 'Approvals', iconKey: 'list-checks', mobile: true }] },
   { id: 'observatory', label: 'Observatory', items: [{ href: '/observatory', label: 'Observatory', iconKey: 'activity' }] },

@@ -7,7 +7,7 @@ export {
   type PendingApprovalResult,
 } from './abilities'
 export { buildRunInstruction, buildSystemPrompt } from './prompt'
-export { runHand, type RunHandArgs } from './loop'
+export { runAgent, type RunAgentArgs } from './loop'
 export { connectMcpServers, type McpConnection, type McpServerConfig } from './mcp'
 export type {
   ActionCategory,
@@ -18,8 +18,8 @@ export type {
   BudgetMeter,
   CompanyProfile,
   DirectoryEntry,
-  HandPersonality,
-  HandProfile,
+  AgentPersonality,
+  AgentProfile,
   MemoryNote,
   RunEvent,
   RunInput,

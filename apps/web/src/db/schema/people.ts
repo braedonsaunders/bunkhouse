@@ -4,25 +4,25 @@ import { auditColumns, id, tenantRef } from '@appkit/db'
 import type { AgentVoiceConfig } from '@appkit/voice'
 
 /**
- * The mixed directory: real human employees and AI hands live in one table so
+ * The mixed directory: real human employees and AI agents live in one table so
  * the org chart, routing ("ask the ops manager"), and escalation are uniform.
- * Humans may link to an authenticated user; hands never do.
+ * Humans may link to an authenticated user; agents never do.
  */
-export const personKind = pgEnum('person_kind', ['human', 'hand'])
+export const personKind = pgEnum('person_kind', ['human', 'agent'])
 export const personStatus = pgEnum('person_status', ['onboarding', 'active', 'offboarded'])
 
-/** How a hand initiates work. Reactive hands only answer; job-description hands
- *  also run their duties; autonomous hands may self-initiate within role scope. */
+/** How an agent initiates work. Reactive agents only answer; job-description agents
+ *  also run their duties; autonomous agents may self-initiate within role scope. */
 export const proactivityMode = pgEnum('proactivity_mode', ['reactive', 'duties', 'autonomous'])
 
-/** Who may put a hand to work by emailing it. staff_only = only directory
+/** Who may put an agent to work by emailing it. staff_only = only directory
  *  members; known_contacts = staff plus prior counterparties on this mailbox;
  *  anyone = open inbound (customer service, collections). Enforced by the
  *  worker before a run ever starts — external mail is service input, not
  *  instructions, regardless of this gate. */
 export const inboundPolicy = pgEnum('inbound_policy', ['staff_only', 'known_contacts', 'anyone'])
 
-export type HandPersonality = {
+export type AgentPersonality = {
   /** Short first-person self-description used in the system prompt and profile. */
   bio: string
   /** Tone descriptors, e.g. ['warm', 'concise', 'plain-spoken']. */
@@ -31,7 +31,7 @@ export type HandPersonality = {
   signoff: string
 }
 
-export type HandModelConfig = {
+export type AgentModelConfig = {
   /** Provider key registered with the runtime, e.g. 'anthropic', 'openai-compatible'. */
   provider: string
   model: string
@@ -41,7 +41,7 @@ export type HandModelConfig = {
   maxOutputTokens?: number
 }
 
-export type HandSalary = {
+export type AgentSalary = {
   /** Monthly token budget in USD. The whole salary metaphor keys off this. */
   monthlyUsd: number
   /** What happens at 100% of budget: stop working, keep working (overtime), or ask a human. */
@@ -60,21 +60,21 @@ export const people = pgTable(
     email: text('email').notNull(),
     phone: text('phone'),
     timezone: text('timezone'),
-    /** Plain-language description of what this person owns; hands use it to route work. */
+    /** Plain-language description of what this person owns; agents use it to route work. */
     responsibilities: text('responsibilities'),
     reportsToId: uuid('reports_to_id'),
     /** Humans only: link to the authenticated user, when they have a login. */
     userId: uuid('user_id'),
     avatarFileId: uuid('avatar_file_id'),
-    /** Hands only ------------------------------------------------------- */
+    /** Agents only ------------------------------------------------------- */
     rolePackSlug: text('role_pack_slug'),
-    personality: jsonb('personality').$type<HandPersonality>(),
-    modelConfig: jsonb('model_config').$type<HandModelConfig>(),
-    salary: jsonb('salary').$type<HandSalary>(),
-    /** How this hand sounds on a call — null until voice is configured. */
+    personality: jsonb('personality').$type<AgentPersonality>(),
+    modelConfig: jsonb('model_config').$type<AgentModelConfig>(),
+    salary: jsonb('salary').$type<AgentSalary>(),
+    /** How this agent sounds on a call — null until voice is configured. */
     voiceConfig: jsonb('voice_config').$type<AgentVoiceConfig>(),
-    /** The hand's phone-system short code (e.g. '701') — unique per tenant
-     *  where set; desk phones reach the hand by dialing it. */
+    /** The agent's phone-system short code (e.g. '701') — unique per tenant
+     *  where set; desk phones reach the agent by dialing it. */
     extension: text('extension'),
     proactivity: proactivityMode('proactivity').default('duties'),
     inboundPolicy: inboundPolicy('inbound_policy').default('staff_only'),

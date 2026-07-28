@@ -1,11 +1,11 @@
 import { createJobs } from '@appkit/jobs'
-import { CronExpressionParser } from 'cron-parser'
 import { and, eq, sql } from 'drizzle-orm'
 import { schema as identity } from '@appkit/db'
 import { db } from '../src/db/client'
 import { approvals, mailboxAccounts, mailMessages, people, runEvents, runs } from '../src/db/schema'
 import { syncPersonMailbox, sendReplyInThread } from '../src/lib/mailbox'
-import { dueDuties, executeHandRun, markDutyRun, startRunsForNewInbound } from '../src/lib/hand-runs'
+import { dueDuties, executeAgentRun, markDutyRun, startRunsForNewInbound } from '../src/lib/agent-runs'
+import { nextOccurrence } from '../src/lib/duties'
 import { journalPass as journalTenant, reflectionPass as reflectTenant } from '../src/lib/consolidation'
 
 // The bunkhouse worker: mailbox sync → inbound runs, the duty scheduler,
@@ -53,18 +53,29 @@ async function mailboxPass(): Promise<void> {
 async function dutiesPass(): Promise<void> {
   for (const tenantId of await activeTenantIds()) {
     for (const duty of await dueDuties(tenantId)) {
-      const next = CronExpressionParser.parse(duty.schedule).next().toDate()
-      await markDutyRun(tenantId, duty.id, next)
-      // First sighting of a duty just anchors its schedule; it runs from the
-      // next real occurrence rather than firing on scheduler boot.
-      if (!duty.nextDueAt) continue
-      const { outcome } = await executeHandRun({
+      // First sighting of a recurring duty just anchors its schedule; it runs
+      // from the next real occurrence rather than firing on scheduler boot. A
+      // one-shot is pinned to an instant at creation and always fires.
+      const anchoring = !duty.nextDueAt && duty.scheduleKind !== 'once'
+      let next: Date | null
+      try {
+        next = nextOccurrence(duty)
+      } catch (error) {
+        // An unreadable schedule would otherwise stay permanently due and
+        // re-fire every tick. Park it instead, leaving it visible and fixable.
+        console.error(`[duty] ${duty.title}: ${(error as Error).message} — pausing`)
+        await markDutyRun(tenantId, duty.id, null, false)
+        continue
+      }
+      await markDutyRun(tenantId, duty.id, next, !anchoring)
+      if (anchoring) continue
+      const { outcome } = await executeAgentRun({
         tenantId,
         personId: duty.personId,
         trigger: { type: 'duty', dutyId: duty.id },
         input: { type: 'duty', dutyTitle: duty.title, instruction: duty.instruction },
       })
-      console.log(`[duty] ${duty.title}: ${outcome.status}`)
+      console.log(`[duty] ${duty.title}: ${outcome.status}${next ? '' : ' (final run — duty retired)'}`)
     }
   }
 }
@@ -183,8 +194,8 @@ async function journalPass(): Promise<void> {
 }
 
 /** Weekly reflection: evidence-cited conclusions + procedure-change proposals.
- *  The pass skips a hand that already has a consolidator reflection from the
- *  last 6 days, so a 12-hour tick fires at most once per hand per week. */
+ *  The pass skips an agent that already has a consolidator reflection from the
+ *  last 6 days, so a 12-hour tick fires at most once per agent per week. */
 async function reflectionPass(): Promise<void> {
   for (const tenantId of await activeTenantIds()) {
     await reflectTenant(tenantId)

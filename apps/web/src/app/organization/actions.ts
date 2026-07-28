@@ -479,7 +479,16 @@ export async function updateDuty(formData: FormData): Promise<void> {
 }
 
 /** Full record edit from the person drawer — every field an operator owns. */
-export async function updatePerson(formData: FormData): Promise<void> {
+export type PersonUpdateResult = { ok: true } | { ok: false; message: string }
+
+/**
+ * Full record edit from the person drawer — every field an operator owns.
+ * Returns rather than throws: a rejected edit here is an everyday mis-click
+ * (a reporting line that would loop, a status that no longer applies), and the
+ * form shows the reason in place instead of dropping the operator on an error
+ * page with their unsaved work gone.
+ */
+export async function updatePerson(formData: FormData): Promise<PersonUpdateResult> {
   const personId = String(formData.get('personId') ?? '')
   const name = String(formData.get('name') ?? '').trim()
   const title = String(formData.get('title') ?? '').trim()
@@ -487,52 +496,57 @@ export async function updatePerson(formData: FormData): Promise<void> {
   const status = String(formData.get('status') ?? '') as 'onboarding' | 'active' | 'offboarded'
   const reportsToId = String(formData.get('reportsToId') ?? '') || null
   const responsibilities = String(formData.get('responsibilities') ?? '').trim() || null
-  if (!personId || !name || !title || !email) throw new Error('Name, title, and email are required.')
-  if (!['onboarding', 'active', 'offboarded'].includes(status)) throw new Error('Invalid status.')
+  if (!personId || !name || !title || !email) return { ok: false, message: 'Name, title, and email are required.' }
+  if (!['onboarding', 'active', 'offboarded'].includes(status)) return { ok: false, message: 'Invalid status.' }
 
   const tenantId = await resolveTenantId()
   const app = db()
-  await app.withTenant(tenantId, async () => {
-    const roster = await app.db
-      .select({ id: people.id, name: people.name, reportsToId: people.reportsToId })
-      .from(people)
-    assertValidManager(roster, personId, reportsToId)
-    const [person] = await app.db.select().from(people).where(eq(people.id, personId))
-    if (!person) throw new Error('Person not found.')
+  try {
+    await app.withTenant(tenantId, async () => {
+      const roster = await app.db
+        .select({ id: people.id, name: people.name, reportsToId: people.reportsToId })
+        .from(people)
+      assertValidManager(roster, personId, reportsToId)
+      const [person] = await app.db.select().from(people).where(eq(people.id, personId))
+      if (!person) throw new Error('Person not found.')
 
-    const update: Partial<typeof people.$inferInsert> = {
-      name, title, email, status, reportsToId, responsibilities, updatedAt: new Date(),
-    }
-    if (person.kind === 'human') {
-      update.phone = String(formData.get('phone') ?? '').trim() || null
-      update.timezone = String(formData.get('timezone') ?? '').trim() || null
-      update.startedOn = String(formData.get('startedOn') ?? '').trim() || null
-      update.endedOn = String(formData.get('endedOn') ?? '').trim() || null
-    }
-    if (person.kind === 'agent') {
-      const bio = String(formData.get('bio') ?? '').trim()
-      const tone = String(formData.get('tone') ?? '').split(',').map((t) => t.trim()).filter(Boolean)
-      const signoff = String(formData.get('signoff') ?? '').trim()
-      const salaryUsd = Number(formData.get('salaryUsd'))
-      const overagePolicy = String(formData.get('overagePolicy') ?? 'ask') as 'pause' | 'overtime' | 'ask'
-      const proactivity = String(formData.get('proactivity') ?? 'duties') as 'reactive' | 'duties' | 'autonomous'
-      if (!Number.isFinite(salaryUsd) || salaryUsd <= 0) throw new Error('Salary must be a positive monthly amount.')
-      if (!['pause', 'overtime', 'ask'].includes(overagePolicy)) throw new Error('Invalid overage policy.')
-      if (!['reactive', 'duties', 'autonomous'].includes(proactivity)) throw new Error('Invalid proactivity mode.')
-      update.personality = {
-        bio: bio || person.personality?.bio || `I am the ${title}.`,
-        tone: tone.length ? tone : (person.personality?.tone ?? ['professional']),
-        signoff: signoff || person.personality?.signoff || `Best,\n${name.split(' ')[0]}`,
+      const update: Partial<typeof people.$inferInsert> = {
+        name, title, email, status, reportsToId, responsibilities, updatedAt: new Date(),
       }
-      update.salary = { monthlyUsd: salaryUsd, overagePolicy }
-      update.proactivity = proactivity
-      const inbound = String(formData.get('inboundPolicy') ?? 'staff_only') as 'staff_only' | 'known_contacts' | 'anyone'
-      if (!['staff_only', 'known_contacts', 'anyone'].includes(inbound)) throw new Error('Invalid inbound policy.')
-      update.inboundPolicy = inbound
-    }
-    await app.db.update(people).set(update).where(eq(people.id, personId))
-  })
+      if (person.kind === 'human') {
+        update.phone = String(formData.get('phone') ?? '').trim() || null
+        update.timezone = String(formData.get('timezone') ?? '').trim() || null
+        update.startedOn = String(formData.get('startedOn') ?? '').trim() || null
+        update.endedOn = String(formData.get('endedOn') ?? '').trim() || null
+      }
+      if (person.kind === 'agent') {
+        const bio = String(formData.get('bio') ?? '').trim()
+        const tone = String(formData.get('tone') ?? '').split(',').map((t) => t.trim()).filter(Boolean)
+        const signoff = String(formData.get('signoff') ?? '').trim()
+        const salaryUsd = Number(formData.get('salaryUsd'))
+        const overagePolicy = String(formData.get('overagePolicy') ?? 'ask') as 'pause' | 'overtime' | 'ask'
+        const proactivity = String(formData.get('proactivity') ?? 'duties') as 'reactive' | 'duties' | 'autonomous'
+        if (!Number.isFinite(salaryUsd) || salaryUsd <= 0) throw new Error('Salary must be a positive monthly amount.')
+        if (!['pause', 'overtime', 'ask'].includes(overagePolicy)) throw new Error('Invalid overage policy.')
+        if (!['reactive', 'duties', 'autonomous'].includes(proactivity)) throw new Error('Invalid proactivity mode.')
+        update.personality = {
+          bio: bio || person.personality?.bio || `I am the ${title}.`,
+          tone: tone.length ? tone : (person.personality?.tone ?? ['professional']),
+          signoff: signoff || person.personality?.signoff || `Best,\n${name.split(' ')[0]}`,
+        }
+        update.salary = { monthlyUsd: salaryUsd, overagePolicy }
+        update.proactivity = proactivity
+        const inbound = String(formData.get('inboundPolicy') ?? 'staff_only') as 'staff_only' | 'known_contacts' | 'anyone'
+        if (!['staff_only', 'known_contacts', 'anyone'].includes(inbound)) throw new Error('Invalid inbound policy.')
+        update.inboundPolicy = inbound
+      }
+      await app.db.update(people).set(update).where(eq(people.id, personId))
+    })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
   revalidateOrganization()
+  return { ok: true }
 }
 
 /** Add a standing duty to an agent. */

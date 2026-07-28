@@ -1,7 +1,7 @@
 {
   "name": "@bunkhouse/runtime",
   "version": "0.1.0",
-  "description": "The bunkhouse employee loop: model-agnostic hands with governed abilities, procedures, memory, and budget metering.",
+  "description": "The bunkhouse employee loop: model-agnostic agents with governed abilities, procedures, memory, and budget metering.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {

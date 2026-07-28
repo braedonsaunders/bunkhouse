@@ -63,7 +63,7 @@ type OpenRouterModel = {
 
 /**
  * Refresh prices from OpenRouter's public catalog (USD per token → per Mtok).
- * Only models this tenant actually uses get rows (assigned hand models), plus
+ * Only models this tenant actually uses get rows (assigned agent models), plus
  * any extra ids passed in. A row is appended only when the price CHANGED —
  * effective-dated audit, no churn.
  */
@@ -80,12 +80,12 @@ export async function refreshPricesFromOpenRouter(
 
   const app = db()
   return app.withTenant(tenantId, async () => {
-    const hands = await app.db
+    const agents = await app.db
       .select({ modelConfig: people.modelConfig })
       .from(people)
-      .where(and(eq(people.kind, 'hand'), sql`${people.modelConfig} is not null`))
+      .where(and(eq(people.kind, 'agent'), sql`${people.modelConfig} is not null`))
     const wanted = new Set<string>(extraModels.filter(Boolean))
-    for (const hand of hands) if (hand.modelConfig?.model) wanted.add(hand.modelConfig.model)
+    for (const agent of agents) if (agent.modelConfig?.model) wanted.add(agent.modelConfig.model)
 
     const updated: string[] = []
     const unmatched: string[] = []

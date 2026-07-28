@@ -5,7 +5,7 @@ import { generateText } from 'ai'
 import { getModel } from '@appkit/ai'
 import { memories, memoryProposals, people, runEvents, runs } from '../db/schema'
 import { db } from '../db/client'
-import { resolveHandAiConfig } from './ai'
+import { resolveAgentAiConfig } from './ai'
 import { createNote, parseWikilinks, slugify } from './memory'
 
 /**
@@ -23,16 +23,16 @@ const MAX_EVENTS_PER_RUN = 30
 const MAX_EVENT_CHARS = 400
 const MAX_SLUG_HINTS = 200
 
-type Hand = typeof people.$inferSelect
+type Agent = typeof people.$inferSelect
 
-/** Active hands in the tenant; the AI config check happens per hand later. */
-async function activeHands(tenantId: string): Promise<Hand[]> {
+/** Active agents in the tenant; the AI config check happens per agent later. */
+async function activeAgents(tenantId: string): Promise<Agent[]> {
   const app = db()
   return app.withTenantContext(tenantId, () =>
     app.db
       .select()
       .from(people)
-      .where(and(eq(people.kind, 'hand'), eq(people.status, 'active'))),
+      .where(and(eq(people.kind, 'agent'), eq(people.status, 'active'))),
   )
 }
 
@@ -100,7 +100,7 @@ const reflectionSchema = z.object({
     .default([]),
 })
 
-/** Live note slugs the model may [[wikilink]] to (hand + company scope). */
+/** Live note slugs the model may [[wikilink]] to (agent + company scope). */
 async function linkableSlugs(tenantId: string, personId: string): Promise<{ slug: string; kind: string; title: string }[]> {
   const app = db()
   const rows = await app.db
@@ -129,7 +129,7 @@ async function hasOpenProposal(noteId: string, kind: 'supersede' | 'edit'): Prom
 }
 
 /**
- * Nightly journal for every hand with a model: yesterday's completed runs +
+ * Nightly journal for every agent with a model: yesterday's completed runs +
  * their events become episode notes (written directly, one per meaningful
  * run) and up to three fact candidates (written directly, or filed as a
  * supersede PROPOSAL when a live same-slug note already exists).
@@ -139,9 +139,9 @@ async function hasOpenProposal(noteId: string, kind: 'supersede' | 'edit'): Prom
  */
 export async function journalPass(tenantId: string): Promise<void> {
   const app = db()
-  for (const hand of await activeHands(tenantId)) {
+  for (const agent of await activeAgents(tenantId)) {
     try {
-      const ai = await resolveHandAiConfig(tenantId, hand.id)
+      const ai = await resolveAgentAiConfig(tenantId, agent.id)
       if (!ai) continue
       const model = getModel(ai, 'smart')
       if (!model) continue
@@ -152,7 +152,7 @@ export async function journalPass(tenantId: string): Promise<void> {
           .from(runs)
           .where(
             and(
-              eq(runs.personId, hand.id),
+              eq(runs.personId, agent.id),
               eq(runs.status, 'completed'),
               gte(runs.finishedAt, journalWindowStart()),
             ),
@@ -190,7 +190,7 @@ export async function journalPass(tenantId: string): Promise<void> {
           eventsByRun.set(event.runId, list)
         }
 
-        const slugs = await linkableSlugs(tenantId, hand.id)
+        const slugs = await linkableSlugs(tenantId, agent.id)
         const runsBlock = fresh
           .map(
             (run) =>
@@ -201,10 +201,10 @@ export async function journalPass(tenantId: string): Promise<void> {
         const { text } = await generateText({
           model,
           system:
-            `You are the memory consolidator writing the nightly journal for ${hand.name} (${hand.title}). ` +
+            `You are the memory consolidator writing the nightly journal for ${agent.name} (${agent.title}). ` +
             'You turn yesterday\'s work into logbook notes in markdown. Respond with ONLY a JSON object, no prose.',
           prompt:
-            `Yesterday's completed runs for this hand:\n\n${runsBlock}\n\n` +
+            `Yesterday's completed runs for this agent:\n\n${runsBlock}\n\n` +
             `Existing live note slugs you may reference with [[slug]] wikilinks (use one ONLY when that exact note is clearly relevant):\n` +
             `${slugs.map((s) => `- [[${s.slug}]] (${s.kind}): ${s.title}`).join('\n') || '(none yet)'}\n\n` +
             'Write:\n' +
@@ -225,8 +225,8 @@ export async function journalPass(tenantId: string): Promise<void> {
           try {
             await createNote({
               tenantId,
-              scope: 'hand',
-              personId: hand.id,
+              scope: 'agent',
+              personId: agent.id,
               kind: 'episode',
               title: episode.title,
               body: episode.body,
@@ -235,7 +235,7 @@ export async function journalPass(tenantId: string): Promise<void> {
               sourceRunId: episode.runId,
             })
           } catch (error) {
-            console.error(`[journal] ${hand.name} episode "${episode.title}":`, (error as Error).message)
+            console.error(`[journal] ${agent.name} episode "${episode.title}":`, (error as Error).message)
           }
         }
 
@@ -247,8 +247,8 @@ export async function journalPass(tenantId: string): Promise<void> {
               .from(memories)
               .where(
                 and(
-                  eq(memories.scope, 'hand'),
-                  eq(memories.personId, hand.id),
+                  eq(memories.scope, 'agent'),
+                  eq(memories.personId, agent.id),
                   eq(memories.slug, slug),
                   isNull(memories.validUntil),
                 ),
@@ -268,8 +268,8 @@ export async function journalPass(tenantId: string): Promise<void> {
             } else {
               await createNote({
                 tenantId,
-                scope: 'hand',
-                personId: hand.id,
+                scope: 'agent',
+                personId: agent.id,
                 kind: 'fact',
                 title: fact.title,
                 body: fact.body,
@@ -278,32 +278,32 @@ export async function journalPass(tenantId: string): Promise<void> {
               })
             }
           } catch (error) {
-            console.error(`[journal] ${hand.name} fact "${fact.title}":`, (error as Error).message)
+            console.error(`[journal] ${agent.name} fact "${fact.title}":`, (error as Error).message)
           }
         }
-        console.log(`[journal] ${hand.name}: ${parsed.episodes.length} episode(s), ${parsed.facts.length} fact candidate(s) from ${fresh.length} run(s)`)
+        console.log(`[journal] ${agent.name}: ${parsed.episodes.length} episode(s), ${parsed.facts.length} fact candidate(s) from ${fresh.length} run(s)`)
       })
     } catch (error) {
-      console.error(`[journal] ${hand.name}:`, (error as Error).message)
+      console.error(`[journal] ${agent.name}:`, (error as Error).message)
     }
   }
 }
 
 /**
- * Weekly reflection per hand: at least three episode notes from the last
+ * Weekly reflection per agent: at least three episode notes from the last
  * seven days are distilled into 1-2 reflection notes — each MUST cite at
  * least two evidence episodes via [[slug]] wikilinks or it is dropped — and
  * 0-2 procedure-change PROPOSALS (memory_proposals kind 'edit'); the
  * consolidator never edits a procedure note directly.
  *
- * Idempotent per hand: skipped while a consolidator-authored reflection from
+ * Idempotent per agent: skipped while a consolidator-authored reflection from
  * the last six days exists, so 12-hour ticks yield at most one reflection a week.
  */
 export async function reflectionPass(tenantId: string): Promise<void> {
   const app = db()
-  for (const hand of await activeHands(tenantId)) {
+  for (const agent of await activeAgents(tenantId)) {
     try {
-      const ai = await resolveHandAiConfig(tenantId, hand.id)
+      const ai = await resolveAgentAiConfig(tenantId, agent.id)
       if (!ai) continue
       const model = getModel(ai, 'smart')
       if (!model) continue
@@ -315,7 +315,7 @@ export async function reflectionPass(tenantId: string): Promise<void> {
           .from(memories)
           .where(
             and(
-              eq(memories.personId, hand.id),
+              eq(memories.personId, agent.id),
               eq(memories.kind, 'reflection'),
               eq(memories.author, 'consolidator'),
               gte(memories.createdAt, sixDaysAgo),
@@ -330,8 +330,8 @@ export async function reflectionPass(tenantId: string): Promise<void> {
           .from(memories)
           .where(
             and(
-              eq(memories.scope, 'hand'),
-              eq(memories.personId, hand.id),
+              eq(memories.scope, 'agent'),
+              eq(memories.personId, agent.id),
               eq(memories.kind, 'episode'),
               isNull(memories.validUntil),
               eq(memories.status, 'active'),
@@ -346,8 +346,8 @@ export async function reflectionPass(tenantId: string): Promise<void> {
           .from(memories)
           .where(
             and(
-              eq(memories.scope, 'hand'),
-              eq(memories.personId, hand.id),
+              eq(memories.scope, 'agent'),
+              eq(memories.personId, agent.id),
               eq(memories.kind, 'procedure'),
               isNull(memories.validUntil),
               eq(memories.status, 'active'),
@@ -357,12 +357,12 @@ export async function reflectionPass(tenantId: string): Promise<void> {
         const { text } = await generateText({
           model,
           system:
-            `You are the memory consolidator writing the weekly reflection for ${hand.name} (${hand.title}). ` +
+            `You are the memory consolidator writing the weekly reflection for ${agent.name} (${agent.title}). ` +
             'You look for patterns across the week\'s episodes. Respond with ONLY a JSON object, no prose.',
           prompt:
-            `This week's episode notes for this hand:\n\n` +
+            `This week's episode notes for this agent:\n\n` +
             `${episodes.map((e) => `[[${e.slug}]] "${e.title}" (importance ${e.importance}):\n${e.body}`).join('\n\n')}\n\n` +
-            `This hand's live procedure notes:\n` +
+            `This agent's live procedure notes:\n` +
             `${procedureNotes.map((p) => `[[${p.slug}]] "${p.title}":\n${p.body}`).join('\n\n') || '(none)'}\n\n` +
             'Write:\n' +
             '1. "reflections": 1-2 conclusions drawn from the week (a pattern, a recurring blocker, something that ' +
@@ -381,14 +381,14 @@ export async function reflectionPass(tenantId: string): Promise<void> {
         for (const reflection of parsed.reflections.slice(0, 2)) {
           const cited = parseWikilinks(reflection.body).filter((slug) => evidenceSlugs.has(slug))
           if (cited.length < 2) {
-            console.error(`[reflection] ${hand.name}: dropped "${reflection.title}" — cites ${cited.length} evidence episode(s), needs 2`)
+            console.error(`[reflection] ${agent.name}: dropped "${reflection.title}" — cites ${cited.length} evidence episode(s), needs 2`)
             continue
           }
           try {
             await createNote({
               tenantId,
-              scope: 'hand',
-              personId: hand.id,
+              scope: 'agent',
+              personId: agent.id,
               kind: 'reflection',
               title: reflection.title,
               body: reflection.body,
@@ -397,7 +397,7 @@ export async function reflectionPass(tenantId: string): Promise<void> {
             })
             written += 1
           } catch (error) {
-            console.error(`[reflection] ${hand.name} "${reflection.title}":`, (error as Error).message)
+            console.error(`[reflection] ${agent.name} "${reflection.title}":`, (error as Error).message)
           }
         }
 
@@ -416,10 +416,10 @@ export async function reflectionPass(tenantId: string): Promise<void> {
           })
           proposed += 1
         }
-        console.log(`[reflection] ${hand.name}: ${written} reflection(s), ${proposed} procedure proposal(s) from ${episodes.length} episode(s)`)
+        console.log(`[reflection] ${agent.name}: ${written} reflection(s), ${proposed} procedure proposal(s) from ${episodes.length} episode(s)`)
       })
     } catch (error) {
-      console.error(`[reflection] ${hand.name}:`, (error as Error).message)
+      console.error(`[reflection] ${agent.name}:`, (error as Error).message)
     }
   }
 }

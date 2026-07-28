@@ -103,10 +103,10 @@ export async function resolveProviderAiConfig(tenantId: string, slug: string): P
 }
 
 /**
- * Resolve the live AiConfig for a hand: its modelConfig names a tenant
+ * Resolve the live AiConfig for an agent: its modelConfig names a tenant
  * provider slug + model; the sealed key is opened only here, at use time.
  */
-export async function resolveHandAiConfig(tenantId: string, personId: string): Promise<AiConfig | null> {
+export async function resolveAgentAiConfig(tenantId: string, personId: string): Promise<AiConfig | null> {
   const app = db()
   const person = await app.withTenantContext(tenantId, async () => {
     const [row] = await app.db.select().from(people).where(eq(people.id, personId))

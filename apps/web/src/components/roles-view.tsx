@@ -14,7 +14,7 @@ import {
   type RecordColumn,
 } from '@appkit/ui'
 import type { Role } from '../lib/roles'
-import { hireHand } from '../app/people/actions'
+import { hireAgent } from '../app/organization/actions'
 import { deleteRoleDef, saveRoleDef } from '../app/roles/actions'
 import { cronToHuman } from '../lib/schedule'
 import {
@@ -90,7 +90,7 @@ const editorFromRole = (role: Role, keepId: boolean): EditorState => ({
   autonomy: Object.fromEntries(Object.entries(role.autonomyDefaults)),
 })
 
-/** The role catalog: browse, build your own, onboard hands from any role. */
+/** The role catalog: browse, build your own, onboard agents from any role. */
 export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOption[] }) {
   const [selected, setSelected] = React.useState<Role | null>(null)
   const [onboarding, setOnboarding] = React.useState<Role | null>(null)
@@ -126,7 +126,7 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
             New role
           </Button>
         }
-        empty={{ title: 'No roles', description: 'Build a role — it defines the job a hand is onboarded into.' }}
+        empty={{ title: 'No roles', description: 'Build a role — it defines the job an agent is onboarded into.' }}
       />
 
       {/* Role detail */}
@@ -140,7 +140,7 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
           selected ? (
             <span className="flex items-center gap-2">
               <Button size="sm" onClick={() => setOnboarding(selected)}>
-                Onboard a hand
+                Onboard an agent
               </Button>
               {selected.origin === 'custom' ? (
                 <Button size="sm" variant="outline" onClick={() => { setEditorTab('basics'); setEditor(editorFromRole(selected, true)) }}>
@@ -214,7 +214,7 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
           <form
             action={(form) => {
               form.set('rolePack', onboarding.slug)
-              act(hireHand, form)
+              act(hireAgent, form)
             }}
             className="space-y-4"
           >
@@ -362,7 +362,7 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
                     </div>
                     <MarkdownEditor
                       defaultValue={duty.instruction}
-                      placeholder="What to do, in the hand's own terms."
+                      placeholder="What to do, in the agent's own terms."
                       onChange={(md) => {
                         const duties = [...editor.duties]
                         duties[index] = { ...editor.duties[index]!, instruction: md }
@@ -370,11 +370,12 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
                       }}
                     />
                     <ScheduleBuilder
-                      value={duty.cron}
+                      value={{ kind: 'cron', schedule: duty.cron }}
                       idPrefix={`rb-duty-${index}`}
-                      onChange={(cron) => {
+                      allowOnce={false}
+                      onChange={({ schedule }) => {
                         const duties = [...editor.duties]
-                        duties[index] = { ...editor.duties[index]!, cron }
+                        duties[index] = { ...editor.duties[index]!, cron: schedule }
                         setEditor({ ...editor, duties })
                       }}
                     />

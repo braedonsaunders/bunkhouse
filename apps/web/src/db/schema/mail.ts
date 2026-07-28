@@ -2,7 +2,7 @@ import { boolean, index, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, u
 import { auditColumns, id, tenantRef } from '@appkit/db'
 
 /**
- * Every hand's primary surface is a real mailbox on the company's own domain.
+ * Every agent's primary surface is a real mailbox on the company's own domain.
  * Secrets (OAuth refresh tokens, IMAP passwords) are NEVER stored here — only a
  * reference into the secret store; this schema stays safe to dump/clone.
  */
@@ -58,7 +58,7 @@ export const mailThreads = pgTable(
     externalThreadKey: text('external_thread_key'),
     participants: jsonb('participants').$type<MailParticipant[]>().notNull().default([]),
     lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull(),
-    /** Open threads are actionable inbox items for the owning hand. */
+    /** Open threads are actionable inbox items for the owning agent. */
     open: boolean('open').notNull().default(true),
     ...auditColumns,
   },

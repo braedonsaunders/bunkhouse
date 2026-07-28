@@ -2,11 +2,11 @@ import { bigint, index, integer, jsonb, pgEnum, pgTable, text, timestamp, unique
 import { auditColumns, id, money, tenantRef } from '@appkit/db'
 
 /**
- * A run is one unit of a hand's work — answering a thread, performing a duty,
+ * A run is one unit of an agent's work — answering a thread, performing a duty,
  * acting on a delegation. Run events are the append-only record the observatory
  * replays and the audit trail approvals hang off.
  */
-export const dutySchedule = pgEnum('duty_schedule_kind', ['cron', 'interval'])
+export const dutySchedule = pgEnum('duty_schedule_kind', ['cron', 'interval', 'once'])
 
 export const duties = pgTable(
   'duties',
@@ -16,11 +16,21 @@ export const duties = pgTable(
     personId: uuid('person_id').notNull(),
     slug: text('slug').notNull(),
     title: text('title').notNull(),
-    /** What to do, in the hand's own terms — becomes the run's instruction. */
+    /** What to do, in the agent's own terms — becomes the run's instruction. */
     instruction: text('instruction').notNull(),
     scheduleKind: dutySchedule('schedule_kind').notNull(),
-    /** Cron expression, or interval minutes as a decimal string. */
+    /** Cron expression, interval minutes as a decimal string, or — for `once`
+     *  — the ISO instant of the single occurrence. */
     schedule: text('schedule').notNull(),
+    /** IANA zone the pattern resolves in, defaulted from the agent at authoring
+     *  time; null resolves in the worker's zone. Unused by `once`, which
+     *  stores an absolute instant. */
+    timezone: text('timezone'),
+    /** Bounds on a recurrence: not before, not after, at most N times. */
+    startsAt: timestamp('starts_at', { withTimezone: true }),
+    endsAt: timestamp('ends_at', { withTimezone: true }),
+    maxRuns: integer('max_runs'),
+    runCount: integer('run_count').notNull().default(0),
     /** Slug of the role-pack duty this was instantiated from, if any. */
     fromRolePackDuty: text('from_role_pack_duty'),
     enabled: text('enabled').$type<'on' | 'off'>().notNull().default('on'),

@@ -44,7 +44,7 @@ export type ConnectMailboxInput = {
   smtpSecure: boolean
 }
 
-/** Verify both endpoints, seal the credential, and activate the hand. */
+/** Verify both endpoints, seal the credential, and activate the agent. */
 export async function connectMailbox(input: ConnectMailboxInput): Promise<string> {
   const connection: MailboxConnection = {
     address: input.address,
@@ -160,7 +160,7 @@ export async function syncPersonMailbox(tenantId: string, personId: string): Pro
       .select()
       .from(mailboxAccounts)
       .where(eq(mailboxAccounts.personId, personId))
-    if (!account) throw new Error('No mailbox connected for this hand.')
+    if (!account) throw new Error('No mailbox connected for this agent.')
     try {
       const result = await syncMailbox(toConnection(account), makeStore(tenantId, account))
       return { saved: result.saved }
@@ -175,7 +175,7 @@ export async function syncPersonMailbox(tenantId: string, personId: string): Pro
   })
 }
 
-/** Send a reply in a thread as the hand, and ledger the outbound message. */
+/** Send a reply in a thread as the agent, and ledger the outbound message. */
 export async function sendReplyInThread(args: {
   tenantId: string
   threadId: string
@@ -240,7 +240,7 @@ export async function sendReplyInThread(args: {
   })
 }
 
-/** Compose a NEW thread from a hand's mailbox (approval requests, outreach). */
+/** Compose a NEW thread from an agent's mailbox (approval requests, outreach). */
 export async function sendNewMail(args: {
   tenantId: string
   personId: string
@@ -255,7 +255,7 @@ export async function sendNewMail(args: {
       .select()
       .from(mailboxAccounts)
       .where(eq(mailboxAccounts.personId, args.personId))
-    if (!account) throw new Error('No mailbox connected for this hand.')
+    if (!account) throw new Error('No mailbox connected for this agent.')
     const [owner] = await app.db.select().from(people).where(eq(people.id, args.personId))
     const sent = await sendMail(toConnection(account), {
       to: args.to,

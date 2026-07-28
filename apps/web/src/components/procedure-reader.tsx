@@ -4,7 +4,7 @@ import { Badge } from '@appkit/ui'
 import type { ProcedureContent } from '../db/schema'
 
 /**
- * A revision as a hand receives it: the trigger, the numbered steps with their
+ * A revision as an agent receives it: the trigger, the numbered steps with their
  * human-check gates, the finish line, and the escalation rule. Revisions
  * written before procedures had steps show their original prose instead.
  */

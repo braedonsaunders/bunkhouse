@@ -20,10 +20,10 @@ import {
   LEVEL_BADGES,
   LEVEL_DESCRIPTIONS,
 } from '../lib/autonomy'
-import { setAutonomy } from '../app/people/actions'
+import { setAutonomy } from '../app/organization/actions'
 
-/** One hand's complete dial — every category resolved, no gaps. */
-export type HandDial = {
+/** One agent's complete dial — every category resolved, no gaps. */
+export type AgentDial = {
   personId: string
   name: string
   title: string
@@ -31,10 +31,10 @@ export type HandDial = {
   levels: Record<ActionCategory, AutonomyLevel>
 }
 
-type DialRow = HandDial & { trusted: number; notify: number; approval: number; forbidden: number }
+type DialRow = AgentDial & { trusted: number; notify: number; approval: number; forbidden: number }
 
 const COLUMNS: RecordColumn<DialRow>[] = [
-  { key: 'name', label: 'Hand', kind: 'reference', sortable: true, href: (row) => `/people/${row.personId}` },
+  { key: 'name', label: 'Agent', kind: 'reference', sortable: true, href: (row) => `/organization/agents?person=${row.personId}` },
   { key: 'title', label: 'Job title', sortable: true },
   { key: 'trusted', label: 'Acts alone', sortable: true },
   { key: 'notify', label: 'Acts, then tells you', sortable: true },
@@ -43,30 +43,30 @@ const COLUMNS: RecordColumn<DialRow>[] = [
 ]
 
 /**
- * The company view of the autonomy dial: every hand, every action category, in
- * one place. Writes go through the same action the hand's profile uses, so the
+ * The company view of the autonomy dial: every agent, every action category, in
+ * one place. Writes go through the same action the agent's profile uses, so the
  * dial keeps a single source of truth.
  */
-export function AutonomySettings({ hands, linkRender }: { hands: HandDial[]; linkRender: LinkRender }) {
-  const [openHand, setOpenHand] = React.useState<string | null>(null)
+export function AutonomySettings({ agents, linkRender }: { agents: AgentDial[]; linkRender: LinkRender }) {
+  const [openAgent, setOpenAgent] = React.useState<string | null>(null)
 
-  const rows: DialRow[] = hands.map((hand) => {
-    const levels = Object.values(hand.levels)
+  const rows: DialRow[] = agents.map((agent) => {
+    const levels = Object.values(agent.levels)
     return {
-      ...hand,
+      ...agent,
       trusted: levels.filter((l) => l === 'trusted').length,
       notify: levels.filter((l) => l === 'notify').length,
       approval: levels.filter((l) => l === 'approval').length,
       forbidden: levels.filter((l) => l === 'forbidden').length,
     }
   })
-  const selected = hands.find((h) => h.personId === openHand) ?? null
+  const selected = agents.find((h) => h.personId === openAgent) ?? null
 
-  if (hands.length === 0) {
+  if (agents.length === 0) {
     return (
       <EmptyState
-        title="No hands on the roster"
-        description="Onboard a hand and its day-one dial arrives with it, set from the role you onboarded it into."
+        title="No agents on the roster"
+        description="Onboard an agent and its day-one dial arrives with it, set from the role you onboarded it into."
       />
     )
   }
@@ -78,12 +78,12 @@ export function AutonomySettings({ hands, linkRender }: { hands: HandDial[]; lin
         rows={rows}
         getRowId={(row) => row.personId}
         linkRender={linkRender}
-        onRowClick={(row) => setOpenHand(row.personId)}
-        empty={{ title: 'No hands on the roster', description: 'Onboard a hand to set its autonomy.' }}
+        onRowClick={(row) => setOpenAgent(row.personId)}
+        empty={{ title: 'No agents on the roster', description: 'Onboard an agent to set its autonomy.' }}
       />
       <SettingsRow
         title="What the levels mean"
-        description="A hand can never exceed its dial — the runtime enforces it on every action, not the prompt."
+        description="An agent can never exceed its dial — the runtime enforces it on every action, not the prompt."
         stacked
       >
         <div className="grid gap-2 sm:grid-cols-2">
@@ -98,7 +98,7 @@ export function AutonomySettings({ hands, linkRender }: { hands: HandDial[]; lin
 
       <Drawer
         open={selected !== null}
-        onClose={() => setOpenHand(null)}
+        onClose={() => setOpenAgent(null)}
         title={selected ? `Autonomy — ${selected.name}` : ''}
         description={selected ? `${selected.title} · changes apply to new work, never to work already done` : undefined}
         size="md"

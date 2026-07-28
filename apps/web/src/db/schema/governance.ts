@@ -2,7 +2,7 @@ import { index, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } fro
 import { auditColumns, id, tenantRef } from '@appkit/db'
 
 /**
- * The autonomy dial: per hand × action category, how much trust it has. The
+ * The autonomy dial: per agent × action category, how much trust it has. The
  * runtime enforces these levels — a prompt never grants what the dial denies.
  * 'approval' queues the action; 'notify' performs it and tells the manager;
  * 'trusted' just does it.
@@ -48,7 +48,7 @@ export const approvals = pgTable(
     id: id(),
     tenantId: tenantRef(),
     runId: uuid('run_id').notNull(),
-    /** The hand requesting the action. */
+    /** The agent requesting the action. */
     personId: uuid('person_id').notNull(),
     category: actionCategory('category').notNull(),
     payload: jsonb('payload').$type<ApprovalPayload>().notNull(),

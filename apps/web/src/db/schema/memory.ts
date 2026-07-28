@@ -11,10 +11,10 @@ import { auditColumns, id, tenantRef } from '@appkit/db'
  * live in SQL (migration 0008); they are derived, rebuildable, never
  * authoritative.
  */
-export const memoryScope = pgEnum('memory_scope', ['hand', 'company'])
+export const memoryScope = pgEnum('memory_scope', ['agent', 'company'])
 export const memoryStatus = pgEnum('memory_status', ['active', 'archived'])
 export const memoryKind = pgEnum('memory_kind', ['fact', 'episode', 'procedure', 'reflection'])
-export const memoryAuthor = pgEnum('memory_author', ['hand', 'human', 'consolidator'])
+export const memoryAuthor = pgEnum('memory_author', ['agent', 'human', 'consolidator'])
 
 export const memories = pgTable(
   'memories',
@@ -22,7 +22,7 @@ export const memories = pgTable(
     id: id(),
     tenantId: tenantRef(),
     scope: memoryScope('scope').notNull(),
-    /** Owning hand; null for company scope. */
+    /** Owning agent; null for company scope. */
     personId: uuid('person_id'),
     slug: text('slug').notNull(),
     kind: memoryKind('kind').notNull().default('fact'),
@@ -30,7 +30,7 @@ export const memories = pgTable(
     /** Markdown; may contain [[slug]] wikilinks to other notes. */
     body: text('body').notNull(),
     status: memoryStatus('status').notNull().default('active'),
-    /** Pinned notes are always in the hand's prompt, under a hard budget. */
+    /** Pinned notes are always in the agent's prompt, under a hard budget. */
     pinned: boolean('pinned').notNull().default(false),
     /** 1–5, assigned at write time (LLM or human), always human-editable. */
     importance: smallint('importance').notNull().default(3),
@@ -40,7 +40,7 @@ export const memories = pgTable(
     validUntil: timestamp('valid_until', { withTimezone: true }),
     supersededBy: uuid('superseded_by'),
     author: memoryAuthor('author').notNull().default('human'),
-    /** Run that wrote or last revised this memory, when a hand authored it. */
+    /** Run that wrote or last revised this memory, when an agent authored it. */
     sourceRunId: uuid('source_run_id'),
     /** Usage telemetry, rolled up from memory.retrieved run events. */
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
@@ -64,7 +64,7 @@ export const memoryRevisions = pgTable(
     rev: integer('rev').notNull(),
     title: text('title').notNull(),
     body: text('body').notNull(),
-    /** 'hand' | 'human' | 'consolidator' + optional detail. */
+    /** 'agent' | 'human' | 'consolidator' + optional detail. */
     editedBy: text('edited_by').notNull(),
     reason: text('reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -103,11 +103,11 @@ export const memoryProposals = pgTable(
     id: id(),
     tenantId: tenantRef(),
     kind: memoryProposalKind('kind').notNull(),
-    /** Subject note (the hand note being promoted, the target of an edit…). */
+    /** Subject note (the agent note being promoted, the target of an edit…). */
     noteId: uuid('note_id'),
     payload: jsonb('payload').$type<MemoryProposalPayload>().notNull(),
     rationale: text('rationale').notNull(),
-    /** Hand that proposed it; null when the consolidator job did. */
+    /** Agent that proposed it; null when the consolidator job did. */
     proposedByPersonId: uuid('proposed_by_person_id'),
     status: memoryProposalStatus('status').notNull().default('open'),
     decidedBy: text('decided_by'),

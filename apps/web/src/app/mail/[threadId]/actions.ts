@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { sendReplyInThread } from '../../../lib/mailbox'
 import { resolveTenantId } from '../../../lib/tenant'
 
-/** A human sends a reply from the hand's mailbox (manual assist / takeover). */
+/** A human sends a reply from the agent's mailbox (manual assist / takeover). */
 export async function replyAction(formData: FormData): Promise<void> {
   const threadId = String(formData.get('threadId') ?? '')
   const text = String(formData.get('text') ?? '').trim()
