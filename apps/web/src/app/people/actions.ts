@@ -10,6 +10,7 @@ import { resolveTenantId } from '../../lib/tenant'
 import { connectMailbox, syncPersonMailbox } from '../../lib/mailbox'
 import { listAiProviders } from '../../lib/ai'
 import { CronExpressionParser } from 'cron-parser'
+import { generateHandAvatarCandidates, saveHandAvatar } from '../../lib/avatars'
 
 const ACTION_CATEGORIES = [
   'external_email',
@@ -271,4 +272,29 @@ export async function updateDuty(formData: FormData): Promise<void> {
       .where(eq(duties.id, dutyId))
   })
   revalidatePath(`/people/${personId}`)
+}
+
+/** Generate avatar portrait candidates for a hand. */
+export async function generateAvatarsAction(personId: string): Promise<
+  { ok: true; images: string[] } | { ok: false; message: string }
+> {
+  try {
+    const tenantId = await resolveTenantId()
+    const images = await generateHandAvatarCandidates(tenantId, personId)
+    return { ok: true, images }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/** Save the chosen avatar for a hand. */
+export async function chooseAvatarAction(formData: FormData): Promise<void> {
+  const personId = String(formData.get('personId') ?? '')
+  const dataUri = String(formData.get('dataUri') ?? '')
+  const model = String(formData.get('model') ?? 'unknown')
+  if (!personId || !dataUri) throw new Error('personId and image are required.')
+  const tenantId = await resolveTenantId()
+  await saveHandAvatar({ tenantId, personId, dataUri, model })
+  revalidatePath(`/people/${personId}`)
+  revalidatePath('/people')
 }

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Brain, CircleDollarSign, Mail } from 'lucide-react'
+import { Brain, CircleDollarSign, ImageIcon, Mail } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -11,6 +11,7 @@ import {
   Input,
   Label,
   RecordList,
+  Select,
   SettingsRow,
   SettingsSection,
   SettingsShell,
@@ -21,6 +22,7 @@ import {
 import {
   refreshPricesAction,
   removeProviderAction,
+  setImageProviderAction,
   setManualPriceAction,
 } from '../app/admin/settings/actions'
 import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
@@ -69,6 +71,7 @@ const NAV: SettingsNavGroup[] = [
       { key: 'ai', label: 'Model providers', icon: <Brain /> },
       { key: 'pricing', label: 'Model pricing', icon: <CircleDollarSign /> },
       { key: 'mailboxes', label: 'Mailboxes', icon: <Mail /> },
+      { key: 'images', label: 'Image generation', icon: <ImageIcon /> },
     ],
   },
 ]
@@ -106,18 +109,23 @@ export function SettingsView({
   prices,
   mailboxes,
   handsWithoutMailbox,
+  imageSetting,
+  imageModels,
 }: {
   providers: ProviderSummary[]
   kinds: ProviderKindOption[]
   prices: PriceRow[]
   mailboxes: MailboxRow[]
   handsWithoutMailbox: HandWithoutMailbox[]
+  imageSetting: { provider: string; model: string } | null
+  imageModels: { id: string; name: string; provider: string }[]
 }) {
   const [active, setActive] = React.useState('ai')
   const [busy, startBusy] = React.useTransition()
   const [notice, setNotice] = React.useState<string | null>(null)
   const [priceDrawer, setPriceDrawer] = React.useState<string | null>(null)
   const [mailboxDrawer, setMailboxDrawer] = React.useState<MailboxRow | null>(null)
+  const [imageProvider, setImageProvider] = React.useState(imageSetting?.provider ?? 'gemini')
   const priceHistory = priceDrawer && priceDrawer !== '*new*' ? prices.filter((row) => row.model === priceDrawer) : []
 
   return (
@@ -261,6 +269,65 @@ export function SettingsView({
           ) : null}
         </SettingsSection>
       ) : null}
+      {active === 'images' ? (
+        <SettingsSection
+          title="Image generation"
+          description="Powers the avatar studio: hand portraits render in one uniform style. Bring a Gemini, Cloudflare Workers AI, or Replicate key — sealed at rest like every credential."
+        >
+          {imageSetting ? (
+            <SettingsRow
+              title="Configured provider"
+              description={`${imageSetting.provider} · ${imageSetting.model}`}
+              control={<Badge variant="secondary">key sealed</Badge>}
+            />
+          ) : (
+            <SettingsRow title="Not configured" description="Avatar generation is unavailable until a provider is set." />
+          )}
+          <SettingsRow title={imageSetting ? 'Replace provider' : 'Set provider'} stacked>
+            <form action={setImageProviderAction} className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="image-provider">Provider</Label>
+                <Select
+                  id="image-provider"
+                  name="imageProvider"
+                  value={imageProvider}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setImageProvider(e.target.value)}
+                >
+                  <option value="gemini">Google Gemini</option>
+                  <option value="cloudflare">Cloudflare Workers AI</option>
+                  <option value="replicate">Replicate</option>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="image-model">Model</Label>
+                <Select id="image-model" name="imageModel" defaultValue={imageSetting?.model}>
+                  {imageModels
+                    .filter((m) => m.provider === imageProvider)
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                </Select>
+              </div>
+              {imageProvider === 'cloudflare' ? (
+                <div className="space-y-2">
+                  <Label htmlFor="image-account">Cloudflare account id</Label>
+                  <Input id="image-account" name="imageAccountId" required />
+                </div>
+              ) : null}
+              <div className="space-y-2">
+                <Label htmlFor="image-secret">{imageProvider === 'gemini' ? 'API key' : 'API token'}</Label>
+                <Input id="image-secret" name="imageSecret" type="password" required />
+              </div>
+              <div className="md:col-span-2">
+                <Button type="submit">Save image provider</Button>
+              </div>
+            </form>
+          </SettingsRow>
+        </SettingsSection>
+      ) : null}
+
       <Drawer
         open={priceDrawer !== null}
         onClose={() => setPriceDrawer(null)}

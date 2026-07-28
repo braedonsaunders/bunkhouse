@@ -31,6 +31,9 @@ import { resolveTenantId } from '../../../lib/tenant'
 import { listAiProviders } from '../../../lib/ai'
 import { AssignModelForm } from '../../../components/assign-model-form'
 import { DutiesCard } from '../../../components/duties-card'
+import { AvatarStudio } from '../../../components/avatar-studio'
+import { avatarImages } from '../../../db/schema'
+import { getImageProviderSetting } from '../../../lib/avatars'
 import { cronToHuman } from '../../../lib/schedule'
 import { addMemoryNote, deleteMemoryNote, setAutonomy } from '../actions'
 import { MailboxSection } from './mailbox-section'
@@ -97,13 +100,18 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
       .where(eq(runs.personId, person.id))
       .orderBy(desc(runs.startedAt))
       .limit(6)
-    return { person, manager: manager ?? null, personDuties, dial, notes, monthSpend: Number(spend?.cost ?? 0), recentRuns }
+    const [avatar] = await app.db
+      .select({ id: avatarImages.id })
+      .from(avatarImages)
+      .where(eq(avatarImages.personId, person.id))
+    return { person, manager: manager ?? null, personDuties, dial, notes, monthSpend: Number(spend?.cost ?? 0), recentRuns, hasAvatar: !!avatar }
   })
 
   if (!data) notFound()
-  const { person, manager, personDuties, dial, notes, monthSpend, recentRuns } = data
+  const { person, manager, personDuties, dial, notes, monthSpend, recentRuns, hasAvatar } = data
   const isHand = person.kind === 'hand'
   const providers = isHand ? await listAiProviders(tenantId) : []
+  const imageSetting = isHand ? await getImageProviderSetting(tenantId) : null
 
   return (
     <PageContainer className="space-y-6">
@@ -117,7 +125,13 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
             <Badge variant={person.status === 'active' ? 'default' : 'outline'}>{person.status}</Badge>
           </span>
         }
-        actions={<Avatar name={person.name} size={44} />}
+        actions={
+          isHand ? (
+            <AvatarStudio personId={person.id} name={person.name} hasAvatar={hasAvatar} model={imageSetting?.model ?? 'unconfigured'} />
+          ) : (
+            <Avatar name={person.name} size={44} />
+          )
+        }
       />
 
       <div className="grid gap-4 lg:grid-cols-2">

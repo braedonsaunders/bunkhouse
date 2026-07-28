@@ -6,6 +6,8 @@ import { db } from '../../../db/client'
 import { SettingsView } from '../../../components/settings-view'
 import { listAiProviders } from '../../../lib/ai'
 import { listPrices } from '../../../lib/pricing'
+import { getImageProviderSetting } from '../../../lib/avatars'
+import { IMAGE_MODELS } from '@appkit/avatars'
 import { resolveTenantId } from '../../../lib/tenant'
 
 export const dynamic = 'force-dynamic'
@@ -15,9 +17,10 @@ const fmt = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 16).re
 export default async function SettingsPage() {
   const tenantId = await resolveTenantId()
   const app = db()
-  const [providers, prices, mailboxData] = await Promise.all([
+  const [providers, prices, imageSetting, mailboxData] = await Promise.all([
     listAiProviders(tenantId),
     listPrices(tenantId),
+    getImageProviderSetting(tenantId),
     app.withTenantContext(tenantId, async () => {
       const boxes = await app.db
         .select({
@@ -79,6 +82,8 @@ export default async function SettingsPage() {
           lastError: b.lastError ?? '',
         }))}
         handsWithoutMailbox={mailboxData.unconnected}
+        imageSetting={imageSetting ? { provider: imageSetting.provider, model: imageSetting.model } : null}
+        imageModels={IMAGE_MODELS}
       />
     </PageContainer>
   )

@@ -6,6 +6,8 @@ import { unsealSecret } from '@appkit/crypto'
 import { addAiProvider, listAiProviders, removeAiProvider } from '../../../lib/ai'
 import { resolveTenantId } from '../../../lib/tenant'
 import { refreshPricesFromOpenRouter, setManualPrice } from '../../../lib/pricing'
+import { setImageProviderSetting } from '../../../lib/avatars'
+import { IMAGE_MODELS, type ImageModelId } from '@appkit/avatars'
 
 export async function addProviderAction(formData: FormData): Promise<void> {
   const slug = String(formData.get('slug') ?? '').trim().toLowerCase()
@@ -102,5 +104,21 @@ export async function setManualPriceAction(formData: FormData): Promise<void> {
   }
   const tenantId = await resolveTenantId()
   await setManualPrice({ tenantId, model, inputUsdPerMtok: inputUsd, outputUsdPerMtok: outputUsd })
+  revalidatePath('/admin/settings')
+}
+
+/** Configure the tenant image-generation provider (avatars). */
+export async function setImageProviderAction(formData: FormData): Promise<void> {
+  const provider = String(formData.get('imageProvider') ?? '') as 'cloudflare' | 'replicate' | 'gemini'
+  const model = String(formData.get('imageModel') ?? '') as ImageModelId
+  const secret = String(formData.get('imageSecret') ?? '').trim()
+  const accountId = String(formData.get('imageAccountId') ?? '').trim()
+  if (!['cloudflare', 'replicate', 'gemini'].includes(provider)) throw new Error('Pick an image provider.')
+  if (!IMAGE_MODELS.some((m) => m.id === model && m.provider === provider)) {
+    throw new Error('Pick a model that belongs to the selected provider.')
+  }
+  if (!secret) throw new Error('The provider secret is required.')
+  const tenantId = await resolveTenantId()
+  await setImageProviderSetting({ tenantId, provider, model, secret, ...(accountId ? { accountId } : {}) })
   revalidatePath('/admin/settings')
 }
