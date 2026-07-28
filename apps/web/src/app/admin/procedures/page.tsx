@@ -57,7 +57,7 @@ export default async function ProceduresPage() {
       <PageHeader
         title="Procedures"
         description="Versioned company doctrine. Hands follow the active revision and cite it in their work — changes are new versions, never edits."
-        back={{ href: '/admin', label: 'Admin' }}
+        back={{ href: '/admin', label: 'Settings' }}
       />
       <ProceduresView
         rows={rows}

@@ -34,8 +34,8 @@ const HUB_GROUPS: AdminHubGroup[] = [
 export default function AdminPage() {
   return (
     <AdminHub
-      title="Administration"
-      description="Run the bunkhouse: workforce, trust, and configuration."
+      title="Settings"
+      description="Company configuration: workforce, trust, models, and money."
       groups={HUB_GROUPS}
       linkRender={nextLink}
     />

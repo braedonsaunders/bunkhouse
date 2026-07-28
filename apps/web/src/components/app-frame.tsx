@@ -13,7 +13,7 @@ const navigation: SidebarNavGroup[] = [
   { id: 'approvals', label: 'Approvals', items: [{ href: '/approvals', label: 'Approvals', iconKey: 'list-checks', mobile: true }] },
   { id: 'observatory', label: 'Observatory', items: [{ href: '/observatory', label: 'Observatory', iconKey: 'activity' }] },
   { id: 'knowledge', label: 'Knowledge', items: [{ href: '/knowledge', label: 'Knowledge', iconKey: 'library' }] },
-  { id: 'admin', label: 'Admin', items: [{ href: '/admin', label: 'Admin', iconKey: 'settings', mobile: true }] },
+  { id: 'settings', label: 'Settings', items: [{ href: '/admin', label: 'Settings', iconKey: 'settings', mobile: true }] },
 ]
 
 export function AppFrame({ children }: { children: ReactNode }) {

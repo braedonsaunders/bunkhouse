@@ -136,7 +136,7 @@ export function SettingsView({
     <SettingsShell
       title="Settings"
       description="Company-level configuration. Everything lives here, nothing in env."
-      back={{ href: '/admin', label: 'Admin' }}
+      back={{ href: '/admin', label: 'Settings' }}
       nav={NAV}
       activeKey={active}
       onSelect={(key) => {
