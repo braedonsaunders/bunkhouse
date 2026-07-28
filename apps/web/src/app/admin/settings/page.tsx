@@ -4,13 +4,14 @@ import { PageContainer } from '@appkit/ui'
 import { autonomySettings, mailboxAccounts, people } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { SettingsView } from '../../../components/settings-view'
-import type { HandDial } from '../../../components/autonomy-settings'
+import type { AgentDial } from '../../../components/autonomy-settings'
 import { ACTION_CATEGORIES, DEFAULT_AUTONOMY_LEVEL } from '../../../lib/autonomy'
 import { listAiProviders } from '../../../lib/ai'
 import { getVoiceProviders } from '../../../lib/voice'
 import { listSipTrunks, sipIngressAddress } from '../../../lib/pbx'
 import { listPrices } from '../../../lib/pricing'
-import { getImageProviderSetting } from '../../../lib/avatars'
+import { getImageProviderSetting, listAvatarPartRows, loadAvatarPartLibrary } from '../../../lib/avatars'
+import { AVATAR_PART_CATEGORIES, avatarPartCategory } from '../../../lib/avatar-parts'
 import { IMAGE_MODELS } from '@appkit/avatars'
 import { resolveTenantId } from '../../../lib/tenant'
 
@@ -18,10 +19,15 @@ export const dynamic = 'force-dynamic'
 
 const fmt = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 16).replace('T', ' ') : '')
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ section?: string }>
+}) {
+  const { section } = await searchParams
   const tenantId = await resolveTenantId()
   const app = db()
-  const [providers, prices, imageSetting, voiceProviders, trunks, handExtensions, mailboxData, handDials] = await Promise.all([
+  const [providers, prices, imageSetting, voiceProviders, trunks, agentExtensions, mailboxData, agentDials, partRows, partLibrary] = await Promise.all([
     listAiProviders(tenantId),
     listPrices(tenantId),
     getImageProviderSetting(tenantId),
@@ -31,7 +37,7 @@ export default async function SettingsPage() {
       app.db
         .select({ id: people.id, name: people.name, title: people.title, extension: people.extension })
         .from(people)
-        .where(and(eq(people.kind, 'hand'), sql`${people.extension} is not null`))
+        .where(and(eq(people.kind, 'agent'), sql`${people.extension} is not null`))
         .orderBy(asc(people.extension)),
     ),
     app.withTenantContext(tenantId, async () => {
@@ -52,32 +58,34 @@ export default async function SettingsPage() {
         .from(people)
         .where(
           and(
-            eq(people.kind, 'hand'),
+            eq(people.kind, 'agent'),
             sql`not exists (select 1 from mailbox_accounts ma where ma.person_id = ${people.id})`,
           ),
         )
       return { boxes, unconnected }
     }),
-    app.withTenantContext(tenantId, async (): Promise<HandDial[]> => {
-      const hands = await app.db
+    app.withTenantContext(tenantId, async (): Promise<AgentDial[]> => {
+      const agents = await app.db
         .select({ id: people.id, name: people.name, title: people.title, status: people.status })
         .from(people)
-        .where(eq(people.kind, 'hand'))
+        .where(eq(people.kind, 'agent'))
         .orderBy(asc(people.name))
       const dial = await app.db.select().from(autonomySettings)
-      return hands.map((hand) => ({
-        personId: hand.id,
-        name: hand.name,
-        title: hand.title,
-        status: hand.status,
+      return agents.map((agent) => ({
+        personId: agent.id,
+        name: agent.name,
+        title: agent.title,
+        status: agent.status,
         levels: Object.fromEntries(
           ACTION_CATEGORIES.map((category) => [
             category,
-            dial.find((d) => d.personId === hand.id && d.category === category)?.level ?? DEFAULT_AUTONOMY_LEVEL,
+            dial.find((d) => d.personId === agent.id && d.category === category)?.level ?? DEFAULT_AUTONOMY_LEVEL,
           ]),
-        ) as HandDial['levels'],
+        ) as AgentDial['levels'],
       }))
     }),
+    listAvatarPartRows(tenantId),
+    loadAvatarPartLibrary(tenantId),
   ])
 
   return (
@@ -114,7 +122,7 @@ export default async function SettingsPage() {
           lastSyncAt: fmt(b.lastSyncAt),
           lastError: b.lastError ?? '',
         }))}
-        handsWithoutMailbox={mailboxData.unconnected}
+        agentsWithoutMailbox={mailboxData.unconnected}
         imageSetting={imageSetting}
         imageFallbackModels={IMAGE_MODELS}
         voiceProviders={{ deepgram: Boolean(voiceProviders.deepgram), elevenlabs: Boolean(voiceProviders.elevenlabs) }}
@@ -132,7 +140,7 @@ export default async function SettingsPage() {
             status: t.status,
             lastError: t.lastError ?? '',
           })),
-          extensions: handExtensions.map((h) => ({
+          extensions: agentExtensions.map((h) => ({
             personId: h.id,
             name: h.name,
             title: h.title,
@@ -140,7 +148,21 @@ export default async function SettingsPage() {
           })),
           ingress: sipIngressAddress(),
         }}
-        handDials={handDials}
+        agentDials={agentDials}
+        initialSection={section ?? 'autonomy'}
+        avatarParts={partRows.map((part) => ({
+          id: part.id,
+          categoryId: part.categoryId,
+          categoryLabel: avatarPartCategory(part.categoryId)?.label ?? part.categoryId,
+          name: part.name,
+          colorVariant: part.colorVariant ?? '',
+          tags: part.tags,
+          model: part.model,
+          prompt: part.prompt ?? '',
+          createdAt: fmt(part.createdAt),
+        }))}
+        avatarPartCategories={AVATAR_PART_CATEGORIES}
+        avatarPartLibrary={partLibrary}
       />
     </PageContainer>
   )

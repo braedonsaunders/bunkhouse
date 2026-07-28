@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Brain, CircleDollarSign, ImageIcon, Mail, Phone, Shield } from 'lucide-react'
+import { Boxes, Brain, CircleDollarSign, ImageIcon, Mail, Phone, Shield } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -25,10 +25,12 @@ import {
   setManualPriceAction,
   setSpeechProviderKeyAction,
 } from '../app/admin/settings/actions'
+import type { AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
+import { AvatarPartsView, type AvatarPartRowView } from './avatar-parts-view'
 import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
 import { ImageProviderForm } from './image-provider-form'
-import { AutonomySettings, type HandDial } from './autonomy-settings'
-import { PhoneSystemRow, type HandExtensionRow, type SipTrunkSummary } from './phone-system'
+import { AutonomySettings, type AgentDial } from './autonomy-settings'
+import { PhoneSystemRow, type AgentExtensionRow, type SipTrunkSummary } from './phone-system'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
   <Link href={href} className={className} title={title}>
@@ -65,7 +67,7 @@ export type MailboxRow = {
   lastError?: string
 }
 
-export type HandWithoutMailbox = { id: string; name: string; title: string }
+export type AgentWithoutMailbox = { id: string; name: string; title: string }
 
 export type VoiceProviderState = { deepgram: boolean; elevenlabs: boolean }
 
@@ -89,7 +91,7 @@ const SPEECH_PROVIDERS: {
     provider: 'elevenlabs',
     label: 'ElevenLabs',
     stage: 'Speaking',
-    line: "Gives each hand its voice — picked from your account's catalog on the hand's Voice tab.",
+    line: "Gives each agent its voice — picked from your account's catalog on the agent's Voice tab.",
     consoleUrl: 'https://elevenlabs.io/app/settings/api-keys',
     consoleLabel: 'elevenlabs.io',
   },
@@ -108,6 +110,7 @@ const NAV: SettingsNavGroup[] = [
       { key: 'mailboxes', label: 'Mailboxes', icon: <Mail /> },
       { key: 'voice', label: 'Voice', icon: <Phone /> },
       { key: 'images', label: 'Image generation', icon: <ImageIcon /> },
+      { key: 'avatar-parts', label: 'Avatar parts', icon: <Boxes /> },
     ],
   },
 ]
@@ -126,7 +129,7 @@ const PRICE_COLUMNS: RecordColumn<PriceRow>[] = [
 ]
 
 const MAILBOX_COLUMNS: RecordColumn<MailboxRow>[] = [
-  { key: 'personName', label: 'Hand', kind: 'reference', sortable: true, href: (row) => `/people/${row.personId}` },
+  { key: 'personName', label: 'Agent', kind: 'reference', sortable: true, href: (row) => `/organization/agents?person=${row.personId}` },
   { key: 'address', label: 'Address', sortable: true },
   {
     key: 'status',
@@ -144,30 +147,40 @@ export function SettingsView({
   kinds,
   prices,
   mailboxes,
-  handsWithoutMailbox,
+  agentsWithoutMailbox,
   imageSetting,
   imageFallbackModels,
   voiceProviders,
   phoneSystem,
-  handDials,
+  agentDials,
+  initialSection,
+  avatarParts,
+  avatarPartCategories,
+  avatarPartLibrary,
 }: {
   providers: ProviderSummary[]
   kinds: ProviderKindOption[]
   prices: PriceRow[]
   mailboxes: MailboxRow[]
-  handsWithoutMailbox: HandWithoutMailbox[]
+  agentsWithoutMailbox: AgentWithoutMailbox[]
   imageSetting: { providerSlug: string; model: string } | null
   /** Static catalog offered only when the live provider model list fails. */
   imageFallbackModels: { id: string; name: string; provider: string }[]
   voiceProviders: VoiceProviderState
   phoneSystem: {
     trunks: SipTrunkSummary[]
-    extensions: HandExtensionRow[]
+    extensions: AgentExtensionRow[]
     ingress: { host: string; port: number } | null
   }
-  handDials: HandDial[]
+  agentDials: AgentDial[]
+  /** Which section to open on arrival — links elsewhere in the app deep-link here. */
+  initialSection: string
+  avatarParts: AvatarPartRowView[]
+  avatarPartCategories: AvatarPartCategory[]
+  /** The same parts shaped for the composer and the previews. */
+  avatarPartLibrary: AvatarPart[]
 }) {
-  const [active, setActive] = React.useState('autonomy')
+  const [active, setActive] = React.useState(initialSection)
   const [busy, startBusy] = React.useTransition()
   const [notice, setNotice] = React.useState<string | null>(null)
   const [priceDrawer, setPriceDrawer] = React.useState<string | null>(null)
@@ -181,7 +194,7 @@ export function SettingsView({
   return (
     <SettingsShell
       title="Settings"
-      description="Company-level configuration: how much your hands are trusted to do, and what powers them."
+      description="Company-level configuration: how much your agents are trusted to do, and what powers them."
       nav={NAV}
       activeKey={active}
       onSelect={(key) => {
@@ -193,19 +206,19 @@ export function SettingsView({
       {active === 'autonomy' ? (
         <SettingsSection
           title="Autonomy"
-          description="How far each hand can go on its own, per action category. Onboarding sets the day-one dial from the role; this is where you raise or lower trust as a hand earns it. Changes apply to new work only."
+          description="How far each agent can go on its own, per action category. Onboarding sets the day-one dial from the role; this is where you raise or lower trust as an agent earns it. Changes apply to new work only."
         >
-          <AutonomySettings hands={handDials} linkRender={nextLink} />
+          <AutonomySettings agents={agentDials} linkRender={nextLink} />
         </SettingsSection>
       ) : null}
 
       {active === 'ai' ? (
         <SettingsSection
           title="Model providers"
-          description="Your own API keys, sealed at rest and live-verified before saving. Each hand is assigned a provider and model on its profile."
+          description="Your own API keys, sealed at rest and live-verified before saving. Each agent is assigned a provider and model on its profile."
         >
           {providers.length === 0 ? (
-            <EmptyState title="No providers yet" description="Add one API key and your hands can start thinking." />
+            <EmptyState title="No providers yet" description="Add one API key and your agents can start thinking." />
           ) : (
             providers.map((entry) => (
               <SettingsRow
@@ -243,7 +256,7 @@ export function SettingsView({
       {active === 'pricing' ? (
         <SettingsSection
           title="Model pricing"
-          description="Effective-dated, append-only price rows — every spend record stamps the exact price it used, so costs are auditable forever. Refresh pulls live prices from the OpenRouter catalog for models your hands use; '*' is the company default."
+          description="Effective-dated, append-only price rows — every spend record stamps the exact price it used, so costs are auditable forever. Refresh pulls live prices from the OpenRouter catalog for models your agents use; '*' is the company default."
         >
           <SettingsRow
             title="Refresh from OpenRouter"
@@ -293,7 +306,7 @@ export function SettingsView({
       {active === 'mailboxes' ? (
         <SettingsSection
           title="Mailboxes"
-          description="Every hand's connected email account: status, sync health, and errors. Connect a mailbox from the hand's profile."
+          description="Every agent's connected email account: status, sync health, and errors. Connect a mailbox from the agent's profile."
         >
           <RecordList
             columns={MAILBOX_COLUMNS}
@@ -303,23 +316,23 @@ export function SettingsView({
             onRowClick={(row) => setMailboxDrawer(row)}
             empty={{
               title: 'No mailboxes connected',
-              description: 'Open a hand’s profile and connect their address to bring them online.',
+              description: 'Open an agent’s profile and connect their address to bring them online.',
             }}
           />
-          {handsWithoutMailbox.length > 0 ? (
+          {agentsWithoutMailbox.length > 0 ? (
             <SettingsRow
-              title="Hands without a mailbox"
-              description="These hands cannot receive work until an address is connected."
+              title="Agents without a mailbox"
+              description="These agents cannot receive work until an address is connected."
               stacked
             >
               <div className="flex flex-wrap gap-2">
-                {handsWithoutMailbox.map((hand) => (
+                {agentsWithoutMailbox.map((agent) => (
                   <Link
-                    key={hand.id}
-                    href={`/people/${hand.id}`}
+                    key={agent.id}
+                    href={`/organization/agents?person=${agent.id}`}
                     className="rounded-md border border-border px-3 py-1.5 text-sm text-fg-muted transition-colors hover:border-primary/50 hover:text-fg"
                   >
-                    {hand.name} · {hand.title}
+                    {agent.name} · {agent.title}
                   </Link>
                 ))}
               </div>
@@ -330,7 +343,7 @@ export function SettingsView({
       {active === 'voice' ? (
         <SettingsSection
           title="Voice"
-          description="What powers a phone or browser call with a hand."
+          description="What powers a phone or browser call with an agent."
         >
           <SettingsRow title="The call pipeline" stacked>
             <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -340,7 +353,7 @@ export function SettingsView({
                     <>
                       <span className="rounded-md border border-border px-3 py-2">
                         <span className="text-fg-muted">Thinking</span>{' '}
-                        <span className="font-medium">the hand's own model</span>{' '}
+                        <span className="font-medium">the agent&apos;s own model</span>{' '}
                         <Badge variant={providers.length > 0 ? 'default' : 'destructive'}>
                           {providers.length > 0 ? `${providers.length} configured` : 'none'}
                         </Badge>
@@ -365,7 +378,7 @@ export function SettingsView({
               ) : (
                 <>OpenAI or Google Model provider key — add one under Model providers to enable it.</>
               )}{' '}
-              Each hand picks its mode and voice on its profile's Voice tab.
+              Each agent picks its mode and voice on its profile&apos;s Voice tab.
             </p>
           </SettingsRow>
           {SPEECH_PROVIDERS.map(({ provider, label, line }) => (
@@ -427,6 +440,20 @@ export function SettingsView({
               />
             </SettingsRow>
           )}
+        </SettingsSection>
+      ) : null}
+
+      {active === 'avatar-parts' ? (
+        <SettingsSection
+          title="Avatar parts"
+          description="The library everyone's likeness is built from — bodies, outfits, faces, hair. Parts are company assets: generate a set once and every person is assembled from it in their own avatar composer."
+        >
+          <AvatarPartsView
+            parts={avatarParts}
+            categories={avatarPartCategories}
+            library={avatarPartLibrary}
+            imageProviderConfigured={imageSetting !== null}
+          />
         </SettingsSection>
       ) : null}
 
@@ -594,7 +621,7 @@ export function SettingsView({
               ) : null}
             </div>
             <Button asChild variant="outline" size="sm">
-              <Link href={`/people/${mailboxDrawer.personId}`}>Open hand profile</Link>
+              <Link href={`/organization/agents?person=${mailboxDrawer.personId}`}>Open agent profile</Link>
             </Button>
           </div>
         ) : null}
