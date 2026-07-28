@@ -141,7 +141,7 @@ jobs:
           set -euo pipefail
           for i in $(seq 1 30); do
             sleep 5
-            code="$(curl -s -o /dev/null -w '%{http_code}' https://bunkhouse.cloud.rassaun.com/ || true)"
+            code="$(curl -s -o /dev/null -w '%{http_code}' https://bunkhouse.cloud.rassaun.com/login || true)"
             echo "https status: $code"
             if [ "$code" = "200" ]; then
               echo "bunkhouse.cloud.rassaun.com is serving"
