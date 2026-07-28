@@ -13,6 +13,7 @@ import {
   type RecordColumn,
 } from '@appkit/ui'
 import { addRevision, createProcedure, setProcedureAssignment, setProcedureStatus } from '../app/admin/procedures/actions'
+import { MarkdownEditor } from './markdown-editor'
 
 export type ProcedureRow = {
   id: string
@@ -175,7 +176,7 @@ export function ProceduresView({
           </div>
           <div className="space-y-2">
             <Label htmlFor="proc-body">Procedure</Label>
-            <Textarea id="proc-body" name="body" rows={10} placeholder="Write it the way you'd write it for a new hire." required />
+            <MarkdownEditor name="body" placeholder="Write it the way you'd write it for a new hire." minHeight="240px" />
           </div>
           <div className="space-y-2">
             <Label>Applies to</Label>
@@ -225,7 +226,7 @@ export function ProceduresView({
             <form action={(form) => act(addRevision, form, true)} className="space-y-2">
               <input type="hidden" name="procedureId" value={selected.id} />
               <Label htmlFor="rev-body">New revision</Label>
-              <Textarea id="rev-body" name="body" rows={8} defaultValue={selected.body} required />
+              <MarkdownEditor name="body" defaultValue={selected.body} minHeight="200px" />
               <Input name="changeNote" placeholder="What changed and why (audit note)" />
               <Button type="submit" variant="outline" size="sm" disabled={busy}>
                 Publish v{selected.version + 1}

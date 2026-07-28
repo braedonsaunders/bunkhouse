@@ -10,11 +10,12 @@ export async function addCompanyNote(formData: FormData): Promise<void> {
   const title = String(formData.get('title') ?? '').trim()
   const body = String(formData.get('body') ?? '').trim()
   const kind = String(formData.get('kind') ?? 'fact') as 'fact' | 'episode' | 'procedure' | 'reflection'
+  const importance = Number(formData.get('importance') ?? 3)
   if (!title || !body) throw new Error('A note needs a title and a body.')
   const tenantId = await resolveTenantId()
   const app = db()
   await app.withTenant(tenantId, async () => {
-    await createNote({ tenantId, scope: 'company', personId: null, kind, title, body, author: 'human' })
+    await createNote({ tenantId, scope: 'company', personId: null, kind, title, body, author: 'human', importance })
   })
   revalidatePath('/admin/knowledge')
 }

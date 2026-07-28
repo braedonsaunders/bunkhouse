@@ -8,7 +8,6 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  EmptyState,
   Input,
   Progress,
   Select,
@@ -16,7 +15,8 @@ import {
 } from '@appkit/ui'
 import type { autonomySettings, memories, people, runs } from '../../db/schema'
 import { AssignModelForm } from '../../components/assign-model-form'
-import { addMemoryNote, deleteMemoryNote, promoteNoteAction, setAutonomy, togglePinNote, updateMemoryNote, updatePerson } from './actions'
+import { NotesView } from '../../components/notes-view'
+import { setAutonomy, updatePerson } from './actions'
 
 type Person = typeof people.$inferSelect
 
@@ -221,7 +221,7 @@ export function AutonomySection({
   )
 }
 
-/** Human-readable memory: read, correct, forget, add. */
+/** The hand's logbook: RecordList + drawers via the shared NotesView. */
 export function MemorySection({
   person,
   notes,
@@ -233,71 +233,26 @@ export function MemorySection({
     <Card>
       <CardHeader>
         <CardTitle>Memory</CardTitle>
-        <CardDescription>Human-readable notes — open, correct, or delete anything.</CardDescription>
+        <CardDescription>
+          This hand's logbook — human-readable, append-only. Corrections keep history; forgetting closes validity.
+        </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {notes.length === 0 ? (
-          <EmptyState title="Nothing remembered yet" description="Notes appear here as this hand works." />
-        ) : (
-          notes.map((note) => (
-            <div key={note.id} className="rounded-md border border-border p-3">
-              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-                <Badge variant={note.kind === 'procedure' ? 'default' : note.kind === 'reflection' ? 'secondary' : 'outline'}>
-                  {note.kind}
-                </Badge>
-                <Badge variant="outline">importance {note.importance}</Badge>
-                {note.pinned ? <Badge>pinned</Badge> : null}
-                <span className="text-fg-muted">[[{note.slug}]] · by {note.author}</span>
-              </div>
-              <form action={updateMemoryNote} className="space-y-2">
-                <input type="hidden" name="personId" value={person.id} />
-                <input type="hidden" name="memoryId" value={note.id} />
-                <Input name="title" defaultValue={note.title} required />
-                <Textarea name="body" rows={2} defaultValue={note.body} required />
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button type="submit" variant="outline" size="sm">
-                    Save correction
-                  </Button>
-                  <Button type="submit" formAction={deleteMemoryNote} variant="outline" size="sm">
-                    Forget
-                  </Button>
-                </div>
-              </form>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <form action={togglePinNote}>
-                  <input type="hidden" name="memoryId" value={note.id} />
-                  <input type="hidden" name="pinned" value={note.pinned ? 'false' : 'true'} />
-                  <Button type="submit" variant="outline" size="sm">
-                    {note.pinned ? 'Unpin' : 'Pin to prompt'}
-                  </Button>
-                </form>
-                <form action={promoteNoteAction} className="flex items-center gap-2">
-                  <input type="hidden" name="memoryId" value={note.id} />
-                  <Input name="rationale" placeholder="Why the whole company should know this" className="w-64" />
-                  <Button type="submit" variant="outline" size="sm">
-                    Propose for company knowledge
-                  </Button>
-                </form>
-              </div>
-            </div>
-          ))
-        )}
-        <form action={addMemoryNote} className="space-y-2 rounded-md border border-dashed border-border p-3">
-          <input type="hidden" name="personId" value={person.id} />
-          <div className="flex gap-2">
-            <Select name="kind" defaultValue="fact" aria-label="Note kind">
-              <option value="fact">Fact</option>
-              <option value="episode">Episode</option>
-              <option value="procedure">Procedure</option>
-              <option value="reflection">Reflection</option>
-            </Select>
-            <Input name="title" placeholder="Note title (e.g. Preferred vendor for tires)" required className="flex-1" />
-          </div>
-          <Textarea name="body" rows={2} placeholder="Something this hand should always know. Link other notes with [[slug]]." required />
-          <Button type="submit" variant="outline" size="sm">
-            Add to memory
-          </Button>
-        </form>
+      <CardContent>
+        <NotesView
+          scope="hand"
+          personId={person.id}
+          rows={notes.map((note) => ({
+            id: note.id,
+            slug: note.slug,
+            kind: note.kind,
+            title: note.title,
+            body: note.body,
+            importance: note.importance,
+            pinned: note.pinned,
+            author: note.author,
+            updatedAt: note.updatedAt.toISOString().slice(0, 16).replace('T', ' '),
+          }))}
+        />
       </CardContent>
     </Card>
   )

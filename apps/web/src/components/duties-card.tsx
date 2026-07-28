@@ -18,6 +18,7 @@ import {
 } from '@appkit/ui'
 import { addDuty, deleteDuty, updateDuty } from '../app/people/actions'
 import { cronToHuman } from '../lib/schedule'
+import { MarkdownEditor } from './markdown-editor'
 import { ScheduleBuilder } from './schedule-builder'
 
 export type DutyRow = {
@@ -122,7 +123,7 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
             </div>
             <div className="space-y-2">
               <Label htmlFor="new-duty-instruction">Instruction</Label>
-              <Textarea id="new-duty-instruction" name="instruction" rows={5} placeholder="What to do, in the hand's own terms." required />
+              <MarkdownEditor name="instruction" placeholder="What to do, in the hand's own terms." />
             </div>
             <div className="space-y-2">
               <Label>Schedule</Label>
@@ -149,7 +150,7 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
               </div>
               <div className="space-y-2">
                 <Label htmlFor="duty-instruction">Instruction</Label>
-                <Textarea id="duty-instruction" name="instruction" rows={5} defaultValue={selected.instruction} required />
+                <MarkdownEditor name="instruction" defaultValue={selected.instruction} />
               </div>
               <div className="space-y-2">
                 <Label>Schedule</Label>

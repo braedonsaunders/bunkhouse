@@ -16,7 +16,7 @@ const HUB_GROUPS: AdminHubGroup[] = [
     accent: 'teal',
     cards: [
       { href: '/people', title: 'Directory', description: 'Humans and hands, one org chart', icon: <Users size={18} /> },
-      { href: '/people/hire', title: 'Hiring', description: 'Browse roles and extend offers', icon: <Mail size={18} /> },
+      { href: '/roles', title: 'Roles', description: 'Build roles and onboard hands from them', icon: <Mail size={18} /> },
       { href: '/approvals', title: 'Approvals', description: 'Actions waiting on human sign-off', icon: <CheckCircle2 size={18} /> },
     ],
   },

@@ -7,16 +7,12 @@ import { AccountMenu, AppShell, ThemeProvider, UiLinkProvider, type SidebarNavGr
 import { PageTransition } from '@appkit/ui/page-transition'
 
 const navigation: SidebarNavGroup[] = [
-  {
-    id: 'app',
-    label: 'Application',
-    items: [
-      { href: '/', label: 'Home', iconKey: 'home', exact: true, mobile: true },
-      { href: '/people', label: 'Directory', iconKey: 'users', mobile: true },
-      { href: '/approvals', label: 'Approvals', iconKey: 'list-checks', mobile: true },
-      { href: '/admin', label: 'Admin', iconKey: 'settings' },
-    ],
-  },
+  { id: 'home', label: 'Home', items: [{ href: '/', label: 'Home', iconKey: 'home', exact: true, mobile: true }] },
+  { id: 'directory', label: 'Directory', items: [{ href: '/people', label: 'Directory', iconKey: 'users', mobile: true }] },
+  { id: 'roles', label: 'Roles', items: [{ href: '/roles', label: 'Roles', iconKey: 'clipboard' }] },
+  { id: 'approvals', label: 'Approvals', items: [{ href: '/approvals', label: 'Approvals', iconKey: 'list-checks', mobile: true }] },
+  { id: 'knowledge', label: 'Knowledge', items: [{ href: '/admin/knowledge', label: 'Knowledge', iconKey: 'library' }] },
+  { id: 'admin', label: 'Admin', items: [{ href: '/admin', label: 'Admin', iconKey: 'settings', mobile: true }] },
 ]
 
 export function AppFrame({ children }: { children: ReactNode }) {

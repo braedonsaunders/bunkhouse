@@ -43,6 +43,13 @@
       "when": 1785206724750,
       "tag": "0005_careful_carnage",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785208413561,
+      "tag": "0006_lazy_pandemic",
+      "breakpoints": true
     }
   ]
 }

@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { eq } from 'drizzle-orm'
-import { getRolePack } from '@bunkhouse/roles'
+import { getRole } from '../../lib/roles'
 import { autonomySettings, duties, mailboxAccounts, memories, people, procedures, procedureRevisions } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
@@ -31,8 +31,9 @@ const ACTION_CATEGORIES = [
  */
 export async function hireHand(formData: FormData): Promise<void> {
   const packSlug = String(formData.get('rolePack') ?? '')
-  const pack = getRolePack(packSlug)
-  if (!pack) throw new Error(`Unknown role pack: ${packSlug}`)
+  const tenantIdEarly = await resolveTenantId()
+  const pack = await getRole(tenantIdEarly, packSlug)
+  if (!pack) throw new Error(`Unknown role: ${packSlug}`)
 
   const name = String(formData.get('name') ?? '').trim()
   const email = String(formData.get('email') ?? '').trim().toLowerCase()
@@ -42,7 +43,7 @@ export async function hireHand(formData: FormData): Promise<void> {
   if (!name || !email) throw new Error('A hand needs a name and an email address.')
   if (!Number.isFinite(salaryUsd) || salaryUsd <= 0) throw new Error('Salary must be a positive monthly USD amount.')
 
-  const tenantId = await resolveTenantId()
+  const tenantId = tenantIdEarly
   const app = db()
 
   const personId = await app.withTenant(tenantId, async () => {
@@ -159,11 +160,12 @@ export async function addMemoryNote(formData: FormData): Promise<void> {
   const title = String(formData.get('title') ?? '').trim()
   const body = String(formData.get('body') ?? '').trim()
   const kind = String(formData.get('kind') ?? 'fact') as 'fact' | 'episode' | 'procedure' | 'reflection'
+  const importance = Number(formData.get('importance') ?? 3)
   if (!personId || !title || !body) throw new Error('A note needs a title and a body.')
   const tenantId = await resolveTenantId()
   const app = db()
   await app.withTenant(tenantId, async () => {
-    await createNote({ tenantId, scope: 'hand', personId, kind, title, body, author: 'human' })
+    await createNote({ tenantId, scope: 'hand', personId, kind, title, body, author: 'human', importance })
   })
   revalidatePath('/people')
 }
@@ -410,8 +412,16 @@ export async function updateMemoryNote(formData: FormData): Promise<void> {
   if (!memoryId || !title || !body) throw new Error('A note needs a title and a body.')
   const tenantId = await resolveTenantId()
   const app = db()
+  const importance = Number(formData.get('importance') ?? 0)
   await app.withTenant(tenantId, async () => {
-    await correctNote({ tenantId, noteId: memoryId, title, body, editedBy: 'human' })
+    await correctNote({
+      tenantId,
+      noteId: memoryId,
+      title,
+      body,
+      editedBy: 'human',
+      ...(importance >= 1 && importance <= 5 ? { importance } : {}),
+    })
   })
   revalidatePath('/people')
   revalidatePath('/admin/knowledge')

@@ -160,7 +160,7 @@ export default async function PeoplePage({
         description="Everyone who works here — your people and your hands, one org."
         actions={
           <Button asChild>
-            <Link href="/people/hire">Hire a hand</Link>
+            <Link href="/roles">Onboard a hand</Link>
           </Button>
         }
       />
