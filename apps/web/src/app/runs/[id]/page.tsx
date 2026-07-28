@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { asc, eq, sql } from 'drizzle-orm'
+import { asc, eq, inArray, sql } from 'drizzle-orm'
 import {
   Badge,
   Card,
@@ -8,12 +8,13 @@ import {
   CardHeader,
   CardTitle,
   DetailHeader,
-  EmptyState,
   PageContainer,
 } from '@appkit/ui'
-import { people, runEvents, runs, tokenSpend } from '../../../db/schema'
+import { approvals, people, procedureRevisions, procedures, runEvents, runs, tokenSpend } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
+import { RunDesk, type ApprovalArtifact, type DeskEvent, type ProcedureArtifact } from '../../../components/run-desk'
+import { LiveToggle } from '../../../components/live-toggle'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,16 +27,7 @@ const STATUS_BADGES: Record<string, 'default' | 'secondary' | 'outline' | 'destr
   cancelled: 'outline',
 }
 
-const KIND_LABELS: Record<string, string> = {
-  thought: 'Thought',
-  message: 'Message',
-  tool_call: 'Tool call',
-  tool_result: 'Tool result',
-  procedure_citation: 'Procedure cited',
-  approval_request: 'Approval requested',
-  delegation: 'Delegation',
-  error: 'Error',
-}
+const OPEN_STATUSES = new Set(['running', 'waiting_approval', 'waiting_reply'])
 
 function describeTrigger(trigger: Record<string, unknown>): string {
   switch (trigger.type) {
@@ -50,16 +42,6 @@ function describeTrigger(trigger: Record<string, unknown>): string {
     default:
       return 'Manual'
   }
-}
-
-function renderPayload(kind: string, payload: Record<string, unknown>): string {
-  if (kind === 'message') return String(payload.text ?? '')
-  if (kind === 'error') return String(payload.message ?? '')
-  if (kind === 'procedure_citation') return `procedure:${payload.slug} v${payload.version}`
-  if (kind === 'approval_request') return String(payload.description ?? '')
-  if (kind === 'tool_call') return `${payload.toolName}(${JSON.stringify(payload.input ?? {})})`
-  if (kind === 'tool_result') return `${payload.toolName} → ${JSON.stringify(payload.output ?? {})}`
-  return JSON.stringify(payload)
 }
 
 export default async function RunPage({ params }: { params: Promise<{ id: string }> }) {
@@ -85,20 +67,102 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
       })
       .from(tokenSpend)
       .where(eq(tokenSpend.runId, id))
-    return { run, hand: hand ?? null, events, spend }
+
+    // The desk's right pane shows artifacts: cited procedure revisions (pinned
+    // by slug+version) and the approvals this run is waiting on or received.
+    const citedSlugs = [
+      ...new Set(
+        events
+          .filter((e) => e.kind === 'procedure_citation')
+          .map((e) => String(e.payload.slug))
+          .filter(Boolean),
+      ),
+    ]
+    const citedProcedures = citedSlugs.length
+      ? await app.db
+          .select({ id: procedures.id, slug: procedures.slug, title: procedures.title, status: procedures.status })
+          .from(procedures)
+          .where(inArray(procedures.slug, citedSlugs))
+      : []
+    const revisions = citedProcedures.length
+      ? await app.db
+          .select({
+            procedureId: procedureRevisions.procedureId,
+            version: procedureRevisions.version,
+            body: procedureRevisions.body,
+          })
+          .from(procedureRevisions)
+          .where(
+            inArray(
+              procedureRevisions.procedureId,
+              citedProcedures.map((p) => p.id),
+            ),
+          )
+      : []
+    const approvalRows = await app.db
+      .select({
+        id: approvals.id,
+        category: approvals.category,
+        payload: approvals.payload,
+        status: approvals.status,
+        decidedAt: approvals.decidedAt,
+        decisionNote: approvals.decisionNote,
+        expiresAt: approvals.expiresAt,
+        decidedByName: people.name,
+      })
+      .from(approvals)
+      .leftJoin(people, eq(people.id, approvals.decidedById))
+      .where(eq(approvals.runId, id))
+    return { run, hand: hand ?? null, events, spend, citedProcedures, revisions, approvalRows }
   })
 
   if (!data) notFound()
   const { run, hand, events, spend } = data
   const unpriced = (spend?.sources ?? []).includes('unpriced')
+  const isOpen = OPEN_STATUSES.has(run.status)
+
+  const procedureById = new Map(data.citedProcedures.map((p) => [p.id, p]))
+  const procedureArtifacts: Record<string, ProcedureArtifact> = {}
+  for (const rev of data.revisions) {
+    const procedure = procedureById.get(rev.procedureId)
+    if (!procedure) continue
+    procedureArtifacts[`${procedure.slug}@v${rev.version}`] = {
+      slug: procedure.slug,
+      version: rev.version,
+      title: procedure.title,
+      status: procedure.status,
+      body: rev.body,
+    }
+  }
+  const approvalArtifacts: Record<string, ApprovalArtifact> = {}
+  for (const row of data.approvalRows) {
+    approvalArtifacts[row.id] = {
+      id: row.id,
+      category: row.category,
+      description: row.payload.description,
+      status: row.status,
+      decidedBy: row.decidedByName ?? null,
+      decidedAt: row.decidedAt ? row.decidedAt.toISOString() : null,
+      decisionNote: row.decisionNote,
+      expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+    }
+  }
+  const deskEvents: DeskEvent[] = events.map((event) => ({
+    id: event.id,
+    seq: event.seq,
+    kind: event.kind,
+    at: event.createdAt.toISOString(),
+    payload: event.payload,
+  }))
 
   return (
     <PageContainer className="space-y-6">
       <DetailHeader
-        back={hand ? { href: `/people/${hand.id}`, label: hand.name } : { href: '/', label: 'Home' }}
+        back={hand ? { href: `/people/${hand.id}`, label: hand.name } : { href: '/observatory', label: 'Observatory' }}
         title={run.summary ?? describeTrigger(run.trigger)}
         subtitle={`${hand ? `${hand.name} · ${hand.title} · ` : ''}${describeTrigger(run.trigger)} · started ${run.startedAt.toISOString().slice(0, 16).replace('T', ' ')}`}
         badge={<Badge variant={STATUS_BADGES[run.status] ?? 'outline'}>{run.status.replace('_', ' ')}</Badge>}
+        actions={isOpen ? <LiveToggle defaultOn /> : undefined}
       />
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -126,43 +190,7 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Timeline</CardTitle>
-          <CardDescription>Append-only record of everything this run did — the audit trail.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {events.length === 0 ? (
-            <EmptyState title="No events" description="This run recorded nothing before finishing." />
-          ) : (
-            <ol className="space-y-2">
-              {events.map((event) => (
-                <li key={event.id} className="flex gap-3 rounded-md border border-border p-3 text-sm">
-                  <div className="w-36 shrink-0 space-y-1">
-                    <Badge
-                      variant={
-                        event.kind === 'error'
-                          ? 'destructive'
-                          : event.kind === 'approval_request'
-                            ? 'outline'
-                            : event.kind === 'procedure_citation'
-                              ? 'default'
-                              : 'secondary'
-                      }
-                    >
-                      {KIND_LABELS[event.kind] ?? event.kind}
-                    </Badge>
-                    <p className="text-xs text-fg-muted">{event.createdAt.toISOString().slice(11, 19)}</p>
-                  </div>
-                  <p className="min-w-0 whitespace-pre-wrap break-words text-fg">
-                    {renderPayload(event.kind, event.payload)}
-                  </p>
-                </li>
-              ))}
-            </ol>
-          )}
-        </CardContent>
-      </Card>
+      <RunDesk events={deskEvents} procedures={procedureArtifacts} approvals={approvalArtifacts} />
     </PageContainer>
   )
 }

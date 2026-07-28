@@ -56,9 +56,14 @@ export default async function HomePage() {
         title="Bunkhouse"
         description="Where your hands live. Hire them, put them to work, look in any time."
         actions={
-          <Button asChild>
-            <Link href="/people/hire">Hire a hand</Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline">
+              <Link href="/observatory">Observatory</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/people/hire">Hire a hand</Link>
+            </Button>
+          </div>
         }
       />
       <div className="grid gap-4 md:grid-cols-3">
