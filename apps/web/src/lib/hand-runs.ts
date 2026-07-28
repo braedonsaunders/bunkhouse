@@ -274,7 +274,37 @@ export async function threadConversation(tenantId: string, threadId: string): Pr
   })
 }
 
-/** Find inbound messages that never got a run and start one per thread. */
+type SenderTrust = 'staff' | 'known' | 'unknown'
+
+/** Classify a sender against the directory and the mail ledger. */
+async function classifySender(tenantId: string, address: string, before: Date): Promise<SenderTrust> {
+  const app = db()
+  const lower = address.toLowerCase()
+  const staff = await app.db
+    .select({ id: people.id })
+    .from(people)
+    .where(and(eq(people.status, 'active'), sql`lower(${people.email}) = ${lower}`))
+    .limit(1)
+  if (staff.length > 0) return 'staff'
+  const prior = await app.db
+    .select({ id: mailMessages.id })
+    .from(mailMessages)
+    .where(and(sql`lower(${mailMessages.from}->>'address') = ${lower}`, sql`${mailMessages.sentAt} < ${before}`))
+    .limit(1)
+  return prior.length > 0 ? 'known' : 'unknown'
+}
+
+function senderPermitted(policy: 'staff_only' | 'known_contacts' | 'anyone', trust: SenderTrust): boolean {
+  if (policy === 'anyone') return true
+  if (policy === 'known_contacts') return trust === 'staff' || trust === 'known'
+  return trust === 'staff'
+}
+
+/**
+ * Inbound messages that never got a run: gate each by the hand's inbound
+ * policy, then start a run — or record an auditable declined run so the
+ * message is never silently reprocessed.
+ */
 export async function startRunsForNewInbound(tenantId: string): Promise<number> {
   const app = db()
   const pending = await app.withTenantContext(tenantId, () =>
@@ -282,6 +312,8 @@ export async function startRunsForNewInbound(tenantId: string): Promise<number> 
       .select({
         messageId: mailMessages.id,
         threadId: mailMessages.threadId,
+        sender: sql<string>`${mailMessages.from}->>'address'`,
+        sentAt: mailMessages.sentAt,
         personId: sql<string>`(select person_id from mailbox_accounts ma join mail_threads mt on mt.mailbox_id = ma.id where mt.id = ${mailMessages.threadId})`,
       })
       .from(mailMessages)
@@ -296,6 +328,37 @@ export async function startRunsForNewInbound(tenantId: string): Promise<number> 
   let started = 0
   for (const item of pending) {
     if (!item.personId) continue
+    const decision = await app.withTenantContext(tenantId, async () => {
+      const [hand] = await app.db.select().from(people).where(eq(people.id, item.personId))
+      if (!hand) return { allowed: false as const, policy: 'staff_only' as const, trust: 'unknown' as const }
+      const policy = hand.inboundPolicy ?? 'staff_only'
+      const trust = await classifySender(tenantId, item.sender ?? '', item.sentAt)
+      return { allowed: senderPermitted(policy, trust), policy, trust }
+    })
+    if (!decision.allowed) {
+      await app.withTenant(tenantId, async () => {
+        const summary = `Declined: ${item.sender ?? 'unknown sender'} (${decision.trust}) is not permitted by this hand's inbound policy (${decision.policy.replace('_', ' ')}).`
+        const [run] = await app.db
+          .insert(runs)
+          .values({
+            tenantId,
+            personId: item.personId,
+            status: 'completed',
+            trigger: { type: 'email', threadId: item.threadId, messageId: item.messageId },
+            summary,
+            finishedAt: new Date(),
+          })
+          .returning({ id: runs.id })
+        await app.db.insert(runEvents).values({
+          tenantId,
+          runId: run!.id,
+          seq: 0,
+          kind: 'message',
+          payload: { text: summary },
+        })
+      })
+      continue
+    }
     const { subject, conversation } = await threadConversation(tenantId, item.threadId)
     await executeHandRun({
       tenantId,

@@ -46,5 +46,6 @@ export const officeAdministrator: RolePack = {
     file_write: 'notify',
     record_write: 'approval',
   },
+  inboundPolicy: 'known_contacts',
   suggestedSalaryUsd: 60,
 }

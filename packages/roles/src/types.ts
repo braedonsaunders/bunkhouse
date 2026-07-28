@@ -44,6 +44,8 @@ export type RolePack = {
   procedures: RolePackProcedure[]
   /** Sensible day-one dial. Anything omitted defaults to 'approval'. */
   autonomyDefaults: Partial<Record<ActionCategory, AutonomyLevel>>
+  /** Who may task this role by email; the worker enforces it. */
+  inboundPolicy: 'staff_only' | 'known_contacts' | 'anyone'
   /** Suggested monthly salary (token budget) in USD. */
   suggestedSalaryUsd: number
 }

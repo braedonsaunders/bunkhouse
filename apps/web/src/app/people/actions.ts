@@ -60,6 +60,7 @@ export async function hireHand(formData: FormData): Promise<void> {
         personality: { bio, tone: pack.personality.tone, signoff: `Best,\n${name.split(' ')[0]}` },
         salary: { monthlyUsd: salaryUsd, overagePolicy: 'ask' },
         proactivity: 'duties',
+        inboundPolicy: pack.inboundPolicy,
         startedOn: new Date().toISOString().slice(0, 10),
       })
       .returning({ id: people.id })
@@ -337,6 +338,9 @@ export async function updatePerson(formData: FormData): Promise<void> {
       }
       update.salary = { monthlyUsd: salaryUsd, overagePolicy }
       update.proactivity = proactivity
+      const inbound = String(formData.get('inboundPolicy') ?? 'staff_only') as 'staff_only' | 'known_contacts' | 'anyone'
+      if (!['staff_only', 'known_contacts', 'anyone'].includes(inbound)) throw new Error('Invalid inbound policy.')
+      update.inboundPolicy = inbound
     }
     await app.db.update(people).set(update).where(eq(people.id, personId))
   })

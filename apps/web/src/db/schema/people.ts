@@ -14,6 +14,13 @@ export const personStatus = pgEnum('person_status', ['onboarding', 'active', 'of
  *  also run their duties; autonomous hands may self-initiate within role scope. */
 export const proactivityMode = pgEnum('proactivity_mode', ['reactive', 'duties', 'autonomous'])
 
+/** Who may put a hand to work by emailing it. staff_only = only directory
+ *  members; known_contacts = staff plus prior counterparties on this mailbox;
+ *  anyone = open inbound (customer service, collections). Enforced by the
+ *  worker before a run ever starts — external mail is service input, not
+ *  instructions, regardless of this gate. */
+export const inboundPolicy = pgEnum('inbound_policy', ['staff_only', 'known_contacts', 'anyone'])
+
 export type HandPersonality = {
   /** Short first-person self-description used in the system prompt and profile. */
   bio: string
@@ -64,6 +71,7 @@ export const people = pgTable(
     modelConfig: jsonb('model_config').$type<HandModelConfig>(),
     salary: jsonb('salary').$type<HandSalary>(),
     proactivity: proactivityMode('proactivity').default('duties'),
+    inboundPolicy: inboundPolicy('inbound_policy').default('staff_only'),
     startedOn: date('started_on'),
     endedOn: date('ended_on'),
     ...auditColumns,

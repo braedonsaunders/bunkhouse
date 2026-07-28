@@ -124,6 +124,14 @@ export function OverviewSection({
                   </Select>
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="p-inbound">Who may email them work</Label>
+                  <Select id="p-inbound" name="inboundPolicy" defaultValue={person.inboundPolicy ?? 'staff_only'}>
+                    <option value="staff_only">Staff only</option>
+                    <option value="known_contacts">Staff + known contacts</option>
+                    <option value="anyone">Anyone (customer-facing)</option>
+                  </Select>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="p-proactivity">Proactivity</Label>
                   <Select id="p-proactivity" name="proactivity" defaultValue={person.proactivity ?? 'duties'}>
                     <option value="reactive">Reactive only</option>

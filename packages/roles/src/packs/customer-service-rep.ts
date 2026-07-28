@@ -44,5 +44,6 @@ export const customerServiceRep: RolePack = {
     record_write: 'approval',
     money_adjacent: 'forbidden',
   },
+  inboundPolicy: 'anyone',
   suggestedSalaryUsd: 70,
 }
