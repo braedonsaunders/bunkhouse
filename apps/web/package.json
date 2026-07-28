@@ -23,7 +23,7 @@
     "@appkit/api": "file:../../vendor/appkit/appkit-api-0.1.1.tgz",
     "@appkit/apps": "file:../../vendor/appkit/appkit-apps-1.0.0.tgz",
     "@appkit/auth": "file:../../vendor/appkit/appkit-auth-0.1.1.tgz",
-    "@appkit/avatars": "file:../../vendor/appkit/appkit-avatars-0.5.0.tgz",
+    "@appkit/avatars": "file:../../vendor/appkit/appkit-avatars-0.5.1.tgz",
     "@appkit/crypto": "file:../../vendor/appkit/appkit-crypto-0.2.0.tgz",
     "@appkit/db": "file:../../vendor/appkit/appkit-db-0.2.0.tgz",
     "@appkit/design-studio": "file:../../vendor/appkit/appkit-design-studio-0.2.0.tgz",
