@@ -1,9 +1,11 @@
-import { and, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import { AI_PROVIDER_SPECS } from '@appkit/ai'
 import { PageContainer } from '@appkit/ui'
-import { mailboxAccounts, people } from '../../../db/schema'
+import { autonomySettings, mailboxAccounts, people } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { SettingsView } from '../../../components/settings-view'
+import type { HandDial } from '../../../components/autonomy-settings'
+import { ACTION_CATEGORIES, DEFAULT_AUTONOMY_LEVEL } from '../../../lib/autonomy'
 import { listAiProviders } from '../../../lib/ai'
 import { getVoiceProviders } from '../../../lib/voice'
 import { listPrices } from '../../../lib/pricing'
@@ -18,7 +20,7 @@ const fmt = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 16).re
 export default async function SettingsPage() {
   const tenantId = await resolveTenantId()
   const app = db()
-  const [providers, prices, imageSetting, voiceProviders, mailboxData] = await Promise.all([
+  const [providers, prices, imageSetting, voiceProviders, mailboxData, handDials] = await Promise.all([
     listAiProviders(tenantId),
     listPrices(tenantId),
     getImageProviderSetting(tenantId),
@@ -46,6 +48,26 @@ export default async function SettingsPage() {
           ),
         )
       return { boxes, unconnected }
+    }),
+    app.withTenantContext(tenantId, async (): Promise<HandDial[]> => {
+      const hands = await app.db
+        .select({ id: people.id, name: people.name, title: people.title, status: people.status })
+        .from(people)
+        .where(eq(people.kind, 'hand'))
+        .orderBy(asc(people.name))
+      const dial = await app.db.select().from(autonomySettings)
+      return hands.map((hand) => ({
+        personId: hand.id,
+        name: hand.name,
+        title: hand.title,
+        status: hand.status,
+        levels: Object.fromEntries(
+          ACTION_CATEGORIES.map((category) => [
+            category,
+            dial.find((d) => d.personId === hand.id && d.category === category)?.level ?? DEFAULT_AUTONOMY_LEVEL,
+          ]),
+        ) as HandDial['levels'],
+      }))
     }),
   ])
 
@@ -85,8 +107,9 @@ export default async function SettingsPage() {
         }))}
         handsWithoutMailbox={mailboxData.unconnected}
         imageSetting={imageSetting}
-        imageModels={IMAGE_MODELS}
+        imageFallbackModels={IMAGE_MODELS}
         voiceProviders={{ deepgram: Boolean(voiceProviders.deepgram), elevenlabs: Boolean(voiceProviders.elevenlabs) }}
+        handDials={handDials}
       />
     </PageContainer>
   )

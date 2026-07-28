@@ -76,12 +76,13 @@ schema, or service without its management surface is an unfinished slice — do 
 it done, do not move on. Every capability ships with, in the same slice:
 
 1. the screen where an operator configures it (on the appkit admin/settings templates —
-   AdminHub, SettingsShell, RecordList — never bespoke layouts);
+   SettingsShell, SettingsSection/SettingsRow, RecordList — never bespoke layouts);
 2. every knob a reasonable operator expects, tenant-scoped in the database (never env,
    never code constants);
 3. visible state: status, last activity, last error, and the audit trail where one exists;
-4. discoverability — reachable from the admin hub or the natural record page, not only by
-   knowing the URL.
+4. discoverability — reachable from Settings or from the natural record page, not only by
+   knowing the URL. Settings is the sidebar settings area itself (`/admin/settings`); there
+   is no hub page in front of it.
 
 If a slice is intentionally engine-first, its task stays open until the UI lands.
 

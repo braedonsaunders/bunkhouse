@@ -12,7 +12,7 @@ import {
   Textarea,
   type RecordColumn,
 } from '@appkit/ui'
-import { addRevision, createProcedure, setProcedureAssignment, setProcedureStatus } from '../app/admin/procedures/actions'
+import { addRevision, createProcedure, setProcedureAssignment, setProcedureStatus } from '../app/knowledge/procedure-actions'
 import { MarkdownEditor } from './markdown-editor'
 
 export type ProcedureRow = {

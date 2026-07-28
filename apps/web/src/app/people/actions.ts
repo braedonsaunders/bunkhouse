@@ -14,17 +14,8 @@ import { listAiProviders } from '../../lib/ai'
 import { CronExpressionParser } from 'cron-parser'
 import { generateHandAvatarCandidates, saveHandAvatar } from '../../lib/avatars'
 import { correctNote, createNote, expireNote, proposePromotion } from '../../lib/memory'
+import { ACTION_CATEGORIES, DEFAULT_AUTONOMY_LEVEL, isActionCategory, isAutonomyLevel } from '../../lib/autonomy'
 
-const ACTION_CATEGORIES = [
-  'external_email',
-  'internal_email',
-  'record_write',
-  'money_adjacent',
-  'file_write',
-  'computer_use',
-  'shell',
-  'phone_call',
-] as const
 
 /**
  * Hire a hand from a role pack: person + day-one autonomy dial + standing
@@ -76,7 +67,7 @@ export async function hireHand(formData: FormData): Promise<void> {
         tenantId,
         personId: person.id,
         category,
-        level: pack.autonomyDefaults[category] ?? ('approval' as const),
+        level: pack.autonomyDefaults[category] ?? DEFAULT_AUTONOMY_LEVEL,
       })),
     )
 
@@ -135,13 +126,17 @@ export async function hireHand(formData: FormData): Promise<void> {
   redirect(`/people/${personId}`)
 }
 
-/** Set one category on a hand's autonomy dial. Upsert keeps the dial complete. */
+/**
+ * Set one category on a hand's autonomy dial. Upsert keeps the dial complete.
+ * Editable from the hand's profile and from the company Autonomy settings —
+ * both write here, so the dial has one source of truth.
+ */
 export async function setAutonomy(formData: FormData): Promise<void> {
   const personId = String(formData.get('personId') ?? '')
-  const category = String(formData.get('category') ?? '') as (typeof ACTION_CATEGORIES)[number]
-  const level = String(formData.get('level') ?? '') as 'forbidden' | 'approval' | 'notify' | 'trusted'
-  if (!personId || !ACTION_CATEGORIES.includes(category)) throw new Error('Invalid dial update.')
-  if (!['forbidden', 'approval', 'notify', 'trusted'].includes(level)) throw new Error('Invalid level.')
+  const category = String(formData.get('category') ?? '')
+  const level = String(formData.get('level') ?? '')
+  if (!personId || !isActionCategory(category)) throw new Error('Invalid dial update.')
+  if (!isAutonomyLevel(level)) throw new Error('Invalid level.')
 
   const tenantId = await resolveTenantId()
   const app = db()
@@ -155,6 +150,8 @@ export async function setAutonomy(formData: FormData): Promise<void> {
       })
   })
   revalidatePath(`/people/${personId}`)
+  revalidatePath('/people')
+  revalidatePath('/admin/settings')
 }
 
 /** Add a human-authored note to a hand's logbook. */

@@ -1,11 +1,15 @@
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
+import { ROLE_PACKS } from '@bunkhouse/roles'
 import { PageContainer, PageHeader } from '@appkit/ui'
-import { memories, memoryProposals } from '../../db/schema'
+import { memories, memoryProposals, people, procedureRevisions, procedures } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
 import { KnowledgeView } from '../../components/knowledge-view'
+import type { ProcedureRow } from '../../components/procedures-view'
 
 export const dynamic = 'force-dynamic'
+
+const stamp = (d: Date) => d.toISOString().slice(0, 16).replace('T', ' ')
 
 export default async function KnowledgePage() {
   const tenantId = await resolveTenantId()
@@ -24,14 +28,51 @@ export default async function KnowledgePage() {
       .from(memoryProposals)
       .where(eq(memoryProposals.status, 'open'))
       .orderBy(asc(memoryProposals.createdAt))
-    return { notes, proposals }
+    const procedureHeads = await app.db.select().from(procedures).orderBy(asc(procedures.title))
+    const revisions = await app.db.select().from(procedureRevisions).orderBy(desc(procedureRevisions.version))
+    const hands = await app.db
+      .select({ id: people.id, name: people.name })
+      .from(people)
+      .where(eq(people.kind, 'hand'))
+      .orderBy(asc(people.name))
+    return { notes, proposals, procedureHeads, revisions, hands }
+  })
+
+  const handNames = new Map(data.hands.map((h) => [h.id, h.name]))
+  const packTitles = new Map(ROLE_PACKS.map((p) => [p.slug, p.title]))
+  const procedureRows: ProcedureRow[] = data.procedureHeads.map((head) => {
+    const revs = data.revisions.filter((r) => r.procedureId === head.id)
+    const current = revs.find((r) => r.version === head.currentVersion)
+    const appliesTo = head.assignment.everyone
+      ? 'Everyone'
+      : [
+          ...(head.assignment.rolePacks ?? []).map((slug) => packTitles.get(slug) ?? slug),
+          ...(head.assignment.personIds ?? []).map((id) => handNames.get(id) ?? 'a hand'),
+        ].join(', ') || 'Nobody yet'
+    return {
+      id: head.id,
+      slug: head.slug,
+      title: head.title,
+      status: head.status,
+      version: head.currentVersion,
+      appliesTo,
+      updatedAt: stamp(head.updatedAt),
+      body: current?.body ?? '',
+      revisions: revs.map((r) => ({
+        version: r.version,
+        body: r.body,
+        changeNote: r.changeNote ?? '',
+        createdAt: stamp(r.createdAt),
+      })),
+      assignment: head.assignment,
+    }
   })
 
   return (
     <PageContainer className="space-y-6">
       <PageHeader
         title="Company knowledge"
-        description="The governed shared layer every hand loads. Hands can only nominate — humans decide what crosses this boundary."
+        description="The governed shared layer every hand loads: the notes they read, the procedures they follow, and the changes they nominate. Hands can only nominate — humans decide what crosses this boundary."
       />
 
       <KnowledgeView
@@ -44,7 +85,7 @@ export default async function KnowledgePage() {
           importance: note.importance,
           pinned: note.pinned,
           author: note.author,
-          updatedAt: note.updatedAt.toISOString().slice(0, 16).replace('T', ' '),
+          updatedAt: stamp(note.updatedAt),
         }))}
         proposals={data.proposals.map(({ proposal, proposerName }) => ({
           id: proposal.id,
@@ -53,8 +94,11 @@ export default async function KnowledgePage() {
           body: proposal.payload.body ?? '',
           rationale: proposal.rationale,
           from: proposerName ?? 'consolidator',
-          createdAt: proposal.createdAt.toISOString().slice(0, 16).replace('T', ' '),
+          createdAt: stamp(proposal.createdAt),
         }))}
+        procedures={procedureRows}
+        rolePackOptions={ROLE_PACKS.map((p) => ({ value: p.slug, label: p.title }))}
+        handOptions={data.hands.map((h) => ({ value: h.id, label: h.name }))}
       />
     </PageContainer>
   )

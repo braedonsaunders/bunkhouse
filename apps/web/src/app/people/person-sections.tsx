@@ -16,29 +16,16 @@ import {
 import type { autonomySettings, memories, people, runs } from '../../db/schema'
 import { AssignModelForm } from '../../components/assign-model-form'
 import { NotesView } from '../../components/notes-view'
+import {
+  ACTION_CATEGORIES,
+  AUTONOMY_LEVELS,
+  CATEGORY_LABELS,
+  DEFAULT_AUTONOMY_LEVEL,
+  LEVEL_BADGES,
+} from '../../lib/autonomy'
 import { setAutonomy, updatePerson } from './actions'
 
 type Person = typeof people.$inferSelect
-
-const AUTONOMY_LEVELS = ['forbidden', 'approval', 'notify', 'trusted'] as const
-
-const CATEGORY_LABELS: Record<string, string> = {
-  external_email: 'External email',
-  internal_email: 'Internal email',
-  record_write: 'Record changes',
-  money_adjacent: 'Money-adjacent',
-  file_write: 'File writes',
-  computer_use: 'Computer use',
-  shell: 'Terminal / shell',
-  phone_call: 'Phone calls',
-}
-
-const LEVEL_BADGES: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
-  trusted: 'default',
-  notify: 'secondary',
-  approval: 'outline',
-  forbidden: 'destructive',
-}
 
 /** Overview: every field an operator owns, editable in place. */
 export function OverviewSection({
@@ -192,15 +179,15 @@ export function AutonomySection({
         <CardDescription>Enforced by the runtime, per action category.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-2">
-        {Object.entries(CATEGORY_LABELS).map(([category, label]) => {
-          const current = dial.find((s) => s.category === category)?.level ?? 'approval'
+        {ACTION_CATEGORIES.map((category) => {
+          const current = dial.find((s) => s.category === category)?.level ?? DEFAULT_AUTONOMY_LEVEL
           return (
             <form key={category} action={setAutonomy} className="space-y-1">
               <input type="hidden" name="personId" value={person.id} />
               <input type="hidden" name="category" value={category} />
               <p className="flex items-center gap-2 text-xs text-fg-muted">
-                {label}
-                <Badge variant={LEVEL_BADGES[current] ?? 'outline'}>{current}</Badge>
+                {CATEGORY_LABELS[category]}
+                <Badge variant={LEVEL_BADGES[current]}>{current}</Badge>
               </p>
               <div className="flex items-center gap-1">
                 <Select name="level" defaultValue={current}>

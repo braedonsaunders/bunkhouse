@@ -2,9 +2,9 @@
 
 import { revalidatePath } from 'next/cache'
 import { and, eq } from 'drizzle-orm'
-import { procedureRevisions, procedures, type ProcedureAssignment } from '../../../db/schema'
-import { db } from '../../../db/client'
-import { resolveTenantId } from '../../../lib/tenant'
+import { procedureRevisions, procedures, type ProcedureAssignment } from '../../db/schema'
+import { db } from '../../db/client'
+import { resolveTenantId } from '../../lib/tenant'
 
 function parseAssignment(formData: FormData): ProcedureAssignment {
   if (String(formData.get('everyone') ?? '') === 'on') return { everyone: true }
@@ -36,7 +36,7 @@ export async function createProcedure(formData: FormData): Promise<void> {
     if (!head) throw new Error(`A procedure with slug "${slug}" may already exist.`)
     await app.db.insert(procedureRevisions).values({ tenantId, procedureId: head.id, version: 1, body, changeNote: 'Initial version.' })
   })
-  revalidatePath('/admin/procedures')
+  revalidatePath('/knowledge')
 }
 
 /** Append a revision: new version row, head pointer advances. Version-pinned history stays. */
@@ -55,7 +55,7 @@ export async function addRevision(formData: FormData): Promise<void> {
     await app.db.insert(procedureRevisions).values({ tenantId, procedureId, version, body, changeNote })
     await app.db.update(procedures).set({ currentVersion: version, updatedAt: new Date() }).where(eq(procedures.id, procedureId))
   })
-  revalidatePath('/admin/procedures')
+  revalidatePath('/knowledge')
 }
 
 /** Activate or retire; retired procedures stop binding but keep history. */
@@ -68,7 +68,7 @@ export async function setProcedureStatus(formData: FormData): Promise<void> {
   await app.withTenant(tenantId, async () => {
     await app.db.update(procedures).set({ status, updatedAt: new Date() }).where(eq(procedures.id, procedureId))
   })
-  revalidatePath('/admin/procedures')
+  revalidatePath('/knowledge')
 }
 
 /** Rebind who the procedure applies to. */
@@ -83,5 +83,5 @@ export async function setProcedureAssignment(formData: FormData): Promise<void> 
       .set({ assignment: parseAssignment(formData), updatedAt: new Date() })
       .where(and(eq(procedures.id, procedureId)))
   })
-  revalidatePath('/admin/procedures')
+  revalidatePath('/knowledge')
 }

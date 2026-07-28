@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Brain, CircleDollarSign, ImageIcon, Mail, Phone } from 'lucide-react'
+import { Brain, CircleDollarSign, ImageIcon, Mail, Phone, Shield } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -11,7 +11,6 @@ import {
   Input,
   Label,
   RecordList,
-  Select,
   SettingsRow,
   SettingsSection,
   SettingsShell,
@@ -23,11 +22,12 @@ import {
   refreshPricesAction,
   removeProviderAction,
   removeSpeechProviderAction,
-  setImageProviderAction,
   setManualPriceAction,
   setSpeechProviderKeyAction,
 } from '../app/admin/settings/actions'
 import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
+import { ImageProviderForm } from './image-provider-form'
+import { AutonomySettings, type HandDial } from './autonomy-settings'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
   <Link href={href} className={className} title={title}>
@@ -96,6 +96,10 @@ const SPEECH_PROVIDERS: {
 
 const NAV: SettingsNavGroup[] = [
   {
+    label: 'Trust',
+    items: [{ key: 'autonomy', label: 'Autonomy', icon: <Shield /> }],
+  },
+  {
     label: 'Company',
     items: [
       { key: 'ai', label: 'Model providers', icon: <Brain /> },
@@ -141,8 +145,9 @@ export function SettingsView({
   mailboxes,
   handsWithoutMailbox,
   imageSetting,
-  imageModels,
+  imageFallbackModels,
   voiceProviders,
+  handDials,
 }: {
   providers: ProviderSummary[]
   kinds: ProviderKindOption[]
@@ -150,10 +155,12 @@ export function SettingsView({
   mailboxes: MailboxRow[]
   handsWithoutMailbox: HandWithoutMailbox[]
   imageSetting: { providerSlug: string; model: string } | null
-  imageModels: { id: string; name: string; provider: string }[]
+  /** Static catalog offered only when the live provider model list fails. */
+  imageFallbackModels: { id: string; name: string; provider: string }[]
   voiceProviders: VoiceProviderState
+  handDials: HandDial[]
 }) {
-  const [active, setActive] = React.useState('ai')
+  const [active, setActive] = React.useState('autonomy')
   const [busy, startBusy] = React.useTransition()
   const [notice, setNotice] = React.useState<string | null>(null)
   const [priceDrawer, setPriceDrawer] = React.useState<string | null>(null)
@@ -162,17 +169,12 @@ export function SettingsView({
   const [voiceKey, setVoiceKey] = React.useState('')
   const [voiceError, setVoiceError] = React.useState<string | null>(null)
   const imageCapable = providers.filter((p) => ['openai', 'google'].includes(p.provider))
-  const [imageProviderSlug, setImageProviderSlug] = React.useState(
-    imageSetting?.providerSlug ?? imageCapable[0]?.slug ?? '',
-  )
-  const imageKind = imageCapable.find((p) => p.slug === imageProviderSlug)?.provider
   const priceHistory = priceDrawer && priceDrawer !== '*new*' ? prices.filter((row) => row.model === priceDrawer) : []
 
   return (
     <SettingsShell
       title="Settings"
-      description="Company-level configuration. Everything lives here, nothing in env."
-      back={{ href: '/admin', label: 'Settings' }}
+      description="Company-level configuration: how much your hands are trusted to do, and what powers them."
       nav={NAV}
       activeKey={active}
       onSelect={(key) => {
@@ -181,6 +183,15 @@ export function SettingsView({
       }}
       linkRender={nextLink}
     >
+      {active === 'autonomy' ? (
+        <SettingsSection
+          title="Autonomy"
+          description="How far each hand can go on its own, per action category. Onboarding sets the day-one dial from the role; this is where you raise or lower trust as a hand earns it. Changes apply to new work only."
+        >
+          <AutonomySettings hands={handDials} linkRender={nextLink} />
+        </SettingsSection>
+      ) : null}
+
       {active === 'ai' ? (
         <SettingsSection
           title="Model providers"
@@ -397,38 +408,11 @@ export function SettingsView({
             />
           ) : (
             <SettingsRow title={imageSetting ? 'Change' : 'Choose provider & model'} stacked>
-              <form action={setImageProviderAction} className="flex flex-wrap items-end gap-3">
-                <div className="space-y-1">
-                  <Label htmlFor="image-provider">Provider</Label>
-                  <Select
-                    id="image-provider"
-                    name="imageProviderSlug"
-                    value={imageProviderSlug}
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setImageProviderSlug(e.target.value)}
-                  >
-                    {imageCapable.map((p) => (
-                      <option key={p.slug} value={p.slug}>
-                        {p.label} ({p.provider})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="image-model">Image model</Label>
-                  <Select id="image-model" name="imageModel" defaultValue={imageSetting?.model}>
-                    {imageModels
-                      .filter((m) => m.provider === imageKind)
-                      .map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name}
-                        </option>
-                      ))}
-                  </Select>
-                </div>
-                <Button type="submit" size="sm">
-                  Save
-                </Button>
-              </form>
+              <ImageProviderForm
+                providers={imageCapable}
+                current={imageSetting}
+                fallbackModels={imageFallbackModels}
+              />
             </SettingsRow>
           )}
         </SettingsSection>

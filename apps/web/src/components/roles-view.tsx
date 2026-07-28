@@ -17,21 +17,17 @@ import type { Role } from '../lib/roles'
 import { hireHand } from '../app/people/actions'
 import { deleteRoleDef, saveRoleDef } from '../app/roles/actions'
 import { cronToHuman } from '../lib/schedule'
+import {
+  ACTION_CATEGORIES,
+  AUTONOMY_LEVELS,
+  CATEGORY_LABELS,
+  DEFAULT_AUTONOMY_LEVEL,
+  isActionCategory,
+} from '../lib/autonomy'
 import { MarkdownEditor } from './markdown-editor'
 import { ScheduleBuilder } from './schedule-builder'
 
 export type RosterOption = { id: string; name: string; title: string }
-
-const CATEGORY_LABELS: Record<string, string> = {
-  external_email: 'External email',
-  internal_email: 'Internal email',
-  record_write: 'Record changes',
-  money_adjacent: 'Money-adjacent',
-  file_write: 'File writes',
-  computer_use: 'Computer use',
-  shell: 'Terminal / shell',
-  phone_call: 'Phone calls',
-}
 
 const COLUMNS: RecordColumn<Role>[] = [
   { key: 'title', label: 'Role', sortable: true },
@@ -198,7 +194,7 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
               <Badge variant="outline">${selected.suggestedSalaryUsd}/mo suggested</Badge>
               {Object.entries(selected.autonomyDefaults).map(([category, level]) => (
                 <Badge key={category} variant="secondary">
-                  {CATEGORY_LABELS[category] ?? category}: {level}
+                  {isActionCategory(category) ? CATEGORY_LABELS[category] : category}: {level}
                 </Badge>
               ))}
             </div>
@@ -440,18 +436,19 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
               <div className="space-y-2">
                 <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Day-one autonomy defaults</p>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {Object.entries(CATEGORY_LABELS).map(([category, label]) => (
+                  {ACTION_CATEGORIES.map((category) => (
                     <div key={category} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
-                      <span className="text-xs">{label}</span>
+                      <span className="text-xs">{CATEGORY_LABELS[category]}</span>
                       <Select
-                        value={editor.autonomy[category] ?? 'approval'}
+                        value={editor.autonomy[category] ?? DEFAULT_AUTONOMY_LEVEL}
                         onChange={(e) => setEditor({ ...editor, autonomy: { ...editor.autonomy, [category]: e.target.value } })}
-                        aria-label={label}
+                        aria-label={CATEGORY_LABELS[category]}
                       >
-                        <option value="forbidden">forbidden</option>
-                        <option value="approval">approval</option>
-                        <option value="notify">notify</option>
-                        <option value="trusted">trusted</option>
+                        {AUTONOMY_LEVELS.map((level) => (
+                          <option key={level} value={level}>
+                            {level}
+                          </option>
+                        ))}
                       </Select>
                     </div>
                   ))}
