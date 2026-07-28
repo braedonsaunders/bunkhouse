@@ -30,10 +30,15 @@ export default async function PeoplePage({
   const roster = await app.withTenantContext(tenantId, () =>
     app.db.select().from(people).orderBy(asc(people.name)),
   )
+  const avatarRows = await app.withTenantContext(tenantId, () =>
+    app.db.select({ personId: avatarImages.personId }).from(avatarImages),
+  )
+  const hasAvatarSet = new Set(avatarRows.map((a) => a.personId))
   const byId = new Map(roster.map((p) => [p.id, p]))
   const rows: PersonRow[] = roster.map((person) => ({
     id: person.id,
     name: person.name,
+    ...(hasAvatarSet.has(person.id) ? { avatarSrc: `/api/avatars/${person.id}` } : {}),
     title: person.title,
     kind: person.kind === 'hand' ? 'Hand' : 'Human',
     email: person.email,

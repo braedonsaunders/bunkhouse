@@ -19,7 +19,7 @@ import {
   togglePinNote,
   updateMemoryNote,
 } from '../app/people/actions'
-import { addCompanyNote, decideMemoryProposal } from '../app/admin/knowledge/actions'
+import { addCompanyNote, decideMemoryProposal } from '../app/knowledge/actions'
 import { MarkdownEditor } from './markdown-editor'
 
 export type NoteRow = {

@@ -180,7 +180,7 @@ export async function deleteMemoryNote(formData: FormData): Promise<void> {
     await expireNote(tenantId, memoryId)
   })
   revalidatePath('/people')
-  revalidatePath('/admin/knowledge')
+  revalidatePath('/knowledge')
 }
 
 /** Pin/unpin: the pinned tier is always in the hand's prompt, budgeted. */
@@ -194,7 +194,7 @@ export async function togglePinNote(formData: FormData): Promise<void> {
     await app.db.update(memories).set({ pinned, updatedAt: new Date() }).where(eq(memories.id, memoryId))
   })
   revalidatePath('/people')
-  revalidatePath('/admin/knowledge')
+  revalidatePath('/knowledge')
 }
 
 /** Nominate a hand note for company knowledge (approval-gated). */
@@ -207,7 +207,7 @@ export async function promoteNoteAction(formData: FormData): Promise<void> {
   await app.withTenant(tenantId, async () => {
     await proposePromotion({ tenantId, noteId: memoryId, rationale })
   })
-  revalidatePath('/admin/knowledge')
+  revalidatePath('/knowledge')
 }
 
 /** Connect an IMAP/SMTP mailbox to a hand — verifies both endpoints first. */
@@ -424,7 +424,7 @@ export async function updateMemoryNote(formData: FormData): Promise<void> {
     })
   })
   revalidatePath('/people')
-  revalidatePath('/admin/knowledge')
+  revalidatePath('/knowledge')
 }
 
 /** Disconnect a hand's mailbox: config is deletable, the mail ledger is not. */

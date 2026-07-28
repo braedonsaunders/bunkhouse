@@ -1,9 +1,9 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createNote, decideProposal } from '../../../lib/memory'
-import { resolveTenantId } from '../../../lib/tenant'
-import { db } from '../../../db/client'
+import { createNote, decideProposal } from '../../lib/memory'
+import { resolveTenantId } from '../../lib/tenant'
+import { db } from '../../db/client'
 
 /** Author a company-knowledge note directly (humans only). */
 export async function addCompanyNote(formData: FormData): Promise<void> {
@@ -17,7 +17,7 @@ export async function addCompanyNote(formData: FormData): Promise<void> {
   await app.withTenant(tenantId, async () => {
     await createNote({ tenantId, scope: 'company', personId: null, kind, title, body, author: 'human', importance })
   })
-  revalidatePath('/admin/knowledge')
+  revalidatePath('/knowledge')
 }
 
 /** Human decision on a memory proposal (promotion etc). */
@@ -30,6 +30,6 @@ export async function decideMemoryProposal(formData: FormData): Promise<void> {
   await app.withTenant(tenantId, async () => {
     await decideProposal({ tenantId, proposalId, approve, decidedBy: 'human' })
   })
-  revalidatePath('/admin/knowledge')
+  revalidatePath('/knowledge')
   revalidatePath('/people')
 }

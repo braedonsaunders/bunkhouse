@@ -3,11 +3,12 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { RecordList, type RecordColumn } from '@appkit/ui'
+import { Avatar, RecordList, type RecordColumn } from '@appkit/ui'
 
 export type PersonRow = {
   id: string
   name: string
+  avatarSrc?: string
   title: string
   kind: 'Hand' | 'Human'
   email: string
@@ -16,7 +17,17 @@ export type PersonRow = {
 }
 
 const COLUMNS: RecordColumn<PersonRow>[] = [
-  { key: 'name', label: 'Name', kind: 'reference', sortable: true, href: (row) => `/people?person=${row.id}` },
+  {
+    key: 'name',
+    label: 'Name',
+    sortable: true,
+    render: (row) => (
+      <span className="flex items-center gap-2 font-medium text-primary">
+        <Avatar name={row.name} size={26} {...(row.avatarSrc ? { src: row.avatarSrc } : {})} />
+        {row.name}
+      </span>
+    ),
+  },
   { key: 'title', label: 'Title', sortable: true },
   {
     key: 'kind',
