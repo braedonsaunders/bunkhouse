@@ -292,7 +292,7 @@ export function PayrollSection({
             {recentRuns.map((run) => (
               <Link
                 key={run.id}
-                href={`/runs/${run.id}`}
+                href={`/runs/${run.id}?from=person`}
                 className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 transition-colors hover:border-primary/50"
               >
                 <span className="min-w-0 truncate">{run.summary ?? 'Working…'}</span>
