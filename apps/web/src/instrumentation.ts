@@ -12,4 +12,12 @@ export async function register() {
   } catch (error) {
     console.error('[auth] owner bootstrap failed:', error)
   }
+  // Membership backfill: any active user without a membership row (the owner
+  // account predates memberships) joins the bootstrap tenant. Idempotent.
+  try {
+    const { ensureMembershipBackfill } = await import('./lib/tenant')
+    await ensureMembershipBackfill()
+  } catch (error) {
+    console.error('[tenant] membership backfill failed:', error)
+  }
 }

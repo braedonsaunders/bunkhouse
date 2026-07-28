@@ -12,6 +12,7 @@ import { listPhoneNumbers, listSipTrunks, sipIngressAddress } from '../../../lib
 import { listPrices } from '../../../lib/pricing'
 import { getImageProviderSetting, listAvatarPartRows, loadAvatarPartLibrary } from '../../../lib/avatars'
 import { getResearchSettings } from '../../../lib/research'
+import { getDocumentBranding } from '../../../lib/documents'
 import { listMcpIntegrations } from '../../../lib/agent-abilities'
 import { AVATAR_PART_CATEGORIES, avatarPartCategory } from '../../../lib/avatar-parts'
 import { IMAGE_MODELS } from '@appkit/avatars'
@@ -102,16 +103,28 @@ export default async function SettingsPage({
     const superadmin = createDrizzleSuperadminService({
       db: app.superDb,
       hashPassword,
-      actor: { userId: operator.userId, sessionId: operator.sessionId },
+      actor: { userId: operator.userId, sessionId: operator.sessionId, tenantId },
     })
-    const [userList, sessionList] = await Promise.all([
+    const [userList, sessionList, tenantList] = await Promise.all([
       superadmin.listUsers({ perPage: 100, sort: 'name' }),
       superadmin.listSessions({ perPage: 100, sort: 'created', direction: 'desc' }),
+      superadmin.listTenants(),
     ])
-    platform = { users: userList.rows, sessions: sessionList.rows, currentUserId: operator.userId }
+    const memberLists = await Promise.all(
+      tenantList.map(async (tenant) => [tenant.id, await superadmin.listTenantMembers(tenant.id)] as const),
+    )
+    platform = {
+      users: userList.rows,
+      sessions: sessionList.rows,
+      currentUserId: operator.userId,
+      tenants: tenantList,
+      tenantMembers: Object.fromEntries(memberLists),
+      currentTenantId: tenantId,
+    }
   }
 
   const research = await getResearchSettings(tenantId)
+  const branding = await getDocumentBranding(tenantId)
   const phoneNumberRows = await listPhoneNumbers(tenantId)
   const activeAgents = await app.withTenantContext(tenantId, () =>
     app.db
@@ -161,6 +174,11 @@ export default async function SettingsPage({
         imageFallbackModels={IMAGE_MODELS}
         voiceProviders={{ deepgram: Boolean(voiceProviders.deepgram), elevenlabs: Boolean(voiceProviders.elevenlabs) }}
         research={research}
+        documents={{
+          companyName: branding.companyName ?? '',
+          accentColor: branding.accentColor ?? '',
+          footerText: branding.footerText ?? '',
+        }}
         integrations={integrations.map((entry) => ({
           slug: entry.slug,
           label: entry.label,

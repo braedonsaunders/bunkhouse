@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Boxes, Brain, CircleDollarSign, Globe, ImageIcon, Mail, Phone, Plug, Shield, UserCog } from 'lucide-react'
+import { Boxes, Brain, Building2, CircleDollarSign, FileText, Globe, ImageIcon, Mail, Phone, Plug, Shield, UserCog } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -31,13 +31,18 @@ import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
 import { ImageProviderForm } from './image-provider-form'
 import { AutonomySettings, type AgentDial } from './autonomy-settings'
 import { PhoneSystemRow, type AgentExtensionRow, type AgentOption, type PhoneNumberRowView, type SipTrunkSummary } from './phone-system'
-import { IntegrationsSection, ResearchSection, type IntegrationRowView } from './capability-settings'
-import { PlatformUsersAdmin, PlatformSessionsAdmin } from '@appkit/superadmin/react'
-import type { PlatformSessionRecord, PlatformUserRecord } from '@appkit/superadmin'
+import { DocumentsSection, IntegrationsSection, ResearchSection, type DocumentBrandingView, type IntegrationRowView } from './capability-settings'
+import { PlatformUsersAdmin, PlatformSessionsAdmin, PlatformTenantsAdmin } from '@appkit/superadmin/react'
+import type { PlatformSessionRecord, PlatformTenantRecord, PlatformUserRecord, TenantMemberRecord } from '@appkit/superadmin'
 import {
+  addPlatformTenantMemberAction,
+  createPlatformTenantAction,
   createPlatformUserAction,
+  removePlatformTenantMemberAction,
   revokePlatformSessionAction,
   revokePlatformUserSessionsAction,
+  setPlatformTenantMemberStatusAction,
+  setPlatformTenantStatusAction,
   setPlatformUserPasswordAction,
   updatePlatformUserAction,
 } from '../app/admin/settings/platform-actions'
@@ -120,6 +125,7 @@ const NAV: SettingsNavGroup[] = [
       { key: 'mailboxes', label: 'Mailboxes', icon: <Mail /> },
       { key: 'voice', label: 'Voice', icon: <Phone /> },
       { key: 'research', label: 'Research', icon: <Globe /> },
+      { key: 'documents', label: 'Documents', icon: <FileText /> },
       { key: 'integrations', label: 'Integrations', icon: <Plug /> },
       { key: 'images', label: 'Image generation', icon: <ImageIcon /> },
       { key: 'avatar-parts', label: 'Avatar parts', icon: <Boxes /> },
@@ -158,6 +164,11 @@ export type PlatformAdminData = {
   users: PlatformUserRecord[]
   sessions: PlatformSessionRecord[]
   currentUserId: string
+  tenants: PlatformTenantRecord[]
+  /** tenantId → members, preloaded server-side. */
+  tenantMembers: Record<string, TenantMemberRecord[]>
+  /** The tenant the operator is currently working in. */
+  currentTenantId: string
 }
 
 export function SettingsView({
@@ -170,6 +181,7 @@ export function SettingsView({
   imageFallbackModels,
   voiceProviders,
   research,
+  documents,
   integrations,
   phoneSystem,
   agentDials,
@@ -189,6 +201,7 @@ export function SettingsView({
   imageFallbackModels: { id: string; name: string; provider: string }[]
   voiceProviders: VoiceProviderState
   research: { provider: string | null }
+  documents: DocumentBrandingView
   integrations: IntegrationRowView[]
   phoneSystem: {
     trunks: SipTrunkSummary[]
@@ -221,7 +234,16 @@ export function SettingsView({
   const imageCapable = providers.filter((p) => ['openai', 'google'].includes(p.provider))
   const priceHistory = priceDrawer && priceDrawer !== '*new*' ? prices.filter((row) => row.model === priceDrawer) : []
   const nav: SettingsNavGroup[] = platform
-    ? [...NAV, { label: 'Platform', items: [{ key: 'users', label: 'Users', icon: <UserCog /> }] }]
+    ? [
+        ...NAV,
+        {
+          label: 'Platform',
+          items: [
+            { key: 'users', label: 'Users', icon: <UserCog /> },
+            { key: 'tenants', label: 'Tenants', icon: <Building2 /> },
+          ],
+        },
+      ]
     : NAV
 
   return (
@@ -448,6 +470,7 @@ export function SettingsView({
       ) : null}
 
       {active === 'research' ? <ResearchSection provider={research.provider} /> : null}
+      {active === 'documents' ? <DocumentsSection branding={documents} /> : null}
 
       {active === 'integrations' ? <IntegrationsSection integrations={integrations} /> : null}
 
@@ -513,6 +536,21 @@ export function SettingsView({
             actions={{ revokeSession: revokePlatformSessionAction }}
           />
         </div>
+      ) : null}
+
+      {active === 'tenants' && platform ? (
+        <PlatformTenantsAdmin
+          tenants={platform.tenants}
+          members={platform.tenantMembers}
+          currentTenantId={platform.currentTenantId}
+          actions={{
+            createTenant: createPlatformTenantAction,
+            setTenantStatus: setPlatformTenantStatusAction,
+            addMember: addPlatformTenantMemberAction,
+            setMemberStatus: setPlatformTenantMemberStatusAction,
+            removeMember: removePlatformTenantMemberAction,
+          }}
+        />
       ) : null}
 
       <Drawer

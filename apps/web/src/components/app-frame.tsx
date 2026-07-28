@@ -27,20 +27,48 @@ const navigation: SidebarNavGroup[] = [
 
 export type FrameUser = { name: string; email: string }
 
+export type FrameTenant = {
+  id: string
+  name: string
+  /** The user's switchable workspaces (active memberships). One entry → no switcher. */
+  options: { value: string; label: string }[]
+}
+
 export function AppFrame({
   children,
   user,
-  contextLabel,
+  tenant,
+  switchTenant,
 }: {
   children: ReactNode
   user: FrameUser | null
-  contextLabel?: string
+  tenant?: FrameTenant | null
+  /** Server action: validates membership, sets the httpOnly tenant cookie. */
+  switchTenant?: (tenantId: string) => Promise<{ ok: boolean; message?: string }>
 }) {
   const pathname = usePathname()
   // The sign-in screen renders bare (no shell chrome) but keeps the theme.
   if (pathname === '/login') {
     return <ThemeProvider>{children}</ThemeProvider>
   }
+  // Multi-membership users get the workspace switcher; single-membership users
+  // just see their workspace name in the context label.
+  const organization =
+    tenant && switchTenant && tenant.options.length > 1
+      ? {
+          label: 'Workspace',
+          summary: tenant.name,
+          value: tenant.id,
+          options: tenant.options,
+          onChange: async (value: string) => {
+            if (value === tenant.id) return
+            const result = await switchTenant(value)
+            // A full navigation, not a soft refresh: every data path re-resolves
+            // the tenant, so the whole tree must re-render from the server.
+            if (result.ok) window.location.assign('/')
+          },
+        }
+      : undefined
   return (
     <UiLinkProvider link={Link}>
       <ThemeProvider>
@@ -52,7 +80,8 @@ export function AppFrame({
             <AccountMenu
               name={user?.name || user?.email || 'Signed in'}
               email={user?.email ?? ''}
-              contextLabel={contextLabel}
+              contextLabel={tenant ? `${tenant.name} · workspace` : undefined}
+              organization={organization}
               showTheme
               onSignOut={async () => {
                 await authClient.signOut()
