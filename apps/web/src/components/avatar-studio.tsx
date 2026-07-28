@@ -73,9 +73,10 @@ export function AvatarStudio({
         title={`Avatar — ${name}`}
         description="One full-body figure, built from the company parts library. Every portrait in the app is a crop of it."
         size="xl"
+        bodyClassName="min-h-0 flex-1 overflow-hidden px-6 py-5"
       >
-        <div className="space-y-3">
-          {error ? <p className="text-sm text-danger">{error}</p> : null}
+        <div className="flex h-full min-h-0 flex-col gap-3">
+          {error ? <p className="shrink-0 text-sm text-danger">{error}</p> : null}
           <AvatarComposer
             composition={composition}
             parts={parts}
