@@ -82,26 +82,41 @@ export async function removeAiProvider(tenantId: string, slug: string): Promise<
   })
 }
 
-/**
- * Resolve the live AiConfig for a hand: its modelConfig names a tenant
- * provider slug + model; the sealed key is opened only here, at use time.
- */
-export async function resolveHandAiConfig(tenantId: string, personId: string): Promise<AiConfig | null> {
+/** Resolve one tenant provider slug to a live AiConfig (key unsealed at use time). */
+export async function resolveProviderAiConfig(tenantId: string, slug: string): Promise<AiConfig | null> {
   const app = db()
   return app.withTenantContext(tenantId, async () => {
-    const [person] = await app.db.select().from(people).where(eq(people.id, personId))
-    if (!person?.modelConfig) return null
     const providers = await readProviders(tenantId)
-    const entry = providers.find((p) => p.slug === person.modelConfig!.provider)
+    const entry = providers.find((p) => p.slug === slug)
     if (!entry || !isAiProvider(entry.provider)) return null
     const apiKey = unsealSecret(entry.sealedApiKey)
     if (apiKey === null) return null
     return {
       provider: entry.provider,
       apiKey,
-      modelSmart: person.modelConfig.model || entry.modelSmart || null,
+      modelSmart: entry.modelSmart ?? null,
       modelFast: entry.modelFast ?? null,
-      baseUrl: person.modelConfig.baseUrl ?? entry.baseUrl ?? null,
+      baseUrl: entry.baseUrl ?? null,
     }
   })
+}
+
+/**
+ * Resolve the live AiConfig for a hand: its modelConfig names a tenant
+ * provider slug + model; the sealed key is opened only here, at use time.
+ */
+export async function resolveHandAiConfig(tenantId: string, personId: string): Promise<AiConfig | null> {
+  const app = db()
+  const person = await app.withTenantContext(tenantId, async () => {
+    const [row] = await app.db.select().from(people).where(eq(people.id, personId))
+    return row
+  })
+  if (!person?.modelConfig) return null
+  const base = await resolveProviderAiConfig(tenantId, person.modelConfig.provider)
+  if (!base) return null
+  return {
+    ...base,
+    modelSmart: person.modelConfig.model || base.modelSmart || null,
+    baseUrl: person.modelConfig.baseUrl ?? base.baseUrl ?? null,
+  }
 }

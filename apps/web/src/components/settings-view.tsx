@@ -117,7 +117,7 @@ export function SettingsView({
   prices: PriceRow[]
   mailboxes: MailboxRow[]
   handsWithoutMailbox: HandWithoutMailbox[]
-  imageSetting: { provider: string; model: string } | null
+  imageSetting: { providerSlug: string; model: string } | null
   imageModels: { id: string; name: string; provider: string }[]
 }) {
   const [active, setActive] = React.useState('ai')
@@ -125,7 +125,11 @@ export function SettingsView({
   const [notice, setNotice] = React.useState<string | null>(null)
   const [priceDrawer, setPriceDrawer] = React.useState<string | null>(null)
   const [mailboxDrawer, setMailboxDrawer] = React.useState<MailboxRow | null>(null)
-  const [imageProvider, setImageProvider] = React.useState(imageSetting?.provider ?? 'gemini')
+  const imageCapable = providers.filter((p) => ['openai', 'google'].includes(p.provider))
+  const [imageProviderSlug, setImageProviderSlug] = React.useState(
+    imageSetting?.providerSlug ?? imageCapable[0]?.slug ?? '',
+  )
+  const imageKind = imageCapable.find((p) => p.slug === imageProviderSlug)?.provider
   const priceHistory = priceDrawer && priceDrawer !== '*new*' ? prices.filter((row) => row.model === priceDrawer) : []
 
   return (
@@ -272,59 +276,58 @@ export function SettingsView({
       {active === 'images' ? (
         <SettingsSection
           title="Image generation"
-          description="Powers the avatar studio: hand portraits render in one uniform style. Bring a Gemini, Cloudflare Workers AI, or Replicate key — sealed at rest like every credential."
+          description="Powers the avatar studio. Reuses your Model providers — same keys, same connection layer — with an image-capable model (OpenAI or Google)."
         >
           {imageSetting ? (
             <SettingsRow
-              title="Configured provider"
-              description={`${imageSetting.provider} · ${imageSetting.model}`}
-              control={<Badge variant="secondary">key sealed</Badge>}
+              title="Configured"
+              description={`${imageSetting.providerSlug} · ${imageSetting.model}`}
+              control={<Badge variant="secondary">uses provider key</Badge>}
             />
           ) : (
-            <SettingsRow title="Not configured" description="Avatar generation is unavailable until a provider is set." />
+            <SettingsRow title="Not configured" description="Avatar generation is unavailable until a provider is chosen." />
           )}
-          <SettingsRow title={imageSetting ? 'Replace provider' : 'Set provider'} stacked>
-            <form action={setImageProviderAction} className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="image-provider">Provider</Label>
-                <Select
-                  id="image-provider"
-                  name="imageProvider"
-                  value={imageProvider}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setImageProvider(e.target.value)}
-                >
-                  <option value="gemini">Google Gemini</option>
-                  <option value="cloudflare">Cloudflare Workers AI</option>
-                  <option value="replicate">Replicate</option>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="image-model">Model</Label>
-                <Select id="image-model" name="imageModel" defaultValue={imageSetting?.model}>
-                  {imageModels
-                    .filter((m) => m.provider === imageProvider)
-                    .map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
+          {imageCapable.length === 0 ? (
+            <EmptyState
+              title="No image-capable providers"
+              description="Add an OpenAI or Google provider under Model providers first — image generation shares those keys."
+            />
+          ) : (
+            <SettingsRow title={imageSetting ? 'Change' : 'Choose provider & model'} stacked>
+              <form action={setImageProviderAction} className="flex flex-wrap items-end gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="image-provider">Provider</Label>
+                  <Select
+                    id="image-provider"
+                    name="imageProviderSlug"
+                    value={imageProviderSlug}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setImageProviderSlug(e.target.value)}
+                  >
+                    {imageCapable.map((p) => (
+                      <option key={p.slug} value={p.slug}>
+                        {p.label} ({p.provider})
                       </option>
                     ))}
-                </Select>
-              </div>
-              {imageProvider === 'cloudflare' ? (
-                <div className="space-y-2">
-                  <Label htmlFor="image-account">Cloudflare account id</Label>
-                  <Input id="image-account" name="imageAccountId" required />
+                  </Select>
                 </div>
-              ) : null}
-              <div className="space-y-2">
-                <Label htmlFor="image-secret">{imageProvider === 'gemini' ? 'API key' : 'API token'}</Label>
-                <Input id="image-secret" name="imageSecret" type="password" required />
-              </div>
-              <div className="md:col-span-2">
-                <Button type="submit">Save image provider</Button>
-              </div>
-            </form>
-          </SettingsRow>
+                <div className="space-y-1">
+                  <Label htmlFor="image-model">Image model</Label>
+                  <Select id="image-model" name="imageModel" defaultValue={imageSetting?.model}>
+                    {imageModels
+                      .filter((m) => m.provider === imageKind)
+                      .map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                  </Select>
+                </div>
+                <Button type="submit" size="sm">
+                  Save
+                </Button>
+              </form>
+            </SettingsRow>
+          )}
         </SettingsSection>
       ) : null}
 

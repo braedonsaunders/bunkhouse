@@ -1,22 +1,23 @@
 import 'server-only'
 import { and, eq } from 'drizzle-orm'
-import { sealSecret, unsealSecret, type SealedSecret } from '@appkit/crypto'
 import {
   buildPortraitPrompt,
   generateImages,
+  IMAGE_CAPABLE_PROVIDERS,
+  IMAGE_MODELS,
   type ImageModelId,
-  type ImageProviderConfig,
 } from '@appkit/avatars'
 import { avatarImages, people, tenantSettings } from '../db/schema'
 import { db } from '../db/client'
+import { listAiProviders, resolveProviderAiConfig } from './ai'
 
 export const IMAGE_PROVIDER_KEY = 'images.provider'
 
-/** Tenant image-generation config; secrets sealed like every other credential. */
-export type ImageProviderSetting =
-  | { provider: 'cloudflare'; accountId: string; sealedApiToken: SealedSecret; model: ImageModelId }
-  | { provider: 'replicate'; sealedApiToken: SealedSecret; model: ImageModelId }
-  | { provider: 'gemini'; sealedApiKey: SealedSecret; model: ImageModelId }
+/**
+ * Image generation reuses the tenant's @appkit/ai providers — no separate
+ * key. The setting just names which provider slug + image model to use.
+ */
+export type ImageProviderSetting = { providerSlug: string; model: ImageModelId }
 
 export async function getImageProviderSetting(tenantId: string): Promise<ImageProviderSetting | null> {
   const app = db()
@@ -25,26 +26,26 @@ export async function getImageProviderSetting(tenantId: string): Promise<ImagePr
       .select({ value: tenantSettings.value })
       .from(tenantSettings)
       .where(and(eq(tenantSettings.tenantId, tenantId), eq(tenantSettings.key, IMAGE_PROVIDER_KEY)))
-    return (row?.value as ImageProviderSetting | undefined) ?? null
+    const value = row?.value as ImageProviderSetting | undefined
+    return value?.providerSlug && value.model ? value : null
   })
 }
 
 export async function setImageProviderSetting(args: {
   tenantId: string
-  provider: 'cloudflare' | 'replicate' | 'gemini'
+  providerSlug: string
   model: ImageModelId
-  secret: string
-  accountId?: string
 }): Promise<void> {
-  const sealed = sealSecret(args.secret)
-  const value: ImageProviderSetting =
-    args.provider === 'cloudflare'
-      ? { provider: 'cloudflare', accountId: args.accountId ?? '', sealedApiToken: sealed, model: args.model }
-      : args.provider === 'replicate'
-        ? { provider: 'replicate', sealedApiToken: sealed, model: args.model }
-        : { provider: 'gemini', sealedApiKey: sealed, model: args.model }
-  if (value.provider === 'cloudflare' && !value.accountId) throw new Error('Cloudflare needs an account id.')
-
+  const providers = await listAiProviders(args.tenantId)
+  const entry = providers.find((p) => p.slug === args.providerSlug)
+  if (!entry) throw new Error(`No AI provider with slug "${args.providerSlug}" — add it under Model providers first.`)
+  if (!(IMAGE_CAPABLE_PROVIDERS as readonly string[]).includes(entry.provider)) {
+    throw new Error(`Provider kind "${entry.provider}" cannot generate images (use ${IMAGE_CAPABLE_PROVIDERS.join(' or ')}).`)
+  }
+  if (!IMAGE_MODELS.some((m) => m.id === args.model && m.provider === entry.provider)) {
+    throw new Error(`Model "${args.model}" does not belong to the ${entry.provider} provider.`)
+  }
+  const value: ImageProviderSetting = { providerSlug: args.providerSlug, model: args.model }
   const app = db()
   await app.withTenant(args.tenantId, async () => {
     await app.db
@@ -57,45 +58,25 @@ export async function setImageProviderSetting(args: {
   })
 }
 
-function toRuntimeConfig(setting: ImageProviderSetting): ImageProviderConfig {
-  if (setting.provider === 'cloudflare') {
-    const token = unsealSecret(setting.sealedApiToken)
-    if (token === null) throw new Error('Image provider token cannot be unsealed.')
-    return { provider: 'cloudflare', accountId: setting.accountId, apiToken: token }
-  }
-  if (setting.provider === 'replicate') {
-    const token = unsealSecret(setting.sealedApiToken)
-    if (token === null) throw new Error('Image provider token cannot be unsealed.')
-    return { provider: 'replicate', apiToken: token }
-  }
-  const key = unsealSecret(setting.sealedApiKey)
-  if (key === null) throw new Error('Image provider key cannot be unsealed.')
-  return { provider: 'gemini', apiKey: key }
-}
-
 /** Generate portrait candidates for a hand from its personality. */
-export async function generateHandAvatarCandidates(
-  tenantId: string,
-  personId: string,
-): Promise<string[]> {
+export async function generateHandAvatarCandidates(tenantId: string, personId: string): Promise<string[]> {
   const setting = await getImageProviderSetting(tenantId)
-  if (!setting) throw new Error('No image provider configured — add one in Settings → Image generation.')
+  if (!setting) throw new Error('No image provider configured — pick one in Settings → Image generation.')
+  const config = await resolveProviderAiConfig(tenantId, setting.providerSlug)
+  if (!config) throw new Error(`The "${setting.providerSlug}" provider is missing or its key cannot be unsealed.`)
+
   const app = db()
   const person = await app.withTenantContext(tenantId, async () => {
     const [row] = await app.db.select().from(people).where(eq(people.id, personId))
     return row
   })
   if (!person) throw new Error('Person not found.')
-  const { prompt, negativePrompt } = buildPortraitPrompt({
+
+  const prompt = buildPortraitPrompt({
     description: `${person.name}, ${person.title}`,
     ...(person.personality?.tone ? { tone: person.personality.tone } : {}),
   })
-  const result = await generateImages(toRuntimeConfig(setting), {
-    prompt,
-    negativePrompt,
-    model: setting.model,
-    count: 4,
-  })
+  const result = await generateImages(config, { prompt, model: setting.model, count: 4 })
   return result.images
 }
 

@@ -82,7 +82,7 @@ export default async function SettingsPage() {
           lastError: b.lastError ?? '',
         }))}
         handsWithoutMailbox={mailboxData.unconnected}
-        imageSetting={imageSetting ? { provider: imageSetting.provider, model: imageSetting.model } : null}
+        imageSetting={imageSetting}
         imageModels={IMAGE_MODELS}
       />
     </PageContainer>

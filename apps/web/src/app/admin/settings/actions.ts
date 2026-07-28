@@ -7,7 +7,7 @@ import { addAiProvider, listAiProviders, removeAiProvider } from '../../../lib/a
 import { resolveTenantId } from '../../../lib/tenant'
 import { refreshPricesFromOpenRouter, setManualPrice } from '../../../lib/pricing'
 import { setImageProviderSetting } from '../../../lib/avatars'
-import { IMAGE_MODELS, type ImageModelId } from '@appkit/avatars'
+import { type ImageModelId } from '@appkit/avatars'
 
 export async function addProviderAction(formData: FormData): Promise<void> {
   const slug = String(formData.get('slug') ?? '').trim().toLowerCase()
@@ -107,18 +107,12 @@ export async function setManualPriceAction(formData: FormData): Promise<void> {
   revalidatePath('/admin/settings')
 }
 
-/** Configure the tenant image-generation provider (avatars). */
+/** Point avatar generation at one of the tenant's AI providers + image model. */
 export async function setImageProviderAction(formData: FormData): Promise<void> {
-  const provider = String(formData.get('imageProvider') ?? '') as 'cloudflare' | 'replicate' | 'gemini'
+  const providerSlug = String(formData.get('imageProviderSlug') ?? '')
   const model = String(formData.get('imageModel') ?? '') as ImageModelId
-  const secret = String(formData.get('imageSecret') ?? '').trim()
-  const accountId = String(formData.get('imageAccountId') ?? '').trim()
-  if (!['cloudflare', 'replicate', 'gemini'].includes(provider)) throw new Error('Pick an image provider.')
-  if (!IMAGE_MODELS.some((m) => m.id === model && m.provider === provider)) {
-    throw new Error('Pick a model that belongs to the selected provider.')
-  }
-  if (!secret) throw new Error('The provider secret is required.')
+  if (!providerSlug || !model) throw new Error('Pick a provider and an image model.')
   const tenantId = await resolveTenantId()
-  await setImageProviderSetting({ tenantId, provider, model, secret, ...(accountId ? { accountId } : {}) })
+  await setImageProviderSetting({ tenantId, providerSlug, model })
   revalidatePath('/admin/settings')
 }

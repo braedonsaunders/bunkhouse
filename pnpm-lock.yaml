@@ -64,7 +64,7 @@ importers:
         version: file:vendor/appkit/appkit-auth-0.1.1.tgz(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(kysely@0.29.4)(next@16.2.10(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@appkit/avatars':
         specifier: file:../../vendor/appkit/appkit-avatars-0.1.0.tgz
-        version: file:vendor/appkit/appkit-avatars-0.1.0.tgz
+        version: file:vendor/appkit/appkit-avatars-0.1.0.tgz(zod@4.4.3)
       '@appkit/crypto':
         specifier: file:../../vendor/appkit/appkit-crypto-0.2.0.tgz
         version: file:vendor/appkit/appkit-crypto-0.2.0.tgz
@@ -360,7 +360,7 @@ packages:
       react: '>=18.2 <20'
 
   '@appkit/avatars@file:vendor/appkit/appkit-avatars-0.1.0.tgz':
-    resolution: {integrity: sha512-vyroxuMzb/h32/1SLDfXCLxX4htxEW5vypDsq46b5zYt+9Bv15Er/L2yuYIRntU2M+AXO64Uf/4a4kTAoG3R6w==, tarball: file:vendor/appkit/appkit-avatars-0.1.0.tgz}
+    resolution: {integrity: sha512-nVXzt1WhaWAwR5JrFN6b/TbHTJRyQ9Y39FeOtQ3pqwTGBuObMX5sbSB00ntntbHoDY46STU5k37RR4AxA1RiZg==, tarball: file:vendor/appkit/appkit-avatars-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=22'}
 
@@ -5909,7 +5909,13 @@ snapshots:
       - vitest
       - vue
 
-  '@appkit/avatars@file:vendor/appkit/appkit-avatars-0.1.0.tgz': {}
+  '@appkit/avatars@file:vendor/appkit/appkit-avatars-0.1.0.tgz(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/google': 3.0.101(zod@4.4.3)
+      '@ai-sdk/openai': 3.0.88(zod@4.4.3)
+      ai: 6.0.236(zod@4.4.3)
+    transitivePeerDependencies:
+      - zod
 
   '@appkit/crypto@file:vendor/appkit/appkit-crypto-0.2.0.tgz': {}
 
