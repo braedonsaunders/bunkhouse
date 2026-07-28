@@ -101,7 +101,13 @@ export function buildRunInstruction(input: RunInput): string {
       const delivery = input.formats?.length
         ? `Produce the requested file(s), then email them to ${recipient} with a short, professional note — attach every file by its file id.`
         : `When it is done, email ${recipient} with the outcome — write the result in the email itself, and attach any files you produced by their file ids.`
-      return `Assignment: ${input.title}${source}\n\n${input.spec}${formats}${due}\n\nDo the work now, end to end, using whatever tools it takes. ${delivery} If something makes the work impossible, say exactly what is missing in your email instead of going silent.`
+      return `Assignment: ${input.title}${source}\n\n${input.spec}${formats}${due}\n\nDo the work now, end to end, using whatever tools it takes. Quality bar: after rendering any file, read it back (read_file) and fix what you would be embarrassed to send. If the work will miss its deadline or you hit a blocker a person could clear, say so by email early — ask_and_wait exists for exactly that. ${delivery} If something makes the work impossible, say exactly what is missing in your email instead of going silent.`
+    }
+    case 'reply_received': {
+      if (input.reply) {
+        return `The answer you were waiting for has arrived.\n\nYou asked ${input.askedOf}: ${input.question}\n\nReply from ${input.reply.fromName ? `${input.reply.fromName} <${input.reply.fromAddress}>` : input.reply.fromAddress}:\n${input.reply.text}\n\nContinue the task with this answer.`
+      }
+      return `No answer. You asked ${input.askedOf}: ${input.question} — and after ${input.daysWaited ?? 'several'} days and a follow-up nudge, they have not replied. Decide how to proceed: try another person or channel, escalate to your manager, or close the work out honestly with what you have. Do not keep waiting silently.`
     }
     case 'approval_decision': {
       if (input.decision === 'approved') {

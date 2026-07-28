@@ -7,6 +7,7 @@ import {
   defineAbility,
   type Ability,
   type ActionCategory,
+  type GovernanceState,
 } from '@bunkhouse/runtime'
 import {
   assignments,
@@ -25,6 +26,8 @@ import { firstOccurrence, gapMinutes } from './duties'
 import { readWebpage, webSearch } from './research'
 import { documentAbilities } from './documents'
 import { workspaceAbilities } from './workspace'
+import { sendSms, smsConfigured } from './sms'
+import { outboundCallAbilities } from './outbound-call'
 
 /**
  * The one place an agent's working abilities are assembled — email runs, duty
@@ -198,6 +201,64 @@ export function emailAbilities(args: { tenantId: string; person: PersonRow; runI
 }
 
 /**
+ * Ask a person a question and genuinely wait for the answer. The email goes
+ * out immediately (a new thread, so the answer routes back unambiguously);
+ * the run then suspends — its transcript is kept — and resumes the moment a
+ * reply lands on that thread. Silence gets one nudge, then the agent is woken
+ * to decide. This is the colleague move: never fail quietly when a person
+ * could unblock you.
+ */
+export function askAbilities(args: {
+  tenantId: string
+  person: PersonRow
+  runId: string
+  waitState: GovernanceState
+}): Ability[] {
+  const app = db()
+  const { tenantId, person, runId, waitState } = args
+  return [
+    defineAbility({
+      name: 'ask_and_wait',
+      description:
+        'Email someone a question and pause this task until they answer. Use it when the work is blocked on information only a person has — a colleague, the customer, a vendor. The task resumes automatically when the reply arrives; after days of silence you nudge once, then get woken to decide. Ask one clear, answerable question. (Not for replying on the thread you are already handling — use reply_to_thread for that.)',
+      category: null,
+      inputSchema: z.object({
+        to: z.string().describe('The email address of the person who has the answer'),
+        subject: z.string(),
+        question: z.string().describe('The full email body: context plus the specific question. Sign it as yourself.'),
+        nudgeAfterDays: z
+          .number()
+          .int()
+          .min(1)
+          .max(14)
+          .default(3)
+          .describe('Days of silence before your one follow-up nudge.'),
+      }),
+      execute: async ({ to, subject, question, nudgeAfterDays }) => {
+        const [colleague] = await app.db
+          .select({ id: people.id, kind: people.kind })
+          .from(people)
+          .where(and(eq(people.status, 'active'), sql`lower(${people.email}) = ${to.toLowerCase()}`))
+        const { threadId } = await sendNewMail({
+          tenantId,
+          personId: person.id,
+          to: [{ address: to }],
+          subject,
+          text: question,
+          runId,
+        })
+        waitState.pendingWait = { threadId, to, question: subject, nudgeAfterDays }
+        return {
+          sent: true,
+          waiting: true,
+          note: `Question sent${colleague ? ' to a colleague' : ''}. This task now pauses until the reply arrives — wrap up your current turn; you will be resumed with the answer.`,
+        }
+      },
+    }),
+  ]
+}
+
+/**
  * Committing to a deliverable. Taking the assignment is ungoverned — it is a
  * promise, not an action; the work it triggers runs under the full dial
  * (documents are file_write, delivery is external_email) in its own background
@@ -265,6 +326,95 @@ export function assignmentAbilities(args: {
           taken: true,
           assignmentId: row!.id,
           note: `Work starts now in the background and will be emailed to ${address} when finished. You can wrap up the conversation.`,
+        }
+      },
+    }),
+  ]
+}
+
+/**
+ * Text messaging — present only when the tenant has configured an SMS
+ * provider. Governed under the telephony category: texting reaches the same
+ * phones calls do.
+ */
+export async function smsAbilities(args: { tenantId: string }): Promise<Ability[]> {
+  const { tenantId } = args
+  if (!(await smsConfigured(tenantId))) return []
+  return [
+    defineAbility({
+      name: 'send_sms',
+      description:
+        'Send a text message to a phone number (E.164, e.g. +15551234567). For short, timely notes — confirmations, reminders, "your order is ready". Anything longer belongs in email.',
+      category: 'phone_call',
+      inputSchema: z.object({
+        to: z.string().describe('Destination number in E.164 format'),
+        body: z.string().max(640).describe('The message. Short and clear; sign with your first name if signing.'),
+      }),
+      execute: async ({ to, body }) => {
+        await sendSms({ tenantId, to, body })
+        return { sent: true, to }
+      },
+    }),
+  ]
+}
+
+/**
+ * Delegation between agents: hand a colleague a real assignment with the
+ * result returned to you by email — which restarts your involvement as an
+ * ordinary inbound run, so review-then-forward is natural. Governed as
+ * internal_email: it creates work and mail inside the company.
+ */
+export function delegationAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {
+  const app = db()
+  const { tenantId, person, runId } = args
+  return [
+    defineAbility({
+      name: 'delegate_to_colleague',
+      description:
+        'Hand a piece of work to an AI colleague from the directory (delegate down or sideways — humans you simply email). They work it as their own assignment and email you the outcome, which you should review before passing it on. Give a complete brief; they know nothing about your current task except what you write here.',
+      category: 'internal_email',
+      inputSchema: z.object({
+        toEmail: z.string().describe('The AI colleague’s directory email address'),
+        title: z.string(),
+        brief: z
+          .string()
+          .describe('The full self-contained brief: goal, context they need, what a good outcome looks like.'),
+        formats: z.array(z.enum(['pdf', 'docx', 'xlsx'])).optional().describe('File formats, only if files are needed.'),
+        dueAt: z.string().optional().describe('ISO 8601 deadline, if there is one.'),
+      }),
+      execute: async ({ toEmail, title, brief, formats, dueAt }) => {
+        const [colleague] = await app.db
+          .select()
+          .from(people)
+          .where(and(eq(people.status, 'active'), sql`lower(${people.email}) = ${toEmail.toLowerCase()}`))
+        if (!colleague) return { delegated: false, reason: `${toEmail} is not in the company directory.` }
+        if (colleague.kind !== 'agent') {
+          return {
+            delegated: false,
+            reason: `${colleague.name} is a human colleague — ask them by email (email_colleague or ask_and_wait) instead.`,
+          }
+        }
+        if (colleague.id === person.id) return { delegated: false, reason: 'That is you.' }
+        const due = dueAt ? new Date(dueAt) : null
+        if (due && Number.isNaN(due.getTime())) return { delegated: false, reason: 'dueAt is not a valid date.' }
+        const [row] = await app.db
+          .insert(assignments)
+          .values({
+            tenantId,
+            personId: colleague.id,
+            source: { kind: 'delegation', fromPersonId: person.id, runId },
+            title,
+            spec: `${brief}\n\n(Delegated by ${person.name}, ${person.title}. Deliver your result to them by email.)`,
+            formats: formats ?? [],
+            deliverTo: { name: person.name, address: person.email },
+            dueAt: due,
+            createdBy: person.id,
+          })
+          .returning({ id: assignments.id })
+        return {
+          delegated: true,
+          assignmentId: row!.id,
+          note: `${colleague.name} starts immediately and will email you the result. You do not need to wait here.`,
         }
       },
     }),
@@ -488,6 +638,11 @@ export async function assembleAbilities(args: {
   assignmentSource?: AssignmentSource
   /** Who the agent is talking to, when known — the default deliverable recipient. */
   counterparty?: { name?: string; address?: string }
+  /**
+   * Shared loop state for suspending runs. Async runs pass it and gain
+   * ask_and_wait; live calls omit it (a call cannot pause on an email).
+   */
+  waitState?: GovernanceState
 }): Promise<{ abilities: Ability[]; integrationFailures: string[]; close: () => Promise<void> }> {
   const { tenantId, person, runId } = args
   const integrations = await connectIntegrationAbilities(tenantId)
@@ -495,6 +650,10 @@ export async function assembleAbilities(args: {
     ...memoryAbilities({ tenantId, person, runId }),
     ...researchAbilities({ tenantId }),
     ...emailAbilities({ tenantId, person, runId }),
+    ...(args.waitState ? askAbilities({ tenantId, person, runId, waitState: args.waitState }) : []),
+    ...(await smsAbilities({ tenantId })),
+    ...outboundCallAbilities({ tenantId, person, runId }),
+    ...delegationAbilities({ tenantId, person, runId }),
     ...documentAbilities({ tenantId, person, runId }),
     ...workspaceAbilities({ tenantId, person, runId }),
     ...assignmentAbilities({

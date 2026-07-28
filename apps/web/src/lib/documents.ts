@@ -13,6 +13,7 @@ import {
 import { people, tenantSettings, DOCUMENT_BRANDING_KEY, type DocumentBrandingSettings } from '../db/schema'
 import { db } from '../db/client'
 import { saveFile } from './files'
+import { readLedgeredFile, reviseDocxFile } from './file-reading'
 
 /**
  * Office deliverables: the agent authors clean HTML (documents) or a sheet
@@ -134,6 +135,28 @@ export function documentAbilities(args: { tenantId: string; person: PersonRow; r
         })
         return { fileId: record.id, filename: record.filename, sizeBytes: record.sizeBytes }
       },
+    }),
+    defineAbility({
+      name: 'read_file',
+      description:
+        'Read a file from the company file record by its file id — mail attachments people sent you, documents you produced, anything ledgered. Extracts the text of .docx, .pdf, .xlsx, and plain-text formats. Use it to understand what you were sent before acting on it, and to re-read your own rendered deliverable before sending it.',
+      category: null,
+      inputSchema: z.object({ fileId: z.string() }),
+      execute: async ({ fileId }) => readLedgeredFile(tenantId, fileId),
+    }),
+    defineAbility({
+      name: 'revise_document',
+      description:
+        'Revise an existing .docx file with exact find-and-replace edits (formatting survives). Read the file first and use exact text for `find` — an edit that matches nothing is reported back so you can retry. Produces a new revision file; the original is kept.',
+      category: 'file_write',
+      inputSchema: z.object({
+        fileId: z.string(),
+        edits: z
+          .array(z.object({ find: z.string(), replace: z.string() }))
+          .min(1)
+          .max(20),
+      }),
+      execute: async ({ fileId, edits }) => reviseDocxFile({ tenantId, personId: person.id, runId, fileId, edits }),
     }),
   ]
 }

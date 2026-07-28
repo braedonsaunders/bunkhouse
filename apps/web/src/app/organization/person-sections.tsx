@@ -154,6 +154,41 @@ export function OverviewSection({
                     <option value="autonomous">Fully autonomous</option>
                   </Select>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="p-hours-mode">Working hours</Label>
+                  <Select
+                    id="p-hours-mode"
+                    name="workingHoursMode"
+                    defaultValue={
+                      !person.workingHours ? 'always' : person.workingHours.days.length === 7 ? 'everyday' : 'weekdays'
+                    }
+                  >
+                    <option value="always">Always on</option>
+                    <option value="weekdays">Weekdays</option>
+                    <option value="everyday">Every day</option>
+                  </Select>
+                  <p className="text-xs text-fg-muted">
+                    Outside their hours, new email work waits for the next window. Scheduled duties and incoming calls
+                    are unaffected.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="p-hours-start">Hours (start / end / time zone)</Label>
+                  <div className="grid grid-cols-[6rem_6rem_1fr] gap-2">
+                    <Input
+                      id="p-hours-start"
+                      name="workStart"
+                      type="time"
+                      defaultValue={person.workingHours?.start ?? '08:00'}
+                    />
+                    <Input name="workEnd" type="time" defaultValue={person.workingHours?.end ?? '18:00'} />
+                    <Input
+                      name="workTimezone"
+                      placeholder="America/New_York"
+                      defaultValue={person.workingHours?.timezone ?? ''}
+                    />
+                  </div>
+                </div>
               </>
             ) : null}
           </PersonRecordForm>
@@ -192,9 +227,12 @@ export function OverviewSection({
 export function AutonomySection({
   person,
   dial,
+  suggestions = [],
 }: {
   person: Person
   dial: (typeof autonomySettings.$inferSelect)[]
+  /** Categories whose last five decisions were all approvals — promotion-ready. */
+  suggestions?: string[]
 }) {
   return (
     <Card>
@@ -205,6 +243,7 @@ export function AutonomySection({
       <CardContent className="grid gap-3 sm:grid-cols-2">
         {ACTION_CATEGORIES.map((category) => {
           const current = dial.find((s) => s.category === category)?.level ?? DEFAULT_AUTONOMY_LEVEL
+          const promotionReady = suggestions.includes(category)
           return (
             <form key={category} action={setAutonomy} className="space-y-1">
               <input type="hidden" name="personId" value={person.id} />
@@ -212,6 +251,11 @@ export function AutonomySection({
               <p className="flex items-center gap-2 text-xs text-fg-muted">
                 {CATEGORY_LABELS[category]}
                 <Badge variant={LEVEL_BADGES[current]}>{current}</Badge>
+                {promotionReady ? (
+                  <Badge variant="secondary" title="The last five requests here were all approved — consider raising the dial.">
+                    ready for more trust
+                  </Badge>
+                ) : null}
               </p>
               <div className="flex items-center gap-1">
                 <Select name="level" defaultValue={current}>

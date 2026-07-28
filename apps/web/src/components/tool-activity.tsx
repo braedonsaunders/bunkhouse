@@ -12,7 +12,10 @@ import {
   Globe,
   Loader2,
   Mail,
+  MessageCircleQuestion,
+  MessageSquare,
   NotebookPen,
+  PhoneOutgoing,
   Plug,
   Search,
   Table2,
@@ -48,6 +51,12 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   list_workspace_files: FolderOpen,
   read_workspace_file: FolderOpen,
   publish_workspace_file: FileText,
+  ask_and_wait: MessageCircleQuestion,
+  delegate_to_colleague: Briefcase,
+  place_call: PhoneOutgoing,
+  send_sms: MessageSquare,
+  read_file: FileText,
+  revise_document: FileText,
 }
 
 function StatusMark({ status }: { status: ToolActivityItem['status'] }) {

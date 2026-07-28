@@ -9,7 +9,7 @@ import {
   OPENAI_REALTIME_VOICES,
 } from '@appkit/voice'
 import { isAiProvider, providerSpec } from '@appkit/ai'
-import { autonomySettings, duties, memories, people, runs, tokenSpend } from '../../db/schema'
+import { approvals, autonomySettings, duties, memories, people, runs, tokenSpend } from '../../db/schema'
 import { db } from '../../db/client'
 import { listAiProviders } from '../../lib/ai'
 import { getVoiceProviders, listRealtimeCapableProviders } from '../../lib/voice'
@@ -73,12 +73,36 @@ export async function personDrawer({
       .where(eq(runs.personId, selected.id))
       .orderBy(desc(runs.startedAt))
       .limit(6)
+    // Trust is earned: a category still on 'approval' whose last five decisions
+    // were all approvals is ready for a promotion conversation.
+    const decided = await app.db
+      .select({ category: approvals.category, status: approvals.status, decidedAt: approvals.decidedAt })
+      .from(approvals)
+      .where(and(eq(approvals.personId, selected.id), sql`${approvals.status} in ('approved', 'rejected')`))
+      .orderBy(desc(approvals.decidedAt))
+      .limit(120)
+    const byCategory = new Map<string, ('approved' | 'rejected')[]>()
+    for (const row of decided) {
+      const list = byCategory.get(row.category) ?? []
+      if (list.length < 5) list.push(row.status as 'approved' | 'rejected')
+      byCategory.set(row.category, list)
+    }
+    const dialByCategory = new Map(dial.map((s) => [s.category, s.level]))
+    const graduationSuggestions = [...byCategory.entries()]
+      .filter(
+        ([category, decisions]) =>
+          decisions.length === 5 &&
+          decisions.every((d) => d === 'approved') &&
+          (dialByCategory.get(category as (typeof dial)[number]['category']) ?? 'approval') === 'approval',
+      )
+      .map(([category]) => category)
     return {
       personDuties,
       dial,
       notes,
       monthSpend: Number(spend?.cost ?? 0),
       recentRuns,
+      graduationSuggestions,
     }
   })
 
@@ -208,7 +232,9 @@ export async function personDrawer({
           {
             key: 'autonomy',
             label: 'Autonomy',
-            content: <AutonomySection person={selected} dial={detail.dial} />,
+            content: (
+              <AutonomySection person={selected} dial={detail.dial} suggestions={detail.graduationSuggestions} />
+            ),
           },
           {
             key: 'memory',

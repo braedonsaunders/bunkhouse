@@ -5,6 +5,7 @@ export {
   type Ability,
   type GovernanceState,
   type PendingApprovalResult,
+  type PendingWait,
 } from './abilities'
 export { buildRunInstruction, buildSystemPrompt } from './prompt'
 export { runAgent, type RunAgentArgs } from './loop'

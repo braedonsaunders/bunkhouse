@@ -539,6 +539,29 @@ export async function updatePerson(formData: FormData): Promise<PersonUpdateResu
         const inbound = String(formData.get('inboundPolicy') ?? 'staff_only') as 'staff_only' | 'known_contacts' | 'anyone'
         if (!['staff_only', 'known_contacts', 'anyone'].includes(inbound)) throw new Error('Invalid inbound policy.')
         update.inboundPolicy = inbound
+        const hoursMode = String(formData.get('workingHoursMode') ?? 'always')
+        if (hoursMode === 'always') {
+          update.workingHours = null
+        } else if (hoursMode === 'weekdays' || hoursMode === 'everyday') {
+          const start = String(formData.get('workStart') ?? '').trim()
+          const end = String(formData.get('workEnd') ?? '').trim()
+          const tz = String(formData.get('workTimezone') ?? '').trim()
+          if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) {
+            throw new Error('Working hours need start and end times.')
+          }
+          if (!tz) throw new Error('Working hours need a time zone (e.g. America/New_York).')
+          try {
+            new Intl.DateTimeFormat('en-US', { timeZone: tz })
+          } catch {
+            throw new Error(`"${tz}" is not a recognized time zone.`)
+          }
+          update.workingHours = {
+            days: hoursMode === 'weekdays' ? [1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6],
+            start,
+            end,
+            timezone: tz,
+          }
+        }
       }
       await app.db.update(people).set(update).where(eq(people.id, personId))
     })

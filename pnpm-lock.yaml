@@ -244,6 +244,9 @@ importers:
       turndown-plugin-gfm:
         specifier: ^1.0.2
         version: 1.0.2
+      unpdf:
+        specifier: ^1.6.2
+        version: 1.8.0
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -684,7 +687,7 @@ packages:
         optional: true
 
   '@appkit/sms@file:vendor/appkit/appkit-sms-0.2.0.tgz':
-    resolution: {integrity: sha512-xr/k4ee9YLmUBh8skSfjTueqFdQLTWIaEQNLK8sw+5E8WNkJ2DjvbCJ4/p/M5OQEJUrI8Ky8xKH4rZep5O/+kA==, tarball: file:vendor/appkit/appkit-sms-0.2.0.tgz}
+    resolution: {integrity: sha512-icxijrZCTn7x6+EoBG4Zj267dnJiFESBM/KYGhi24coaCalrFhBK9TvyPf79q+/5FazzNacrt4fLYCnkWZVlAQ==, tarball: file:vendor/appkit/appkit-sms-0.2.0.tgz}
     version: 0.2.0
     engines: {node: '>=22'}
 
@@ -6613,6 +6616,15 @@ packages:
 
   unicode-trie@2.0.0:
     resolution: {integrity: sha512-x7bc76x0bm4prf1VLg79uhAzKw8DVboClSN5VxJuQ+LKDOVEW9CdH+VY7SP+vX7xCYQqzzgQpFqz15zeLvAtZQ==}
+
+  unpdf@1.8.0:
+    resolution: {integrity: sha512-jQlkckbe5nKxRHQdbvo9IKHlU6Cjq00UlxxB8lrCIxvS2o5IbAL1wM+4a1Yc3+BIohg9p5AsoaftwO+G4Aq/qQ==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@napi-rs/canvas': ^0.1.69 || ^1.0.0
+    peerDependenciesMeta:
+      '@napi-rs/canvas':
+        optional: true
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -13639,6 +13651,8 @@ snapshots:
     dependencies:
       pako: 0.2.9
       tiny-inflate: 1.0.3
+
+  unpdf@1.8.0: {}
 
   unpipe@1.0.0: {}
 

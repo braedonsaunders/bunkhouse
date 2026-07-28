@@ -48,6 +48,16 @@ export type AgentSalary = {
   overagePolicy: 'pause' | 'overtime' | 'ask'
 }
 
+/** An agent's working window; resolved in `timezone` (IANA). */
+export type AgentWorkingHours = {
+  /** Days worked, 0 = Sunday … 6 = Saturday. */
+  days: number[]
+  /** 24h clock, e.g. '08:00'. */
+  start: string
+  end: string
+  timezone: string
+}
+
 export const people = pgTable(
   'people',
   {
@@ -78,6 +88,12 @@ export const people = pgTable(
     extension: text('extension'),
     proactivity: proactivityMode('proactivity').default('duties'),
     inboundPolicy: inboundPolicy('inbound_policy').default('staff_only'),
+    /**
+     * When this agent works. Null = always on. With hours set, inbound email
+     * work waits for the next working window (duties and calls are unaffected:
+     * schedules are explicit, and a ringing phone gets answered).
+     */
+    workingHours: jsonb('working_hours').$type<AgentWorkingHours>(),
     startedOn: date('started_on'),
     endedOn: date('ended_on'),
     ...auditColumns,

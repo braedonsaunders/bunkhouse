@@ -2,9 +2,10 @@ import { createJobs } from '@appkit/jobs'
 import { and, eq, sql } from 'drizzle-orm'
 import { schema as identity } from '@appkit/db'
 import { db } from '../src/db/client'
-import { approvals, mailboxAccounts, mailMessages, people } from '../src/db/schema'
-import { syncPersonMailbox } from '../src/lib/mailbox'
+import { approvals, assignments, mailboxAccounts, mailMessages, people, runs, tokenSpend } from '../src/db/schema'
+import { sendNewMail, sendReplyInThread, syncPersonMailbox } from '../src/lib/mailbox'
 import { dueDuties, executeAgentRun, markDutyRun, startRunsForNewInbound } from '../src/lib/agent-runs'
+import { finalizeAssignmentRun } from '../src/lib/assignments'
 import { nextOccurrence } from '../src/lib/duties'
 import { journalPass as journalTenant, reflectionPass as reflectTenant } from '../src/lib/consolidation'
 import { pendingAssignmentIds, runAssignment } from '../src/lib/assignments'
@@ -161,6 +162,152 @@ async function assignmentsPass(): Promise<void> {
   }
 }
 
+/**
+ * Follow-up discipline for runs waiting on a person: after the configured
+ * silence, one polite nudge on the same thread; after the same wait again,
+ * the agent is woken with the silence and decides how to proceed. No run
+ * waits forever, and nobody gets nagged twice.
+ */
+async function waitsPass(): Promise<void> {
+  const dayMs = 24 * 60 * 60 * 1000
+  for (const tenantId of await activeTenantIds()) {
+    const waiting = await app.withTenantContext(tenantId, () =>
+      app.db.select().from(runs).where(eq(runs.status, 'waiting_reply')),
+    )
+    for (const run of waiting) {
+      const wait = run.waiting
+      if (!wait) continue
+      const askedAt = new Date(wait.askedAt).getTime()
+      const nudgeMs = wait.nudgeAfterDays * dayMs
+      try {
+        if (!wait.nudgedAt && Date.now() - askedAt >= nudgeMs) {
+          await sendReplyInThread({
+            tenantId,
+            threadId: wait.threadId,
+            text: `Just following up on my question below — I'm holding work on this until I hear back. Whenever you get a moment.`,
+            runId: run.id,
+          })
+          await app.withTenant(tenantId, async () => {
+            await app.db
+              .update(runs)
+              .set({ waiting: { ...wait, nudgedAt: new Date().toISOString() } })
+              .where(eq(runs.id, run.id))
+          })
+          console.log(`[waits] nudged ${wait.to} for run ${run.id}`)
+        } else if (wait.nudgedAt && Date.now() - new Date(wait.nudgedAt).getTime() >= nudgeMs) {
+          const daysWaited = Math.round((Date.now() - askedAt) / dayMs)
+          const resumed = await executeAgentRun({
+            tenantId,
+            personId: run.personId,
+            trigger: run.trigger,
+            resumeRunId: run.id,
+            ...(run.trigger.type === 'assignment' ? { maxSteps: 60 } : {}),
+            input: {
+              type: 'reply_received',
+              question: wait.question,
+              askedOf: wait.to,
+              reply: null,
+              daysWaited,
+            },
+          })
+          if (run.trigger.type === 'assignment') {
+            await finalizeAssignmentRun(tenantId, run.trigger.assignmentId, resumed.runId, resumed.outcome)
+          }
+          console.log(`[waits] no reply from ${wait.to} after ${daysWaited}d — run ${run.id} woken to decide`)
+        }
+      } catch (error) {
+        console.error(`[waits] run ${run.id}:`, (error as Error).message)
+      }
+    }
+  }
+}
+
+/**
+ * The weekly one-on-one, in writing: every agent with a manager sends a short,
+ * honest self-report — counts from the ledgers, never model-invented numbers.
+ * At most one per agent per week, keyed off its own outbound mail.
+ */
+async function weeklyReportPass(): Promise<void> {
+  const weekMs = 7 * 24 * 60 * 60 * 1000
+  const since = new Date(Date.now() - weekMs)
+  for (const tenantId of await activeTenantIds()) {
+    const agents = await app.withTenantContext(tenantId, () =>
+      app.db
+        .select()
+        .from(people)
+        .where(and(eq(people.kind, 'agent'), eq(people.status, 'active'), sql`${people.reportsToId} is not null`)),
+    )
+    for (const agent of agents) {
+      try {
+        const data = await app.withTenantContext(tenantId, async () => {
+          const [manager] = await app.db.select().from(people).where(eq(people.id, agent.reportsToId!))
+          const [already] = await app.db
+            .select({ id: mailMessages.id })
+            .from(mailMessages)
+            .where(
+              and(
+                eq(mailMessages.direction, 'outbound'),
+                sql`${mailMessages.subject} like 'Weekly report —%'`,
+                sql`${mailMessages.from}->>'address' = ${agent.email}`,
+                sql`${mailMessages.sentAt} > ${new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)}`,
+              ),
+            )
+            .limit(1)
+          const runRows = await app.db
+            .select({ status: runs.status, count: sql<number>`count(*)`.mapWith(Number) })
+            .from(runs)
+            .where(and(eq(runs.personId, agent.id), sql`${runs.startedAt} > ${since}`))
+            .groupBy(runs.status)
+          const assignmentRows = await app.db
+            .select({ status: assignments.status, count: sql<number>`count(*)`.mapWith(Number) })
+            .from(assignments)
+            .where(and(eq(assignments.personId, agent.id), sql`${assignments.updatedAt} > ${since}`))
+            .groupBy(assignments.status)
+          const [spend] = await app.db
+            .select({ cost: sql<string>`coalesce(sum(${tokenSpend.costUsd}), 0)` })
+            .from(tokenSpend)
+            .where(and(eq(tokenSpend.personId, agent.id), sql`${tokenSpend.createdAt} > ${since}`))
+          return { manager: manager ?? null, already: Boolean(already), runRows, assignmentRows, spend }
+        })
+        if (!data.manager || data.already) continue
+        const runCount = data.runRows.reduce((n, r) => n + r.count, 0)
+        if (runCount === 0) continue
+        const failed = data.runRows.find((r) => r.status === 'failed')?.count ?? 0
+        const waiting = data.runRows.filter((r) => r.status.startsWith('waiting')).reduce((n, r) => n + r.count, 0)
+        const delivered = data.assignmentRows.find((r) => r.status === 'delivered')?.count ?? 0
+        const stuck = data.assignmentRows.find((r) => r.status === 'failed')?.count ?? 0
+        const lines = [
+          `Hi ${data.manager.name.split(' ')[0]},`,
+          '',
+          `My week in numbers: ${runCount} piece${runCount === 1 ? '' : 's'} of work handled` +
+            (delivered ? `, ${delivered} deliverable${delivered === 1 ? '' : 's'} shipped` : '') +
+            (waiting ? `, ${waiting} item${waiting === 1 ? '' : 's'} waiting on someone` : '') +
+            (failed ? `, ${failed} run${failed === 1 ? '' : 's'} failed` : '') +
+            `.`,
+          ...(stuck
+            ? [`${stuck} assignment${stuck === 1 ? '' : 's'} need${stuck === 1 ? 's' : ''} attention — see my Work tab.`]
+            : []),
+          `Token spend this week: $${Number(data.spend?.cost ?? 0).toFixed(2)}.`,
+          '',
+          `Full detail is on my profile. Reply if you want anything handled differently.`,
+          '',
+          agent.personality?.signoff ?? agent.name,
+        ]
+        await sendNewMail({
+          tenantId,
+          personId: agent.id,
+          to: [{ name: data.manager.name, address: data.manager.email }],
+          subject: `Weekly report — ${agent.name}`,
+          text: lines.join('\n'),
+        })
+        console.log(`[reports] ${agent.name} → ${data.manager.name}`)
+      } catch (error) {
+        console.error(`[reports] ${agent.name}:`, (error as Error).message)
+      }
+    }
+  }
+}
+
 /** Daily workspace housekeeping — a no-op until a tenant turns retention on. */
 async function workspacePass(): Promise<void> {
   for (const tenantId of await activeTenantIds()) {
@@ -224,6 +371,8 @@ type HeartbeatPass =
   | 'reflection'
   | 'calls'
   | 'workspace'
+  | 'waits'
+  | 'reports'
 type DeepWorkJob = { kind: 'assignment' | 'approval'; tenantId: string; id: string }
 
 // Deep work — assignment runs and approval continuations — gets its own queue
@@ -236,6 +385,8 @@ await heartbeat.upsertJobScheduler('duties', { every: 60_000 }, { name: 'tick', 
 await heartbeat.upsertJobScheduler('approvals', { every: 30_000 }, { name: 'tick', data: { pass: 'approvals' } })
 await heartbeat.upsertJobScheduler('assignments', { every: 30_000 }, { name: 'tick', data: { pass: 'assignments' } })
 await heartbeat.upsertJobScheduler('calls', { every: 300_000 }, { name: 'tick', data: { pass: 'calls' } })
+await heartbeat.upsertJobScheduler('waits', { every: 3_600_000 }, { name: 'tick', data: { pass: 'waits' } })
+await heartbeat.upsertJobScheduler('reports', { every: 21_600_000 }, { name: 'tick', data: { pass: 'reports' } })
 await heartbeat.upsertJobScheduler('workspace', { every: 86_400_000 }, { name: 'tick', data: { pass: 'workspace' } })
 await heartbeat.upsertJobScheduler('journal', { every: 21_600_000 }, { name: 'tick', data: { pass: 'journal' } })
 await heartbeat.upsertJobScheduler('reflection', { every: 43_200_000 }, { name: 'tick', data: { pass: 'reflection' } })
@@ -247,6 +398,8 @@ const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
     else if (job.data.pass === 'duties') await dutiesPass()
     else if (job.data.pass === 'assignments') await assignmentsPass()
     else if (job.data.pass === 'calls') await callSweepPass()
+    else if (job.data.pass === 'waits') await waitsPass()
+    else if (job.data.pass === 'reports') await weeklyReportPass()
     else if (job.data.pass === 'workspace') await workspacePass()
     else if (job.data.pass === 'journal') await journalPass()
     else if (job.data.pass === 'reflection') await reflectionPass()

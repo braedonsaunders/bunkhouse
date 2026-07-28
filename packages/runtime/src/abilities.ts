@@ -41,9 +41,21 @@ export type PendingApprovalResult = {
   note: string
 }
 
+/** What a run is parked on when it asked a person and is waiting to hear back. */
+export type PendingWait = {
+  /** The mail thread the answer will arrive on. */
+  threadId: string
+  to: string
+  question: string
+  /** Days of silence before the agent nudges once, then decides how to proceed. */
+  nudgeAfterDays: number
+}
+
 export type GovernanceState = {
   /** Set when a gated call filed an approval; the loop stops and suspends on it. */
   pendingApprovalId: string | null
+  /** Set when the agent asked someone and chose to wait; the loop suspends on it. */
+  pendingWait: PendingWait | null
 }
 
 /**

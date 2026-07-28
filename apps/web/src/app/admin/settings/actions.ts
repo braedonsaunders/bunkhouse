@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { isAiProvider, listModels } from '@appkit/ai'
+import { isSmsProvider } from '@appkit/sms/providers'
 import { unsealSecret } from '@appkit/crypto'
 import { addAiProvider, listAiProviders, removeAiProvider, resolveProviderAiConfig } from '../../../lib/ai'
 import { listTenantElevenLabsVoices, removeSpeechProvider, setSpeechProviderKey, type SpeechProvider } from '../../../lib/voice'
@@ -10,6 +11,7 @@ import { refreshPricesFromOpenRouter, setManualPrice } from '../../../lib/pricin
 import { setImageProviderSetting } from '../../../lib/avatars'
 import { removeSearchProvider, setSearchProvider } from '../../../lib/research'
 import { saveDocumentBranding } from '../../../lib/documents'
+import { removeSmsSettings, saveSmsSettings } from '../../../lib/sms'
 import { saveWorkspacePolicy } from '../../../lib/workspace'
 import { listMcpIntegrations, saveMcpIntegrations } from '../../../lib/agent-abilities'
 import { connectMcpServers } from '@bunkhouse/runtime'
@@ -339,4 +341,48 @@ export async function saveWorkspacePolicyAction(input: {
   })
   revalidatePath('/admin/settings')
   return { ok: true }
+}
+
+// --- SMS ---------------------------------------------------------------
+
+/** Connect (or replace) the tenant's SMS provider — validated, then the
+ *  credential is sealed before it is ever persisted. */
+export async function saveSmsSettingsAction(input: {
+  provider: string
+  fromNumber: string
+  secret: string
+  twilioAccountSid?: string
+  vonageApiKey?: string
+  plivoAuthId?: string
+  telnyxMessagingProfileId?: string
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!isSmsProvider(input.provider)) {
+    return { ok: false, message: `Unknown SMS provider: ${input.provider}` }
+  }
+  if (!input.fromNumber.trim()) return { ok: false, message: 'Enter a sender phone number or ID.' }
+  if (!input.secret.trim()) return { ok: false, message: "Enter this provider's credential." }
+  try {
+    const tenantId = await resolveTenantId()
+    await saveSmsSettings({
+      tenantId,
+      provider: input.provider,
+      fromNumber: input.fromNumber.trim(),
+      secret: input.secret.trim(),
+      ...(input.twilioAccountSid?.trim() ? { twilioAccountSid: input.twilioAccountSid.trim() } : {}),
+      ...(input.vonageApiKey?.trim() ? { vonageApiKey: input.vonageApiKey.trim() } : {}),
+      ...(input.plivoAuthId?.trim() ? { plivoAuthId: input.plivoAuthId.trim() } : {}),
+      ...(input.telnyxMessagingProfileId?.trim() ? { telnyxMessagingProfileId: input.telnyxMessagingProfileId.trim() } : {}),
+    })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  revalidatePath('/admin/settings')
+  return { ok: true }
+}
+
+/** Remove the tenant's SMS provider; agents cannot send texts until reconnected. */
+export async function removeSmsSettingsAction(): Promise<void> {
+  const tenantId = await resolveTenantId()
+  await removeSmsSettings(tenantId)
+  revalidatePath('/admin/settings')
 }

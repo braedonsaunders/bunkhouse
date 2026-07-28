@@ -103,6 +103,26 @@ export function describeToolCall(toolName: string, input: unknown): string {
       return 'Reading a workspace file'
     case 'publish_workspace_file':
       return 'Publishing a file'
+    case 'ask_and_wait': {
+      const to = typeof args.to === 'string' && args.to.trim() ? args.to.trim() : null
+      return to ? `Asking ${to} and waiting to hear back` : 'Asking a question and waiting'
+    }
+    case 'delegate_to_colleague': {
+      const t = quote(args.title)
+      return t ? `Delegating ${t}` : 'Delegating work to a colleague'
+    }
+    case 'place_call': {
+      const to = typeof args.to === 'string' && args.to.trim() ? args.to.trim() : null
+      return to ? `Calling ${to}` : 'Placing a call'
+    }
+    case 'send_sms': {
+      const to = typeof args.to === 'string' && args.to.trim() ? args.to.trim() : null
+      return to ? `Texting ${to}` : 'Sending a text message'
+    }
+    case 'read_file':
+      return 'Reading a file'
+    case 'revise_document':
+      return 'Revising a document'
     default:
       // Integration tools keep their own names, made readable.
       return `Using ${toolName.replace(/[_-]+/g, ' ')}`

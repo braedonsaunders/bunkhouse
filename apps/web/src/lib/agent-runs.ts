@@ -9,6 +9,7 @@ import {
   type ActionCategory,
   type AutonomyLevel,
   type BoundProcedure,
+  type GovernanceState,
   type RunInput,
   type RunOutcome,
 } from '@bunkhouse/runtime'
@@ -32,6 +33,8 @@ import { assembleAbilities } from './agent-abilities'
 import { resolvePrice } from './pricing'
 import { sendNewMail, sendReplyInThread } from './mailbox'
 import { pinnedNotes, retrieveNotes } from './memory'
+import { describeToolCall } from './call-activity'
+import { isWithinWorkingHours } from './working-hours'
 
 
 
@@ -132,7 +135,10 @@ export async function executeAgentRun(args: {
         .from(runEvents)
         .where(eq(runEvents.runId, runId))
       seq = (last?.seq ?? -1) + 1
-      await app.db.update(runs).set({ status: 'running', finishedAt: null }).where(eq(runs.id, runId))
+      await app.db
+        .update(runs)
+        .set({ status: 'running', finishedAt: null, waiting: null })
+        .where(eq(runs.id, runId))
     } else {
       const [run] = await app.db
         .insert(runs)
@@ -210,12 +216,16 @@ export async function executeAgentRun(args: {
                 ? `${args.input.title} ${args.input.spec.slice(0, 400)}`
                 : args.input.type === 'approval_decision'
                   ? args.input.description
-                  : args.input.instruction
+                  : args.input.type === 'reply_received'
+                    ? args.input.question
+                    : args.input.instruction
     const pinned = await pinnedNotes({ tenantId: args.tenantId, personId: person.id })
     const retrieved = await retrieveNotes({ tenantId: args.tenantId, personId: person.id, query: retrievalQuery })
     const notes = [...pinned, ...retrieved.filter((r) => !pinned.some((p) => p.id === r.id))]
 
-    // The shared capability set — the same abilities voice calls carry.
+    // The shared capability set — the same abilities voice calls carry, plus
+    // ask_and_wait: async runs can genuinely pause on a person's answer.
+    const waitState: GovernanceState = { pendingApprovalId: null, pendingWait: null }
     const assembled = await assembleAbilities({
       tenantId: args.tenantId,
       person,
@@ -223,6 +233,7 @@ export async function executeAgentRun(args: {
       assignmentSource:
         args.trigger.type === 'email' ? { kind: 'mail', threadId: args.trigger.threadId } : { kind: 'manual' },
       ...(args.counterparty ? { counterparty: args.counterparty } : {}),
+      waitState,
     })
     for (const failure of assembled.integrationFailures) {
       await sink.event({ kind: 'message', text: `Integration unavailable — ${failure}` })
@@ -235,6 +246,8 @@ export async function executeAgentRun(args: {
     const outcome = await runAgent({
       ...(priorMessages.length ? { priorMessages: priorMessages as ModelMessage[] } : {}),
       ...(args.maxSteps ? { maxSteps: args.maxSteps } : {}),
+      state: waitState,
+      describeAction: describeToolCall,
       agent: {
         id: person.id,
         name: person.name,
@@ -294,7 +307,9 @@ export async function executeAgentRun(args: {
         ? ('completed' as const)
         : outcome.status === 'waiting_approval'
           ? ('waiting_approval' as const)
-          : ('failed' as const)
+          : outcome.status === 'waiting_reply'
+            ? ('waiting_reply' as const)
+            : ('failed' as const)
     if (outcome.status === 'waiting_approval' && person.reportsToId) {
       const [manager] = await app.db.select().from(people).where(eq(people.id, person.reportsToId))
       const [approval] = await app.db.select().from(approvals).where(eq(approvals.id, outcome.approvalId))
@@ -318,22 +333,29 @@ export async function executeAgentRun(args: {
       }
     }
 
+    const parked = status === 'waiting_approval' || status === 'waiting_reply'
     await app.db
       .update(runs)
       .set({
         status,
-        finishedAt: status === 'waiting_approval' ? null : new Date(),
+        finishedAt: parked ? null : new Date(),
         // The transcript exists to resume a parked run; a finished run keeps
         // its ledger in run_events, not a copy of the model conversation.
-        transcript: status === 'waiting_approval' ? (outcome.messages as unknown[]) : null,
+        transcript: parked ? (outcome.messages as unknown[]) : null,
+        waiting:
+          outcome.status === 'waiting_reply'
+            ? { ...outcome.wait, askedAt: new Date().toISOString() }
+            : null,
         summary:
           outcome.status === 'completed'
             ? outcome.summary.slice(0, 500)
             : outcome.status === 'waiting_approval'
               ? 'Waiting on an approval.'
-              : outcome.status === 'budget_paused'
-                ? 'Paused: salary budget exhausted.'
-                : outcome.error.slice(0, 500),
+              : outcome.status === 'waiting_reply'
+                ? `Waiting to hear back from ${outcome.wait.to}.`
+                : outcome.status === 'budget_paused'
+                  ? 'Paused: salary budget exhausted.'
+                  : outcome.error.slice(0, 500),
       })
       .where(eq(runs.id, runId))
     return { runId, outcome }
@@ -354,7 +376,12 @@ export async function threadConversation(tenantId: string, threadId: string): Pr
     const conversation = messages
       .slice(0, 10)
       .reverse()
-      .map((m) => `From ${m.from.name || m.from.address} (${m.direction}) at ${m.sentAt.toISOString()}:\n${m.bodyText}`)
+      .map((m) => {
+        const attachments = m.attachments.length
+          ? `\n[Attachments: ${m.attachments.map((a) => `${a.filename} (file id ${a.fileId})`).join(', ')} — open them with read_file]`
+          : ''
+        return `From ${m.from.name || m.from.address} (${m.direction}) at ${m.sentAt.toISOString()}:\n${m.bodyText}${attachments}`
+      })
       .join('\n\n---\n\n')
     return { subject: thread.subject, conversation }
   })
@@ -399,6 +426,8 @@ export async function startRunsForNewInbound(tenantId: string): Promise<number> 
         messageId: mailMessages.id,
         threadId: mailMessages.threadId,
         sender: sql<string>`${mailMessages.from}->>'address'`,
+        senderName: sql<string | null>`${mailMessages.from}->>'name'`,
+        bodyText: mailMessages.bodyText,
         sentAt: mailMessages.sentAt,
         personId: sql<string>`(select person_id from mailbox_accounts ma join mail_threads mt on mt.mailbox_id = ma.id where mt.id = ${mailMessages.threadId})`,
       })
@@ -407,6 +436,7 @@ export async function startRunsForNewInbound(tenantId: string): Promise<number> 
         and(
           eq(mailMessages.direction, 'inbound'),
           sql`not exists (select 1 from runs r where r.trigger->>'messageId' = ${mailMessages.id}::text)`,
+          sql`not exists (select 1 from runs r where ${mailMessages.id} = any(r.consumed_message_ids))`,
         ),
       )
       .limit(20),
@@ -414,6 +444,60 @@ export async function startRunsForNewInbound(tenantId: string): Promise<number> 
   let started = 0
   for (const item of pending) {
     if (!item.personId) continue
+
+    // Working hours: outside the agent's window, inbound work simply waits —
+    // the message stays pending and is picked up when the window opens.
+    const [agentHours] = await app.withTenantContext(tenantId, () =>
+      app.db.select({ workingHours: people.workingHours }).from(people).where(eq(people.id, item.personId)),
+    )
+    if (!isWithinWorkingHours(agentHours?.workingHours)) continue
+
+    // A run parked on this thread gets the answer it was waiting for — the
+    // message resumes that run instead of starting a fresh one.
+    const [waitingRun] = await app.withTenantContext(tenantId, () =>
+      app.db
+        .select()
+        .from(runs)
+        .where(
+          and(
+            eq(runs.personId, item.personId),
+            eq(runs.status, 'waiting_reply'),
+            sql`${runs.waiting}->>'threadId' = ${item.threadId}::text`,
+          ),
+        )
+        .limit(1),
+    )
+    if (waitingRun?.waiting) {
+      await app.withTenant(tenantId, async () => {
+        await app.db
+          .update(runs)
+          .set({ consumedMessageIds: sql`array_append(${runs.consumedMessageIds}, ${item.messageId}::uuid)` })
+          .where(eq(runs.id, waitingRun.id))
+      })
+      const resumed = await executeAgentRun({
+        tenantId,
+        personId: item.personId,
+        trigger: waitingRun.trigger,
+        resumeRunId: waitingRun.id,
+        ...(waitingRun.trigger.type === 'assignment' ? { maxSteps: 60 } : {}),
+        input: {
+          type: 'reply_received',
+          question: waitingRun.waiting.question,
+          askedOf: waitingRun.waiting.to,
+          reply: {
+            ...(item.senderName ? { fromName: item.senderName } : {}),
+            fromAddress: item.sender ?? waitingRun.waiting.to,
+            text: item.bodyText,
+          },
+        },
+      })
+      if (waitingRun.trigger.type === 'assignment') {
+        const { finalizeAssignmentRun } = await import('./assignments')
+        await finalizeAssignmentRun(tenantId, waitingRun.trigger.assignmentId, resumed.runId, resumed.outcome)
+      }
+      started += 1
+      continue
+    }
     const decision = await app.withTenantContext(tenantId, async () => {
       const [agent] = await app.db.select().from(people).where(eq(people.id, item.personId))
       if (!agent) return { allowed: false as const, policy: 'staff_only' as const, trust: 'unknown' as const }

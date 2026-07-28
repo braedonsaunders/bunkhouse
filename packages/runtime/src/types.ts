@@ -90,6 +90,15 @@ export type RunInput =
       source?: string
     }
   | {
+      /** Continuation of a run that asked someone and waited: the answer (or silence). */
+      type: 'reply_received'
+      question: string
+      askedOf: string
+      /** Null when the wait timed out with no answer after a nudge. */
+      reply: { fromName?: string; fromAddress: string; text: string } | null
+      daysWaited?: number
+    }
+  | {
       /** Continuation of a suspended run after a human decided its approval. */
       type: 'approval_decision'
       decision: 'approved' | 'declined'
@@ -137,5 +146,11 @@ export type BudgetMeter = {
 export type RunOutcome =
   | { status: 'completed'; summary: string; usage: TokenUsage; messages: ModelMessage[] }
   | { status: 'waiting_approval'; approvalId: string; usage: TokenUsage; messages: ModelMessage[] }
+  | {
+      status: 'waiting_reply'
+      wait: { threadId: string; to: string; question: string; nudgeAfterDays: number }
+      usage: TokenUsage
+      messages: ModelMessage[]
+    }
   | { status: 'budget_paused'; usage: TokenUsage; messages: ModelMessage[] }
   | { status: 'failed'; error: string; usage: TokenUsage; messages: ModelMessage[] }

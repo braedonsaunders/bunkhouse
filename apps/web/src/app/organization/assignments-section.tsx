@@ -29,6 +29,7 @@ const STATUS_VARIANT: Record<AssignmentRow['status'], 'default' | 'secondary' | 
 function sourceLabel(source: AssignmentRow['source']): string {
   if (source.kind === 'call') return 'Taken on a call'
   if (source.kind === 'mail') return 'Taken over email'
+  if (source.kind === 'delegation') return 'Delegated by a colleague'
   return 'Assigned directly'
 }
 

@@ -20,6 +20,7 @@ export const ASSIGNMENT_MAX_STEPS = 60
 function describeSource(source: AssignmentSource): string {
   if (source.kind === 'call') return 'on a call'
   if (source.kind === 'mail') return 'over email'
+  if (source.kind === 'delegation') return 'as a delegation from a colleague'
   return 'directly'
 }
 
@@ -50,6 +51,15 @@ export async function finalizeAssignmentRun(
       await app.db
         .update(assignments)
         .set({ status: 'waiting_approval', updatedAt: new Date() })
+        .where(eq(assignments.id, assignmentId))
+      return
+    }
+    if (outcome.status === 'waiting_reply') {
+      // Blocked on a person's answer — still in progress; the mailbox pass
+      // resumes the run (and re-settles here) when the reply lands.
+      await app.db
+        .update(assignments)
+        .set({ status: 'working', updatedAt: new Date() })
         .where(eq(assignments.id, assignmentId))
       return
     }

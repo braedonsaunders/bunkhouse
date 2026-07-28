@@ -2,11 +2,14 @@
 
 import * as React from 'react'
 import { Badge, Button, EmptyState, Input, Label, Select, SettingsRow, SettingsSection, Textarea } from '@appkit/ui'
+import { isSmsProvider, smsProviderSpec, SMS_PROVIDER_SPECS, type SmsProvider } from '@appkit/sms/providers'
 import {
   removeMcpIntegrationAction,
   removeSearchProviderAction,
+  removeSmsSettingsAction,
   saveDocumentBrandingAction,
   saveMcpIntegrationAction,
+  saveSmsSettingsAction,
   saveWorkspacePolicyAction,
   setSearchProviderAction,
 } from '../app/admin/settings/actions'
@@ -384,6 +387,152 @@ export function WorkspaceSection({ policy }: { policy: WorkspacePolicyView }) {
             }
           >
             Save policy
+          </Button>
+          {notice ? <p className="text-sm text-fg-muted">{notice}</p> : null}
+          {error ? <p className="text-sm text-danger">{error}</p> : null}
+        </div>
+      </SettingsRow>
+    </SettingsSection>
+  )
+}
+
+export type SmsSettingsView = { provider: string | null; fromNumber: string | null }
+
+type SmsDynamicFields = {
+  twilioAccountSid?: string
+  vonageApiKey?: string
+  plivoAuthId?: string
+  telnyxMessagingProfileId?: string
+}
+
+/**
+ * Outbound text messaging: an operator connects one of five SMS providers,
+ * whose single credential is sealed at rest and only unsealed at send time.
+ * Every agent texts through the one connected provider — nothing to assign
+ * per agent, unlike Model providers.
+ */
+export function SmsSection({ settings }: { settings: SmsSettingsView }) {
+  const configuredProvider = settings.provider && isSmsProvider(settings.provider) ? settings.provider : null
+  const [provider, setProvider] = React.useState<SmsProvider>(configuredProvider ?? SMS_PROVIDER_SPECS[0]!.value)
+  const [fromNumber, setFromNumber] = React.useState('')
+  const [secret, setSecret] = React.useState('')
+  const [fields, setFields] = React.useState<SmsDynamicFields>({})
+  const [notice, setNotice] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [busy, startBusy] = React.useTransition()
+
+  const spec = smsProviderSpec(provider)
+  const providerLabel = configuredProvider ? smsProviderSpec(configuredProvider).label : null
+
+  const setField = (key: string, value: string) =>
+    setFields((prev) => ({ ...prev, [key]: value }) as SmsDynamicFields)
+
+  return (
+    <SettingsSection
+      title="Text messaging"
+      description="Send SMS from your agents — reminders, confirmations, quick replies. Connect one provider below and every agent can text through it; the credential is sealed at rest and unsealed only when a message goes out."
+    >
+      {providerLabel ? (
+        <SettingsRow
+          title={providerLabel}
+          description={settings.fromNumber ? `Sending from ${settings.fromNumber}` : 'Sender configured'}
+          control={
+            <span className="flex items-center gap-2">
+              <Badge variant="secondary">key sealed</Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => startBusy(async () => removeSmsSettingsAction())}
+              >
+                Remove
+              </Button>
+            </span>
+          }
+        />
+      ) : (
+        <SettingsRow
+          title="Not configured"
+          description="Agents cannot send text messages until a provider is connected below."
+        />
+      )}
+      <SettingsRow title={providerLabel ? 'Replace the provider' : 'Connect a provider'} stacked>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="sms-provider">Provider</Label>
+            <Select
+              id="sms-provider"
+              value={provider}
+              onChange={(event) => {
+                const next = event.target.value
+                if (isSmsProvider(next)) {
+                  setProvider(next)
+                  setFields({})
+                }
+              }}
+            >
+              {SMS_PROVIDER_SPECS.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="sms-from">Sender (number or ID)</Label>
+            <Input
+              id="sms-from"
+              value={fromNumber}
+              onChange={(event) => setFromNumber(event.target.value)}
+              placeholder="+15551234567"
+            />
+          </div>
+          {spec.fields.map((field) => (
+            <div key={field.key} className="space-y-1">
+              <Label htmlFor={`sms-field-${field.key}`}>{field.label}</Label>
+              <Input
+                id={`sms-field-${field.key}`}
+                value={fields[field.key as keyof SmsDynamicFields] ?? ''}
+                onChange={(event) => setField(field.key, event.target.value)}
+                placeholder={field.placeholder}
+              />
+            </div>
+          ))}
+          <div className="space-y-1 sm:col-span-2">
+            <Label htmlFor="sms-secret">{spec.secretLabel}</Label>
+            <Input
+              id="sms-secret"
+              type="password"
+              value={secret}
+              onChange={(event) => setSecret(event.target.value)}
+              placeholder={spec.keyHint}
+            />
+          </div>
+        </div>
+        {spec.docsHint ? <p className="mt-2 text-xs text-fg-muted">{spec.docsHint}</p> : null}
+        <div className="mt-3 flex items-center gap-3">
+          <Button
+            disabled={busy || !fromNumber.trim() || !secret.trim()}
+            onClick={() =>
+              startBusy(async () => {
+                setError(null)
+                setNotice(null)
+                const result = await saveSmsSettingsAction({
+                  provider,
+                  fromNumber,
+                  secret,
+                  ...fields,
+                })
+                if (!result.ok) {
+                  setError(result.message)
+                  return
+                }
+                setNotice('Saved. Agents can send text messages through this provider.')
+                setSecret('')
+              })
+            }
+          >
+            Verify &amp; save
           </Button>
           {notice ? <p className="text-sm text-fg-muted">{notice}</p> : null}
           {error ? <p className="text-sm text-danger">{error}</p> : null}

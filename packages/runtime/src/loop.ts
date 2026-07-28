@@ -32,6 +32,11 @@ export type RunAgentArgs = {
   maxSteps?: number
   abortSignal?: AbortSignal
   describeAction?: (toolName: string, input: unknown) => string
+  /**
+   * Shared governance state. Pass one in when app-side abilities need to
+   * signal a suspension (ask-and-wait); the loop creates its own otherwise.
+   */
+  state?: GovernanceState
 }
 
 const DEFAULT_MAX_STEPS = 24
@@ -62,7 +67,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
     return { status: 'failed', error: message, usage, messages: args.priorMessages ?? [] }
   }
 
-  const state: GovernanceState = { pendingApprovalId: null }
+  const state: GovernanceState = args.state ?? { pendingApprovalId: null, pendingWait: null }
   const abilities = [...args.abilities, citeProcedureAbility({ sink: args.sink, procedures: args.procedures })]
   const tools = governedToolSet({
     abilities,
@@ -91,7 +96,10 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
       messages,
       tools,
       temperature: args.agent.temperature,
-      stopWhen: [stepCountIs(args.maxSteps ?? DEFAULT_MAX_STEPS), () => state.pendingApprovalId !== null],
+      stopWhen: [
+        stepCountIs(args.maxSteps ?? DEFAULT_MAX_STEPS),
+        () => state.pendingApprovalId !== null || state.pendingWait !== null,
+      ],
       abortSignal: args.abortSignal,
       onStepFinish: async (step) => {
         usage.inputTokens += step.usage.inputTokens ?? 0
@@ -125,6 +133,9 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
     const transcript: ModelMessage[] = [...messages, ...result.response.messages]
     if (state.pendingApprovalId) {
       return { status: 'waiting_approval', approvalId: state.pendingApprovalId, usage, messages: transcript }
+    }
+    if (state.pendingWait) {
+      return { status: 'waiting_reply', wait: state.pendingWait, usage, messages: transcript }
     }
     return { status: 'completed', summary: result.text, usage, messages: transcript }
   } catch (error) {

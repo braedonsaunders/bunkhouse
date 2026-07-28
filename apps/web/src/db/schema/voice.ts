@@ -34,6 +34,9 @@ export const callSessions = pgTable(
     room: text('room').notNull(),
     direction: callDirection('direction').notNull(),
     counterparty: jsonb('counterparty').$type<CallCounterparty>().notNull(),
+    /** Why the agent placed this call — the briefing it opens with. Outbound
+     *  only; on inbound and web calls the caller states their own business. */
+    purpose: text('purpose'),
     status: callSessionStatus('status').notNull().default('active'),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     endedAt: timestamp('ended_at', { withTimezone: true }),

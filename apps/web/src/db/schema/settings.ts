@@ -1,6 +1,7 @@
 import { jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core'
 import { auditColumns, id, tenantRef } from '@appkit/db'
 import type { SealedSecret } from '@appkit/crypto'
+import type { RawSmsConfig } from '@appkit/sms'
 
 /**
  * Per-tenant configuration, one row per key — the single source of truth for
@@ -80,5 +81,13 @@ export type WorkspacePolicySettings = {
 }
 
 export const WORKSPACE_POLICY_KEY = 'workspace.policy'
+
+/** settings key: 'sms.provider' — the tenant's SMS provider config, per
+ *  @appkit/sms's RawSmsConfig shape. The single credential (auth token / API
+ *  secret / access key, depending on provider) is sealed at rest using that
+ *  package's own ciphertext/nonce fields, and is only unsealed at send time. */
+export type SmsProviderSettings = RawSmsConfig
+
+export const SMS_PROVIDER_KEY = 'sms.provider'
 
 export const SETTINGS_TENANT_TABLES = ['tenant_settings'] as const

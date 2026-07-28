@@ -208,6 +208,46 @@ per-tenant disk quotas, and network egress policy for sandboxed processes
 (currently the sandbox shares host networking — bubblewrap's design; an egress
 proxy is the right shape).
 
+## The colleague tiers (shipped 2026-07-28, second pass)
+
+What separates an employee from a tool is closing loops with people. Five capability
+tiers landed together:
+
+1. **Ask, wait, follow up.** `ask_and_wait` emails a person a question and genuinely
+   suspends the run (`waiting_reply` + stored transcript + `runs.waiting`); the reply
+   resumes it — the mailbox pass routes a thread's answer to its waiting run via
+   `consumed_message_ids` instead of starting a fresh one. Silence gets one polite
+   nudge after the configured days, then the agent is woken to decide (escalate, try
+   another channel, close out honestly). `delegate_to_colleague` hands an AI colleague
+   a real assignment whose result returns by email for review. Approval requests now
+   read as human sentences (`describeAction` wired). Migration `0023_ask_and_wait`.
+2. **Perception.** `read_file` extracts text from ledgered files — .docx (LibreOffice),
+   .pdf (unpdf, with a scanned-images note), .xlsx (exceljs incl. formula results),
+   text/HTML — and email conversations now list attachment file ids so agents open
+   what they were sent. `revise_document` makes exact find/replace edits inside a
+   .docx (FODT engine; formatting survives; revisions are new files). The assignment
+   prompt teaches the read-back QA loop: render, re-read, fix, then send.
+3. **Channels.** `place_call` (`phone_call` dial) dials extensions or E.164 over the
+   tenant trunk — session first, then the INVITE, the voice worker answers `out-*`
+   rooms with the call's purpose as its briefing; `transfer_call` (live phone calls
+   only) REFERs the caller to a human extension. `send_sms` (five providers via
+   @appkit/sms, key sealed, Settings → Text messaging) appears only when configured.
+   Migration `0025_outbound_calls`.
+4. **Work quality.** Read-back QA in the assignment brief; `revise_document` for
+   iteration; honest failure prompts throughout.
+5. **Human texture.** Working hours per agent (Overview tab; outside the window,
+   inbound email work waits for the next one — duties and ringing phones are
+   unaffected; migration `0024_working_hours`). A weekly self-report email to the
+   manager built from the ledgers (runs, deliverables, waits, spend — never
+   model-invented numbers), at most one per week. Autonomy graduation: five straight
+   approvals in a category still on 'approval' surface a "ready for more trust" badge
+   on the dial.
+
+Still open after this pass: Gmail/Microsoft Graph OAuth mailbox connectors (needs
+real OAuth apps), recorded browser computer-use, video meetings + screen share
+(voice slice 4), image understanding in mail, OCR for scanned PDFs, per-tenant
+document templates.
+
 **Generality note.** Assignments are not a "research report" feature: `take_assignment`
 accepts any committed work a colleague could take on (formats optional — many
 assignments are answered in the delivery email itself, no file), and the same

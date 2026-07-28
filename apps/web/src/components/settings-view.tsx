@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Boxes, Brain, CircleDollarSign, FileText, FolderCog, Globe, ImageIcon, Mail, Phone, Plug, Shield } from 'lucide-react'
+import { Boxes, Brain, CircleDollarSign, FileText, FolderCog, Globe, ImageIcon, Mail, MessageSquare, Phone, Plug, Shield } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -31,7 +31,7 @@ import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
 import { ImageProviderForm } from './image-provider-form'
 import { AutonomySettings, type AgentDial } from './autonomy-settings'
 import { PhoneSystemRow, type AgentExtensionRow, type AgentOption, type PhoneNumberRowView, type SipTrunkSummary } from './phone-system'
-import { DocumentsSection, IntegrationsSection, ResearchSection, WorkspaceSection, type DocumentBrandingView, type IntegrationRowView, type WorkspacePolicyView } from './capability-settings'
+import { DocumentsSection, IntegrationsSection, ResearchSection, SmsSection, WorkspaceSection, type DocumentBrandingView, type IntegrationRowView, type SmsSettingsView, type WorkspacePolicyView } from './capability-settings'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
   <Link href={href} className={className} title={title}>
@@ -110,6 +110,7 @@ const NAV: SettingsNavGroup[] = [
       { key: 'pricing', label: 'Model pricing', icon: <CircleDollarSign /> },
       { key: 'mailboxes', label: 'Mailboxes', icon: <Mail /> },
       { key: 'voice', label: 'Voice', icon: <Phone /> },
+      { key: 'sms', label: 'Text messaging', icon: <MessageSquare /> },
       { key: 'research', label: 'Research', icon: <Globe /> },
       { key: 'documents', label: 'Documents', icon: <FileText /> },
       { key: 'workspace', label: 'Workspace', icon: <FolderCog /> },
@@ -160,6 +161,7 @@ export function SettingsView({
   research,
   documents,
   workspace,
+  sms,
   integrations,
   phoneSystem,
   agentDials,
@@ -180,6 +182,7 @@ export function SettingsView({
   research: { provider: string | null }
   documents: DocumentBrandingView
   workspace: WorkspacePolicyView
+  sms: SmsSettingsView
   integrations: IntegrationRowView[]
   phoneSystem: {
     trunks: SipTrunkSummary[]
@@ -435,6 +438,7 @@ export function SettingsView({
         </SettingsSection>
       ) : null}
 
+      {active === 'sms' ? <SmsSection settings={sms} /> : null}
       {active === 'research' ? <ResearchSection provider={research.provider} /> : null}
       {active === 'documents' ? <DocumentsSection branding={documents} /> : null}
       {active === 'workspace' ? <WorkspaceSection policy={workspace} /> : null}

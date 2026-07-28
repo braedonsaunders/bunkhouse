@@ -13,6 +13,7 @@ import { listPrices } from '../../../lib/pricing'
 import { getImageProviderSetting, listAvatarPartRows, loadAvatarPartLibrary } from '../../../lib/avatars'
 import { getResearchSettings } from '../../../lib/research'
 import { getDocumentBranding } from '../../../lib/documents'
+import { getSmsSettings } from '../../../lib/sms'
 import { getWorkspacePolicy } from '../../../lib/workspace'
 import { listMcpIntegrations } from '../../../lib/agent-abilities'
 import { AVATAR_PART_CATEGORIES, avatarPartCategory } from '../../../lib/avatar-parts'
@@ -95,6 +96,7 @@ export default async function SettingsPage({
   const research = await getResearchSettings(tenantId)
   const branding = await getDocumentBranding(tenantId)
   const workspacePolicy = await getWorkspacePolicy(tenantId)
+  const smsSettings = await getSmsSettings(tenantId)
   const phoneNumberRows = await listPhoneNumbers(tenantId)
   const activeAgents = await app.withTenantContext(tenantId, () =>
     app.db
@@ -150,6 +152,7 @@ export default async function SettingsPage({
           footerText: branding.footerText ?? '',
         }}
         workspace={{ retentionDays: workspacePolicy.retentionDays }}
+        sms={{ provider: smsSettings.provider, fromNumber: smsSettings.fromNumber }}
         integrations={integrations.map((entry) => ({
           slug: entry.slug,
           label: entry.label,

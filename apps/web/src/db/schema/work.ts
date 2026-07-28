@@ -74,10 +74,27 @@ export const runs = pgTable(
     summary: text('summary'),
     /**
      * The model-message transcript at suspension, so the run can resume with
-     * full context after its approval is decided. Written only when the run
-     * parks (waiting_approval); cleared when it finishes.
+     * full context after its approval or awaited reply arrives. Written only
+     * while the run is parked; cleared when it finishes.
      */
     transcript: jsonb('transcript').$type<unknown[]>(),
+    /**
+     * What a waiting_reply run is parked on: the thread the answer arrives on,
+     * who was asked, and the nudge schedule. Cleared on resume.
+     */
+    waiting: jsonb('waiting').$type<{
+      threadId: string
+      to: string
+      question: string
+      nudgeAfterDays: number
+      askedAt: string
+      nudgedAt?: string
+    }>(),
+    /**
+     * Inbound messages this run consumed by resuming on them — so the mailbox
+     * pass never also starts a fresh run for the same message.
+     */
+    consumedMessageIds: uuid('consumed_message_ids').array().notNull().default([]),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     ...auditColumns,
@@ -129,6 +146,7 @@ export type AssignmentSource =
   | { kind: 'call'; sessionId: string }
   | { kind: 'mail'; threadId: string }
   | { kind: 'manual'; requestedBy?: string }
+  | { kind: 'delegation'; fromPersonId: string; runId: string }
 
 export const assignments = pgTable(
   'assignments',

@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { and, eq } from 'drizzle-orm'
-import { cli, defineAgent, voice, ServerOptions, type JobContext, type JobProcess } from '@livekit/agents'
+import { and, desc, eq } from 'drizzle-orm'
+import { z } from 'zod'
+import { cli, defineAgent, llm, voice, ServerOptions, type JobContext, type JobProcess } from '@livekit/agents'
 import * as deepgram from '@livekit/agents-plugin-deepgram'
 import * as elevenlabs from '@livekit/agents-plugin-elevenlabs'
 import * as google from '@livekit/agents-plugin-google'
@@ -15,17 +16,19 @@ import { assembleAbilities } from '../src/lib/agent-abilities'
 import { boundProcedures } from '../src/lib/agent-runs'
 import { governedCallTools } from '../src/lib/call-tools'
 import { resolveAgentAiConfig } from '../src/lib/ai'
+import { OUTBOUND_ROOM_PREFIX, transferCallToExtension } from '../src/lib/outbound-call'
 import { resolveRealtimeCredential, resolveSpeechCredential } from '../src/lib/voice'
 import { pinnedNotes, retrieveNotes } from '../src/lib/memory'
 import { resolvePrice } from '../src/lib/pricing'
 
 // The bunkhouse voice agent: joins every `call-*` (browser call, session
-// pre-created by the call page) and `pbx-*` (inbound phone call dispatched
-// by LiveKit SIP, session created here) room, loads the session's agent, and
-// holds the conversation. Media I/O lives here; identity, procedures, and
-// memory come from the same context assembly email runs use. Every utterance
-// is appended to the call_turns ledger; the run is completed with a
-// deterministic summary and LLM usage is metered into token_spend.
+// pre-created by the call page), `pbx-*` (inbound phone call dispatched by
+// LiveKit SIP, session created here), and `out-*` room (a call the agent
+// placed itself, session pre-created by `place_call`), loads the session's
+// agent, and holds the conversation. Media I/O lives here; identity,
+// procedures, and memory come from the same context assembly email runs use.
+// Every utterance is appended to the call_turns ledger; the run is completed
+// with a deterministic summary and LLM usage is metered into token_spend.
 //
 // Provider support (engineering notes, never surfaced as-is to operators):
 // - cascade LLM: OpenAI + OpenAI-compatible providers (OpenRouter, Groq, …)
@@ -227,6 +230,11 @@ async function buildInstructions(session: SessionRow, person: PersonRow, ai: AiC
   const caller = session.counterparty.name ?? 'the caller'
   const voiceAddendum = [
     `You are on a live voice call with ${caller}. Speak naturally, in short turns — one to three sentences, then let them respond. Plain spoken words only: no markdown, no lists, no headings, nothing that only works on a screen.`,
+    ...(session.direction === 'outbound_phone' && session.purpose
+      ? [
+          `You placed this call. What it is for: ${session.purpose}. Whoever answers has no idea who is on the line, so say who you are and why you are calling before anything else, and let them go once you have what you called for.`,
+        ]
+      : []),
     `Speak ${config.language && config.language !== 'en' ? `in the language with BCP-47 tag "${config.language}"` : 'English'}.`,
     ...(config.style ? [`Speaking style: ${config.style}.`] : []),
     'You have your working tools on this call: search the web, read pages, send email, search and save your logbook, schedule follow-ups, and use the company integrations. Use them mid-conversation when they help — say what you are doing in a few words ("give me a second, I am looking that up"), keep talking naturally, and report what you found or did.',
@@ -246,7 +254,9 @@ export default defineAgent({
     await ctx.connect()
     const roomName = ctx.room.name ?? ''
     let resolvedSession: SessionRow | null = null
-    if (roomName.startsWith('call-')) {
+    if (roomName.startsWith('call-') || roomName.startsWith(OUTBOUND_ROOM_PREFIX)) {
+      // Both are pre-created sessions: the call page's, and the one `place_call`
+      // committed before asking LiveKit SIP to dial the callee into this room.
       resolvedSession = await findSessionByRoom(roomName)
       if (!resolvedSession) {
         console.error(`[voice] no call_sessions row for room ${roomName}`)
@@ -393,6 +403,9 @@ export default defineAgent({
     })
 
     // --- End of call: finalize the ledger, complete the run, meter spend ---
+    // A completed REFER hands the line to a human and the call ends there; the
+    // outcome belongs in the run summary, since no session status says it.
+    let transferredTo: string | null = null
     let finalized = false
     const finalize = async () => {
       if (finalized) return
@@ -459,16 +472,23 @@ export default defineAgent({
         if (session.runId) {
           const [run] = await app.db.select().from(runs).where(eq(runs.id, session.runId))
           if (run && run.status === 'running') {
-            const tail = `${turnCount} turn${turnCount === 1 ? '' : 's'}, ${minutes} minute${minutes === 1 ? '' : 's'}.`
+            const parts = [
+              `${turnCount} turn${turnCount === 1 ? '' : 's'}`,
+              `${minutes} minute${minutes === 1 ? '' : 's'}`,
+              ...(transferredTo ? [`transferred to ${transferredTo}`] : []),
+            ]
+            const opening =
+              session.direction === 'inbound_phone'
+                ? `Inbound call from ${session.counterparty.number ?? 'an unknown number'}`
+                : session.direction === 'outbound_phone'
+                  ? `Outbound call to ${session.counterparty.name ?? session.counterparty.number ?? 'an unknown number'}`
+                  : `Voice call with ${session.counterparty.name ?? 'the caller'}`
             await app.db
               .update(runs)
               .set({
                 status: 'completed',
                 finishedAt: endedAt,
-                summary:
-                  session.direction === 'inbound_phone'
-                    ? `Inbound call from ${session.counterparty.number ?? 'an unknown number'}: ${tail}`
-                    : `Voice call with ${session.counterparty.name ?? 'the caller'}: ${tail}`,
+                summary: `${opening}: ${parts.join(', ')}.`,
               })
               .where(eq(runs.id, session.runId))
           }
@@ -480,8 +500,21 @@ export default defineAgent({
 
     // --- The working toolset: same abilities as email runs, call posture ---
     // Tool activity lands on the call's run as ordinary run events; seq starts
-    // high above the fixed rows the session setup writes.
+    // high above the fixed rows the session setup writes. A call the agent
+    // placed itself anchors to the run that placed it, which already has events
+    // of its own — (run_id, seq) is unique, so continue past the last one.
     let eventSeq = 100
+    if (session.runId) {
+      const [last] = await app.withTenantContext(session.tenantId, () =>
+        app.db
+          .select({ seq: runEvents.seq })
+          .from(runEvents)
+          .where(eq(runEvents.runId, session.runId!))
+          .orderBy(desc(runEvents.seq))
+          .limit(1),
+      )
+      if (last) eventSeq = Math.max(eventSeq, last.seq + 1)
+    }
     const recordEvent = async (kind: string, payload: Record<string, unknown>) => {
       if (!session.runId) return
       const mySeq = eventSeq++
@@ -583,6 +616,55 @@ export default defineAgent({
       onSlow: ({ toolName }) => speakFiller(toolName),
       onSettled: ({ toolName }) => resumeAfterSettle(toolName),
     })
+    // Handing the caller to a human is not a shared ability: it acts on this
+    // room's SIP leg, so it exists only where there is one. A completed REFER
+    // is cold — the phone leg goes to the PBX and the agent is out — so the
+    // ledger closes here rather than waiting for a hangup that never comes.
+    if (session.direction === 'inbound_phone' || session.direction === 'outbound_phone') {
+      tools.transfer_call = llm.tool({
+        description:
+          'Transfer the person on the line to a human colleague at their extension. Tell them who you are putting them through to first — the transfer is final and takes you off the call.',
+        parameters: z.object({
+          extension: z.string().describe("The colleague's extension, or a full number with country code."),
+          reason: z.string().describe('Why the call is being transferred — recorded on the run.'),
+        }),
+        execute: async ({ extension, reason }) => {
+          await recordEvent('tool_call', {
+            toolName: 'transfer_call',
+            category: 'phone_call',
+            input: { extension, reason },
+          })
+          const phoneLeg = Array.from(ctx.room.remoteParticipants.values()).find((participant) =>
+            Object.keys(participant.attributes).some((key) => key.startsWith('sip.')),
+          )
+          if (!phoneLeg) {
+            const output = { transferred: false, reason: 'There is no phone line on this call to transfer.' }
+            await recordEvent('tool_result', { toolName: 'transfer_call', output })
+            return { ...output, note: 'Say plainly that you cannot transfer this call, and offer to pass the message on instead.' }
+          }
+          const result = await transferCallToExtension({
+            tenantId: session.tenantId,
+            room: roomName,
+            participantIdentity: phoneLeg.identity,
+            extension,
+          })
+          await recordEvent('tool_result', { toolName: 'transfer_call', output: result })
+          if (!result.transferred) {
+            return {
+              ...result,
+              note: 'Tell them the transfer did not go through, apologize, and carry on with the call yourself.',
+            }
+          }
+          const destination = extension.trim()
+          transferredTo = destination
+          await finalize()
+          return {
+            transferred: true,
+            note: `The line is on its way to ${destination}. Say nothing further — you are off this call.`,
+          }
+        },
+      }) as unknown as llm.FunctionTool
+    }
     ctx.addShutdownCallback(() => assembled.close())
 
     try {
@@ -592,7 +674,10 @@ export default defineAgent({
         room: ctx.room,
       })
       agentSession.generateReply({
-        instructions: `Greet ${session.counterparty.name ?? 'the caller'} briefly, as yourself, and ask how you can help.`,
+        instructions:
+          session.direction === 'outbound_phone' && session.purpose
+            ? `You placed this call to: ${session.purpose}. Introduce yourself and get to it politely.`
+            : `Greet ${session.counterparty.name ?? 'the caller'} briefly, as yourself, and ask how you can help.`,
       })
       console.log(`[voice] ${person.name} answered room ${roomName} (${config.mode})`)
     } catch (error) {
