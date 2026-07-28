@@ -33,6 +33,42 @@ org chart that includes the real human employees.
 10. **OpenBooks gets no special treatment.** It connects via its own MCP like any other
     integration. No OpenBooks-specific code in this repo.
 
+## Engineering standards (ported from the openbooks production standard, generalized)
+
+Prefer explicit controls, auditability, deterministic behavior, and long-term operability
+over implementation convenience. At minimum, designs and implementations must preserve:
+
+- strict tenant isolation (RLS-enforced, never query-discipline-only);
+- deterministic, idempotent behavior for anything that can run twice (mail sync, duty
+  scheduling, run resumption, approval replay);
+- immutable history — run events, mail ledgers, shell/computer-use session records, and
+  decided approvals are append-only; corrections are new records, not edits;
+- complete audit evidence for material changes: actor, timestamp, before/after state;
+  a hand's actions must always be attributable to the hand, its run, and its trigger;
+- explicit lifecycle states and transition rules (person status, run status, approval
+  status, mailbox status) enforced at the domain/service and API boundaries, not only by
+  hiding UI;
+- effective-dated or version-pinned configuration where changing a rule could reinterpret
+  history (procedures are version-pinned per run; autonomy changes never retro-apply);
+- precise decimal handling for money (token spend uses the shared `money` type — no
+  floating-point arithmetic on costs);
+- backward-compatible migrations that preserve tenant data, and reversible rollouts;
+- a single source of truth for every policy and configuration value — no silent fallbacks,
+  ambiguous overlapping configuration, UI-only enforcement, destructive feature toggles,
+  or parallel sources of truth.
+
+**Feature gates:** every org-level feature gate lives on one authoritative Company
+Settings → Features switchboard. Module pages may display effective status and link there,
+but never expose a second switch or persist a parallel gate. Dependent capabilities
+(computer use, shell, SMS, Slack/Teams bridge…) must not be independently available when
+their parent gate is off — enforce the dependency in UI, navigation, APIs, services/jobs,
+and configuration writes. Turning a feature off preserves its data and audit history.
+
+**Configurable by default:** every setting a reasonable operator would expect to control
+(autonomy defaults, budget policies, mail signatures, schedules, escalation targets,
+retention) must be UI-configurable from the app — never hardcoded, never env-only, unless
+it is genuinely deployment infrastructure.
+
 ## Foundation rules
 
 Built on AppKit (repo: `../appkit`, vendored tarballs in `vendor/appkit`, wired via `file:`
