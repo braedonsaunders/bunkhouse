@@ -118,7 +118,10 @@ export function Lobby({
   )
 
   return (
-    <div className="relative h-full min-h-0">
+    // `isolate`: the widgets (z-[92]) and picker (z-[95]) layer against the
+    // scene inside this block only — never against the record drawer, which
+    // portals to <body> at z-50 and must paint above the whole floor.
+    <div className="isolate relative h-full min-h-0">
       <CharacterScene
         characters={characters}
         ground={sceneGround(scene, isDark)}
