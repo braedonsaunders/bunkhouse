@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { and, asc, desc, eq, sql } from 'drizzle-orm'
-import { Avatar, Button, PageContainer, PageHeader } from '@appkit/ui'
+import { Avatar, Button, FilterChips, PageContainer, PageHeader } from '@appkit/ui'
 import { autonomySettings, avatarImages, duties, memories, people, runs, tokenSpend } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
@@ -22,9 +22,10 @@ const STATUS_LABELS = { onboarding: 'Onboarding', active: 'Active', offboarded: 
 export default async function PeoplePage({
   searchParams,
 }: {
-  searchParams: Promise<{ person?: string }>
+  searchParams: Promise<{ person?: string; kind?: string }>
 }) {
-  const { person: selectedId } = await searchParams
+  const { person: selectedId, kind: kindParam } = await searchParams
+  const kindFilter = kindParam ?? 'hand'
   const tenantId = await resolveTenantId()
   const app = db()
   const roster = await app.withTenantContext(tenantId, () =>
@@ -35,7 +36,8 @@ export default async function PeoplePage({
   )
   const hasAvatarSet = new Set(avatarRows.map((a) => a.personId))
   const byId = new Map(roster.map((p) => [p.id, p]))
-  const rows: PersonRow[] = roster.map((person) => ({
+  const visible = roster.filter((person) => (kindFilter === 'all' ? true : person.kind === kindFilter))
+  const rows: PersonRow[] = visible.map((person) => ({
     id: person.id,
     name: person.name,
     ...(hasAvatarSet.has(person.id) ? { avatarSrc: `/api/avatars/${person.id}` } : {}),
@@ -169,7 +171,23 @@ export default async function PeoplePage({
           </Button>
         }
       />
-      <PeopleList rows={rows} />
+      <PeopleList
+        rows={rows}
+        filters={
+          <FilterChips
+            basePath="/people"
+            currentParams={{ ...(kindParam ? { kind: kindParam } : {}), ...(selectedId ? { person: selectedId } : {}) }}
+            paramKey="kind"
+            label="Kind"
+            options={[
+              { value: 'hand', label: 'Hands' },
+              { value: 'human', label: 'Humans' },
+            ]}
+            defaultValue="hand"
+            allLabel="Everyone"
+          />
+        }
+      />
       {selected ? (
         <PersonDrawer
           key={selected.id}

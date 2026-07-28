@@ -87,6 +87,8 @@ If a slice is intentionally engine-first, its task stays open until the UI lands
 
 **Rich text everywhere prose is edited.** Multi-line prose fields (notes, procedures, instructions, knowledge) use @appkit/editor's RichTextEditor — lists, headings, links, tables — never a bare Textarea. When storage is markdown, round-trip at the edge (md→HTML in, HTML→GFM out); the stored format stays human-readable.
 
+**Complex drawers get subtabs.** When a record drawer/flyout holds more than one section of data (a builder with duties + procedures + settings, a person with mailbox + memory + payroll), organize it with SubtabNav — never one long scroll of stacked sections.
+
 **No stacked tables.** Never stack multiple tables/lists vertically on one page — split them into SubtabNav sections (or SettingsShell nav). One list per view.
 
 **Schedules are human-readable.** Operators see "At 8:00 AM, Monday through Friday" and edit with the structured schedule builder — never raw cron. Cron is the internal storage format only; raw entry lives behind the builder's Advanced toggle.

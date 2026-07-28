@@ -42,12 +42,13 @@ export async function addAiProvider(args: {
   modelFast?: string
 }): Promise<void> {
   if (!isAiProvider(args.provider)) throw new Error(`Unknown provider kind: ${args.provider}`)
+  // Ping with the provider's DEFAULT text model: the key's validity is what's
+  // being checked, and the chosen default may be an image model (which cannot
+  // answer a text ping and used to block saving image-only providers).
   const probe: AiConfig = {
     provider: args.provider,
     apiKey: args.apiKey,
     ...(args.baseUrl ? { baseUrl: args.baseUrl } : {}),
-    ...(args.modelSmart ? { modelSmart: args.modelSmart } : {}),
-    ...(args.modelFast ? { modelFast: args.modelFast } : {}),
   }
   const ping = await pingModel(probe)
   if (!ping.ok) throw new Error(`Provider check failed: ${ping.message}`)

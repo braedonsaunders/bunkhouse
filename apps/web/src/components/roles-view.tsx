@@ -9,6 +9,7 @@ import {
   Label,
   RecordList,
   Select,
+  SubtabNav,
   Textarea,
   type RecordColumn,
 } from '@appkit/ui'
@@ -97,6 +98,7 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
   const [selected, setSelected] = React.useState<Role | null>(null)
   const [onboarding, setOnboarding] = React.useState<Role | null>(null)
   const [editor, setEditor] = React.useState<EditorState | null>(null)
+  const [editorTab, setEditorTab] = React.useState('basics')
   const [error, setError] = React.useState<string | null>(null)
   const [busy, startBusy] = React.useTransition()
 
@@ -123,7 +125,7 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
           setSelected(row)
         }}
         toolbarActions={
-          <Button size="sm" onClick={() => setEditor(blankEditor())}>
+          <Button size="sm" onClick={() => { setEditorTab('basics'); setEditor(blankEditor()) }}>
             New role
           </Button>
         }
@@ -144,11 +146,11 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
                 Onboard a hand
               </Button>
               {selected.origin === 'custom' ? (
-                <Button size="sm" variant="outline" onClick={() => setEditor(editorFromRole(selected, true))}>
+                <Button size="sm" variant="outline" onClick={() => { setEditorTab('basics'); setEditor(editorFromRole(selected, true)) }}>
                   Edit role
                 </Button>
               ) : (
-                <Button size="sm" variant="outline" onClick={() => setEditor(editorFromRole(selected, false))}>
+                <Button size="sm" variant="outline" onClick={() => { setEditorTab('basics'); setEditor(editorFromRole(selected, false)) }}>
                   Duplicate to customize
                 </Button>
               )}
@@ -265,184 +267,220 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
         size="2xl"
       >
         {editor ? (
-          <form
-            action={(form) => {
-              if (editor.roleId) form.set('roleId', editor.roleId)
-              form.set('duties', JSON.stringify(editor.duties.map((d) => ({ ...d, slug: '' }))))
-              form.set('procedures', JSON.stringify(editor.procedures.map((p) => ({ ...p, slug: '' }))))
-              form.set('autonomyDefaults', JSON.stringify(editor.autonomy))
-              act(saveRoleDef, form, () => {
-                setEditor(null)
-                setSelected(null)
-              })
-            }}
-            className="space-y-6"
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="rb-title">Title</Label>
-                <Input id="rb-title" name="title" defaultValue={editor.title} required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="rb-pitch">Pitch (one line)</Label>
-                <Input id="rb-pitch" name="pitch" defaultValue={editor.pitch} required />
-              </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="rb-desc">Description</Label>
-                <Textarea id="rb-desc" name="description" rows={2} defaultValue={editor.description} required />
-              </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="rb-bio">Personality bio</Label>
-                <Textarea id="rb-bio" name="bio" rows={2} defaultValue={editor.bio} required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="rb-tone">Tone (comma-separated)</Label>
-                <Input id="rb-tone" name="tone" defaultValue={editor.tone} placeholder="warm, organized, plain-spoken" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label htmlFor="rb-inbound">Who may email work</Label>
-                  <Select id="rb-inbound" name="inboundPolicy" defaultValue={editor.inboundPolicy}>
-                    <option value="staff_only">Staff only</option>
-                    <option value="known_contacts">Staff + known contacts</option>
-                    <option value="anyone">Anyone</option>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="rb-salary">Suggested salary</Label>
-                  <Input id="rb-salary" name="suggestedSalaryUsd" type="number" min={1} step={1} defaultValue={editor.suggestedSalaryUsd} />
-                </div>
-              </div>
-            </div>
+          <div className="space-y-5">
+            <SubtabNav
+              tabs={[
+                { key: 'basics', label: 'Basics' },
+                { key: 'duties', label: 'Duties', count: editor.duties.length },
+                { key: 'procedures', label: 'Procedures', count: editor.procedures.length },
+                { key: 'autonomy', label: 'Autonomy' },
+              ]}
+              active={editorTab}
+              onSelect={setEditorTab}
+              ariaLabel="Role builder sections"
+            />
 
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Standing duties</p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setEditor({ ...editor, duties: [...editor.duties, { title: '', instruction: '', cron: '0 8 * * 1-5' }] })
-                  }
-                >
-                  Add duty
-                </Button>
-              </div>
-              {editor.duties.map((duty, index) => (
-                <div key={index} className="space-y-3 rounded-md border border-border p-3">
-                  <div className="flex items-center gap-2">
+            {editorTab === 'basics' ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="rb-title">Title</Label>
+                  <Input id="rb-title" value={editor.title} onChange={(e) => setEditor({ ...editor, title: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="rb-pitch">Pitch (one line)</Label>
+                  <Input id="rb-pitch" value={editor.pitch} onChange={(e) => setEditor({ ...editor, pitch: e.target.value })} />
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="rb-desc">Description</Label>
+                  <Textarea id="rb-desc" rows={2} value={editor.description} onChange={(e) => setEditor({ ...editor, description: e.target.value })} />
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="rb-bio">Personality bio</Label>
+                  <Textarea id="rb-bio" rows={2} value={editor.bio} onChange={(e) => setEditor({ ...editor, bio: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="rb-tone">Tone (comma-separated)</Label>
+                  <Input id="rb-tone" value={editor.tone} onChange={(e) => setEditor({ ...editor, tone: e.target.value })} placeholder="warm, organized, plain-spoken" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="rb-inbound">Who may email work</Label>
+                    <Select id="rb-inbound" value={editor.inboundPolicy} onChange={(e) => setEditor({ ...editor, inboundPolicy: e.target.value })}>
+                      <option value="staff_only">Staff only</option>
+                      <option value="known_contacts">Staff + known contacts</option>
+                      <option value="anyone">Anyone</option>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="rb-salary">Suggested salary</Label>
                     <Input
-                      value={duty.title}
-                      onChange={(e) => {
+                      id="rb-salary"
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={editor.suggestedSalaryUsd}
+                      onChange={(e) => setEditor({ ...editor, suggestedSalaryUsd: Number(e.target.value) || 1 })}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {editorTab === 'duties' ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Standing duties</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setEditor({ ...editor, duties: [...editor.duties, { title: '', instruction: '', cron: '0 8 * * 1-5' }] })
+                    }
+                  >
+                    Add duty
+                  </Button>
+                </div>
+                {editor.duties.map((duty, index) => (
+                  <div key={index} className="space-y-3 rounded-md border border-border p-3">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={duty.title}
+                        onChange={(e) => {
+                          const duties = [...editor.duties]
+                          duties[index] = { ...duty, title: e.target.value }
+                          setEditor({ ...editor, duties })
+                        }}
+                        placeholder="Duty title"
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEditor({ ...editor, duties: editor.duties.filter((_, i) => i !== index) })}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                    <MarkdownEditor
+                      defaultValue={duty.instruction}
+                      placeholder="What to do, in the hand's own terms."
+                      onChange={(md) => {
                         const duties = [...editor.duties]
-                        duties[index] = { ...duty, title: e.target.value }
+                        duties[index] = { ...editor.duties[index]!, instruction: md }
                         setEditor({ ...editor, duties })
                       }}
-                      placeholder="Duty title"
-                      className="flex-1"
                     />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setEditor({ ...editor, duties: editor.duties.filter((_, i) => i !== index) })}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                  <MarkdownEditor
-                    defaultValue={duty.instruction}
-                    placeholder="What to do, in the hand's own terms."
-                    onChange={(md) => {
-                      const duties = [...editor.duties]
-                      duties[index] = { ...editor.duties[index]!, instruction: md }
-                      setEditor({ ...editor, duties })
-                    }}
-                  />
-                  <ScheduleBuilder
-                    value={duty.cron}
-                    idPrefix={`rb-duty-${index}`}
-                    onChange={(cron) => {
-                      const duties = [...editor.duties]
-                      duties[index] = { ...editor.duties[index]!, cron }
-                      setEditor({ ...editor, duties })
-                    }}
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Binding procedures</p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditor({ ...editor, procedures: [...editor.procedures, { title: '', body: '' }] })}
-                >
-                  Add procedure
-                </Button>
-              </div>
-              {editor.procedures.map((procedure, index) => (
-                <div key={index} className="space-y-3 rounded-md border border-border p-3">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={procedure.title}
-                      onChange={(e) => {
-                        const procedures = [...editor.procedures]
-                        procedures[index] = { ...procedure, title: e.target.value }
-                        setEditor({ ...editor, procedures })
+                    <ScheduleBuilder
+                      value={duty.cron}
+                      idPrefix={`rb-duty-${index}`}
+                      onChange={(cron) => {
+                        const duties = [...editor.duties]
+                        duties[index] = { ...editor.duties[index]!, cron }
+                        setEditor({ ...editor, duties })
                       }}
-                      placeholder="Procedure title"
-                      className="flex-1"
                     />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setEditor({ ...editor, procedures: editor.procedures.filter((_, i) => i !== index) })}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                  <MarkdownEditor
-                    defaultValue={procedure.body}
-                    placeholder="The rule, written the way you'd write it for a new hire."
-                    onChange={(md) => {
-                      const procedures = [...editor.procedures]
-                      procedures[index] = { ...editor.procedures[index]!, body: md }
-                      setEditor({ ...editor, procedures })
-                    }}
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Day-one autonomy defaults</p>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {Object.entries(CATEGORY_LABELS).map(([category, label]) => (
-                  <div key={category} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
-                    <span className="text-xs">{label}</span>
-                    <Select
-                      value={editor.autonomy[category] ?? 'approval'}
-                      onChange={(e) => setEditor({ ...editor, autonomy: { ...editor.autonomy, [category]: e.target.value } })}
-                      aria-label={label}
-                    >
-                      <option value="forbidden">forbidden</option>
-                      <option value="approval">approval</option>
-                      <option value="notify">notify</option>
-                      <option value="trusted">trusted</option>
-                    </Select>
                   </div>
                 ))}
               </div>
-            </div>
+            ) : null}
 
-            <div className="flex items-center gap-3">
-              <Button type="submit" disabled={busy}>
+            {editorTab === 'procedures' ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Binding procedures</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditor({ ...editor, procedures: [...editor.procedures, { title: '', body: '' }] })}
+                  >
+                    Add procedure
+                  </Button>
+                </div>
+                {editor.procedures.map((procedure, index) => (
+                  <div key={index} className="space-y-3 rounded-md border border-border p-3">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={procedure.title}
+                        onChange={(e) => {
+                          const procedures = [...editor.procedures]
+                          procedures[index] = { ...procedure, title: e.target.value }
+                          setEditor({ ...editor, procedures })
+                        }}
+                        placeholder="Procedure title"
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEditor({ ...editor, procedures: editor.procedures.filter((_, i) => i !== index) })}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                    <MarkdownEditor
+                      defaultValue={procedure.body}
+                      placeholder="The rule, written the way you'd write it for a new hire."
+                      onChange={(md) => {
+                        const procedures = [...editor.procedures]
+                        procedures[index] = { ...editor.procedures[index]!, body: md }
+                        setEditor({ ...editor, procedures })
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {editorTab === 'autonomy' ? (
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Day-one autonomy defaults</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {Object.entries(CATEGORY_LABELS).map(([category, label]) => (
+                    <div key={category} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
+                      <span className="text-xs">{label}</span>
+                      <Select
+                        value={editor.autonomy[category] ?? 'approval'}
+                        onChange={(e) => setEditor({ ...editor, autonomy: { ...editor.autonomy, [category]: e.target.value } })}
+                        aria-label={label}
+                      >
+                        <option value="forbidden">forbidden</option>
+                        <option value="approval">approval</option>
+                        <option value="notify">notify</option>
+                        <option value="trusted">trusted</option>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex items-center gap-3 border-t border-border pt-4">
+              <Button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  const form = new FormData()
+                  if (editor.roleId) form.set('roleId', editor.roleId)
+                  form.set('title', editor.title)
+                  form.set('pitch', editor.pitch)
+                  form.set('description', editor.description)
+                  form.set('bio', editor.bio)
+                  form.set('tone', editor.tone)
+                  form.set('inboundPolicy', editor.inboundPolicy)
+                  form.set('suggestedSalaryUsd', String(editor.suggestedSalaryUsd))
+                  form.set('duties', JSON.stringify(editor.duties.map((d) => ({ ...d, slug: '' }))))
+                  form.set('procedures', JSON.stringify(editor.procedures.map((p) => ({ ...p, slug: '' }))))
+                  form.set('autonomyDefaults', JSON.stringify(editor.autonomy))
+                  act(saveRoleDef, form, () => {
+                    setEditor(null)
+                    setSelected(null)
+                  })
+                }}
+              >
                 {busy ? 'Saving…' : editor.roleId ? 'Save role' : 'Create role'}
               </Button>
               {editor.roleId ? (
@@ -462,9 +500,9 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
                   Delete role
                 </Button>
               ) : null}
+              {error ? <p className="text-sm text-danger">{error}</p> : null}
             </div>
-            {error ? <p className="text-sm text-danger">{error}</p> : null}
-          </form>
+          </div>
         ) : null}
       </Drawer>
     </>

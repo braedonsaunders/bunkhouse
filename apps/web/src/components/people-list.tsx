@@ -47,7 +47,7 @@ const COLUMNS: RecordColumn<PersonRow>[] = [
   },
 ]
 
-export function PeopleList({ rows }: { rows: PersonRow[] }) {
+export function PeopleList({ rows, filters }: { rows: PersonRow[]; filters?: React.ReactNode }) {
   const router = useRouter()
   const [search, setSearch] = React.useState('')
   const [sort, setSort] = React.useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' })
@@ -70,6 +70,7 @@ export function PeopleList({ rows }: { rows: PersonRow[] }) {
       rows={filtered}
       getRowId={(row) => row.id}
       search={{ value: search, onChange: setSearch, placeholder: 'Search people…' }}
+      filters={filters}
       sort={sort}
       onSortChange={(key) =>
         setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }))
