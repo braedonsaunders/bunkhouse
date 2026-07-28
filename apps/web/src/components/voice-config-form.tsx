@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Phone } from 'lucide-react'
+import { Loader2, Phone, Play, Square } from 'lucide-react'
 import type { AgentVoiceConfig } from '@appkit/voice'
 import {
   Badge,
@@ -19,16 +19,17 @@ import {
   Select,
 } from '@appkit/ui'
 import { listVoicesForTenantAction } from '../app/admin/settings/actions'
-import { setHandExtensionAction } from '../app/admin/settings/pbx-actions'
-import { setHandVoiceConfig } from '../app/people/actions'
+import { setAgentExtensionAction } from '../app/admin/settings/pbx-actions'
+import { setAgentVoiceConfig } from '../app/organization/actions'
+import { previewVoiceSampleAction, type VoicePreviewRequest } from '../app/organization/voice-preview-actions'
 
 export type VoiceCatalogOption = { id: string; name: string; hint?: string }
 
 export type RealtimeProviderOption = { slug: string; label: string; kind: 'openai' | 'google' }
 
 /**
- * The hand's voice, as HR config: how it hears, thinks, and speaks on a call.
- * Cascade keeps the hand's own governed model in the loop (the doctrinal
+ * The agent's voice, as HR config: how it hears, thinks, and speaks on a call.
+ * Cascade keeps the agent's own governed model in the loop (the doctrinal
  * default); realtime trades that for latency on an OpenAI/Google key.
  */
 export function VoiceConfigForm({
@@ -48,11 +49,11 @@ export function VoiceConfigForm({
   current: AgentVoiceConfig | null
   realtimeProviders: RealtimeProviderOption[]
   speechConfigured: { deepgram: boolean; elevenlabs: boolean }
-  /** Whether this hand's assigned model can hold a cascade call (resolved
+  /** Whether this agent's assigned model can hold a cascade call (resolved
    *  server-side from its provider). When false, the cascade combo is not
    *  offered — realtime remains fully available. */
   cascadeModelSupported: boolean
-  /** The hand's phone-system extension ('' when unassigned). */
+  /** The agent's phone-system extension ('' when unassigned). */
   extension: string
   catalogs: {
     deepgramSttModels: VoiceCatalogOption[]
@@ -101,6 +102,99 @@ export function VoiceConfigForm({
     })
   }, [mode, speechConfigured.elevenlabs])
 
+  // Voice preview: one sample plays at a time; samples are cached per session
+  // so replaying a voice never regenerates it.
+  const [preview, setPreview] = React.useState<{ key: string; phase: 'loading' | 'playing' } | null>(null)
+  const [previewError, setPreviewError] = React.useState<{ key: string; message: string } | null>(null)
+  const previewCache = React.useRef(new Map<string, string>())
+  const previewAudio = React.useRef<HTMLAudioElement | null>(null)
+  const previewToken = React.useRef(0)
+
+  const stopPreview = React.useCallback(() => {
+    previewToken.current += 1
+    previewAudio.current?.pause()
+    previewAudio.current = null
+    setPreview(null)
+  }, [])
+  React.useEffect(() => stopPreview, [stopPreview])
+
+  // A changed selection hides its preview button, so end the playback with it.
+  const resetPreview = () => {
+    stopPreview()
+    setPreviewError(null)
+  }
+
+  const togglePreview = (key: string, request: VoicePreviewRequest) => {
+    if (preview?.key === key) {
+      stopPreview()
+      return
+    }
+    stopPreview()
+    setPreviewError(null)
+    const token = previewToken.current
+    const play = (url: string) => {
+      if (previewToken.current !== token) return
+      const audio = new Audio(url)
+      previewAudio.current = audio
+      audio.onended = () => {
+        if (previewToken.current === token) setPreview(null)
+      }
+      audio.onerror = () => {
+        if (previewToken.current !== token) return
+        setPreview(null)
+        setPreviewError({ key, message: 'The sample could not be played.' })
+      }
+      setPreview({ key, phase: 'playing' })
+      void audio.play().catch(() => {
+        if (previewToken.current !== token) return
+        setPreview(null)
+        setPreviewError({ key, message: 'The sample could not be played.' })
+      })
+    }
+    const cached = previewCache.current.get(key)
+    if (cached) {
+      play(cached)
+      return
+    }
+    setPreview({ key, phase: 'loading' })
+    void previewVoiceSampleAction(request).then((result) => {
+      if (previewToken.current !== token) return
+      if (!result.ok) {
+        setPreview(null)
+        setPreviewError({ key, message: result.message })
+        return
+      }
+      previewCache.current.set(key, result.url)
+      play(result.url)
+    })
+  }
+
+  const previewButton = (key: string, request: VoicePreviewRequest, disabled: boolean) => {
+    const active = preview?.key === key
+    const loading = active && preview.phase === 'loading'
+    const playing = active && preview.phase === 'playing'
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="shrink-0"
+        disabled={disabled || loading}
+        aria-label={playing ? 'Stop voice preview' : 'Play voice preview'}
+        title={disabled ? 'Pick a voice first.' : playing ? 'Stop preview' : 'Preview this voice'}
+        onClick={() => togglePreview(key, request)}
+      >
+        {loading ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : playing ? (
+          <Square className="size-4" />
+        ) : (
+          <Play className="size-4" />
+        )}
+      </Button>
+    )
+  }
+
   const realtimeModels = realtimeKind === 'openai' ? catalogs.openaiRealtimeModels : catalogs.geminiLiveModels
   const realtimeVoices = realtimeKind === 'openai' ? catalogs.openaiRealtimeVoices : catalogs.geminiLiveVoices
 
@@ -138,14 +232,14 @@ export function VoiceConfigForm({
               ...(style.trim() ? { style: style.trim() } : {}),
               realtime: { provider: realtimeKind, model: realtimeModel, voice: realtimeVoice },
             }
-      const result = await setHandVoiceConfig({ personId, config })
+      const result = await setAgentVoiceConfig({ personId, config })
       if (!result.ok) setError(result.message)
     })
 
   const clear = () =>
     startSaving(async () => {
       setError(null)
-      const result = await setHandVoiceConfig({ personId, config: null })
+      const result = await setAgentVoiceConfig({ personId, config: null })
       if (!result.ok) setError(result.message)
     })
 
@@ -165,20 +259,27 @@ export function VoiceConfigForm({
                 </Link>
               </Button>
             ) : (
-              <Button disabled title={current === null ? 'Configure a voice first.' : 'Only active hands take calls.'}>
+              <Button disabled title={current === null ? 'Configure a voice first.' : 'Only active agents take calls.'}>
                 <Phone className="mr-1.5 size-4" /> Call {name.split(' ')[0]}
               </Button>
             )}
           </CardTitle>
           <CardDescription>
             {summary ??
-              'Voice not configured — pick how this hand hears and speaks, then the Call button lights up.'}
+              'Voice not configured — pick how this agent hears and speaks, then the Call button lights up.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-1">
             <Label htmlFor="voice-mode">Mode</Label>
-            <Select id="voice-mode" value={mode} onChange={(e) => setMode(e.target.value as 'cascade' | 'realtime')}>
+            <Select
+              id="voice-mode"
+              value={mode}
+              onChange={(e) => {
+                resetPreview()
+                setMode(e.target.value as 'cascade' | 'realtime')
+              }}
+            >
               <option value="cascade" disabled={!cascadeModelSupported && mode !== 'cascade'}>
                 Cascade — their own model thinks; Deepgram hears, ElevenLabs speaks
               </option>
@@ -186,8 +287,8 @@ export function VoiceConfigForm({
             </Select>
             {!cascadeModelSupported ? (
               <p className="text-xs text-fg-muted">
-                Voice calls in cascade mode are available for hands running OpenAI-compatible models. Choose realtime
-                mode for this hand, or assign an OpenAI-compatible model on the Overview tab.
+                Voice calls in cascade mode are available for agents running OpenAI-compatible models. Choose realtime
+                mode for this agent, or assign an OpenAI-compatible model on the Overview tab.
               </p>
             ) : null}
           </div>
@@ -248,15 +349,30 @@ export function VoiceConfigForm({
                     Your ElevenLabs account has no voices yet — add one there, then come back.
                   </p>
                 ) : (
-                  <SearchSelect
-                    value={ttsVoiceId}
-                    onChange={setTtsVoiceId}
-                    options={toOptions(voices ?? [])}
-                    placeholder="Pick a voice"
-                    disabled={voices === null}
-                    ariaLabel="TTS voice"
-                    className="min-w-64"
-                  />
+                  <>
+                    <div className="flex items-center gap-2">
+                      <SearchSelect
+                        value={ttsVoiceId}
+                        onChange={(value) => {
+                          resetPreview()
+                          setTtsVoiceId(value)
+                        }}
+                        options={toOptions(voices ?? [])}
+                        placeholder="Pick a voice"
+                        disabled={voices === null}
+                        ariaLabel="TTS voice"
+                        className="min-w-64 flex-1"
+                      />
+                      {previewButton(
+                        `elevenlabs:${ttsVoiceId}`,
+                        { source: 'elevenlabs', voiceId: ttsVoiceId },
+                        !ttsVoiceId,
+                      )}
+                    </div>
+                    {previewError?.key === `elevenlabs:${ttsVoiceId}` ? (
+                      <p className="text-sm text-danger">{previewError.message}</p>
+                    ) : null}
+                  </>
                 )}
               </div>
             </div>
@@ -280,6 +396,7 @@ export function VoiceConfigForm({
                       id="voice-realtime-provider"
                       value={realtimeKind}
                       onChange={(e) => {
+                        resetPreview()
                         setRealtimeKind(e.target.value as 'openai' | 'google')
                         setRealtimeModel('')
                         setRealtimeVoice('')
@@ -305,13 +422,27 @@ export function VoiceConfigForm({
                     </div>
                     <div className="space-y-1">
                       <Label>Voice</Label>
-                      <SearchSelect
-                        value={realtimeVoice}
-                        onChange={setRealtimeVoice}
-                        options={toOptions(realtimeVoices)}
-                        placeholder="Pick a voice"
-                        ariaLabel="Realtime voice"
-                      />
+                      <div className="flex items-center gap-2">
+                        <SearchSelect
+                          value={realtimeVoice}
+                          onChange={(value) => {
+                            resetPreview()
+                            setRealtimeVoice(value)
+                          }}
+                          options={toOptions(realtimeVoices)}
+                          placeholder="Pick a voice"
+                          ariaLabel="Realtime voice"
+                          className="flex-1"
+                        />
+                        {previewButton(
+                          `${realtimeKind}:${realtimeVoice}`,
+                          { source: realtimeKind, voice: realtimeVoice },
+                          !realtimeVoice,
+                        )}
+                      </div>
+                      {previewError?.key === `${realtimeKind}:${realtimeVoice}` ? (
+                        <p className="text-sm text-danger">{previewError.message}</p>
+                      ) : null}
                     </div>
                   </div>
                 </>
@@ -399,7 +530,7 @@ export function VoiceConfigForm({
                 startSavingExtension(async () => {
                   setExtensionError(null)
                   setExtensionSaved(false)
-                  const result = await setHandExtensionAction({ personId, extension: extensionDraft })
+                  const result = await setAgentExtensionAction({ personId, extension: extensionDraft })
                   if (!result.ok) {
                     setExtensionError(result.message)
                     return
