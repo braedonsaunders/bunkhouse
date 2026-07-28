@@ -1,0 +1,152 @@
+name: CI + Deploy (dev)
+
+# Every push to main: typecheck gate → publish the image to ghcr → point the
+# Dokploy "bunkhouse" compose at the new tag and redeploy → wait for the
+# public host to serve again.
+#
+# Secrets: DOKPLOY_URL (http://dokploy:3000 — the panel is LAN-only, reached
+#          from the shared self-hosted runner over dokploy-network),
+#          DOKPLOY_TOKEN (x-api-key), DOKPLOY_COMPOSE_ID (bunkhouse compose).
+#
+# The deploy job runs on the shared Dokploy runner (bunkhouse-runner in the
+# github-runners project); check/build stay on GitHub-hosted runners.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/braedonsaunders/bunkhouse
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm --filter web run typecheck
+
+  build:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      tag: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max,ignore-error=true
+
+  deploy:
+    needs: build
+    runs-on: [self-hosted, linux, x64, dokploy]
+    timeout-minutes: 20
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Point Dokploy at the new image tag
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
+          COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+          NEW_TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          set -euo pipefail
+          base="${DOKPLOY_URL%/}"
+          current="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+            -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID")"
+          env_text="$(echo "$current" | jq -r '.env // ""')"
+          if echo "$env_text" | grep -q '^BUNKHOUSE_TAG='; then
+            new_env="$(echo "$env_text" | sed "s|^BUNKHOUSE_TAG=.*|BUNKHOUSE_TAG=${NEW_TAG}|")"
+          else
+            new_env="$(printf '%s\nBUNKHOUSE_TAG=%s\n' "$env_text" "$NEW_TAG")"
+          fi
+          compose_file="$(cat deploy/dokploy.compose.yaml)"
+          jq -n --arg id "$COMPOSE_ID" --arg env "$new_env" --arg composeFile "$compose_file" \
+            '{composeId:$id, env:$env, composeFile:$composeFile}' \
+            | curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+                -H 'content-type: application/json' \
+                -X POST "$base/api/compose.update" --data @- > /dev/null
+          echo "Dokploy compose source is current and BUNKHOUSE_TAG=${NEW_TAG}"
+
+      - name: Trigger deployment
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
+          COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+        run: |
+          set -euo pipefail
+          curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+            -H 'content-type: application/json' \
+            -X POST "${DOKPLOY_URL%/}/api/compose.deploy" \
+            --data "{\"composeId\":\"$COMPOSE_ID\"}"
+          echo "Deployment queued"
+
+      - name: Wait for Dokploy deployment to finish
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
+          COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+        run: |
+          set -euo pipefail
+          base="${DOKPLOY_URL%/}"
+          for i in $(seq 1 60); do
+            sleep 10
+            latest="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+              -G "$base/api/deployment.allByCompose" --data-urlencode "composeId=$COMPOSE_ID" \
+              | jq -r 'sort_by(.createdAt) | last | .status')"
+            echo "deployment status: $latest"
+            if [ "$latest" = "done" ]; then exit 0; fi
+            if [ "$latest" = "error" ]; then
+              echo "::error::Dokploy deployment failed"
+              exit 1
+            fi
+          done
+          echo "::error::Timed out waiting for the deployment"
+          exit 1
+
+      - name: Health check
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            sleep 5
+            code="$(curl -s -o /dev/null -w '%{http_code}' https://bunkhouse.cloud.rassaun.com/ || true)"
+            echo "https status: $code"
+            if [ "$code" = "200" ]; then
+              echo "bunkhouse.cloud.rassaun.com is serving"
+              exit 0
+            fi
+          done
+          echo "::error::The deployed app never became healthy"
+          exit 1

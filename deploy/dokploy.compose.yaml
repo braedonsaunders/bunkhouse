@@ -1,0 +1,226 @@
+# bunkhouse dev stack for Dokploy (project "bunkhouse").
+#
+# Deployed as a SWARM STACK (composeType "stack") pinned to the manager node,
+# like openbooks/beaconhs: placement puts every service beside dokploy-traefik,
+# and ingress is wired by Dokploy managed domains (Traefik file provider):
+#   bunkhouse.cloud.rassaun.com          → web:3000
+#   bunkhouse-livekit.cloud.rassaun.com  → livekit:7880 (wss)
+# The GitHub deploy workflow bumps BUNKHOUSE_TAG and triggers compose.deploy.
+#
+# Database and app Redis are the EXISTING shared VMs (Patroni pgcluster,
+# HA Redis) — never bundled containers. The media plane (LiveKit + SIP) runs
+# here with its own private Redis, exactly as in local dev, but with real API
+# keys and the public address announced to SIP peers. SIP/RTP ports publish in
+# host mode on the manager — the public ingress a carrier or PBX points at.
+
+networks:
+  dokploy-network:
+    external: true
+
+services:
+  web:
+    image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: '3000'
+      BUNKHOUSE_DB_URL: ${BUNKHOUSE_DB_URL}
+      BUNKHOUSE_SUPER_URL: ${BUNKHOUSE_SUPER_URL}
+      BUNKHOUSE_REDIS_URL: ${BUNKHOUSE_REDIS_URL}
+      APPKIT_SECRET: ${APPKIT_SECRET}
+      # One public URL for browsers, server actions, and the voice agent alike
+      # (containers reach the public host by hairpin, like the CI runner does).
+      LIVEKIT_URL: ${LIVEKIT_URL}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+    networks:
+      - dokploy-network
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname==dokploy-mgr
+      resources:
+        limits:
+          memory: 2g
+      restart_policy:
+        condition: any
+        delay: 5s
+
+  # Background worker: mailbox sync, duty scheduler, run executor, approval
+  # resume, memory consolidation. Same image, no ingress; web owns migrations.
+  worker:
+    image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
+    command: ["sh", "-c", "NODE_OPTIONS=--conditions=react-server exec node_modules/.bin/tsx apps/web/scripts/worker.mts"]
+    environment:
+      NODE_ENV: production
+      BUNKHOUSE_DB_URL: ${BUNKHOUSE_DB_URL}
+      BUNKHOUSE_SUPER_URL: ${BUNKHOUSE_SUPER_URL}
+      BUNKHOUSE_REDIS_URL: ${BUNKHOUSE_REDIS_URL}
+      APPKIT_SECRET: ${APPKIT_SECRET}
+      LIVEKIT_URL: ${LIVEKIT_URL}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+    networks:
+      - dokploy-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname==dokploy-mgr
+      resources:
+        limits:
+          memory: 1g
+      restart_policy:
+        condition: any
+        delay: 5s
+
+  # The voice agent: registers against LiveKit and answers every call room.
+  voice-agent:
+    image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
+    command: ["sh", "-c", "NODE_OPTIONS=--conditions=react-server exec node_modules/.bin/tsx apps/web/scripts/voice-agent.mts start"]
+    environment:
+      NODE_ENV: production
+      BUNKHOUSE_DB_URL: ${BUNKHOUSE_DB_URL}
+      BUNKHOUSE_SUPER_URL: ${BUNKHOUSE_SUPER_URL}
+      BUNKHOUSE_REDIS_URL: ${BUNKHOUSE_REDIS_URL}
+      APPKIT_SECRET: ${APPKIT_SECRET}
+      LIVEKIT_URL: ${LIVEKIT_URL}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+    networks:
+      - dokploy-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname==dokploy-mgr
+      resources:
+        limits:
+          memory: 1500m
+      restart_policy:
+        condition: any
+        delay: 5s
+
+  livekit:
+    image: livekit/livekit-server:latest
+    command: '--bind 0.0.0.0 --redis-host media-redis:6379 --node-ip ${PUBLIC_IP}'
+    environment:
+      # Real key pair (not --dev): the ws endpoint is public.
+      LIVEKIT_KEYS: '${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}'
+    networks:
+      - dokploy-network
+    ports:
+      # WebRTC media must reach the process directly; host mode on the manager.
+      - target: 7881
+        published: 7881
+        mode: host
+      - target: 7882
+        published: 7882
+        protocol: udp
+        mode: host
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname==dokploy-mgr
+      restart_policy:
+        condition: any
+        delay: 5s
+
+  media-redis:
+    image: redis:7-alpine
+    networks:
+      - dokploy-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname==dokploy-mgr
+      restart_policy:
+        condition: any
+        delay: 5s
+
+  # SIP ingress — the public address a carrier trunk or PBX points at.
+  livekit-sip:
+    image: livekit/sip:latest
+    environment:
+      SIP_CONFIG_BODY: |
+        api_key: ${LIVEKIT_API_KEY}
+        api_secret: ${LIVEKIT_API_SECRET}
+        ws_url: ws://livekit:7880
+        redis:
+          address: media-redis:6379
+        sip_port: 5060
+        rtp_port: 10000-10100
+        use_external_ip: true
+        logging:
+          level: info
+    networks:
+      - dokploy-network
+    ports:
+      - target: 5060
+        published: 5060
+        protocol: udp
+        mode: host
+      - target: 5060
+        published: 5060
+        protocol: tcp
+        mode: host
+      - target: 10000-10100
+        published: 10000-10100
+        protocol: udp
+        mode: host
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname==dokploy-mgr
+      restart_policy:
+        condition: any
+        delay: 5s
+
+  # Dev mail lab, matching local: Mailpit catches outbound, GreenMail offers
+  # accept-anything IMAP/SMTP for wiring agents end to end. Internal only.
+  mailpit:
+    image: axllent/mailpit:latest
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    networks:
+      - dokploy-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname==dokploy-mgr
+      restart_policy:
+        condition: any
+        delay: 5s
+
+  greenmail:
+    image: greenmail/standalone:latest
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap
+        -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled
+    networks:
+      - dokploy-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname==dokploy-mgr
+      restart_policy:
+        condition: any
+        delay: 5s

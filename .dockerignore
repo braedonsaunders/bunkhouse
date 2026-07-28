@@ -1,0 +1,9 @@
+node_modules
+**/node_modules
+apps/web/.next
+.git
+.claude
+docs
+test-results
+playwright-report
+*.log
