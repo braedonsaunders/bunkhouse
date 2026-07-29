@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { generateText } from 'ai'
 import { getModel } from '@appkit/ai'
+import type { CompanyProfile } from '@bunkhouse/runtime'
 import { COMPANY_IDENTITY_KEY, tenantSettings, type CompanyIdentitySettings } from '../db/schema'
 import { db } from '../db/client'
 import { listAiProviders, resolveProviderAiConfig } from './ai'
@@ -116,6 +117,42 @@ export async function saveCompanyIdentity(tenantId: string, value: CompanyIdenti
  */
 export function companyDisplayName(identity: CompanyIdentity): string {
   return identity.name.trim() || 'the company'
+}
+
+/**
+ * The identity as prompt assembly takes it — one derivation for every surface
+ * that builds a system prompt (mail runs, voice calls, meetings), so an agent
+ * works at the same company on every channel. Empty fields are dropped here,
+ * once, rather than by each caller.
+ */
+export function companyPromptProfile(identity: CompanyIdentity): Omit<CompanyProfile, 'directory'> {
+  return {
+    name: companyDisplayName(identity),
+    ...(identity.description ? { description: identity.description } : {}),
+    identity: {
+      ...(identity.legalName ? { legalName: identity.legalName } : {}),
+      ...(identity.tagline ? { tagline: identity.tagline } : {}),
+      ...(identity.industry ? { industry: identity.industry } : {}),
+      ...(identity.websiteUrl ? { websiteUrl: identity.websiteUrl } : {}),
+      ...(identity.services.length > 0 ? { services: identity.services } : {}),
+      ...(identity.serviceArea ? { serviceArea: identity.serviceArea } : {}),
+      ...(identity.customers.length > 0 ? { customers: identity.customers } : {}),
+      ...(identity.differentiators.length > 0 ? { differentiators: identity.differentiators } : {}),
+      ...(identity.values.length > 0 ? { values: identity.values } : {}),
+      ...(identity.brandVoice ? { brandVoice: identity.brandVoice } : {}),
+      ...(identity.hours ? { hours: identity.hours } : {}),
+      ...(identity.contact.phone || identity.contact.email || identity.contact.address
+        ? {
+            contact: {
+              ...(identity.contact.phone ? { phone: identity.contact.phone } : {}),
+              ...(identity.contact.email ? { email: identity.contact.email } : {}),
+              ...(identity.contact.address ? { address: identity.contact.address } : {}),
+            },
+          }
+        : {}),
+      ...(identity.notes ? { notes: identity.notes } : {}),
+    },
+  }
 }
 
 // ---------------------------------------------------------------------------

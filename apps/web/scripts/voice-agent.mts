@@ -32,6 +32,7 @@ import { resolveRealtimeCredential, resolveSpeechCredential } from '../src/lib/v
 import { MEETING_ROOM_PREFIX } from '../src/lib/meetings'
 import { watchScreenShare } from '../src/lib/screen-share'
 import { saveFile } from '../src/lib/files'
+import { companyPromptProfile, getCompanyIdentity } from '../src/lib/company-identity'
 import { pinnedNotes, retrieveNotes } from '../src/lib/memory'
 import { resolvePrice } from '../src/lib/pricing'
 import { isWithinWorkingHours } from '../src/lib/working-hours'
@@ -271,6 +272,7 @@ async function buildInstructions(
   const directory = await app.withTenantContext(session.tenantId, () =>
     app.db.select().from(people).where(eq(people.status, 'active')),
   )
+  const identity = await getCompanyIdentity(session.tenantId)
   const procedures = await app.withTenantContext(session.tenantId, () => boundProcedures(session.tenantId, person))
   const pinned = await pinnedNotes({ tenantId: session.tenantId, personId: person.id })
   const retrieved = await retrieveNotes({ tenantId: session.tenantId, personId: person.id, query: 'phone call' })
@@ -293,7 +295,9 @@ async function buildInstructions(
       proactivity: person.proactivity ?? 'duties',
     },
     company: {
-      name: 'the company',
+      // The same identity mail runs stand on — an agent on the phone works
+      // at the same company it writes for.
+      ...companyPromptProfile(identity),
       directory: directory.map((p) => ({
         id: p.id,
         kind: p.kind,
@@ -311,8 +315,10 @@ async function buildInstructions(
   const caller = session.counterparty.name ?? 'the caller'
   const voiceAddendum = [
     meeting
-      ? `You are in a live video meeting with ${caller}. Speak naturally, in short turns — one to three sentences, then let them respond. Plain spoken words only: no markdown, no lists, no headings, nothing that only works on a screen.`
-      : `You are on a live voice call with ${caller}. Speak naturally, in short turns — one to three sentences, then let them respond. Plain spoken words only: no markdown, no lists, no headings, nothing that only works on a screen.`,
+      ? `You are in a live video meeting with ${caller}.`
+      : `You are on a live voice call with ${caller}.`,
+    'Talk like the colleague you are, not like a system. Warm, engaged, specific: react to what they actually said, use their name sometimes, carry context forward, and have opinions where your job gives you standing to. Contractions are normal speech. Vary your rhythm — a quick "sure, done" one moment, a couple of sentences of substance the next; never a monologue, and let them in often. Plain spoken words only: no markdown, no lists, no headings, nothing that only works on a screen.',
+    'Never answer with a bare fact when a colleague would add the sentence of judgment that makes it useful. And never pad with filler phrases a human would not say on the phone.',
     ...(meeting
       ? [
           ...(session.purpose
@@ -331,10 +337,11 @@ async function buildInstructions(
       : []),
     `Speak ${config.language && config.language !== 'en' ? `in the language with BCP-47 tag "${config.language}"` : 'English'}.`,
     ...(config.style ? [`Speaking style: ${config.style}.`] : []),
-    'You have your working tools on this call: search the web, read pages, send email, search and save your logbook, schedule follow-ups, and use the company integrations. Use them mid-conversation when they help — say what you are doing in a few words ("give me a second, I am looking that up"), keep talking naturally, and report what you found or did.',
+    'You have your working tools on this call: search the web, read pages, send email, search and save your logbook, schedule follow-ups, and use the company integrations. The default is to do the work RIGHT NOW, on the call, together — search while you talk, read the results, and share what you are finding as you find it, like a colleague at the next desk with a laptop open. Say what you are doing in a few words ("give me a second, I am pulling that up"), keep the conversation going, and let them steer while the work is live in front of you both.',
     'If the caller speaks while you are mid-task, just talk with them — the work keeps running in the background and you can share the result when it lands. Never restart a task because you were interrupted.',
-    `When the caller asks for work that takes real time — research, a report or spreadsheet, contacting someone, comparing options, drafting something, chasing an answer — take it as an assignment rather than attempting it live. First confirm the brief out loud: what a good outcome looks like, any file format they want (PDF, Word, Excel — many assignments need no file at all), who receives it, and any deadline. Then call take_assignment with the full brief. Tell the caller it is underway and the outcome will arrive by email — the work starts immediately and continues after the call ends. Quick lookups you can answer in a sentence or two stay on the call; anything bigger becomes an assignment.`,
+    `Work becomes an assignment (take_assignment) only when it genuinely cannot be finished while you talk — hours of research, a document or spreadsheet to produce, waiting on someone else to reply — or when the caller asks you to take it away, get back to them, or send it on. Then confirm the brief out loud first: what a good outcome looks like, any file format they want (PDF, Word, Excel — many assignments need no file at all), who receives it, and any deadline; the outcome arrives by email and the work continues after the call. Never take something as an assignment that you could simply start doing on the line — if in doubt, start live and offer to finish it as an assignment when it turns out to be bigger than the call.`,
     'Some actions need human sign-off first. When a tool answers pending_approval, tell the caller it is queued for approval and will happen once signed off — never claim it is done.',
+    'When the conversation is genuinely over — the work is agreed or done, they are wrapping up, goodbyes are being said — say your own goodbye and then call end_call to hang up, the way a person puts the receiver down. Never hang up mid-request or to dodge a question, and if you are unsure whether they are done, ask.',
   ].join('\n')
 
   return `${base}\n\n${voiceAddendum}`
@@ -738,6 +745,25 @@ export default defineAgent({
       void appendTurn(speaker, text).catch((error) =>
         console.error(`[voice] turn append failed for ${session.id}:`, (error as Error).message),
       )
+    // --- Where a slow turn spends its time -------------------------------
+    // One compact line per pipeline leg, so a "ten seconds to answer" report
+    // against any deployment can be split into turn detection, model, and
+    // speech synthesis by reading the service log instead of guessing.
+    agentSession.on(voice.AgentSessionEventTypes.MetricsCollected, (event) => {
+      const m = event.metrics
+      const ms = (v: number) => `${Math.round(v)}ms`
+      if (m.type === 'eou_metrics') {
+        console.log(
+          `[voice] ${session.id} turn-detect: end-of-utterance ${ms(m.endOfUtteranceDelayMs)}, transcript ${ms(m.transcriptionDelayMs)}`,
+        )
+      } else if (m.type === 'llm_metrics') {
+        console.log(`[voice] ${session.id} llm: first token ${ms(m.ttftMs)}, total ${ms(m.durationMs)}`)
+      } else if (m.type === 'tts_metrics') {
+        console.log(`[voice] ${session.id} tts: first byte ${ms(m.ttfbMs)}`)
+      } else if (m.type === 'realtime_model_metrics') {
+        console.log(`[voice] ${session.id} realtime: first audio ${ms(m.ttftMs)}, total ${ms(m.durationMs)}`)
+      }
+    })
     agentSession.on(voice.AgentSessionEventTypes.ConversationItemAdded, (event) => {
       const item = event.item
       if (item.type !== 'message') return
@@ -1177,6 +1203,38 @@ export default defineAgent({
         },
       }) as unknown as llm.FunctionTool
     }
+    // Hanging up is the agent's to do when the goodbye is genuinely said —
+    // the receiver going down, not a timeout. The tool returns immediately so
+    // the model can finish its last words; the hangup itself waits for that
+    // speech to play out (close() drains), settles the ledger, and then takes
+    // the room down, which is what actually ends the call for the caller.
+    tools.end_call = llm.tool({
+      description:
+        'Hang up the call. Use only when the conversation has reached its natural end — the work is agreed or done and goodbyes have been said. Never to cut someone off.',
+      parameters: z.object({
+        reason: z.string().describe('One line on how the call concluded — recorded on the run.'),
+      }),
+      execute: async ({ reason }) => {
+        await recordEvent('tool_call', { toolName: 'end_call', category: 'phone_call', input: { reason } })
+        // Result lands with the call, not after it: the activity feed pairs
+        // calls with results, and this one's outcome is the hangup itself.
+        await recordEvent('tool_result', { toolName: 'end_call', output: { ended: true, reason } }).catch(() => {})
+        void (async () => {
+          try {
+            await agentSession.close()
+          } catch {
+            // Already closing — the hangup below still stands.
+          }
+          try {
+            await finalize()
+            await ctx.deleteRoom()
+          } catch (error) {
+            console.error(`[voice] room ${roomName}: hangup failed — ${(error as Error).message}`)
+          }
+        })()
+        return { ended: true, note: 'The line is closing — finish your goodbye if any words are left, nothing more.' }
+      },
+    }) as unknown as llm.FunctionTool
     ctx.addShutdownCallback(() => assembled.close())
 
     try {
