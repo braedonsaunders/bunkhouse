@@ -48,7 +48,7 @@ overrides:
   '@appkit/workflows': file:./vendor/appkit/appkit-workflows-1.0.0.tgz
   '@appkit/mailbox': file:./vendor/appkit/appkit-mailbox-0.4.0.tgz
   '@appkit/avatars': file:./vendor/appkit/appkit-avatars-0.5.2.tgz
-  '@appkit/voice': file:./vendor/appkit/appkit-voice-0.1.0.tgz
+  '@appkit/voice': file:./vendor/appkit/appkit-voice-0.1.1.tgz
   '@appkit/scene': file:./vendor/appkit/appkit-scene-0.3.3.tgz
   '@appkit/oauth': file:./vendor/appkit/appkit-oauth-0.1.0.tgz
 
@@ -170,8 +170,8 @@ importers:
         specifier: file:../../vendor/appkit/appkit-ui-0.1.9.tgz
         version: file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@appkit/voice':
-        specifier: file:../../vendor/appkit/appkit-voice-0.1.0.tgz
-        version: file:vendor/appkit/appkit-voice-0.1.0.tgz
+        specifier: file:../../vendor/appkit/appkit-voice-0.1.1.tgz
+        version: file:vendor/appkit/appkit-voice-0.1.1.tgz
       '@appkit/workflows':
         specifier: file:../../vendor/appkit/appkit-workflows-1.0.0.tgz
         version: file:vendor/appkit/appkit-workflows-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/forms-core@file:vendor/appkit/appkit-forms-core-0.1.1.tgz(@noble/hashes@2.2.0))(@appkit/forms@file:vendor/appkit/appkit-forms-0.2.0.tgz(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@xyflow/react@12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -853,9 +853,9 @@ packages:
       react: ^19.0.0
       react-dom: ^19.0.0
 
-  '@appkit/voice@file:vendor/appkit/appkit-voice-0.1.0.tgz':
-    resolution: {integrity: sha512-4vJQ/IaAX5Xj59OauEtOF2y6bt3xi9w6DPiZrUfie7JCgNAkf6mOe8oW3VUa4hD5CkVQuJVjuk9jN+xVez4loA==, tarball: file:vendor/appkit/appkit-voice-0.1.0.tgz}
-    version: 0.1.0
+  '@appkit/voice@file:vendor/appkit/appkit-voice-0.1.1.tgz':
+    resolution: {integrity: sha512-HFsH1o5fvJ4jhmpCf3BoVaeLy8713NVpDuIFN6lqx2DOBd+mAwIr4gzSH5pXfpjNhEu3MKkfbFy1lbFbo8lGQw==, tarball: file:vendor/appkit/appkit-voice-0.1.1.tgz}
+    version: 0.1.1
     engines: {node: '>=22'}
 
   '@appkit/workflows@file:vendor/appkit/appkit-workflows-1.0.0.tgz':
@@ -7791,7 +7791,7 @@ snapshots:
       - '@emotion/is-prop-valid'
       - tailwindcss
 
-  '@appkit/voice@file:vendor/appkit/appkit-voice-0.1.0.tgz':
+  '@appkit/voice@file:vendor/appkit/appkit-voice-0.1.1.tgz':
     dependencies:
       livekit-server-sdk: 2.17.0
 
