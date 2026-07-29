@@ -1,5 +1,6 @@
 import { jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core'
 import { auditColumns, id, tenantRef } from '@appkit/db'
+import type { AgentToolPolicy } from '@appkit/agent-tools'
 import type { SealedSecret } from '@appkit/crypto'
 import type { RawSmsConfig } from '@appkit/sms'
 import type { RawCarrierConfig } from '@appkit/telephony'
@@ -219,6 +220,15 @@ export type WorkspacePolicySettings = {
 }
 
 export const WORKSPACE_POLICY_KEY = 'workspace.policy'
+
+/** settings key: 'tools.policy' — the two gates on managed command-line tools,
+ *  per @appkit/agent-tools' AgentToolPolicy. Installing a tool and running one
+ *  are separate questions: the defaults ask a person before anything is added
+ *  to the host, and let a low-risk, network-isolated tool run unreviewed once
+ *  it is there. `grantUses` bounds how many runs a single approval covers. */
+export type ToolPolicySettings = AgentToolPolicy
+
+export const TOOL_POLICY_KEY = 'tools.policy'
 
 /** settings key: 'sms.provider' — the tenant's SMS provider config, per
  *  @appkit/sms's RawSmsConfig shape. The single credential (auth token / API

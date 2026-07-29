@@ -11,6 +11,7 @@ import { gardenerPass as gardenTenant, journalPass as journalTenant, reflectionP
 import { pendingAssignmentIds, runAssignment } from '../src/lib/assignments'
 import { decidedApprovalIds, executeDecidedApproval } from '../src/lib/approval-executor'
 import { tidyWorkspaces } from '../src/lib/workspace'
+import { syncToolCatalogue, toolHousekeeping, toolsSupported } from '../src/lib/tools'
 import { probeAllTrunks, refreshBridgeRegistrations } from '../src/lib/pbx'
 import { sweepExpiredRecordings } from '../src/lib/voice-recording'
 import { refreshPricesFromOpenRouter } from '../src/lib/pricing'
@@ -358,6 +359,25 @@ async function workspacePass(): Promise<void> {
   }
 }
 
+/**
+ * The tool shelf, kept honest: put the catalogue on every tenant's shelf, let
+ * unanswered requests and spent grants lapse, and re-check that installed tools
+ * still work. All three are idempotent, so a missed tick costs nothing.
+ */
+async function toolsPass(): Promise<void> {
+  if (!toolsSupported()) return
+  for (const tenantId of await activeTenantIds()) {
+    try {
+      await syncToolCatalogue(tenantId)
+      const { expired, checked, degraded } = await toolHousekeeping(tenantId)
+      if (expired > 0) console.log(`[tools] tenant ${tenantId}: ${expired} request(s) lapsed`)
+      if (degraded > 0) console.log(`[tools] tenant ${tenantId}: ${degraded}/${checked} tool(s) unhealthy`)
+    } catch (error) {
+      console.error(`[tools] tenant ${tenantId}:`, (error as Error).message)
+    }
+  }
+}
+
 /** Nightly journal: episodes + fact candidates from yesterday's runs. The
  *  pass itself skips any run already journaled (episode with its sourceRunId),
  *  so a 6-hour tick only ever adds what the last one missed. */
@@ -496,6 +516,7 @@ await heartbeat.upsertJobScheduler('calls', { every: 300_000 }, { name: 'tick', 
 await heartbeat.upsertJobScheduler('waits', { every: 3_600_000 }, { name: 'tick', data: { pass: 'waits' } })
 await heartbeat.upsertJobScheduler('reports', { every: 21_600_000 }, { name: 'tick', data: { pass: 'reports' } })
 await heartbeat.upsertJobScheduler('workspace', { every: 86_400_000 }, { name: 'tick', data: { pass: 'workspace' } })
+await heartbeat.upsertJobScheduler('tools', { every: 3_600_000 }, { name: 'tick', data: { pass: 'tools' } })
 await heartbeat.upsertJobScheduler('gardener', { every: 86_400_000 }, { name: 'tick', data: { pass: 'gardener' } })
 await heartbeat.upsertJobScheduler('trunks', { every: 300_000 }, { name: 'tick', data: { pass: 'trunks' } })
 await heartbeat.upsertJobScheduler('journal', { every: 21_600_000 }, { name: 'tick', data: { pass: 'journal' } })
@@ -514,6 +535,7 @@ const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
     else if (job.data.pass === 'waits') await waitsPass()
     else if (job.data.pass === 'reports') await weeklyReportPass()
     else if (job.data.pass === 'workspace') await workspacePass()
+    else if (job.data.pass === 'tools') await toolsPass()
     else if (job.data.pass === 'gardener') await gardenerPassAll()
     else if (job.data.pass === 'trunks') await trunkHealthPass()
     else if (job.data.pass === 'journal') await journalPass()

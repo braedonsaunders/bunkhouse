@@ -5,11 +5,13 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
+  '@appkit/agent-tools': file:./vendor/appkit/appkit-agent-tools-0.1.0.tgz
   '@appkit/ai': file:./vendor/appkit/appkit-ai-0.2.0.tgz
   '@appkit/analytics': file:./vendor/appkit/appkit-analytics-0.2.0.tgz
   '@appkit/api': file:./vendor/appkit/appkit-api-0.1.1.tgz
   '@appkit/apps': file:./vendor/appkit/appkit-apps-1.0.0.tgz
   '@appkit/auth': file:./vendor/appkit/appkit-auth-0.1.1.tgz
+  '@appkit/avatars': file:./vendor/appkit/appkit-avatars-0.5.2.tgz
   '@appkit/crypto': file:./vendor/appkit/appkit-crypto-0.2.0.tgz
   '@appkit/customization': file:./vendor/appkit/appkit-customization-1.0.0.tgz
   '@appkit/dashboard': file:./vendor/appkit/appkit-dashboard-1.0.0.tgz
@@ -29,12 +31,15 @@ overrides:
   '@appkit/iam': file:./vendor/appkit/appkit-iam-1.0.0.tgz
   '@appkit/integrations': file:./vendor/appkit/appkit-integrations-1.0.0.tgz
   '@appkit/jobs': file:./vendor/appkit/appkit-jobs-0.2.0.tgz
-  '@appkit/office': file:./vendor/appkit/appkit-office-0.1.0.tgz
+  '@appkit/mailbox': file:./vendor/appkit/appkit-mailbox-0.4.0.tgz
   '@appkit/notifications': file:./vendor/appkit/appkit-notifications-1.0.0.tgz
+  '@appkit/oauth': file:./vendor/appkit/appkit-oauth-0.1.0.tgz
+  '@appkit/office': file:./vendor/appkit/appkit-office-0.1.0.tgz
   '@appkit/pdf': file:./vendor/appkit/appkit-pdf-0.1.1.tgz
+  '@appkit/process-sandbox': file:./vendor/appkit/appkit-process-sandbox-0.2.0.tgz
   '@appkit/reports': file:./vendor/appkit/appkit-reports-0.2.0.tgz
-  '@appkit/process-sandbox': file:./vendor/appkit/appkit-process-sandbox-0.1.2.tgz
   '@appkit/sandbox': file:./vendor/appkit/appkit-sandbox-0.1.0.tgz
+  '@appkit/scene': file:./vendor/appkit/appkit-scene-0.3.3.tgz
   '@appkit/scheduling': file:./vendor/appkit/appkit-scheduling-0.1.0.tgz
   '@appkit/scripts': file:./vendor/appkit/appkit-scripts-1.0.0.tgz
   '@appkit/sms': file:./vendor/appkit/appkit-sms-0.2.0.tgz
@@ -45,12 +50,8 @@ overrides:
   '@appkit/tenant': file:./vendor/appkit/appkit-tenant-0.1.1.tgz
   '@appkit/tokens': file:./vendor/appkit/appkit-tokens-0.1.1.tgz
   '@appkit/ui': file:./vendor/appkit/appkit-ui-0.1.9.tgz
-  '@appkit/workflows': file:./vendor/appkit/appkit-workflows-1.0.0.tgz
-  '@appkit/mailbox': file:./vendor/appkit/appkit-mailbox-0.4.0.tgz
-  '@appkit/avatars': file:./vendor/appkit/appkit-avatars-0.5.2.tgz
   '@appkit/voice': file:./vendor/appkit/appkit-voice-0.1.1.tgz
-  '@appkit/scene': file:./vendor/appkit/appkit-scene-0.3.3.tgz
-  '@appkit/oauth': file:./vendor/appkit/appkit-oauth-0.1.0.tgz
+  '@appkit/workflows': file:./vendor/appkit/appkit-workflows-1.0.0.tgz
 
 importers:
 
@@ -58,6 +59,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@appkit/agent-tools':
+        specifier: file:../../vendor/appkit/appkit-agent-tools-0.1.0.tgz
+        version: file:vendor/appkit/appkit-agent-tools-0.1.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))
       '@appkit/ai':
         specifier: file:../../vendor/appkit/appkit-ai-0.2.0.tgz
         version: file:vendor/appkit/appkit-ai-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -137,8 +141,8 @@ importers:
         specifier: file:../../vendor/appkit/appkit-pdf-0.1.1.tgz
         version: file:vendor/appkit/appkit-pdf-0.1.1.tgz(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)
       '@appkit/process-sandbox':
-        specifier: file:../../vendor/appkit/appkit-process-sandbox-0.1.2.tgz
-        version: file:vendor/appkit/appkit-process-sandbox-0.1.2.tgz
+        specifier: file:../../vendor/appkit/appkit-process-sandbox-0.2.0.tgz
+        version: file:vendor/appkit/appkit-process-sandbox-0.2.0.tgz
       '@appkit/sandbox':
         specifier: file:../../vendor/appkit/appkit-sandbox-0.1.0.tgz
         version: file:vendor/appkit/appkit-sandbox-0.1.0.tgz
@@ -277,6 +281,9 @@ importers:
       unpdf:
         specifier: ^1.6.2
         version: 1.8.0
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -397,6 +404,19 @@ packages:
 
   '@antfu/install-pkg@1.1.0':
     resolution: {integrity: sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ==}
+
+  '@appkit/agent-tools@file:vendor/appkit/appkit-agent-tools-0.1.0.tgz':
+    resolution: {integrity: sha512-IEXt6SSvEDwbz/RSvlnPYfC+ZS5pxPSEFGQ7jPYS71v/SupBc+DNYUML51xdN9M8DI+oRcuA2OEb7aUOqeYJ8g==, tarball: file:vendor/appkit/appkit-agent-tools-0.1.0.tgz}
+    version: 0.1.0
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@appkit/db': ^0.2.0
+      drizzle-orm: ^0.45.2
+    peerDependenciesMeta:
+      '@appkit/db':
+        optional: true
+      drizzle-orm:
+        optional: true
 
   '@appkit/ai@file:vendor/appkit/appkit-ai-0.2.0.tgz':
     resolution: {integrity: sha512-SHJSBPD/4Mmh5R/mplhU0K/h2rkZKd+B7bcmfiFTEamCT4wAvULZ20ex/4rX5WDSsz7vzGtLu2JnvhDzTnNQig==, tarball: file:vendor/appkit/appkit-ai-0.2.0.tgz}
@@ -714,9 +734,9 @@ packages:
       puppeteer-core:
         optional: true
 
-  '@appkit/process-sandbox@file:vendor/appkit/appkit-process-sandbox-0.1.2.tgz':
-    resolution: {integrity: sha512-hEwG2G3q63nr1zVM66pti7THnGY0RZhd7G0DBuhN28Y/3h7ERIGDgiZ1U+KSZj08c89ArwxfC0AJ1scVmR7J8w==, tarball: file:vendor/appkit/appkit-process-sandbox-0.1.2.tgz}
-    version: 0.1.2
+  '@appkit/process-sandbox@file:vendor/appkit/appkit-process-sandbox-0.2.0.tgz':
+    resolution: {integrity: sha512-c6B43dwyjb8OjY52GKtti0nwdHc5eY7ERySSjv1R1dLLIcb03ZCOR4gZeb/hbQaUT7ZYtwLgglgU3JSbKhNnNA==, tarball: file:vendor/appkit/appkit-process-sandbox-0.2.0.tgz}
+    version: 0.2.0
     engines: {node: '>=22'}
 
   '@appkit/sandbox@file:vendor/appkit/appkit-sandbox-0.1.0.tgz':
@@ -7115,6 +7135,11 @@ packages:
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
 
+  yaml@2.9.0:
+    resolution: {integrity: sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==}
+    engines: {node: '>= 14.6'}
+    hasBin: true
+
   yargs-parser@22.0.0:
     resolution: {integrity: sha512-rwu/ClNdSMpkSrUb+d6BRsSkLUq1fmfsY6TOpYzTwvwkg1/NRG85KBy3kq++A8LKQwX6lsu+aWad+2khvuXrqw==}
     engines: {node: ^20.19.0 || ^22.12.0 || >=23}
@@ -7220,6 +7245,14 @@ snapshots:
     dependencies:
       package-manager-detector: 1.8.0
       tinyexec: 1.2.4
+
+  '@appkit/agent-tools@file:vendor/appkit/appkit-agent-tools-0.1.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))':
+    dependencies:
+      '@appkit/process-sandbox': file:vendor/appkit/appkit-process-sandbox-0.2.0.tgz
+      zod: 4.4.3
+    optionalDependencies:
+      '@appkit/db': file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
 
   '@appkit/ai@file:vendor/appkit/appkit-ai-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
@@ -7664,7 +7697,7 @@ snapshots:
     transitivePeerDependencies:
       - tailwindcss
 
-  '@appkit/process-sandbox@file:vendor/appkit/appkit-process-sandbox-0.1.2.tgz': {}
+  '@appkit/process-sandbox@file:vendor/appkit/appkit-process-sandbox-0.2.0.tgz': {}
 
   '@appkit/sandbox@file:vendor/appkit/appkit-sandbox-0.1.0.tgz':
     dependencies:
@@ -14448,6 +14481,8 @@ snapshots:
   y18n@5.0.8: {}
 
   yallist@3.1.1: {}
+
+  yaml@2.9.0: {}
 
   yargs-parser@22.0.0: {}
 

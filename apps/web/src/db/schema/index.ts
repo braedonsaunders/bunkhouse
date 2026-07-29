@@ -16,6 +16,8 @@ export * from './chat'
 export * from './templates'
 export * from './filing'
 export * from './browser'
+export * from './skills'
+export * from './tools'
 
 import { PEOPLE_TENANT_TABLES } from './people'
 import { MAIL_TENANT_TABLES } from './mail'
@@ -35,6 +37,8 @@ import { CHAT_TENANT_TABLES } from './chat'
 import { TEMPLATES_TENANT_TABLES } from './templates'
 import { FILING_TENANT_TABLES } from './filing'
 import { BROWSER_TENANT_TABLES } from './browser'
+import { SKILLS_TENANT_TABLES } from './skills'
+import { TOOLS_TENANT_TABLES } from './tools'
 
 /** Every bunkhouse tenant-scoped table; feed to @appkit/db's RLS installer. */
 export const BUNKHOUSE_TENANT_TABLES = [
@@ -56,4 +60,6 @@ export const BUNKHOUSE_TENANT_TABLES = [
   ...TEMPLATES_TENANT_TABLES,
   ...FILING_TENANT_TABLES,
   ...BROWSER_TENANT_TABLES,
+  ...SKILLS_TENANT_TABLES,
+  ...TOOLS_TENANT_TABLES,
 ] as const

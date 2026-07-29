@@ -20,6 +20,7 @@ import { readWebpage, webSearch } from './research'
 import { documentAbilities } from './documents'
 import { templateAbilities } from './document-templates'
 import { workspaceAbilities } from './workspace'
+import { toolAbilities } from './tools'
 import { sendSms, smsConfigured } from './sms'
 import { chatAbilities } from './chat-bridge'
 import { outboundCallAbilities } from './outbound-call'
@@ -639,6 +640,7 @@ export async function assembleAbilities(args: {
     ...documentAbilities({ tenantId, person, runId }),
     ...templateAbilities({ tenantId, person, runId }),
     ...workspaceAbilities({ tenantId, person, runId }),
+    ...toolAbilities({ tenantId, person }),
     ...browserAbilities({ tenantId, person, runId }),
     ...assignmentAbilities({
       tenantId,
