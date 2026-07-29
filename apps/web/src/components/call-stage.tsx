@@ -1,8 +1,28 @@
 'use client'
 
 import * as React from 'react'
-import { Loader2, Mic, MicOff, MonitorPlay, PauseCircle, PhoneOff } from 'lucide-react'
-import { Badge, Button, Tooltip, cn } from '@appkit/ui'
+import {
+  Captions,
+  CaptionsOff,
+  Check,
+  ChevronDown,
+  Loader2,
+  Mic,
+  MicOff,
+  MonitorPlay,
+  PauseCircle,
+  PhoneOff,
+  ScreenShare,
+} from 'lucide-react'
+import {
+  Badge,
+  Button,
+  ContextMenu,
+  Tooltip,
+  cn,
+  useContextMenu,
+  type ContextMenuEntry,
+} from '@appkit/ui'
 
 /**
  * The presentational half of a voice call: the stage the far side stands on,
@@ -331,14 +351,41 @@ const STATUS_DOT: Record<CallStatusTone, string> = {
   off: 'bg-fg-subtle',
 }
 
+/** An audio input the caller can pick, already labelled for a human to read. */
+export type CallDeviceOption = {
+  /** The browser's device id — what `onSelectMicDevice` is handed back. */
+  deviceId: string
+  /** The device's name, e.g. "MacBook Pro Microphone". Never blank. */
+  label: string
+}
+
 /**
- * The control bar anchored under the stage: round mic and end-call controls —
- * end-call visually destructive — with the connection state surfaced as a
- * quiet dot and label, never a headline.
+ * The control bar anchored under the stage: round mic, screen-share, transcript
+ * and end-call controls — end-call visually destructive — with the connection
+ * state surfaced as a quiet dot and label, never a headline.
+ *
+ * Every control is a toggle whose state the caller can read without colour: the
+ * icon changes with the state, `aria-pressed` carries it to assistive tech, and
+ * a control that cannot be used right now stays in place, disabled, with the
+ * reason in its tooltip and its accessible name rather than disappearing.
+ *
+ * Nothing here reaches for state of its own — the mic, the share, and the
+ * device list are all held above and arrive as props, so the bar can be lifted
+ * out whole.
  */
 export function CallControlBar({
   micEnabled,
   onToggleMic,
+  micDevices,
+  activeMicDeviceId,
+  onSelectMicDevice,
+  sharingScreen,
+  sharePending,
+  onToggleScreenShare,
+  shareUnavailableReason = null,
+  screenWatchedBy = null,
+  transcriptVisible,
+  onToggleTranscript,
   onEnd,
   ending,
   statusLabel,
@@ -346,27 +393,115 @@ export function CallControlBar({
 }: {
   micEnabled: boolean
   onToggleMic: () => void
+  /** The inputs to offer. Empty hides the picker — a menu of nothing is worse. */
+  micDevices: CallDeviceOption[]
+  /** The input currently carrying the call, ticked in the menu. */
+  activeMicDeviceId: string
+  onSelectMicDevice: (deviceId: string) => void
+  /** True while the caller's screen is actually being sent, never optimistic. */
+  sharingScreen: boolean
+  /** True between the click and the browser settling the share either way. */
+  sharePending: boolean
+  onToggleScreenShare: () => void
+  /** Why sharing cannot be started right now, in plain words, or null. */
+  shareUnavailableReason?: string | null
+  /** Who is watching the shared screen, when we actually know. Off by default. */
+  screenWatchedBy?: string | null
+  /** Whether the transcript panel beside the stage is shown. */
+  transcriptVisible: boolean
+  onToggleTranscript: () => void
   onEnd: () => void
   /** Disables the controls while the hang-up is being finalized. */
   ending: boolean
   statusLabel: string
   statusTone: CallStatusTone
 }) {
+  const micMenu = useContextMenu()
+  const micItems: ContextMenuEntry[] = micDevices.map((device) => ({
+    key: device.deviceId,
+    label: device.label,
+    // A tick on the one in use, a mic on the rest: the state reads in grayscale
+    // and every row keeps the same left edge.
+    icon: device.deviceId === activeMicDeviceId ? Check : Mic,
+    onSelect: () => onSelectMicDevice(device.deviceId),
+  }))
+
+  const micLabel = micEnabled ? 'Turn microphone off' : 'Turn microphone on'
+  const shareLabel = sharingScreen ? 'Stop sharing your screen' : 'Share your screen'
+  const shareBlocked = shareUnavailableReason !== null
+  const transcriptLabel = transcriptVisible ? 'Hide transcript' : 'Show transcript'
+
   return (
-    <div className="flex flex-col items-center gap-3">
-      <div className="flex items-center gap-4">
-        <Tooltip content={micEnabled ? 'Turn microphone off' : 'Turn microphone on'}>
+    <div className="flex w-full flex-col items-center gap-3">
+      {/* Four round controls fit a 320px screen at the tighter gap; the wrap is
+          the safety net for anything narrower still. */}
+      <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+        <div className="relative inline-flex">
+          <Tooltip content={micLabel}>
+            <Button
+              type="button"
+              size="icon"
+              variant={micEnabled ? 'outline' : 'secondary'}
+              className="size-14 rounded-full"
+              aria-label={micLabel}
+              aria-pressed={!micEnabled}
+              disabled={ending}
+              onClick={onToggleMic}
+            >
+              {micEnabled ? <Mic className="size-5" /> : <MicOff className="size-5" />}
+            </Button>
+          </Tooltip>
+          {micDevices.length > 0 ? (
+            <span className="absolute -right-1 -top-1 z-10">
+              <Tooltip content="Choose microphone">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="secondary"
+                  className="size-7 rounded-full border border-border shadow-sm"
+                  aria-label="Choose microphone"
+                  aria-haspopup="menu"
+                  aria-expanded={micMenu.open}
+                  disabled={ending}
+                  onClick={(event) => micMenu.openBelow(event.currentTarget)}
+                >
+                  <ChevronDown className="size-3.5" />
+                </Button>
+              </Tooltip>
+            </span>
+          ) : null}
+        </div>
+        <Tooltip content={shareUnavailableReason ?? shareLabel}>
           <Button
             type="button"
             size="icon"
-            variant={micEnabled ? 'outline' : 'secondary'}
+            variant={sharingScreen ? 'default' : 'outline'}
             className="size-14 rounded-full"
-            aria-label={micEnabled ? 'Turn microphone off' : 'Turn microphone on'}
-            aria-pressed={!micEnabled}
-            disabled={ending}
-            onClick={onToggleMic}
+            // A disabled control cannot take focus, so its reason has to travel
+            // in the name itself — the tooltip alone would never be heard.
+            aria-label={shareBlocked ? `${shareLabel} — ${shareUnavailableReason}` : shareLabel}
+            aria-pressed={sharingScreen}
+            disabled={ending || sharePending || shareBlocked}
+            onClick={onToggleScreenShare}
           >
-            {micEnabled ? <Mic className="size-5" /> : <MicOff className="size-5" />}
+            {sharePending ? (
+              <Loader2 aria-hidden className="size-5 animate-spin" />
+            ) : (
+              <ScreenShare className="size-5" />
+            )}
+          </Button>
+        </Tooltip>
+        <Tooltip content={transcriptLabel}>
+          <Button
+            type="button"
+            size="icon"
+            variant={transcriptVisible ? 'outline' : 'secondary'}
+            className="size-14 rounded-full"
+            aria-label={transcriptLabel}
+            aria-pressed={transcriptVisible}
+            onClick={onToggleTranscript}
+          >
+            {transcriptVisible ? <Captions className="size-5" /> : <CaptionsOff className="size-5" />}
           </Button>
         </Tooltip>
         <Tooltip content="End call">
@@ -383,10 +518,37 @@ export function CallControlBar({
           </Button>
         </Tooltip>
       </div>
+      {/* The share is the one thing a caller must never have to wonder about,
+          so while it is on it says so in words, in its own right, with the way
+          out attached. The region itself is mounted for the whole call, empty
+          until there is something to say: a live region that arrives at the
+          same moment as its content is announced unreliably. */}
+      <div aria-live="polite" className="flex max-w-full justify-center">
+        {sharingScreen ? (
+          <div className="bh-call-enter flex max-w-full flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-full border border-primary/40 bg-primary-subtle px-3 py-1.5 text-xs font-medium text-primary">
+            <span aria-hidden className="inline-block size-1.5 shrink-0 animate-pulse rounded-full bg-primary" />
+            <span className="truncate">
+              {screenWatchedBy
+                ? `${screenWatchedBy} is watching your screen`
+                : 'You are sharing your screen'}
+            </span>
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0 text-xs font-semibold"
+              disabled={ending || sharePending}
+              onClick={onToggleScreenShare}
+            >
+              Stop sharing
+            </Button>
+          </div>
+        ) : null}
+      </div>
       <p className="flex items-center gap-1.5 text-xs text-fg-muted">
         <span aria-hidden className={cn('inline-block size-1.5 rounded-full', STATUS_DOT[statusTone])} />
         {statusLabel}
       </p>
+      <ContextMenu open={micMenu.open} position={micMenu.position} items={micItems} onClose={micMenu.close} />
     </div>
   )
 }

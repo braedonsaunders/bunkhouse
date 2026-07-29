@@ -8,11 +8,22 @@ import {
   RoomAudioRenderer,
   useConnectionState,
   useLocalParticipant,
+  useMediaDeviceSelect,
   useRemoteParticipants,
   useSpeakingParticipants,
 } from '@livekit/components-react'
 import { ConnectionState } from 'livekit-client'
-import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, PageHeader } from '@appkit/ui'
+import {
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  PageHeader,
+  cn,
+  toast,
+} from '@appkit/ui'
 import { ComposedAvatar } from '@appkit/avatars/react'
 import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
 import type { ComposedAvatarAnimation } from '@appkit/avatars/react'
@@ -30,12 +41,14 @@ import {
   type CallActivityEvent,
   type ToolActivityItem,
 } from '../lib/call-activity'
+import { createCallTones, type CallTones } from '../lib/call-tones'
 import { ToolActivityCard, ToolMark } from './tool-activity'
 import {
   CALL_STAGE_AVATAR_SIZE,
   CallControlBar,
   CallStage,
   useCallTimer,
+  type CallDeviceOption,
   type CallPhase,
   type CallStageActivity,
   type CallStageScreenView,
@@ -48,6 +61,29 @@ const CONNECTION_LABELS: Record<string, string> = {
   [ConnectionState.Reconnecting]: 'Reconnecting',
   [ConnectionState.Disconnected]: 'Disconnected',
   [ConnectionState.SignalReconnecting]: 'Reconnecting',
+}
+
+/**
+ * Whether this browser can hand us a screen at all. Capability cannot change
+ * inside a page's life, so the store never notifies; the server renders as
+ * though it can — the overwhelmingly common case — and the first client render
+ * corrects it, which keeps the control from flickering disabled on desktop.
+ */
+const NEVER_CHANGES = () => () => {}
+const readScreenShareSupport = () =>
+  typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function'
+const SCREEN_SHARE_SUPPORTED_ON_SERVER = () => true
+
+/**
+ * The names a browser uses when the caller simply waved the picker away.
+ * Dismissing that dialog rejects exactly as a denied permission does, and
+ * neither deserves an error message — the control just stays off.
+ */
+const SCREEN_SHARE_DECLINED = new Set(['NotAllowedError', 'AbortError', 'PermissionDeniedError'])
+
+function screenShareDeclined(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('name' in error)) return false
+  return SCREEN_SHARE_DECLINED.has(String((error as { name: unknown }).name))
 }
 
 type AgentProfile = { id: string; name: string; title: string }
@@ -119,6 +155,48 @@ function useCallFeed(sessionId: string): CallFeed {
 }
 
 /**
+ * What the call sounds like before anyone speaks, driven by the phase alone: a
+ * ringing tone for exactly as long as the agent is being rung, and one short
+ * connect blip the moment they pick up — from the ringing phase or, when they
+ * are quick enough that ringing never renders, straight from dialling.
+ *
+ * The player is built once for the life of the room and torn down with it, so
+ * no oscillator, timer, or audio context outlives the call. A browser that
+ * will not play it stays quiet and nothing else changes: every method on the
+ * player absorbs its own failures.
+ */
+function useCallTones(phase: CallPhase): void {
+  const tonesRef = React.useRef<CallTones | null>(null)
+  const previousRef = React.useRef<CallPhase | null>(null)
+
+  React.useEffect(() => {
+    const tones = createCallTones()
+    tonesRef.current = tones
+    return () => {
+      tonesRef.current = null
+      tones.dispose()
+    }
+  }, [])
+
+  // Declared after the player's own effect, which is what guarantees the
+  // player exists by the time the first phase is read.
+  React.useEffect(() => {
+    const tones = tonesRef.current
+    if (!tones) return
+    const previous = previousRef.current
+    previousRef.current = phase
+    if (phase === 'ringing') {
+      tones.startRinging()
+      return
+    }
+    // Any other phase — live, ended, or a connection that fell back to
+    // dialling — silences the ring first and asks questions after.
+    tones.stopRinging()
+    if (phase === 'live' && previous !== null && previous !== 'live') tones.connected()
+  }, [phase])
+}
+
+/**
  * The newest browser frame as the stage wants it: a picture and its labels.
  * A frame from a visit that is over is still handed over — marked not live, so
  * the stage can retire it gracefully rather than have it disappear.
@@ -171,21 +249,25 @@ function CaptionsPanel({
   }, [feed.length])
 
   return (
-    <Card>
+    // The card fills whatever height it is handed and the feed scrolls inside
+    // it: beside the stage that is the stage's full height, so the two columns
+    // end on the same line. Stacked on a narrow screen there is no height to
+    // fill, and the capped reading height takes over instead.
+    <Card className="flex h-full flex-col">
       <CardHeader>
         <CardTitle className="text-base">Live transcript</CardTitle>
         <CardDescription>
           What is said and what {agentName} is doing, as it happens. It stays on the call record after you hang up.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex min-h-0 flex-1 flex-col">
         <div
           ref={scrollRef}
           onScroll={(event) => {
             const el = event.currentTarget
             pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
           }}
-          className="max-h-[24rem] min-h-[10rem] space-y-2 overflow-y-auto pr-1 lg:max-h-[32rem]"
+          className="min-h-[10rem] max-h-[24rem] space-y-2 overflow-y-auto pr-1 lg:max-h-none lg:flex-1"
         >
           {feed.length === 0 ? (
             <p className="text-sm text-fg-muted">Say hello — captions appear as the call is transcribed.</p>
@@ -234,6 +316,11 @@ function CaptionsPanel({
  * caller hanging up, the agent hanging up (it deletes the room), or the
  * connection being lost — so `closed` lands on the ended phase, never on an
  * error state.
+ *
+ * This is also where the caller's own media lives: the microphone and the
+ * device it runs on, and the screen they choose to share. Each of those reads
+ * its state back off the room rather than remembering what was asked for, so
+ * the bar cannot drift from what is actually being sent.
  */
 function LiveCallSurface({
   agent,
@@ -251,7 +338,12 @@ function LiveCallSurface({
   onEnd: () => void
 }) {
   const connection = useConnectionState()
-  const { localParticipant, isMicrophoneEnabled } = useLocalParticipant()
+  // isScreenShareEnabled is the room's own answer, recomputed from the
+  // participant's published tracks — which is what keeps the share control
+  // honest. Ending the share from the browser's own bar ends the media track;
+  // livekit-client unpublishes it on that event, and this flag follows without
+  // us watching for it.
+  const { localParticipant, isMicrophoneEnabled, isScreenShareEnabled } = useLocalParticipant()
   const remotes = useRemoteParticipants()
   // The library's speaking state, not mere presence: useSpeakingParticipants
   // is the unconditional-hook form of useIsSpeaking, which needs a participant
@@ -269,6 +361,7 @@ function LiveCallSurface({
         ? 'ringing'
         : 'dialling'
   const elapsedSeconds = useCallTimer(phase === 'live')
+  useCallTones(phase)
 
   const statusLabel = closed ? 'Call ended' : ending ? 'Hanging up…' : (CONNECTION_LABELS[connection] ?? connection)
   const statusTone: CallStatusTone = closed
@@ -278,6 +371,73 @@ function LiveCallSurface({
       : connection === ConnectionState.Disconnected
         ? 'off'
         : 'pending'
+
+  // The caller's own inputs. The room already holds microphone permission, so
+  // the devices come back properly named without asking for anything again.
+  const {
+    devices: audioInputs,
+    activeDeviceId: activeMicDeviceId,
+    setActiveMediaDevice,
+  } = useMediaDeviceSelect({ kind: 'audioinput' })
+  const micDevices = React.useMemo<CallDeviceOption[]>(
+    () =>
+      audioInputs
+        .filter((device) => device.deviceId !== '')
+        .map((device, index) => ({
+          deviceId: device.deviceId,
+          label: device.label.trim() || `Microphone ${index + 1}`,
+        })),
+    [audioInputs],
+  )
+  const selectMicDevice = React.useCallback(
+    (deviceId: string) => {
+      void setActiveMediaDevice(deviceId).catch(() => {
+        toast.error('That microphone could not be used', {
+          description: 'The call is still on the microphone you were using.',
+        })
+      })
+    },
+    [setActiveMediaDevice],
+  )
+
+  // Sharing a screen is a round trip through the browser's own picker, so the
+  // control is held busy until it settles — and the settled answer comes from
+  // the room, never from an optimistic flag here. A caller who dismisses the
+  // picker lands back exactly where they started, silently.
+  const screenShareSupported = React.useSyncExternalStore(
+    NEVER_CHANGES,
+    readScreenShareSupport,
+    SCREEN_SHARE_SUPPORTED_ON_SERVER,
+  )
+  const [sharePending, setSharePending] = React.useState(false)
+  const toggleScreenShare = React.useCallback(() => {
+    const next = !isScreenShareEnabled
+    setSharePending(true)
+    localParticipant
+      .setScreenShareEnabled(next)
+      .catch((error: unknown) => {
+        if (screenShareDeclined(error)) return
+        toast.error(next ? 'Your screen could not be shared' : 'Your screen is still being shared', {
+          description: next
+            ? 'Check that this browser is allowed to record your screen, then try again.'
+            : 'Stop it from your browser’s sharing bar if it keeps going.',
+        })
+      })
+      .finally(() => setSharePending(false))
+  }, [isScreenShareEnabled, localParticipant])
+  // Starting a share has preconditions; stopping one never does — whatever the
+  // call is doing, a caller who is sending their screen can always take it back.
+  const shareUnavailableReason = isScreenShareEnabled
+    ? null
+    : !screenShareSupported
+      ? 'Screen sharing is not available in this browser'
+      : phase === 'ended'
+        ? 'The call has ended'
+        : phase !== 'live'
+          ? `Screen sharing becomes available once ${agent.name} picks up`
+          : null
+
+  const [transcriptVisible, setTranscriptVisible] = React.useState(true)
 
   const { turns, activity, browser } = useCallFeed(sessionId)
   const items = React.useMemo(() => toolActivityFromEvents(activity), [activity])
@@ -304,7 +464,9 @@ function LiveCallSurface({
   )
 
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+    <div
+      className={cn('grid gap-4', transcriptVisible && 'lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]')}
+    >
       <Card>
         <CardContent className="flex flex-col items-center gap-8 px-6 py-10">
           <CallStage
@@ -320,6 +482,15 @@ function LiveCallSurface({
           <CallControlBar
             micEnabled={isMicrophoneEnabled}
             onToggleMic={() => void localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled)}
+            micDevices={micDevices}
+            activeMicDeviceId={activeMicDeviceId}
+            onSelectMicDevice={selectMicDevice}
+            sharingScreen={isScreenShareEnabled}
+            sharePending={sharePending}
+            onToggleScreenShare={toggleScreenShare}
+            shareUnavailableReason={shareUnavailableReason}
+            transcriptVisible={transcriptVisible}
+            onToggleTranscript={() => setTranscriptVisible((visible) => !visible)}
             onEnd={onEnd}
             ending={ending}
             statusLabel={statusLabel}
@@ -327,7 +498,19 @@ function LiveCallSurface({
           />
         </CardContent>
       </Card>
-      <CaptionsPanel turns={turns} items={items} agentName={agent.name} />
+      {transcriptVisible ? (
+        // Beside the stage the transcript is taken out of flow, so it can never
+        // be the thing that decides how tall the row is — the stage decides,
+        // always — and then it fills exactly the height it was given. That is
+        // what lines the two bottom edges up without the page growing a
+        // scrollbar, and what keeps the stage perfectly still when the caller
+        // dismisses the transcript. Stacked below lg it is an ordinary card.
+        <div className="lg:relative">
+          <div className="lg:absolute lg:inset-0">
+            <CaptionsPanel turns={turns} items={items} agentName={agent.name} />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
