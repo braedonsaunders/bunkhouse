@@ -45,8 +45,13 @@ const SEARCH_PROVIDERS = [
   { value: 'tavily', label: 'Tavily' },
 ] as const
 
+/**
+ * The search key agents research on. One provider at a time, connected in a
+ * drawer — the page itself stays a status row an operator can read at a glance.
+ */
 export function ResearchSection({ provider }: { provider: string | null }) {
-  const [choice, setChoice] = React.useState<string>(SEARCH_PROVIDERS[0].value)
+  const [open, setOpen] = React.useState(false)
+  const [choice, setChoice] = React.useState<string>(provider ?? SEARCH_PROVIDERS[0].value)
   const [key, setKey] = React.useState('')
   const [error, setError] = React.useState<string | null>(null)
   const [busy, startBusy] = React.useTransition()
@@ -63,13 +68,8 @@ export function ResearchSection({ provider }: { provider: string | null }) {
           control={
             <span className="flex items-center gap-2">
               <Badge variant="secondary">key sealed</Badge>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => startBusy(async () => removeSearchProviderAction())}
-              >
-                Remove
+              <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+                Manage
               </Button>
             </span>
           }
@@ -77,12 +77,49 @@ export function ResearchSection({ provider }: { provider: string | null }) {
       ) : (
         <SettingsRow
           title="Keyless fallback"
-          description="No provider configured — searches use a public engine. Add a key for better, rate-stable results."
-          control={<Badge variant="outline">active</Badge>}
+          description="No provider configured — searches use a public engine. Connect a key for better, rate-stable results."
+          control={
+            <span className="flex items-center gap-2">
+              <Badge variant="outline">active</Badge>
+              <Button size="sm" onClick={() => setOpen(true)}>
+                Connect a provider
+              </Button>
+            </span>
+          }
         />
       )}
-      <SettingsRow title={provider ? 'Replace the provider' : 'Add a provider'} stacked>
-        <div className="grid gap-3 sm:grid-cols-[12rem_1fr_auto]">
+
+      <Drawer
+        open={open}
+        onClose={() => setOpen(false)}
+        title={provider ? 'Search provider' : 'Connect a search provider'}
+        description="One provider powers every agent's research. The key is verified against the provider before it is sealed."
+        size="md"
+      >
+        <div className="space-y-4">
+          {provider ? (
+            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
+              <span className="flex items-center gap-2">
+                <Badge>connected</Badge>
+                <span className="text-fg-muted">
+                  {SEARCH_PROVIDERS.find((p) => p.value === provider)?.label ?? provider} · key sealed at rest.
+                </span>
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() =>
+                  startBusy(async () => {
+                    await removeSearchProviderAction()
+                    setOpen(false)
+                  })
+                }
+              >
+                Remove
+              </Button>
+            </div>
+          ) : null}
           <div className="space-y-1">
             <Label htmlFor="search-provider">Provider</Label>
             <Select id="search-provider" value={choice} onChange={(event) => setChoice(event.target.value)}>
@@ -94,7 +131,7 @@ export function ResearchSection({ provider }: { provider: string | null }) {
             </Select>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="search-key">API key</Label>
+            <Label htmlFor="search-key">{provider ? 'Replacement API key' : 'API key'}</Label>
             <Input
               id="search-key"
               type="password"
@@ -103,24 +140,26 @@ export function ResearchSection({ provider }: { provider: string | null }) {
               placeholder="Verified against the provider before saving"
             />
           </div>
-          <div className="flex items-end">
-            <Button
-              disabled={busy || !key.trim()}
-              onClick={() =>
-                startBusy(async () => {
-                  setError(null)
-                  const result = await setSearchProviderAction({ provider: choice, apiKey: key })
-                  if (!result.ok) setError(result.message)
-                  else setKey('')
-                })
-              }
-            >
-              Verify &amp; save
-            </Button>
-          </div>
+          <Button
+            disabled={busy || !key.trim()}
+            onClick={() =>
+              startBusy(async () => {
+                setError(null)
+                const result = await setSearchProviderAction({ provider: choice, apiKey: key })
+                if (!result.ok) {
+                  setError(result.message)
+                  return
+                }
+                setKey('')
+                setOpen(false)
+              })
+            }
+          >
+            {busy ? 'Verifying…' : 'Verify & save'}
+          </Button>
+          {error ? <p className="text-sm text-danger">{error}</p> : null}
         </div>
-        {error ? <p className="mt-2 text-sm text-danger">{error}</p> : null}
-      </SettingsRow>
+      </Drawer>
     </SettingsSection>
   )
 }
@@ -750,15 +789,15 @@ type SmsDynamicFields = {
  * Outbound text messaging: an operator connects one of five SMS providers,
  * whose single credential is sealed at rest and only unsealed at send time.
  * Every agent texts through the one connected provider — nothing to assign
- * per agent, unlike Model providers.
+ * per agent, unlike Model providers. Connecting happens in a drawer.
  */
 export function SmsSection({ settings }: { settings: SmsSettingsView }) {
   const configuredProvider = settings.provider && isSmsProvider(settings.provider) ? settings.provider : null
+  const [open, setOpen] = React.useState(false)
   const [provider, setProvider] = React.useState<SmsProvider>(configuredProvider ?? SMS_PROVIDER_SPECS[0]!.value)
-  const [fromNumber, setFromNumber] = React.useState('')
+  const [fromNumber, setFromNumber] = React.useState(settings.fromNumber ?? '')
   const [secret, setSecret] = React.useState('')
   const [fields, setFields] = React.useState<SmsDynamicFields>({})
-  const [notice, setNotice] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [busy, startBusy] = React.useTransition()
 
@@ -771,7 +810,7 @@ export function SmsSection({ settings }: { settings: SmsSettingsView }) {
   return (
     <SettingsSection
       title="Text messaging"
-      description="Send SMS from your agents — reminders, confirmations, quick replies. Connect one provider below and every agent can text through it; the credential is sealed at rest and unsealed only when a message goes out."
+      description="Send SMS from your agents — reminders, confirmations, quick replies. Connect one provider and every agent can text through it; the credential is sealed at rest and unsealed only when a message goes out."
     >
       {providerLabel ? (
         <SettingsRow
@@ -780,13 +819,8 @@ export function SmsSection({ settings }: { settings: SmsSettingsView }) {
           control={
             <span className="flex items-center gap-2">
               <Badge variant="secondary">key sealed</Badge>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => startBusy(async () => removeSmsSettingsAction())}
-              >
-                Remove
+              <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+                Manage
               </Button>
             </span>
           }
@@ -794,70 +828,105 @@ export function SmsSection({ settings }: { settings: SmsSettingsView }) {
       ) : (
         <SettingsRow
           title="Not configured"
-          description="Agents cannot send text messages until a provider is connected below."
+          description="Agents cannot send text messages until a provider is connected."
+          control={
+            <span className="flex items-center gap-2">
+              <Badge variant="outline">off</Badge>
+              <Button size="sm" onClick={() => setOpen(true)}>
+                Connect a provider
+              </Button>
+            </span>
+          }
         />
       )}
-      <SettingsRow title={providerLabel ? 'Replace the provider' : 'Connect a provider'} stacked>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1">
-            <Label htmlFor="sms-provider">Provider</Label>
-            <Select
-              id="sms-provider"
-              value={provider}
-              onChange={(event) => {
-                const next = event.target.value
-                if (isSmsProvider(next)) {
-                  setProvider(next)
-                  setFields({})
+
+      <Drawer
+        open={open}
+        onClose={() => setOpen(false)}
+        title={providerLabel ? 'Text messaging' : 'Connect a text provider'}
+        description="One provider carries every agent's messages. The credential is checked against the provider before it is sealed."
+        size="md"
+      >
+        <div className="space-y-4">
+          {providerLabel ? (
+            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
+              <span className="flex items-center gap-2">
+                <Badge>connected</Badge>
+                <span className="text-fg-muted">{providerLabel} · key sealed at rest.</span>
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() =>
+                  startBusy(async () => {
+                    await removeSmsSettingsAction()
+                    setOpen(false)
+                  })
                 }
-              }}
-            >
-              {SMS_PROVIDER_SPECS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="sms-from">Sender (number or ID)</Label>
-            <Input
-              id="sms-from"
-              value={fromNumber}
-              onChange={(event) => setFromNumber(event.target.value)}
-              placeholder="+15551234567"
-            />
-          </div>
-          {spec.fields.map((field) => (
-            <div key={field.key} className="space-y-1">
-              <Label htmlFor={`sms-field-${field.key}`}>{field.label}</Label>
+              >
+                Remove
+              </Button>
+            </div>
+          ) : null}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label htmlFor="sms-provider">Provider</Label>
+              <Select
+                id="sms-provider"
+                value={provider}
+                onChange={(event) => {
+                  const next = event.target.value
+                  if (isSmsProvider(next)) {
+                    setProvider(next)
+                    setFields({})
+                  }
+                }}
+              >
+                {SMS_PROVIDER_SPECS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="sms-from">Sender (number or ID)</Label>
               <Input
-                id={`sms-field-${field.key}`}
-                value={fields[field.key as keyof SmsDynamicFields] ?? ''}
-                onChange={(event) => setField(field.key, event.target.value)}
-                placeholder={field.placeholder}
+                id="sms-from"
+                value={fromNumber}
+                onChange={(event) => setFromNumber(event.target.value)}
+                placeholder="+15551234567"
               />
             </div>
-          ))}
-          <div className="space-y-1 sm:col-span-2">
-            <Label htmlFor="sms-secret">{spec.secretLabel}</Label>
-            <Input
-              id="sms-secret"
-              type="password"
-              value={secret}
-              onChange={(event) => setSecret(event.target.value)}
-              placeholder={spec.keyHint}
-            />
+            {spec.fields.map((field) => (
+              <div key={field.key} className="space-y-1">
+                <Label htmlFor={`sms-field-${field.key}`}>{field.label}</Label>
+                <Input
+                  id={`sms-field-${field.key}`}
+                  value={fields[field.key as keyof SmsDynamicFields] ?? ''}
+                  onChange={(event) => setField(field.key, event.target.value)}
+                  placeholder={field.placeholder}
+                />
+              </div>
+            ))}
+            <div className="space-y-1 sm:col-span-2">
+              <Label htmlFor="sms-secret">{spec.secretLabel}</Label>
+              <Input
+                id="sms-secret"
+                type="password"
+                value={secret}
+                onChange={(event) => setSecret(event.target.value)}
+                placeholder={spec.keyHint}
+              />
+            </div>
           </div>
-        </div>
-        {spec.docsHint ? <p className="mt-2 text-xs text-fg-muted">{spec.docsHint}</p> : null}
-        <div className="mt-3 flex items-center gap-3">
+          {spec.docsHint ? <p className="text-xs text-fg-muted">{spec.docsHint}</p> : null}
           <Button
             disabled={busy || !fromNumber.trim() || !secret.trim()}
             onClick={() =>
               startBusy(async () => {
                 setError(null)
-                setNotice(null)
                 const result = await saveSmsSettingsAction({
                   provider,
                   fromNumber,
@@ -868,17 +937,16 @@ export function SmsSection({ settings }: { settings: SmsSettingsView }) {
                   setError(result.message)
                   return
                 }
-                setNotice('Saved. Agents can send text messages through this provider.')
                 setSecret('')
+                setOpen(false)
               })
             }
           >
-            Verify &amp; save
+            {busy ? 'Verifying…' : 'Verify & save'}
           </Button>
-          {notice ? <p className="text-sm text-fg-muted">{notice}</p> : null}
           {error ? <p className="text-sm text-danger">{error}</p> : null}
         </div>
-      </SettingsRow>
+      </Drawer>
     </SettingsSection>
   )
 }

@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { isAiProvider, listModels } from '@appkit/ai'
 import { isSmsProvider } from '@appkit/sms/providers'
 import { unsealSecret } from '@appkit/crypto'
-import { addAiProvider, listAiProviders, removeAiProvider, resolveProviderAiConfig } from '../../../lib/ai'
+import { addAiProvider, listAiProviders, removeAiProvider, resolveProviderAiConfig, updateAiProvider } from '../../../lib/ai'
 import { listTenantElevenLabsVoices, removeSpeechProvider, setSpeechProviderKey, type SpeechProvider } from '../../../lib/voice'
 import { resolveTenantId } from '../../../lib/tenant'
 import { refreshPricesFromOpenRouter, setManualPrice } from '../../../lib/pricing'
@@ -50,6 +50,36 @@ export async function addProviderAction(
       ...(baseUrl ? { baseUrl } : {}),
       ...(modelSmart ? { modelSmart } : {}),
       ...(modelFast ? { modelFast } : {}),
+    })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  revalidatePath('/admin/settings')
+  return { ok: true }
+}
+
+/** Change a saved provider's label, default models, or — on rotation — its key.
+ *  The slug is fixed: agents reference it from their own record. */
+export async function updateProviderAction(input: {
+  slug: string
+  label: string
+  modelSmart?: string
+  modelFast?: string
+  apiKey?: string
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const slug = input.slug.trim()
+  const label = input.label.trim()
+  if (!slug) return { ok: false, message: 'Which provider is being changed?' }
+  if (!label) return { ok: false, message: 'Give the provider a label.' }
+  try {
+    const tenantId = await resolveTenantId()
+    await updateAiProvider({
+      tenantId,
+      slug,
+      label,
+      ...(input.modelSmart?.trim() ? { modelSmart: input.modelSmart.trim() } : {}),
+      ...(input.modelFast?.trim() ? { modelFast: input.modelFast.trim() } : {}),
+      ...(input.apiKey?.trim() ? { apiKey: input.apiKey.trim() } : {}),
     })
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }

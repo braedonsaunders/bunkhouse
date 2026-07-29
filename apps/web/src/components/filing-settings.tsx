@@ -5,6 +5,7 @@ import {
   Badge,
   Button,
   Checkbox,
+  Drawer,
   EmptyState,
   Input,
   Label,
@@ -107,6 +108,11 @@ const PROVIDER_LABELS: Record<FilingProviderView, string> = {
   smb: 'Server folder (SMB / NAS)',
 }
 
+/**
+ * Filing status and what gets copied. The destination itself — application,
+ * account, folder — is set up in a drawer, so this page stays a couple of
+ * status rows and one activity table.
+ */
 export function FilingSection({
   settings,
   activity,
@@ -121,19 +127,10 @@ export function FilingSection({
   const [enabled, setEnabled] = React.useState(settings.enabled)
   const [kinds, setKinds] = React.useState<FilingFileKindView[]>(settings.kinds)
   const [layout, setLayout] = React.useState<FilingLayoutView>(settings.layout)
-  const [choice, setChoice] = React.useState<FilingProviderView>(settings.target?.provider ?? 'google_drive')
-  const [clientId, setClientId] = React.useState('')
-  const [clientSecret, setClientSecret] = React.useState('')
-  const [directory, setDirectory] = React.useState('common')
-  const [folderName, setFolderName] = React.useState('Bunkhouse deliverables')
-  const [driveId, setDriveId] = React.useState('')
-  const [basePath, setBasePath] = React.useState('')
+  const [destinationOpen, setDestinationOpen] = React.useState(false)
   const [localNotice, setLocalNotice] = React.useState<string | null>(null)
   const [localError, setLocalError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
-
-  const oauthProvider = choice === 'smb' ? null : choice
-  const registered = oauthProvider ? settings.apps.find((app) => app.provider === oauthProvider) : undefined
 
   const run = async (work: () => Promise<{ ok: true } | { ok: false; message: string }>, done: string) => {
     setBusy(true)
@@ -147,13 +144,6 @@ export function FilingSection({
 
   const toggleKind = (kind: FilingFileKindView) =>
     setKinds((prev) => (prev.includes(kind) ? prev.filter((value) => value !== kind) : [...prev, kind]))
-
-  const connect = () => {
-    if (!oauthProvider) return
-    const params = new URLSearchParams({ provider: oauthProvider, folder: folderName.trim() })
-    if (oauthProvider === 'onedrive' && driveId.trim()) params.set('driveId', driveId.trim())
-    window.location.assign(`/api/filing-oauth/start?${params.toString()}`)
-  }
 
   return (
     <div className="space-y-6">
@@ -174,6 +164,9 @@ export function FilingSection({
                 <Badge variant={settings.enabled ? 'default' : 'outline'}>
                   {settings.enabled ? 'filing' : 'paused'}
                 </Badge>
+                <Button variant="outline" size="sm" onClick={() => setDestinationOpen(true)}>
+                  Change destination
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -188,8 +181,15 @@ export function FilingSection({
         ) : (
           <SettingsRow
             title="Not connected"
-            description="Files are kept in the company file record and delivered by email. Connect a destination below to keep a copy in your own storage as well."
-            control={<Badge variant="outline">off</Badge>}
+            description="Files are kept in the company file record and delivered by email. Connect a destination to keep a copy in your own storage as well."
+            control={
+              <span className="flex items-center gap-2">
+                <Badge variant="outline">off</Badge>
+                <Button size="sm" onClick={() => setDestinationOpen(true)}>
+                  Connect a destination
+                </Button>
+              </span>
+            }
           />
         )}
 
@@ -248,185 +248,11 @@ export function FilingSection({
             </Button>
           </div>
         </SettingsRow>
-      </SettingsSection>
 
-      <SettingsSection
-        title="Destination"
-        description="One destination at a time. Connecting a new one replaces the old; nothing already filed is touched."
-      >
-        <SettingsRow title="Where files are filed" stacked>
-          <div className="space-y-1 sm:max-w-sm">
-            <Label htmlFor="filing-provider">Storage</Label>
-            <Select
-              id="filing-provider"
-              value={choice}
-              onChange={(event) => setChoice(event.target.value as FilingProviderView)}
-            >
-              {(Object.keys(PROVIDER_LABELS) as FilingProviderView[]).map((provider) => (
-                <option key={provider} value={provider}>
-                  {PROVIDER_LABELS[provider]}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </SettingsRow>
-
-        {oauthProvider ? (
-          <>
-            <SettingsRow
-              title={`${PROVIDER_LABELS[oauthProvider]} application`}
-              description="Your company registers its own application once, exactly as it does for mailboxes. The client secret is sealed at rest and only unsealed for a token exchange."
-              stacked
-            >
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <Label htmlFor="filing-client-id">Application (client) ID</Label>
-                  <Input
-                    id="filing-client-id"
-                    value={clientId}
-                    onChange={(event) => setClientId(event.target.value)}
-                    placeholder={registered ? registered.clientId : 'From the provider console'}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="filing-client-secret">Client secret</Label>
-                  <Input
-                    id="filing-client-secret"
-                    type="password"
-                    value={clientSecret}
-                    onChange={(event) => setClientSecret(event.target.value)}
-                    placeholder="Stored sealed"
-                  />
-                </div>
-                {oauthProvider === 'onedrive' ? (
-                  <div className="space-y-1">
-                    <Label htmlFor="filing-directory">Microsoft directory</Label>
-                    <Input
-                      id="filing-directory"
-                      value={directory}
-                      onChange={(event) => setDirectory(event.target.value)}
-                      placeholder="common, or your directory (tenant) ID"
-                    />
-                  </div>
-                ) : null}
-                <div className="space-y-1 sm:col-span-2">
-                  <Label htmlFor="filing-redirect">Redirect URI to register</Label>
-                  <Input id="filing-redirect" value={settings.redirectUri} readOnly />
-                </div>
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <Button
-                  disabled={busy || !clientId.trim() || !clientSecret.trim()}
-                  onClick={() =>
-                    run(
-                      () =>
-                        saveFilingAppAction({
-                          provider: oauthProvider,
-                          clientId,
-                          clientSecret,
-                          ...(oauthProvider === 'onedrive' ? { directory } : {}),
-                        }),
-                      'Application saved. Connect the account below.',
-                    ).then(() => setClientSecret(''))
-                  }
-                >
-                  Save application
-                </Button>
-                {registered ? (
-                  <>
-                    <Badge variant="secondary">secret sealed</Badge>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() =>
-                        run(() => removeFilingAppAction({ provider: oauthProvider }), 'Application removed.')
-                      }
-                    >
-                      Remove application
-                    </Button>
-                  </>
-                ) : null}
-              </div>
-            </SettingsRow>
-
-            <SettingsRow
-              title="Connect the account"
-              description={
-                oauthProvider === 'google_drive'
-                  ? 'Bunkhouse creates the folder below and can only see what it puts there — the narrowest access Google offers.'
-                  : 'Bunkhouse creates the folder below in OneDrive, or in the SharePoint document library you name.'
-              }
-              stacked
-            >
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <Label htmlFor="filing-folder">Destination folder</Label>
-                  <Input
-                    id="filing-folder"
-                    value={folderName}
-                    onChange={(event) => setFolderName(event.target.value)}
-                    placeholder="Bunkhouse deliverables"
-                  />
-                </div>
-                {oauthProvider === 'onedrive' ? (
-                  <div className="space-y-1">
-                    <Label htmlFor="filing-drive">SharePoint library ID (optional)</Label>
-                    <Input
-                      id="filing-drive"
-                      value={driveId}
-                      onChange={(event) => setDriveId(event.target.value)}
-                      placeholder="Leave empty to use the account's OneDrive"
-                    />
-                  </div>
-                ) : null}
-              </div>
-              <div className="mt-3">
-                <Button disabled={busy || !registered || !folderName.trim()} onClick={connect}>
-                  {registered ? `Connect ${PROVIDER_LABELS[oauthProvider]}` : 'Save the application first'}
-                </Button>
-              </div>
-            </SettingsRow>
-          </>
-        ) : (
-          <SettingsRow
-            title="Server folder"
-            description="Mount the share into the application container (a Windows share, a NAS export, any path the server can see) and give the folder path as the server sees it. The folder is tested for a real write before it is saved."
-            stacked
-          >
-            <div className="space-y-1">
-              <Label htmlFor="filing-path">Folder path</Label>
-              <Input
-                id="filing-path"
-                value={basePath}
-                onChange={(event) => setBasePath(event.target.value)}
-                placeholder="/mnt/company-files/deliverables"
-              />
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <Button
-                variant="outline"
-                disabled={busy || !basePath.trim()}
-                onClick={() =>
-                  run(() => checkFilingDirectoryAction({ basePath }), 'That folder exists and is writable.')
-                }
-              >
-                Check the folder
-              </Button>
-              <Button
-                disabled={busy || !basePath.trim()}
-                onClick={() =>
-                  run(() => saveFilingDirectoryAction({ basePath }), 'Connected. New files are copied to that folder.')
-                }
-              >
-                Use this folder
-              </Button>
-            </div>
-          </SettingsRow>
-        )}
-
-        {localNotice || notice ? <p className="text-sm text-fg-muted">{localNotice ?? notice}</p> : null}
-        {localError || error ? <p className="text-sm text-danger">{localError ?? error}</p> : null}
+        {localNotice || notice ? (
+          <p className="px-5 py-3 text-sm text-fg-muted">{localNotice ?? notice}</p>
+        ) : null}
+        {localError || error ? <p className="px-5 py-3 text-sm text-danger">{localError ?? error}</p> : null}
       </SettingsSection>
 
       <SettingsSection
@@ -451,6 +277,232 @@ export function FilingSection({
           />
         </div>
       </SettingsSection>
+
+      <Drawer
+        open={destinationOpen}
+        onClose={() => setDestinationOpen(false)}
+        title={settings.target ? 'Change destination' : 'Connect a destination'}
+        description="One destination at a time. Connecting a new one replaces the old; nothing already filed is touched."
+        size="md"
+      >
+        {destinationOpen ? <DestinationForm settings={settings} /> : null}
+      </Drawer>
+    </div>
+  )
+}
+
+/**
+ * Where copies land: your own Google/Microsoft application and the account it
+ * signs in as, or a folder the server can already see. The folder is proved
+ * writable before it is accepted.
+ */
+function DestinationForm({ settings }: { settings: FilingSettingsView }) {
+  const [choice, setChoice] = React.useState<FilingProviderView>(settings.target?.provider ?? 'google_drive')
+  const [clientId, setClientId] = React.useState('')
+  const [clientSecret, setClientSecret] = React.useState('')
+  const [directory, setDirectory] = React.useState('common')
+  const [folderName, setFolderName] = React.useState('Bunkhouse deliverables')
+  const [driveId, setDriveId] = React.useState('')
+  const [basePath, setBasePath] = React.useState('')
+  const [notice, setNotice] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [busy, setBusy] = React.useState(false)
+
+  const oauthProvider = choice === 'smb' ? null : choice
+  const registered = oauthProvider ? settings.apps.find((app) => app.provider === oauthProvider) : undefined
+
+  const run = async (work: () => Promise<{ ok: true } | { ok: false; message: string }>, done: string) => {
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    const result = await work()
+    setBusy(false)
+    if (result.ok) setNotice(done)
+    else setError(result.message)
+  }
+
+  const connect = () => {
+    if (!oauthProvider) return
+    const params = new URLSearchParams({ provider: oauthProvider, folder: folderName.trim() })
+    if (oauthProvider === 'onedrive' && driveId.trim()) params.set('driveId', driveId.trim())
+    window.location.assign(`/api/filing-oauth/start?${params.toString()}`)
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="space-y-1">
+        <Label htmlFor="filing-provider">Storage</Label>
+        <Select
+          id="filing-provider"
+          value={choice}
+          onChange={(event) => setChoice(event.target.value as FilingProviderView)}
+        >
+          {(Object.keys(PROVIDER_LABELS) as FilingProviderView[]).map((provider) => (
+            <option key={provider} value={provider}>
+              {PROVIDER_LABELS[provider]}
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      {oauthProvider ? (
+        <>
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-medium">{PROVIDER_LABELS[oauthProvider]} application</p>
+              <p className="text-xs text-fg-muted">
+                Your company registers its own application once, exactly as it does for mailboxes. The client secret is
+                sealed at rest and only unsealed for a token exchange.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="filing-client-id">Application (client) ID</Label>
+                <Input
+                  id="filing-client-id"
+                  value={clientId}
+                  onChange={(event) => setClientId(event.target.value)}
+                  placeholder={registered ? registered.clientId : 'From the provider console'}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="filing-client-secret">Client secret</Label>
+                <Input
+                  id="filing-client-secret"
+                  type="password"
+                  value={clientSecret}
+                  onChange={(event) => setClientSecret(event.target.value)}
+                  placeholder="Stored sealed"
+                />
+              </div>
+              {oauthProvider === 'onedrive' ? (
+                <div className="space-y-1">
+                  <Label htmlFor="filing-directory">Microsoft directory</Label>
+                  <Input
+                    id="filing-directory"
+                    value={directory}
+                    onChange={(event) => setDirectory(event.target.value)}
+                    placeholder="common, or your directory (tenant) ID"
+                  />
+                </div>
+              ) : null}
+              <div className="space-y-1 sm:col-span-2">
+                <Label htmlFor="filing-redirect">Redirect URI to register</Label>
+                <Input id="filing-redirect" value={settings.redirectUri} readOnly />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                size="sm"
+                disabled={busy || !clientId.trim() || !clientSecret.trim()}
+                onClick={() =>
+                  run(
+                    () =>
+                      saveFilingAppAction({
+                        provider: oauthProvider,
+                        clientId,
+                        clientSecret,
+                        ...(oauthProvider === 'onedrive' ? { directory } : {}),
+                      }),
+                    'Application saved. Connect the account below.',
+                  ).then(() => setClientSecret(''))
+                }
+              >
+                Save application
+              </Button>
+              {registered ? (
+                <>
+                  <Badge variant="secondary">secret sealed</Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => run(() => removeFilingAppAction({ provider: oauthProvider }), 'Application removed.')}
+                  >
+                    Remove application
+                  </Button>
+                </>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="space-y-3 border-t border-border pt-4">
+            <div>
+              <p className="text-sm font-medium">Connect the account</p>
+              <p className="text-xs text-fg-muted">
+                {oauthProvider === 'google_drive'
+                  ? 'Bunkhouse creates the folder below and can only see what it puts there — the narrowest access Google offers.'
+                  : 'Bunkhouse creates the folder below in OneDrive, or in the SharePoint document library you name.'}
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="filing-folder">Destination folder</Label>
+                <Input
+                  id="filing-folder"
+                  value={folderName}
+                  onChange={(event) => setFolderName(event.target.value)}
+                  placeholder="Bunkhouse deliverables"
+                />
+              </div>
+              {oauthProvider === 'onedrive' ? (
+                <div className="space-y-1">
+                  <Label htmlFor="filing-drive">SharePoint library ID (optional)</Label>
+                  <Input
+                    id="filing-drive"
+                    value={driveId}
+                    onChange={(event) => setDriveId(event.target.value)}
+                    placeholder="Leave empty to use the account's OneDrive"
+                  />
+                </div>
+              ) : null}
+            </div>
+            <Button disabled={busy || !registered || !folderName.trim()} onClick={connect}>
+              {registered ? `Connect ${PROVIDER_LABELS[oauthProvider]}` : 'Save the application first'}
+            </Button>
+          </div>
+        </>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-medium">Server folder</p>
+            <p className="text-xs text-fg-muted">
+              Mount the share into the application container (a Windows share, a NAS export, any path the server can
+              see) and give the folder path as the server sees it. The folder is tested for a real write before it is
+              saved.
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="filing-path">Folder path</Label>
+            <Input
+              id="filing-path"
+              value={basePath}
+              onChange={(event) => setBasePath(event.target.value)}
+              placeholder="/mnt/company-files/deliverables"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              disabled={busy || !basePath.trim()}
+              onClick={() => run(() => checkFilingDirectoryAction({ basePath }), 'That folder exists and is writable.')}
+            >
+              Check the folder
+            </Button>
+            <Button
+              disabled={busy || !basePath.trim()}
+              onClick={() =>
+                run(() => saveFilingDirectoryAction({ basePath }), 'Connected. New files are copied to that folder.')
+              }
+            >
+              Use this folder
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {notice ? <p className="text-sm text-fg-muted">{notice}</p> : null}
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
     </div>
   )
 }

@@ -145,6 +145,15 @@ export default async function SettingsPage({
   const integrations = await app.withTenantContext(tenantId, () => listMcpIntegrations(tenantId))
   const mailOauthApps = await listMailOauthApps(tenantId)
   const mailSignature = await getMailSignature(tenantId)
+  // Who thinks on which provider, so Settings → Models can show what a removal
+  // would cost before an operator makes one.
+  const modelAssignments = await app.withTenantContext(tenantId, () =>
+    app.db
+      .select({ id: people.id, name: people.name, modelConfig: people.modelConfig })
+      .from(people)
+      .where(and(eq(people.kind, 'agent'), sql`${people.modelConfig} is not null`))
+      .orderBy(asc(people.name)),
+  )
 
   return (
     <SettingsView
@@ -156,6 +165,18 @@ export default async function SettingsPage({
         ...(p.modelFast ? { modelFast: p.modelFast } : {}),
         ...(p.baseUrl ? { baseUrl: p.baseUrl } : {}),
       }))}
+      providerAssignments={modelAssignments.flatMap((agent) =>
+        agent.modelConfig
+          ? [
+              {
+                personId: agent.id,
+                personName: agent.name,
+                providerSlug: agent.modelConfig.provider,
+                model: agent.modelConfig.model,
+              },
+            ]
+          : [],
+      )}
       kinds={AI_PROVIDER_SPECS.map((spec) => ({
         value: spec.value,
         label: spec.label,

@@ -73,14 +73,6 @@ export function AutonomySettings({ agents, linkRender }: { agents: AgentDial[]; 
 
   return (
     <>
-      <RecordList
-        columns={COLUMNS}
-        rows={rows}
-        getRowId={(row) => row.personId}
-        linkRender={linkRender}
-        onRowClick={(row) => setOpenAgent(row.personId)}
-        empty={{ title: 'No agents on the roster', description: 'Onboard an agent to set its autonomy.' }}
-      />
       <SettingsRow
         title="What the levels mean"
         description="An agent can never exceed its dial — the runtime enforces it on every action, not the prompt."
@@ -95,6 +87,14 @@ export function AutonomySettings({ agents, linkRender }: { agents: AgentDial[]; 
           ))}
         </div>
       </SettingsRow>
+      <RecordList
+        columns={COLUMNS}
+        rows={rows}
+        getRowId={(row) => row.personId}
+        linkRender={linkRender}
+        onRowClick={(row) => setOpenAgent(row.personId)}
+        empty={{ title: 'No agents on the roster', description: 'Onboard an agent to set its autonomy.' }}
+      />
 
       <Drawer
         open={selected !== null}

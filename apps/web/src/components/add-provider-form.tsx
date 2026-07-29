@@ -10,9 +10,10 @@ type ModelOption = { id: string; label?: string }
 
 /**
  * Two-step provider onboarding: verify the key by listing its live models,
- * then pick defaults from real dropdowns — no free-typed model ids.
+ * then pick defaults from real dropdowns — no free-typed model ids. Lives in
+ * the Add provider drawer, so the settings page under it stays a table.
  */
-export function AddProviderForm({ kinds }: { kinds: ProviderKindOption[] }) {
+export function AddProviderForm({ kinds, onSaved }: { kinds: ProviderKindOption[]; onSaved?: () => void }) {
   const [provider, setProvider] = React.useState(kinds[0]?.value ?? 'anthropic')
   const [label, setLabel] = React.useState('')
   const [slug, setSlug] = React.useState('')
@@ -68,12 +69,13 @@ export function AddProviderForm({ kinds }: { kinds: ProviderKindOption[] }) {
       setModels(null)
       setModelSmart('')
       setModelFast('')
+      onSaved?.()
     })
 
   const modelOptions = (models ?? []).map((m) => ({ value: m.id, label: m.label ? `${m.label} (${m.id})` : m.id }))
 
   return (
-    <div className="space-y-4 rounded-md border border-dashed border-border p-4">
+    <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="provider-kind">Provider</Label>

@@ -1,7 +1,7 @@
 import 'server-only'
 import { and, eq } from 'drizzle-orm'
 import { sealSecret, unsealSecret } from '@appkit/crypto'
-import { isAiProvider, pingModel, type AiConfig } from '@appkit/ai'
+import { isAiProvider, pingModel, type AiConfig, type AiProvider } from '@appkit/ai'
 import { AI_PROVIDERS_KEY, people, tenantSettings, type AiProviderEntry } from '../db/schema'
 import { db } from '../db/client'
 
@@ -30,6 +30,42 @@ export async function listAiProviders(tenantId: string): Promise<AiProviderEntry
   return app.withTenantContext(tenantId, () => readProviders(tenantId))
 }
 
+/**
+ * Prove the key works by pinging the models this provider will actually be
+ * used with, then the provider's built-in default as a fallback. Both ends
+ * matter: an aggregator retires model slugs out from under the built-in
+ * default (OpenRouter has dropped several), which would reject a perfectly
+ * good key — while a chosen model may be an image model that cannot answer
+ * a text ping, which is what the built-in default covers.
+ */
+async function verifyProviderKey(args: {
+  provider: AiProvider
+  apiKey: string
+  baseUrl?: string
+  modelSmart?: string
+  modelFast?: string
+}): Promise<void> {
+  const probe = (model?: string): AiConfig => ({
+    provider: args.provider,
+    apiKey: args.apiKey,
+    ...(args.baseUrl ? { baseUrl: args.baseUrl } : {}),
+    ...(model ? { modelFast: model } : {}),
+  })
+  const attempts: (string | undefined)[] = []
+  for (const chosen of [args.modelFast, args.modelSmart]) {
+    if (chosen && !attempts.includes(chosen)) attempts.push(chosen)
+  }
+  attempts.push(undefined)
+
+  const failures: string[] = []
+  for (const model of attempts) {
+    const ping = await pingModel(probe(model))
+    if (ping.ok) return
+    failures.push(`${model ?? "the provider's default model"} — ${ping.message}`)
+  }
+  throw new Error(`Provider check failed. ${failures.join('; ')}`)
+}
+
 /** Verify the key actually answers a prompt before it is ever saved. */
 export async function addAiProvider(args: {
   tenantId: string
@@ -42,37 +78,13 @@ export async function addAiProvider(args: {
   modelFast?: string
 }): Promise<void> {
   if (!isAiProvider(args.provider)) throw new Error(`Unknown provider kind: ${args.provider}`)
-  // Held in a local so the guard's narrowing survives into the probe closure.
-  const provider = args.provider
-  // Prove the key works by pinging the models this provider will actually be
-  // used with, then the provider's built-in default as a fallback. Both ends
-  // matter: an aggregator retires model slugs out from under the built-in
-  // default (OpenRouter has dropped several), which would reject a perfectly
-  // good key — while a chosen model may be an image model that cannot answer
-  // a text ping, which is what the built-in default covers.
-  const probe = (model?: string): AiConfig => ({
-    provider,
+  await verifyProviderKey({
+    provider: args.provider,
     apiKey: args.apiKey,
     ...(args.baseUrl ? { baseUrl: args.baseUrl } : {}),
-    ...(model ? { modelFast: model } : {}),
+    ...(args.modelSmart ? { modelSmart: args.modelSmart } : {}),
+    ...(args.modelFast ? { modelFast: args.modelFast } : {}),
   })
-  const attempts: (string | undefined)[] = []
-  for (const chosen of [args.modelFast, args.modelSmart]) {
-    if (chosen && !attempts.includes(chosen)) attempts.push(chosen)
-  }
-  attempts.push(undefined)
-
-  const failures: string[] = []
-  let verified = false
-  for (const model of attempts) {
-    const ping = await pingModel(probe(model))
-    if (ping.ok) {
-      verified = true
-      break
-    }
-    failures.push(`${model ?? "the provider's default model"} — ${ping.message}`)
-  }
-  if (!verified) throw new Error(`Provider check failed. ${failures.join('; ')}`)
 
   const app = db()
   await app.withTenant(args.tenantId, async () => {
@@ -90,6 +102,55 @@ export async function addAiProvider(args: {
       ...(args.modelFast ? { modelFast: args.modelFast } : {}),
     })
     await writeProviders(args.tenantId, providers)
+  })
+}
+
+/**
+ * Change a saved provider: its display label, the models agents fall back to,
+ * and — when the company rotates it — the key itself. The slug never moves,
+ * because every agent's modelConfig points at it. A replacement key is proved
+ * against the live API before it displaces the working one.
+ */
+export async function updateAiProvider(args: {
+  tenantId: string
+  slug: string
+  label: string
+  modelSmart?: string
+  modelFast?: string
+  /** Only when the key is being rotated; blank keeps the sealed one. */
+  apiKey?: string
+}): Promise<void> {
+  const app = db()
+  const providers = await app.withTenantContext(args.tenantId, () => readProviders(args.tenantId))
+  const entry = providers.find((p) => p.slug === args.slug)
+  if (!entry) throw new Error(`No provider "${args.slug}".`)
+  if (!isAiProvider(entry.provider)) throw new Error(`Provider kind ${entry.provider} is invalid.`)
+
+  const apiKey = args.apiKey?.trim() ? args.apiKey.trim() : unsealSecret(entry.sealedApiKey)
+  if (apiKey === null) throw new Error('The stored key cannot be unsealed — replace it to save changes.')
+  await verifyProviderKey({
+    provider: entry.provider,
+    apiKey,
+    ...(entry.baseUrl ? { baseUrl: entry.baseUrl } : {}),
+    ...(args.modelSmart ? { modelSmart: args.modelSmart } : {}),
+    ...(args.modelFast ? { modelFast: args.modelFast } : {}),
+  })
+
+  await app.withTenant(args.tenantId, async () => {
+    const current = await readProviders(args.tenantId)
+    const next: AiProviderEntry[] = current.map((p) => {
+      if (p.slug !== args.slug) return p
+      return {
+        slug: p.slug,
+        provider: p.provider,
+        label: args.label,
+        sealedApiKey: args.apiKey?.trim() ? sealSecret(args.apiKey.trim()) : p.sealedApiKey,
+        ...(p.baseUrl ? { baseUrl: p.baseUrl } : {}),
+        ...(args.modelSmart ? { modelSmart: args.modelSmart } : {}),
+        ...(args.modelFast ? { modelFast: args.modelFast } : {}),
+      }
+    })
+    await writeProviders(args.tenantId, next)
   })
 }
 

@@ -100,6 +100,8 @@ If a slice is intentionally engine-first, its task stays open until the UI lands
 
 **Schedules are human-readable.** Operators see "At 8:00 AM, Monday through Friday" and edit with the structured schedule builder — never raw cron. Cron is the internal storage format only; raw entry lives behind the builder's Advanced toggle.
 
+**Lists are tables; adding happens above them, in a flyout.** Any collection an operator manages is an `@appkit/ui` `PagedTable`/`RecordList` — never a stack of `SettingsRow`s standing in for rows. The create action is a button in the section's header row (and in the empty state), and it opens a Drawer. Never place an add/connect form — or a disclosure holding one — below a table or list; the same goes for singleton connections (a provider key, a storage destination): a status row with a Connect/Manage button, and the form in the drawer.
+
 **Row interactions open Drawers.** Clicking a list/table row opens an `@appkit/ui` Drawer with the record's detail and actions — never an inline form below the table, never a bare navigation when a drawer fits. Full-page records are for deep surfaces (profiles, run timelines); everything else drawers.
 
 ## Foundation rules

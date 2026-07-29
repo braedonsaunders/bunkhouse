@@ -13,10 +13,13 @@ export function ImageProviderForm({
   providers,
   current,
   fallbackModels,
+  onSaved,
 }: {
   providers: { slug: string; label: string; provider: string }[]
   current: { providerSlug: string; model: string } | null
   fallbackModels: { id: string; name: string; provider: string }[]
+  /** Closes the drawer this form is opened in, once the choice is stored. */
+  onSaved?: () => void
 }) {
   const [providerSlug, setProviderSlug] = React.useState(current?.providerSlug ?? providers[0]?.slug ?? '')
   const [models, setModels] = React.useState<{ id: string; name?: string }[] | null>(null)
@@ -65,7 +68,9 @@ export function ImageProviderForm({
         await setImageProviderAction(form)
       } catch (error) {
         setSaveError(error instanceof Error ? error.message : String(error))
+        return
       }
+      onSaved?.()
     })
 
   return (

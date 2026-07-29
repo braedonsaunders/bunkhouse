@@ -402,6 +402,9 @@ export function PhoneSystemRow({
   const [numberDraft, setNumberDraft] = React.useState({ number: '', label: '', personId: agents[0]?.id ?? '' })
   const [numberError, setNumberError] = React.useState<string | null>(null)
   const [numberNotice, setNumberNotice] = React.useState<string | null>(null)
+  // Which number errand is open: the carrier account, the shopping, or
+  // recording a number bought elsewhere. Each is its own drawer over the list.
+  const [numberPanel, setNumberPanel] = React.useState<'account' | 'buy' | 'record' | null>(null)
   // The carrier account, and shopping on it. Kept separate from numberDraft:
   // buying a number and recording one bought elsewhere are different errands
   // that happen to end in the same table.
@@ -635,6 +638,10 @@ export function PhoneSystemRow({
 
           {tab === 'extensions' ? (
             <div className="space-y-3">
+              <p className="text-xs text-fg-muted">
+                Extensions are assigned on each agent&apos;s profile, under Voice. Each code is unique across the
+                company.
+              </p>
               <PagedTable
                 columns={EXTENSION_COLUMNS}
                 rows={extensions}
@@ -650,10 +657,6 @@ export function PhoneSystemRow({
                   />
                 }
               />
-              <p className="text-xs text-fg-muted">
-                Extensions are assigned on each agent&apos;s profile, under Voice. Each code is unique across the
-                company.
-              </p>
             </div>
           ) : null}
 
@@ -663,41 +666,64 @@ export function PhoneSystemRow({
 
           {tab === 'bridge' && detail !== null ? (
             <div className="space-y-3">
-              <div className="flex items-center justify-end gap-2">
-                {bridgeExtensions.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-fg-muted">
+                  Each mapped extension signs in to the phone system with its own credentials, and consumes one
+                  third-party endpoint license there.
+                </p>
+                <span className="flex items-center gap-2">
+                  {bridgeExtensions.length > 0 ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() =>
+                          startBusy(async () => {
+                            setBridgeNotice(null)
+                            const result = await refreshBridgeRegistrationsAction()
+                            setBridgeNotice(result.detail)
+                            await refresh()
+                          })
+                        }
+                      >
+                        Check registrations
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() =>
+                          startBusy(async () => {
+                            setBridgeNotice(null)
+                            const result = await republishBridgeAction()
+                            setBridgeNotice(result.detail)
+                            await refresh()
+                          })
+                        }
+                      >
+                        Sign in again
+                      </Button>
+                    </>
+                  ) : null}
                   <Button
                     size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() =>
-                      startBusy(async () => {
-                        setBridgeNotice(null)
-                        const result = await refreshBridgeRegistrationsAction()
-                        setBridgeNotice(result.detail)
-                        await refresh()
+                    disabled={bridgeTrunks.length === 0 || agentOptions.length === 0}
+                    onClick={() => {
+                      setBridgeError(null)
+                      setBridgeDraft({
+                        trunkId: bridgeTrunks[0]?.id ?? '',
+                        extension: '',
+                        personId: agentOptions[0]?.id ?? '',
+                        authUsername: '',
+                        authPassword: '',
+                        clearPassword: false,
                       })
-                    }
+                    }}
                   >
-                    Check registrations
+                    Add extension
                   </Button>
-                ) : null}
-                <Button
-                  size="sm"
-                  disabled={bridgeTrunks.length === 0 || agentOptions.length === 0}
-                  onClick={() => {
-                    setBridgeError(null)
-                    setBridgeDraft({
-                      trunkId: bridgeTrunks[0]?.id ?? '',
-                      extension: '',
-                      personId: agentOptions[0]?.id ?? '',
-                      authUsername: '',
-                      authPassword: '',
-                      clearPassword: false,
-                    })
-                  }}
-                >
-                  Add extension
-                </Button>
+                </span>
               </div>
               <PagedTable
                 columns={BRIDGE_COLUMNS}
@@ -739,32 +765,45 @@ export function PhoneSystemRow({
                 </div>
               ) : null}
               {bridgeNotice ? <p className="text-xs text-fg-muted">{bridgeNotice}</p> : null}
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs text-fg-muted">
-                  Each mapped extension signs in to the phone system with its own credentials, and consumes one
-                  third-party endpoint license there.
-                </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() =>
-                    startBusy(async () => {
-                      setBridgeNotice(null)
-                      const result = await republishBridgeAction()
-                      setBridgeNotice(result.detail)
-                      await refresh()
-                    })
-                  }
-                >
-                  Sign in again
-                </Button>
-              </div>
             </div>
           ) : null}
 
           {tab === 'numbers' ? (
-            <div className="space-y-4">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-fg-muted">
+                  {carrierAccountSid
+                    ? `Numbers bought here are billed to Twilio account ${carrierAccountSid}.`
+                    : 'Connect a Twilio account to buy numbers here, or record a number you already have at another carrier.'}
+                </p>
+                <span className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setNumberPanel('account')}>
+                    {carrierAccountSid ? 'Twilio account' : 'Connect Twilio'}
+                  </Button>
+                  {carrierAccountSid ? (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setSearchError(null)
+                        setSearchResults(null)
+                        setNumberPanel('buy')
+                      }}
+                    >
+                      Buy a number
+                    </Button>
+                  ) : null}
+                  <Button
+                    size="sm"
+                    variant={carrierAccountSid ? 'outline' : 'default'}
+                    onClick={() => {
+                      setNumberError(null)
+                      setNumberPanel('record')
+                    }}
+                  >
+                    Add a number you have
+                  </Button>
+                </span>
+              </div>
               <PagedTable
                 columns={numberColumns(busy, (id) =>
                   startBusy(async () => {
@@ -792,290 +831,19 @@ export function PhoneSystemRow({
                 empty={
                   <EmptyState
                     title="No numbers yet"
-                    description="Connect a Twilio account to buy a number here, or point a carrier trunk you already have at the connection details and record its number below. Either way, calls to it ring the agent you name."
+                    description="Connect a Twilio account to buy a number here, or point a carrier trunk you already have at the connection details and record its number. Either way, calls to it ring the agent you name."
+                    action={
+                      <Button
+                        onClick={() => setNumberPanel(carrierAccountSid ? 'buy' : 'account')}
+                      >
+                        {carrierAccountSid ? 'Buy a number' : 'Connect Twilio'}
+                      </Button>
+                    }
                   />
                 }
               />
               {numberNotice ? <p className="text-xs text-fg-muted">{numberNotice}</p> : null}
-
-              {/* Buying a number in-app: the account, then the shopping. */}
-              <div className="space-y-3 rounded-md border border-border p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium">Twilio account</p>
-                  {carrierAccountSid ? <Badge variant="default">connected</Badge> : null}
-                </div>
-                {carrierAccountSid ? (
-                  <div className="space-y-3">
-                    <p className="text-xs text-fg-muted">
-                      Connected as <span className="font-medium tabular-nums">{carrierAccountSid}</span>. Numbers bought
-                      here are billed to that account, and the first purchase builds the SIP trunk they arrive on.
-                    </p>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() =>
-                        startBusy(async () => {
-                          setAccountError(null)
-                          setSearchResults(null)
-                          await removeCarrierAccountAction()
-                          await refresh()
-                        })
-                      }
-                    >
-                      Disconnect
-                    </Button>
-                    <p className="text-xs text-fg-muted">
-                      Disconnecting stops numbers being bought or released from here. Numbers already bought keep
-                      working — they are on Twilio and on the trunk.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="space-y-1">
-                        <Label htmlFor="carrier-sid">Account SID</Label>
-                        <Input
-                          id="carrier-sid"
-                          value={accountDraft.accountSid}
-                          onChange={(e) => setAccountDraft((d) => ({ ...d, accountSid: e.target.value }))}
-                          placeholder="AC…"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label htmlFor="carrier-token">Auth Token</Label>
-                        <Input
-                          id="carrier-token"
-                          type="password"
-                          value={accountDraft.authToken}
-                          onChange={(e) => setAccountDraft((d) => ({ ...d, authToken: e.target.value }))}
-                          placeholder="Sealed at rest"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Button
-                        size="sm"
-                        disabled={busy || !accountDraft.accountSid.trim() || !accountDraft.authToken.trim()}
-                        onClick={() =>
-                          startBusy(async () => {
-                            setAccountError(null)
-                            const result = await saveCarrierAccountAction(accountDraft)
-                            if (!result.ok) {
-                              setAccountError(result.message)
-                              return
-                            }
-                            setAccountDraft({ accountSid: '', authToken: '' })
-                            await refresh()
-                          })
-                        }
-                      >
-                        Connect
-                      </Button>
-                      {accountError ? <p className="text-sm text-danger">{accountError}</p> : null}
-                    </div>
-                    <p className="text-xs text-fg-muted">
-                      Both values are on the Twilio Console dashboard. The token is checked against Twilio before it is
-                      stored, and is sealed at rest.
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {carrierAccountSid ? (
-                <div className="space-y-3 rounded-md border border-border p-3">
-                  <p className="text-sm font-medium">Buy a number</p>
-                  <div className="grid gap-3 sm:grid-cols-4">
-                    <div className="space-y-1">
-                      <Label htmlFor="buy-country">Country</Label>
-                      <Input
-                        id="buy-country"
-                        value={searchDraft.country}
-                        onChange={(e) => setSearchDraft((d) => ({ ...d, country: e.target.value.toUpperCase() }))}
-                        placeholder="US"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="buy-area">Area code</Label>
-                      <Input
-                        id="buy-area"
-                        value={searchDraft.areaCode}
-                        onChange={(e) => setSearchDraft((d) => ({ ...d, areaCode: e.target.value }))}
-                        placeholder="415"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="buy-contains">Contains</Label>
-                      <Input
-                        id="buy-contains"
-                        value={searchDraft.contains}
-                        onChange={(e) => setSearchDraft((d) => ({ ...d, contains: e.target.value }))}
-                        placeholder="Optional"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="buy-agent">Answered by</Label>
-                      <Select
-                        id="buy-agent"
-                        value={numberDraft.personId}
-                        onChange={(e) => setNumberDraft((d) => ({ ...d, personId: e.target.value }))}
-                      >
-                        {agentOptions.map((agent) => (
-                          <option key={agent.id} value={agent.id}>
-                            {agent.name} — {agent.title}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busy || !searchDraft.country.trim()}
-                      onClick={() =>
-                        startBusy(async () => {
-                          setSearchError(null)
-                          const result = await searchCarrierNumbersAction(searchDraft)
-                          if (!result.ok) {
-                            setSearchError(result.message)
-                            setSearchResults(null)
-                            return
-                          }
-                          setSearchResults(result.numbers)
-                        })
-                      }
-                    >
-                      Search
-                    </Button>
-                    {searchError ? <p className="text-sm text-danger">{searchError}</p> : null}
-                  </div>
-
-                  {searchResults !== null ? (
-                    searchResults.length === 0 ? (
-                      <p className="text-sm text-fg-muted">
-                        Twilio has nothing matching that. Try a different area code, or drop the “contains” filter.
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {searchResults.map((row) => (
-                          <div
-                            key={row.number}
-                            className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
-                          >
-                            <div>
-                              <p className="font-medium tabular-nums">{row.number}</p>
-                              <p className="text-xs text-fg-muted">
-                                {[row.locality, row.region].filter(Boolean).join(', ') || row.friendlyName}
-                                {row.sms ? ' · texts too' : ''}
-                              </p>
-                            </div>
-                            <Button
-                              size="sm"
-                              disabled={busy || !numberDraft.personId}
-                              onClick={() =>
-                                startBusy(async () => {
-                                  setNumberError(null)
-                                  setNumberNotice(null)
-                                  const agent = agentOptions.find((a) => a.id === numberDraft.personId)
-                                  const result = await buyCarrierNumberAction({
-                                    number: row.number,
-                                    label: agent ? `${agent.name}'s line` : row.number,
-                                    personId: numberDraft.personId,
-                                  })
-                                  if (!result.ok) {
-                                    setNumberError(result.message)
-                                    return
-                                  }
-                                  setNumberNotice(
-                                    `+${result.number} is live on "${result.trunkName}" and rings ${agent?.name ?? 'the chosen agent'}. Try it from a phone.`,
-                                  )
-                                  setSearchResults(null)
-                                  await refresh()
-                                })
-                              }
-                            >
-                              Buy
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  ) : null}
-                  <p className="text-xs text-fg-muted">
-                    Buying puts the number on the company&apos;s Twilio trunk and points it here, so it answers straight
-                    away. The first purchase creates that trunk — it appears on the Trunks tab afterwards, and calls out
-                    over it present the agent&apos;s own number.
-                  </p>
-                </div>
-              ) : null}
-
-              <div className="space-y-3 rounded-md border border-border p-3">
-                <p className="text-sm font-medium">Record a number you already have</p>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="space-y-1">
-                    <Label htmlFor="pn-number">Number</Label>
-                    <Input
-                      id="pn-number"
-                      value={numberDraft.number}
-                      onChange={(e) => setNumberDraft((d) => ({ ...d, number: e.target.value }))}
-                      placeholder="+1 555 123 4567"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="pn-label">Label</Label>
-                    <Input
-                      id="pn-label"
-                      value={numberDraft.label}
-                      onChange={(e) => setNumberDraft((d) => ({ ...d, label: e.target.value }))}
-                      placeholder="Main line"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="pn-agent">Answered by</Label>
-                    <Select
-                      id="pn-agent"
-                      value={numberDraft.personId}
-                      onChange={(e) => setNumberDraft((d) => ({ ...d, personId: e.target.value }))}
-                    >
-                      {agentOptions.map((agent) => (
-                        <option key={agent.id} value={agent.id}>
-                          {agent.name} — {agent.title}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Button
-                    size="sm"
-                    disabled={busy || !numberDraft.number.trim() || !numberDraft.personId}
-                    onClick={() =>
-                      startBusy(async () => {
-                        setNumberError(null)
-                        setNumberNotice(null)
-                        const result = await assignPhoneNumberAction(numberDraft)
-                        if (!result.ok) {
-                          setNumberError(result.message)
-                          return
-                        }
-                        setNumberDraft((d) => ({ ...d, number: '', label: '' }))
-                        await refresh()
-                      })
-                    }
-                  >
-                    Add number
-                  </Button>
-                  {numberError ? <p className="text-sm text-danger">{numberError}</p> : null}
-                </div>
-              </div>
-              <p className="text-xs text-fg-muted">
-                For a number bought elsewhere, the carrier side is yours to set up: create a SIP trunk (Twilio Elastic
-                SIP Trunking, Telnyx SIP Connection, or your provider&apos;s equivalent), set its origination to the SIP
-                address under Connection details, and route the number to that trunk. The dialed number arrives as the
-                callee and rings the mapped agent. Add a trunk here for the same carrier so agents can call out on it,
-                and set its default caller id.
-              </p>
+              {numberError ? <p className="text-sm text-danger">{numberError}</p> : null}
             </div>
           ) : null}
 
@@ -1124,6 +892,7 @@ export function PhoneSystemRow({
         title={draft?.id ? `Trunk — ${editing?.name ?? ''}` : 'Add trunk'}
         description="The SIP line your PBX points at bunkhouse. Saving reconnects the trunk with the latest details."
         size="md"
+        stacked
       >
         {draft ? (
           <div className="space-y-4">
@@ -1564,6 +1333,7 @@ export function PhoneSystemRow({
         title={bridgeDraft?.id ? `Extension ${editingBridge?.extension ?? ''}` : 'Add registered extension'}
         description="The credentials this deployment signs in to the phone system with, and the agent who answers that extension."
         size="md"
+        stacked
       >
         {bridgeDraft ? (
           <div className="space-y-4">
@@ -1695,6 +1465,299 @@ export function PhoneSystemRow({
             </div>
           </div>
         ) : null}
+      </Drawer>
+
+      <Drawer
+        open={numberPanel === 'account'}
+        onClose={() => setNumberPanel(null)}
+        title="Twilio account"
+        description="The account numbers are bought and billed on. The token is checked against Twilio before it is stored, and is sealed at rest."
+        size="md"
+        stacked
+      >
+        <div className="space-y-4 text-sm">
+          {carrierAccountSid ? (
+            <>
+              <div className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
+                <span className="flex items-center gap-2">
+                  <Badge>connected</Badge>
+                  <span className="font-medium tabular-nums">{carrierAccountSid}</span>
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() =>
+                    startBusy(async () => {
+                      setAccountError(null)
+                      setSearchResults(null)
+                      await removeCarrierAccountAction()
+                      await refresh()
+                      setNumberPanel(null)
+                    })
+                  }
+                >
+                  Disconnect
+                </Button>
+              </div>
+              <p className="text-xs text-fg-muted">
+                Numbers bought here are billed to that account, and the first purchase builds the SIP trunk they arrive
+                on. Disconnecting stops numbers being bought or released from here — numbers already bought keep
+                working, on Twilio and on the trunk.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="carrier-sid">Account SID</Label>
+                  <Input
+                    id="carrier-sid"
+                    value={accountDraft.accountSid}
+                    onChange={(e) => setAccountDraft((d) => ({ ...d, accountSid: e.target.value }))}
+                    placeholder="AC…"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="carrier-token">Auth Token</Label>
+                  <Input
+                    id="carrier-token"
+                    type="password"
+                    value={accountDraft.authToken}
+                    onChange={(e) => setAccountDraft((d) => ({ ...d, authToken: e.target.value }))}
+                    placeholder="Sealed at rest"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-fg-muted">Both values are on the Twilio Console dashboard.</p>
+              <div className="flex items-center gap-3">
+                <Button
+                  disabled={busy || !accountDraft.accountSid.trim() || !accountDraft.authToken.trim()}
+                  onClick={() =>
+                    startBusy(async () => {
+                      setAccountError(null)
+                      const result = await saveCarrierAccountAction(accountDraft)
+                      if (!result.ok) {
+                        setAccountError(result.message)
+                        return
+                      }
+                      setAccountDraft({ accountSid: '', authToken: '' })
+                      await refresh()
+                      setNumberPanel(null)
+                    })
+                  }
+                >
+                  {busy ? 'Checking…' : 'Connect'}
+                </Button>
+                {accountError ? <p className="text-sm text-danger">{accountError}</p> : null}
+              </div>
+            </>
+          )}
+        </div>
+      </Drawer>
+
+      <Drawer
+        open={numberPanel === 'buy'}
+        onClose={() => setNumberPanel(null)}
+        title="Buy a number"
+        description="Buying puts the number on the company's Twilio trunk and points it here, so it answers straight away. The first purchase creates that trunk — calls out over it present the agent's own number."
+        size="md"
+        stacked
+      >
+        <div className="space-y-4 text-sm">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label htmlFor="buy-country">Country</Label>
+              <Input
+                id="buy-country"
+                value={searchDraft.country}
+                onChange={(e) => setSearchDraft((d) => ({ ...d, country: e.target.value.toUpperCase() }))}
+                placeholder="US"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="buy-area">Area code</Label>
+              <Input
+                id="buy-area"
+                value={searchDraft.areaCode}
+                onChange={(e) => setSearchDraft((d) => ({ ...d, areaCode: e.target.value }))}
+                placeholder="415"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="buy-contains">Contains</Label>
+              <Input
+                id="buy-contains"
+                value={searchDraft.contains}
+                onChange={(e) => setSearchDraft((d) => ({ ...d, contains: e.target.value }))}
+                placeholder="Optional"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="buy-agent">Answered by</Label>
+              <Select
+                id="buy-agent"
+                value={numberDraft.personId}
+                onChange={(e) => setNumberDraft((d) => ({ ...d, personId: e.target.value }))}
+              >
+                {agentOptions.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name} — {agent.title}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              disabled={busy || !searchDraft.country.trim()}
+              onClick={() =>
+                startBusy(async () => {
+                  setSearchError(null)
+                  const result = await searchCarrierNumbersAction(searchDraft)
+                  if (!result.ok) {
+                    setSearchError(result.message)
+                    setSearchResults(null)
+                    return
+                  }
+                  setSearchResults(result.numbers)
+                })
+              }
+            >
+              {busy ? 'Searching…' : 'Search'}
+            </Button>
+            {searchError ? <p className="text-sm text-danger">{searchError}</p> : null}
+          </div>
+
+          {searchResults !== null ? (
+            searchResults.length === 0 ? (
+              <p className="text-fg-muted">
+                Twilio has nothing matching that. Try a different area code, or drop the “contains” filter.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {searchResults.map((row) => (
+                  <div
+                    key={row.number}
+                    className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
+                  >
+                    <div>
+                      <p className="font-medium tabular-nums">{row.number}</p>
+                      <p className="text-xs text-fg-muted">
+                        {[row.locality, row.region].filter(Boolean).join(', ') || row.friendlyName}
+                        {row.sms ? ' · texts too' : ''}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      disabled={busy || !numberDraft.personId}
+                      onClick={() =>
+                        startBusy(async () => {
+                          setNumberError(null)
+                          setNumberNotice(null)
+                          const agent = agentOptions.find((a) => a.id === numberDraft.personId)
+                          const result = await buyCarrierNumberAction({
+                            number: row.number,
+                            label: agent ? `${agent.name}'s line` : row.number,
+                            personId: numberDraft.personId,
+                          })
+                          if (!result.ok) {
+                            setNumberError(result.message)
+                            return
+                          }
+                          setNumberNotice(
+                            `+${result.number} is live on "${result.trunkName}" and rings ${agent?.name ?? 'the chosen agent'}. Try it from a phone.`,
+                          )
+                          setSearchResults(null)
+                          await refresh()
+                          setNumberPanel(null)
+                        })
+                      }
+                    >
+                      Buy
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )
+          ) : null}
+          {numberError ? <p className="text-sm text-danger">{numberError}</p> : null}
+        </div>
+      </Drawer>
+
+      <Drawer
+        open={numberPanel === 'record'}
+        onClose={() => setNumberPanel(null)}
+        title="Add a number you have"
+        description="A number bought elsewhere: record it here so calls to it ring the agent you name."
+        size="md"
+        stacked
+      >
+        <div className="space-y-4 text-sm">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label htmlFor="pn-number">Number</Label>
+              <Input
+                id="pn-number"
+                value={numberDraft.number}
+                onChange={(e) => setNumberDraft((d) => ({ ...d, number: e.target.value }))}
+                placeholder="+1 555 123 4567"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="pn-label">Label</Label>
+              <Input
+                id="pn-label"
+                value={numberDraft.label}
+                onChange={(e) => setNumberDraft((d) => ({ ...d, label: e.target.value }))}
+                placeholder="Main line"
+              />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <Label htmlFor="pn-agent">Answered by</Label>
+              <Select
+                id="pn-agent"
+                value={numberDraft.personId}
+                onChange={(e) => setNumberDraft((d) => ({ ...d, personId: e.target.value }))}
+              >
+                {agentOptions.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name} — {agent.title}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+          <p className="text-xs text-fg-muted">
+            The carrier side is yours to set up: create a SIP trunk (Twilio Elastic SIP Trunking, Telnyx SIP
+            Connection, or your provider&apos;s equivalent), set its origination to the SIP address under Connection
+            details, and route the number to that trunk. The dialed number arrives as the callee and rings the mapped
+            agent. Add a trunk here for the same carrier so agents can call out on it, and set its default caller id.
+          </p>
+          <div className="flex items-center gap-3">
+            <Button
+              disabled={busy || !numberDraft.number.trim() || !numberDraft.personId}
+              onClick={() =>
+                startBusy(async () => {
+                  setNumberError(null)
+                  setNumberNotice(null)
+                  const result = await assignPhoneNumberAction(numberDraft)
+                  if (!result.ok) {
+                    setNumberError(result.message)
+                    return
+                  }
+                  setNumberDraft((d) => ({ ...d, number: '', label: '' }))
+                  await refresh()
+                  setNumberPanel(null)
+                })
+              }
+            >
+              Add number
+            </Button>
+            {numberError ? <p className="text-sm text-danger">{numberError}</p> : null}
+          </div>
+        </div>
       </Drawer>
     </>
   )

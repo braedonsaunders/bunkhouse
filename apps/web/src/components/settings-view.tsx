@@ -20,16 +20,11 @@ import {
   type PagedColumn,
   type SettingsNavGroup,
 } from '@appkit/ui'
-import {
-  refreshPricesAction,
-  removeProviderAction,
-  removeSpeechProviderAction,
-  setManualPriceAction,
-  setSpeechProviderKeyAction,
-} from '../app/admin/settings/actions'
+import { removeSpeechProviderAction, setSpeechProviderKeyAction } from '../app/admin/settings/actions'
 import type { AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
 import { AvatarPartsView, type AvatarPartRowView } from './avatar-parts-view'
-import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
+import { type ProviderKindOption } from './add-provider-form'
+import { ModelSettings, type PriceRow, type ProviderAssignment, type ProviderSummary } from './model-settings'
 import { ImageProviderForm } from './image-provider-form'
 import { AutonomySettings, type AgentDial } from './autonomy-settings'
 import { CompanyIdentitySettings, type CompanyIdentityView, type IdentityProviderOption } from './company-identity-settings'
@@ -48,27 +43,7 @@ const nextLink: LinkRender = ({ href, children, className, title }) => (
   </Link>
 )
 
-export type ProviderSummary = {
-  slug: string
-  label: string
-  provider: string
-  modelSmart?: string
-  modelFast?: string
-  baseUrl?: string
-}
-
-export type PriceRow = {
-  id: string
-  model: string
-  inputUsdPerMtok: string
-  outputUsdPerMtok: string
-  /** Raw dollars behind the formatted columns, so sorting is numeric. */
-  inputUsd: number
-  outputUsd: number
-  source: string
-  sourceRef?: string
-  effectiveAt: string
-}
+export type { PriceRow, ProviderAssignment, ProviderSummary }
 
 export type MailboxRow = {
   id: string
@@ -81,6 +56,23 @@ export type MailboxRow = {
 }
 
 export type AgentWithoutMailbox = { id: string; name: string; title: string }
+
+/**
+ * Every agent's mail standing in one table — connected or not. An agent
+ * without an address is a row with nothing behind it, not a second list under
+ * the table, so the page never stacks two lists on top of each other.
+ */
+type MailRow = {
+  id: string
+  personId: string
+  personName: string
+  address: string
+  status: string
+  connected: boolean
+  title?: string
+  lastSyncAt?: string
+  lastError?: string
+}
 
 export type VoiceProviderState = { deepgram: boolean; elevenlabs: boolean }
 
@@ -177,46 +169,26 @@ function resolveSection(requested: string): { section: string; tab: string | nul
   return { section: 'identity', tab: null }
 }
 
-const PRICE_COLUMNS: PagedColumn<PriceRow>[] = [
-  { key: 'model', header: 'Model', cell: (row) => row.model, search: (row) => row.model, sortValue: (row) => row.model },
-  {
-    key: 'input',
-    header: 'Input $/Mtok',
-    align: 'right',
-    cell: (row) => row.inputUsdPerMtok,
-    sortValue: (row) => row.inputUsd,
-  },
-  {
-    key: 'output',
-    header: 'Output $/Mtok',
-    align: 'right',
-    cell: (row) => row.outputUsdPerMtok,
-    sortValue: (row) => row.outputUsd,
-  },
-  {
-    key: 'source',
-    header: 'Source',
-    cell: (row) => <Badge variant={row.source === 'openrouter' ? 'secondary' : 'outline'}>{row.source}</Badge>,
-    search: (row) => row.source,
-    sortValue: (row) => row.source,
-  },
-  {
-    key: 'effectiveAt',
-    header: 'Effective',
-    cell: (row) => row.effectiveAt,
-    sortValue: (row) => row.effectiveAt,
-  },
-]
-
-const MAILBOX_COLUMNS: PagedColumn<MailboxRow>[] = [
+const MAILBOX_COLUMNS: PagedColumn<MailRow>[] = [
   {
     key: 'personName',
     header: 'Agent',
-    cell: (row) => <span className="font-medium text-primary">{row.personName}</span>,
+    cell: (row) => (
+      <span className="min-w-0">
+        <span className="block truncate font-medium text-primary">{row.personName}</span>
+        {row.title ? <span className="block truncate text-xs text-fg-muted">{row.title}</span> : null}
+      </span>
+    ),
     search: (row) => row.personName,
     sortValue: (row) => row.personName,
   },
-  { key: 'address', header: 'Address', cell: (row) => row.address, search: (row) => row.address, sortValue: (row) => row.address },
+  {
+    key: 'address',
+    header: 'Address',
+    cell: (row) => (row.connected ? row.address : <span className="text-fg-muted">—</span>),
+    search: (row) => row.address,
+    sortValue: (row) => row.address,
+  },
   {
     key: 'status',
     header: 'Status',
@@ -228,7 +200,12 @@ const MAILBOX_COLUMNS: PagedColumn<MailboxRow>[] = [
     search: (row) => row.status,
     sortValue: (row) => row.status,
   },
-  { key: 'lastSyncAt', header: 'Last sync', cell: (row) => row.lastSyncAt || 'never', sortValue: (row) => row.lastSyncAt ?? '' },
+  {
+    key: 'lastSyncAt',
+    header: 'Last sync',
+    cell: (row) => (row.connected ? row.lastSyncAt || 'never' : '—'),
+    sortValue: (row) => row.lastSyncAt ?? '',
+  },
   {
     key: 'lastError',
     header: 'Last error',
@@ -239,6 +216,7 @@ const MAILBOX_COLUMNS: PagedColumn<MailboxRow>[] = [
 
 export function SettingsView({
   providers,
+  providerAssignments,
   kinds,
   prices,
   mailboxes,
@@ -268,6 +246,8 @@ export function SettingsView({
   avatarPartLibrary,
 }: {
   providers: ProviderSummary[]
+  /** Which agent works on which provider, so removing one shows its cost. */
+  providerAssignments: ProviderAssignment[]
   kinds: ProviderKindOption[]
   prices: PriceRow[]
   mailboxes: MailboxRow[]
@@ -317,23 +297,32 @@ export function SettingsView({
 }) {
   const arrival = React.useMemo(() => resolveSection(initialSection), [initialSection])
   const [active, setActive] = React.useState(arrival.section)
-  const [modelTab, setModelTab] = React.useState(arrival.tab ?? 'providers')
   const [documentTab, setDocumentTab] = React.useState(arrival.tab ?? 'letterhead')
   const [mailTab, setMailTab] = React.useState(arrival.tab ?? 'mailboxes')
   const [voiceTab, setVoiceTab] = React.useState(arrival.tab ?? 'pipeline')
   const [busy, startBusy] = React.useTransition()
-  const [notice, setNotice] = React.useState<string | null>(null)
-  const [priceDrawer, setPriceDrawer] = React.useState<string | null>(null)
-  const [mailboxDrawer, setMailboxDrawer] = React.useState<MailboxRow | null>(null)
+  const [mailboxDrawer, setMailboxDrawer] = React.useState<MailRow | null>(null)
   const [voiceDrawer, setVoiceDrawer] = React.useState<'deepgram' | 'elevenlabs' | null>(null)
+  const [imageDrawer, setImageDrawer] = React.useState(false)
   const [voiceKey, setVoiceKey] = React.useState('')
   const [voiceError, setVoiceError] = React.useState<string | null>(null)
   const imageCapable = providers.filter((p) => ['openai', 'google'].includes(p.provider))
-  const priceHistory = priceDrawer && priceDrawer !== '*new*' ? prices.filter((row) => row.model === priceDrawer) : []
   const identityProviders: IdentityProviderOption[] = providers.map((provider) => ({
     slug: provider.slug,
     label: `${provider.label} · ${provider.slug}`,
   }))
+  const mailRows: MailRow[] = [
+    ...mailboxes.map((box) => ({ ...box, connected: true })),
+    ...agentsWithoutMailbox.map((agent) => ({
+      id: `unconnected:${agent.id}`,
+      personId: agent.id,
+      personName: agent.name,
+      title: agent.title,
+      address: '',
+      status: 'not connected',
+      connected: false,
+    })),
+  ]
 
   return (
     <SettingsShell
@@ -341,10 +330,7 @@ export function SettingsView({
       description="Company-level configuration: who your agents work for, how far they are trusted, and what powers them."
       nav={NAV}
       activeKey={active}
-      onSelect={(key) => {
-        setActive(key)
-        setNotice(null)
-      }}
+      onSelect={setActive}
       linkRender={nextLink}
     >
       {active === 'identity' ? (
@@ -361,113 +347,13 @@ export function SettingsView({
       ) : null}
 
       {active === 'ai' ? (
-        <div className="space-y-4">
-          <SubtabNav
-            ariaLabel="Models"
-            active={modelTab}
-            onSelect={setModelTab}
-            tabs={[
-              { key: 'providers', label: 'Providers', count: providers.length },
-              { key: 'pricing', label: 'Pricing', count: prices.length },
-            ]}
-          />
-
-          {modelTab === 'providers' ? (
-            <SettingsSection
-              title="Model providers"
-              description="Your own API keys, sealed at rest and live-verified before saving. Each agent is assigned a provider and model on its profile."
-            >
-              {providers.length === 0 ? (
-                <EmptyState title="No providers yet" description="Add one API key and your agents can start thinking." />
-              ) : (
-                providers.map((entry) => (
-                  <SettingsRow
-                    key={entry.slug}
-                    title={`${entry.label} · ${entry.slug}`}
-                    description={`${entry.provider}${entry.modelSmart ? ` · default ${entry.modelSmart}` : ''}${entry.modelFast ? ` · fast ${entry.modelFast}` : ''}${entry.baseUrl ? ` · ${entry.baseUrl}` : ''}`}
-                    control={
-                      <span className="flex items-center gap-2">
-                        <Badge variant="secondary">key sealed</Badge>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={busy}
-                          onClick={() =>
-                            startBusy(async () => {
-                              const form = new FormData()
-                              form.set('slug', entry.slug)
-                              await removeProviderAction(form)
-                            })
-                          }
-                        >
-                          Remove
-                        </Button>
-                      </span>
-                    }
-                  />
-                ))
-              )}
-              <SettingsRow title="Add a provider" description="Verify the key, pick defaults from its live model list." stacked>
-                <AddProviderForm kinds={kinds} />
-              </SettingsRow>
-            </SettingsSection>
-          ) : null}
-
-          {modelTab === 'pricing' ? (
-            <SettingsSection
-              title="Model pricing"
-              description="Effective-dated, append-only price rows — every spend record stamps the exact price it used, so costs are auditable forever. Refresh pulls live prices from the OpenRouter catalog for models your agents use; '*' is the company default."
-            >
-              <SettingsRow
-                title="Keeping prices current"
-                description="Refreshing appends a new effective row only where the price actually changed."
-                control={
-                  <span className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={() => setPriceDrawer('*new*')}>
-                      Add manual price
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={busy}
-                      onClick={() =>
-                        startBusy(async () => {
-                          setNotice(null)
-                          try {
-                            await refreshPricesAction()
-                            setNotice('Prices refreshed.')
-                          } catch (err) {
-                            setNotice(err instanceof Error ? err.message : String(err))
-                          }
-                        })
-                      }
-                    >
-                      {busy ? 'Refreshing…' : 'Refresh from OpenRouter'}
-                    </Button>
-                  </span>
-                }
-              />
-              {notice ? <p className="px-5 py-3 text-sm text-fg-muted">{notice}</p> : null}
-              <div className="px-5 py-4">
-                <PagedTable
-                  columns={PRICE_COLUMNS}
-                  rows={prices}
-                  rowKey={(row) => row.id}
-                  pageSize={15}
-                  searchable
-                  defaultSort={{ key: 'effectiveAt', dir: 'desc' }}
-                  onRowClick={(row) => setPriceDrawer(row.model)}
-                  labels={{ searchPlaceholder: 'Search prices…', searchLabel: 'Search prices' }}
-                  empty={
-                    <EmptyState
-                      title="No prices yet"
-                      description="Refresh from OpenRouter or add a manual price. Unpriced spend records cost $0 and are flagged."
-                    />
-                  }
-                />
-              </div>
-            </SettingsSection>
-          ) : null}
-        </div>
+        <ModelSettings
+          providers={providers}
+          kinds={kinds}
+          prices={prices}
+          assignments={providerAssignments}
+          initialTab={arrival.tab ?? 'providers'}
+        />
       ) : null}
 
       {active === 'mail' ? (
@@ -486,12 +372,25 @@ export function SettingsView({
           {mailTab === 'mailboxes' ? (
             <SettingsSection
               title="Mailboxes"
-              description="Every agent's connected email account: status, sync health, and errors. Connect a mailbox from the agent's profile."
+              description="Every agent's mail standing: the address it works from, sync health, and errors. An agent with no address cannot receive work — open its row to connect one."
             >
+              <SettingsRow
+                title="Agent mail"
+                description={
+                  agentsWithoutMailbox.length > 0
+                    ? `${agentsWithoutMailbox.length} agent${agentsWithoutMailbox.length === 1 ? '' : 's'} still without an address.`
+                    : 'Every agent on the roster has an address connected.'
+                }
+                control={
+                  <Badge variant={agentsWithoutMailbox.length > 0 ? 'outline' : 'default'}>
+                    {mailboxes.length} connected
+                  </Badge>
+                }
+              />
               <div className="px-5 py-4">
                 <PagedTable
                   columns={MAILBOX_COLUMNS}
-                  rows={mailboxes}
+                  rows={mailRows}
                   rowKey={(row) => row.id}
                   pageSize={15}
                   searchable
@@ -500,31 +399,12 @@ export function SettingsView({
                   labels={{ searchPlaceholder: 'Search mailboxes…', searchLabel: 'Search mailboxes' }}
                   empty={
                     <EmptyState
-                      title="No mailboxes connected"
-                      description="Open an agent’s profile and connect their address to bring them online."
+                      title="No agents on the roster"
+                      description="Onboard an agent, then connect its address from the profile to bring it online."
                     />
                   }
                 />
               </div>
-              {agentsWithoutMailbox.length > 0 ? (
-                <SettingsRow
-                  title="Agents without a mailbox"
-                  description="These agents cannot receive work until an address is connected."
-                  stacked
-                >
-                  <div className="flex flex-wrap gap-2">
-                    {agentsWithoutMailbox.map((agent) => (
-                      <Link
-                        key={agent.id}
-                        href={`/organization/agents?person=${agent.id}`}
-                        className="rounded-md border border-border px-3 py-1.5 text-sm text-fg-muted transition-colors hover:border-primary/50 hover:text-fg"
-                      >
-                        {agent.name} · {agent.title}
-                      </Link>
-                    ))}
-                  </div>
-                </SettingsRow>
-              ) : null}
             </SettingsSection>
           ) : null}
 
@@ -680,28 +560,36 @@ export function SettingsView({
           title="Image generation"
           description="Powers the avatar studio. Reuses your model providers — same keys, same connection layer — with an image-capable model (OpenAI or Google)."
         >
-          {imageSetting ? (
+          {imageCapable.length === 0 ? (
+            <div className="px-5 py-4">
+              <EmptyState
+                title="No image-capable providers"
+                description="Add an OpenAI or Google provider under Models first — image generation shares those keys."
+              />
+            </div>
+          ) : imageSetting ? (
             <SettingsRow
               title="Configured"
               description={`${imageSetting.providerSlug} · ${imageSetting.model}`}
-              control={<Badge variant="secondary">uses provider key</Badge>}
+              control={
+                <span className="flex items-center gap-2">
+                  <Badge variant="secondary">uses provider key</Badge>
+                  <Button variant="outline" size="sm" onClick={() => setImageDrawer(true)}>
+                    Change
+                  </Button>
+                </span>
+              }
             />
           ) : (
-            <SettingsRow title="Not configured" description="Avatar generation is unavailable until a provider is chosen." />
-          )}
-          {imageCapable.length === 0 ? (
-            <EmptyState
-              title="No image-capable providers"
-              description="Add an OpenAI or Google provider under Models first — image generation shares those keys."
+            <SettingsRow
+              title="Not configured"
+              description="Avatar generation is unavailable until a provider is chosen."
+              control={
+                <Button size="sm" onClick={() => setImageDrawer(true)}>
+                  Choose provider &amp; model
+                </Button>
+              }
             />
-          ) : (
-            <SettingsRow title={imageSetting ? 'Change' : 'Choose provider & model'} stacked>
-              <ImageProviderForm
-                providers={imageCapable}
-                current={imageSetting}
-                fallbackModels={imageFallbackModels}
-              />
-            </SettingsRow>
           )}
         </SettingsSection>
       ) : null}
@@ -796,71 +684,33 @@ export function SettingsView({
       </Drawer>
 
       <Drawer
-        open={priceDrawer !== null}
-        onClose={() => setPriceDrawer(null)}
-        title={priceDrawer === '*new*' ? 'Add manual price' : `Pricing — ${priceDrawer ?? ''}`}
-        description={
-          priceDrawer === '*new*'
-            ? "Model id, or * for the company default. Appends an effective-dated row."
-            : 'Full effective-dated history; the newest row is in force. Changes append, never edit.'
-        }
+        open={imageDrawer}
+        onClose={() => setImageDrawer(false)}
+        title={imageSetting ? 'Image generation' : 'Choose provider & model'}
+        description="Avatar generation runs on one of your model providers — the same key, an image-capable model."
         size="md"
       >
-        <div className="space-y-6">
-          {priceDrawer && priceDrawer !== '*new*' ? (
-            <div className="space-y-1">
-              {priceHistory.map((row) => (
-                <div key={row.id} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
-                  <span className="tabular-nums">
-                    {row.inputUsdPerMtok} in · {row.outputUsdPerMtok} out
-                  </span>
-                  <span className="flex items-center gap-2 text-xs text-fg-muted">
-                    <Badge variant={row.source === 'openrouter' ? 'secondary' : 'outline'}>{row.source}</Badge>
-                    {row.effectiveAt}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          <form
-            action={async (form: FormData) => {
-              setNotice(null)
-              await setManualPriceAction(form)
-              setPriceDrawer(null)
-            }}
-            className="space-y-3"
-          >
-            <div className="space-y-1">
-              <Label htmlFor="price-model">Model</Label>
-              <Input
-                id="price-model"
-                name="model"
-                defaultValue={priceDrawer === '*new*' ? '' : (priceDrawer ?? '')}
-                placeholder="claude-sonnet-5 or *"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="price-in">Input $/Mtok</Label>
-                <Input id="price-in" name="inputUsdPerMtok" type="number" step="0.0001" min="0" required />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="price-out">Output $/Mtok</Label>
-                <Input id="price-out" name="outputUsdPerMtok" type="number" step="0.0001" min="0" required />
-              </div>
-            </div>
-            <Button type="submit" size="sm">
-              Append price row
-            </Button>
-          </form>
-        </div>
+        {imageDrawer ? (
+          <ImageProviderForm
+            providers={imageCapable}
+            current={imageSetting}
+            fallbackModels={imageFallbackModels}
+            onSaved={() => setImageDrawer(false)}
+          />
+        ) : null}
       </Drawer>
 
       <Drawer
         open={mailboxDrawer !== null}
         onClose={() => setMailboxDrawer(null)}
-        title={mailboxDrawer ? `Mailbox — ${mailboxDrawer.address}` : ''}
-        description={mailboxDrawer ? `Connected to ${mailboxDrawer.personName}` : undefined}
+        title={mailboxDrawer ? (mailboxDrawer.connected ? `Mailbox — ${mailboxDrawer.address}` : mailboxDrawer.personName) : ''}
+        description={
+          mailboxDrawer
+            ? mailboxDrawer.connected
+              ? `Connected to ${mailboxDrawer.personName}`
+              : 'No address connected — this agent cannot receive work yet.'
+            : undefined
+        }
         size="md"
       >
         {mailboxDrawer ? (
@@ -872,10 +722,12 @@ export function SettingsView({
                   {mailboxDrawer.status}
                 </Badge>
               </div>
-              <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                <span className="text-fg-muted">Last sync</span>
-                <span>{mailboxDrawer.lastSyncAt || 'never'}</span>
-              </div>
+              {mailboxDrawer.connected ? (
+                <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                  <span className="text-fg-muted">Last sync</span>
+                  <span>{mailboxDrawer.lastSyncAt || 'never'}</span>
+                </div>
+              ) : null}
               {mailboxDrawer.lastError ? (
                 <div className="rounded-md border border-danger/40 bg-danger-subtle px-3 py-2">
                   <p className="text-xs text-fg-muted">Last error</p>
@@ -883,8 +735,16 @@ export function SettingsView({
                 </div>
               ) : null}
             </div>
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/organization/agents?person=${mailboxDrawer.personId}`}>Open agent profile</Link>
+            {mailboxDrawer.connected ? null : (
+              <p className="text-fg-muted">
+                Mailboxes are connected from the agent&apos;s own profile, where the sign-in happens — either through
+                your Google Workspace or Microsoft 365 application, or with IMAP details for self-hosted mail.
+              </p>
+            )}
+            <Button asChild variant={mailboxDrawer.connected ? 'outline' : 'default'} size="sm">
+              <Link href={`/organization/agents?person=${mailboxDrawer.personId}`}>
+                {mailboxDrawer.connected ? 'Open agent profile' : 'Connect an address'}
+              </Link>
             </Button>
           </div>
         ) : null}
