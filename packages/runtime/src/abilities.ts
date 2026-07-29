@@ -30,6 +30,87 @@ export type Ability = {
   tool: Tool<any, any>
 }
 
+/**
+ * The key an ability's result carries a picture under.
+ *
+ * An ability that can show the model what it just did — a browser step, a
+ * rendered document, a camera — puts the frame here. Every layer that would
+ * otherwise serialize the result takes the frame out first and hands the model
+ * a real image instead of a wall of base-64. The rest of the result travels
+ * unchanged: the picture is added to what the model is told, never a
+ * replacement for it.
+ */
+export const ABILITY_FRAME_KEY = 'screenshot'
+
+/** A picture an ability produced, ready to put in front of a model. */
+export type AbilityFrame = {
+  /** IANA media type of the bytes, e.g. `image/jpeg`. */
+  mediaType: string
+  /** The image itself, base-64 encoded. */
+  data: string
+  /** One line naming what the picture is of, shown alongside it. */
+  label: string
+}
+
+function isAbilityFrame(value: unknown): value is AbilityFrame {
+  if (typeof value !== 'object' || value === null) return false
+  const frame = value as Record<string, unknown>
+  return (
+    typeof frame.mediaType === 'string' &&
+    frame.mediaType.startsWith('image/') &&
+    typeof frame.data === 'string' &&
+    frame.data.length > 0 &&
+    typeof frame.label === 'string'
+  )
+}
+
+/**
+ * Split an ability's result into the picture it carries and everything else.
+ * Anything that serializes a tool result — the run ledger, a call transcript,
+ * the model output itself — calls this first so the bytes never land in JSON.
+ */
+export function takeAbilityFrame(output: unknown): { frame: AbilityFrame | null; rest: unknown } {
+  if (typeof output !== 'object' || output === null || Array.isArray(output)) {
+    return { frame: null, rest: output }
+  }
+  const record = output as Record<string, unknown>
+  const candidate = record[ABILITY_FRAME_KEY]
+  if (!isAbilityFrame(candidate)) return { frame: null, rest: output }
+  const rest = { ...record }
+  delete rest[ABILITY_FRAME_KEY]
+  return { frame: candidate, rest }
+}
+
+/**
+ * What the AI SDK accepts as a tool's model-facing output. Derived from the
+ * SDK's own `Tool` type rather than restated, so the shape stays correct
+ * across upgrades and the compiler checks what we build below.
+ */
+type ModelToolOutput = Awaited<ReturnType<NonNullable<Tool<any, any>['toModelOutput']>>>
+type JsonToolOutput = Extract<ModelToolOutput, { type: 'json' }>['value']
+
+/**
+ * How an ability's result reaches the model. Without a frame this is exactly
+ * the SDK's default (a string goes as text, anything else as JSON); with one,
+ * the result becomes multimodal content — the JSON it would have sent, plus
+ * the picture as a genuine image part the model can look at.
+ */
+function abilityModelOutput(output: unknown): ModelToolOutput {
+  const { frame, rest } = takeAbilityFrame(output)
+  if (!frame) {
+    return typeof output === 'string'
+      ? { type: 'text', value: output }
+      : { type: 'json', value: output as JsonToolOutput }
+  }
+  return {
+    type: 'content',
+    value: [
+      { type: 'text', text: `${frame.label}\n${JSON.stringify(rest)}` },
+      { type: 'image-data', mediaType: frame.mediaType, data: frame.data },
+    ],
+  }
+}
+
 export function defineAbility<INPUT, OUTPUT>(args: {
   name: string
   description: string
@@ -46,6 +127,9 @@ export function defineAbility<INPUT, OUTPUT>(args: {
       description: args.description,
       inputSchema: args.inputSchema as z.ZodType<INPUT>,
       execute: async (input: INPUT) => args.execute(input),
+      // Generic on purpose: any ability whose result carries a frame is shown
+      // to the model, and the runtime needs to know nothing about browsers.
+      toModelOutput: ({ output }: { output: unknown }) => abilityModelOutput(output),
     } as any),
   }
 }

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { llm } from '@livekit/agents'
-import type { Ability, ActionCategory, AutonomyLevel } from '@bunkhouse/runtime'
+import { takeAbilityFrame, type Ability, type AbilityFrame, type ActionCategory, type AutonomyLevel } from '@bunkhouse/runtime'
 
 /**
  * The bridge between the runtime's abilities and a live voice session: each
@@ -8,6 +8,12 @@ import type { Ability, ActionCategory, AutonomyLevel } from '@bunkhouse/runtime'
  * governance email runs get. Only the approval posture differs — a run
  * suspends until sign-off, but a call cannot hold the line for a manager, so
  * the request is filed, the agent says so, and the conversation continues.
+ *
+ * One thing does not survive the crossing: a function tool's return value is
+ * serialized as text, so an ability that produced a picture cannot hand it
+ * back through the result the way an email run's tool does. The frame is taken
+ * out here and passed to `onFrame`, which puts it into the chat context as a
+ * real image instead — and the model's text result never carries base-64.
  *
  * Imported only by the voice agent process; the web app never bundles this.
  */
@@ -37,6 +43,14 @@ export function governedCallTools(args: {
    * resumes if the session went quiet while the tool ran.
    */
   onSettled?: (info: { toolName: string }) => void
+  /**
+   * Fired when a tool produced a picture of what it did. The voice agent puts
+   * it in front of the model as chat-context image content — the only way an
+   * image reaches a live session. Never fires with the frame still attached to
+   * the tool's text result. Awaited: the picture has to be in the context
+   * before the tool answers, or the model reasons about the result without it.
+   */
+  onFrame?: (info: { toolName: string; frame: AbilityFrame }) => Promise<void> | void
 }): Record<string, llm.FunctionTool> {
   const tools: Record<string, llm.FunctionTool> = {}
   // One request per distinct action, however many times the agent tries it.
@@ -108,8 +122,12 @@ export function governedCallTools(args: {
               }
             }
           }
-          const output = await execute(input as never, { toolCallId: randomUUID(), messages: [] } as never)
+          const raw = await execute(input as never, { toolCallId: randomUUID(), messages: [] } as never)
+          // The picture goes to the session's eyes; the ledger and the model's
+          // text result both get everything except the bytes.
+          const { frame, rest: output } = takeAbilityFrame(raw)
           await args.record('tool_result', { toolName: ability.name, output }).catch(() => {})
+          if (frame) await args.onFrame?.({ toolName: ability.name, frame })
           settle()
           return output
         } catch (error) {

@@ -1,6 +1,12 @@
 import { generateText, stepCountIs, type ModelMessage } from 'ai'
 import { getModel } from '@appkit/ai'
-import { citeProcedureAbility, governedToolSet, type Ability, type GovernanceState } from './abilities'
+import {
+  citeProcedureAbility,
+  governedToolSet,
+  takeAbilityFrame,
+  type Ability,
+  type GovernanceState,
+} from './abilities'
 import { buildRunInstruction, buildSystemPrompt } from './prompt'
 import type {
   ApprovalGate,
@@ -131,10 +137,14 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
           })
         }
         for (const toolResult of step.toolResults) {
+          // A frame the ability handed the model is already filed as evidence
+          // by the ability itself; the ledger keeps what happened, not a
+          // second copy of the bytes.
+          const { rest } = takeAbilityFrame(toolResult.output)
           await args.sink.event({
             kind: 'tool_result',
             toolName: toolResult.toolName,
-            output: toolResult.output,
+            output: rest,
           })
         }
         if (step.text) await args.sink.event({ kind: 'message', text: step.text })
