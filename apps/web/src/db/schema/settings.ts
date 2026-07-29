@@ -56,11 +56,51 @@ export type McpIntegrationEntry = {
   url: string
   /** Sealed JSON object of request headers (e.g. an Authorization token). */
   sealedHeaders?: SealedSecret
+  /** Present when the connection signed in with OAuth instead of headers. */
+  oauth?: McpOauthGrant
   /** Action category the autonomy dial governs this integration under. */
   category: string
 }
 
+/** An OAuth connection's standing credential: everything needed to mint a
+ *  fresh access token without the operator — endpoints from discovery, the
+ *  (usually dynamically registered) client, and the sealed token set. */
+export type McpOauthGrant = {
+  tokenEndpoint: string
+  /** RFC 8707 resource indicator the tokens are bound to. */
+  resource: string
+  clientId: string
+  /** Only for pre-registered confidential clients; DCR clients are public. */
+  sealedClientSecret?: SealedSecret
+  /** Sealed JSON of { accessToken, refreshToken?, expiresAt? }. */
+  sealedTokens: SealedSecret
+}
+
 export const MCP_INTEGRATIONS_KEY = 'integrations.mcp'
+
+/** settings key: 'integrations.mcp.pending' — OAuth sign-ins in flight. Each
+ *  entry holds one authorization round-trip's context between the redirect
+ *  out and the callback in; the browser carries only a sealed reference to
+ *  it. Entries expire after ten minutes and are dropped on completion. */
+export type McpOauthPending = {
+  /** Random handle the sealed state parameter names. */
+  nonce: string
+  /** The integration being connected, exactly as the drawer collected it. */
+  slug: string
+  label: string
+  url: string
+  category: string
+  /** Discovery + registration results the callback finishes with. */
+  tokenEndpoint: string
+  resource: string
+  clientId: string
+  sealedClientSecret?: SealedSecret
+  /** Sealed PKCE code verifier. */
+  sealedVerifier: SealedSecret
+  createdAt: number
+}
+
+export const MCP_OAUTH_PENDING_KEY = 'integrations.mcp.pending'
 
 /**
  * settings key: 'company.identity' — who the company is, in the company's own

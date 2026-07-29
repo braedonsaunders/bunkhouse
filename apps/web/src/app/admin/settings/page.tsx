@@ -20,7 +20,7 @@ import { getVoiceRetention } from '../../../lib/voice-recording'
 import { getVoicePricing } from '../../../lib/voice-pricing'
 import { listDocumentTemplates } from '../../../lib/document-templates'
 import { getFilingSettingsView, listRecentFilings } from '../../../lib/filing'
-import { listMcpIntegrations } from '../../../lib/agent-abilities'
+import { listMcpIntegrations } from '../../../lib/mcp-integrations'
 import { listMailOauthApps, mailOauthRedirectUri } from '../../../lib/mail-oauth'
 import { AVATAR_PART_CATEGORIES, avatarPartCategory } from '../../../lib/avatar-parts'
 import { IMAGE_MODELS } from '@appkit/avatars'
@@ -34,9 +34,27 @@ const fmt = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 16).re
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ section?: string }>
+  searchParams: Promise<{
+    section?: string
+    mcpOauthConnected?: string
+    mcpOauthTools?: string
+    mcpOauthError?: string
+  }>
 }) {
-  const { section } = await searchParams
+  const { section, mcpOauthConnected, mcpOauthTools, mcpOauthError } = await searchParams
+  // What the MCP OAuth callback left behind, if the operator just came back
+  // from a provider. The section clears it from the address bar once shown.
+  const mcpOauthOutcome = mcpOauthConnected
+    ? {
+        ok: true,
+        message: (() => {
+          const tools = Number(mcpOauthTools ?? '0')
+          return `${mcpOauthConnected} is connected — ${tools} tool${tools === 1 ? '' : 's'} available to your agents.`
+        })(),
+      }
+    : mcpOauthError
+      ? { ok: false, message: mcpOauthError }
+      : null
   const tenantId = await resolveTenantId()
   const app = db()
   const [providers, prices, imageSetting, voiceProviders, trunks, agentExtensions, mailboxData, agentDials, partRows, partLibrary] = await Promise.all([
@@ -246,7 +264,9 @@ export default async function SettingsPage({
         url: entry.url,
         category: entry.category,
         hasHeaders: Boolean(entry.sealedHeaders),
+        isOauth: Boolean(entry.oauth),
       }))}
+      mcpOauthOutcome={mcpOauthOutcome}
       phoneSystem={{
         trunks: trunks.map((t) => ({
           id: t.id,

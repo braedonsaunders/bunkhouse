@@ -9,17 +9,10 @@ import {
   type ActionCategory,
   type GovernanceState,
 } from '@bunkhouse/runtime'
-import {
-  assignments,
-  duties,
-  memories,
-  people,
-  tenantSettings,
-  MCP_INTEGRATIONS_KEY,
-  type AssignmentSource,
-  type McpIntegrationEntry,
-} from '../db/schema'
+import { assignments, duties, memories, people, type AssignmentSource } from '../db/schema'
 import { db } from '../db/client'
+import { listMcpIntegrations } from './mcp-integrations'
+import { mcpOauthHeaders } from './mcp-oauth'
 import { sendNewMail } from './mailbox'
 import { createNote, retrieveNotes, supersedeNote } from './memory'
 import { firstOccurrence, gapMinutes } from './duties'
@@ -565,26 +558,6 @@ export function schedulingAbilities(args: { tenantId: string; person: PersonRow 
 // MCP integrations — tenant-configured external systems
 // ---------------------------------------------------------------------------
 
-export async function listMcpIntegrations(tenantId: string): Promise<McpIntegrationEntry[]> {
-  const app = db()
-  const [row] = await app.db
-    .select({ value: tenantSettings.value })
-    .from(tenantSettings)
-    .where(and(eq(tenantSettings.tenantId, tenantId), eq(tenantSettings.key, MCP_INTEGRATIONS_KEY)))
-  return (row?.value as McpIntegrationEntry[] | undefined) ?? []
-}
-
-export async function saveMcpIntegrations(tenantId: string, entries: McpIntegrationEntry[]): Promise<void> {
-  const app = db()
-  await app.db
-    .insert(tenantSettings)
-    .values({ tenantId, key: MCP_INTEGRATIONS_KEY, value: entries })
-    .onConflictDoUpdate({
-      target: [tenantSettings.tenantId, tenantSettings.key],
-      set: { value: entries, updatedAt: new Date() },
-    })
-}
-
 /**
  * Connect the tenant's MCP integrations and return their abilities. A server
  * that fails to connect is reported, not fatal — the agent works with what is
@@ -602,7 +575,10 @@ export async function connectIntegrationAbilities(tenantId: string): Promise<{
   for (const entry of entries) {
     try {
       let headers: Record<string, string> | undefined
-      if (entry.sealedHeaders) {
+      if (entry.oauth) {
+        // Signed in with OAuth: mint a fresh access token for this connection.
+        headers = await mcpOauthHeaders(tenantId, entry)
+      } else if (entry.sealedHeaders) {
         const raw = unsealSecret(entry.sealedHeaders)
         if (!raw) throw new Error('its credentials could not be unsealed — re-enter them in Settings → Integrations.')
         headers = JSON.parse(raw) as Record<string, string>

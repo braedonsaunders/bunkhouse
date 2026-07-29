@@ -35,7 +35,7 @@ import { AutonomySettings, type AgentDial } from './autonomy-settings'
 import { CompanyIdentitySettings, type CompanyIdentityView, type IdentityProviderOption } from './company-identity-settings'
 import { PhoneSystemRow, type AgentExtensionRow, type AgentOption, type PhoneNumberRowView, type SipTrunkSummary } from './phone-system'
 import { MailOauthApps, type MailOauthAppView } from './mail-oauth-apps'
-import { DocumentsSection, IntegrationsSection, ResearchSection, SmsSection, WorkspaceSection, type DocumentBrandingView, type IntegrationRowView, type SmsSettingsView, type WorkspacePolicyView } from './capability-settings'
+import { DocumentsSection, IntegrationsSection, ResearchSection, SmsSection, WorkspaceSection, type DocumentBrandingView, type IntegrationRowView, type McpOauthOutcome, type SmsSettingsView, type WorkspacePolicyView } from './capability-settings'
 import { VoiceCostSettings, type VoiceCostSettingsView } from './voice-cost-settings'
 import { DocumentTemplatesView, type TemplateRowView } from './document-templates-view'
 import { FilingSection, type FilingActivityRow, type FilingSettingsView } from './filing-settings'
@@ -257,6 +257,7 @@ export function SettingsView({
   filing,
   sms,
   integrations,
+  mcpOauthOutcome,
   phoneSystem,
   agentDials,
   initialSection,
@@ -293,6 +294,8 @@ export function SettingsView({
   }
   sms: SmsSettingsView
   integrations: IntegrationRowView[]
+  /** How the last MCP OAuth sign-in ended, when the operator just came back. */
+  mcpOauthOutcome?: McpOauthOutcome | null
   phoneSystem: {
     trunks: SipTrunkSummary[]
     extensions: AgentExtensionRow[]
@@ -520,6 +523,7 @@ export function SettingsView({
             </SettingsSection>
           ) : null}
 
+
           {mailTab === 'applications' ? (
             <SettingsSection
               title="Sign-in applications"
@@ -661,7 +665,9 @@ export function SettingsView({
         />
       ) : null}
 
-      {active === 'integrations' ? <IntegrationsSection integrations={integrations} /> : null}
+      {active === 'integrations' ? (
+        <IntegrationsSection integrations={integrations} oauthOutcome={mcpOauthOutcome ?? null} />
+      ) : null}
 
       {active === 'images' ? (
         <SettingsSection

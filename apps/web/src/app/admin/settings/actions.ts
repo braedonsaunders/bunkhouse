@@ -13,8 +13,9 @@ import { removeSearchProvider, setSearchProvider } from '../../../lib/research'
 import { saveDocumentBranding } from '../../../lib/documents'
 import { removeSmsSettings, saveSmsSettings } from '../../../lib/sms'
 import { saveWorkspacePolicy } from '../../../lib/workspace'
-import { listMcpIntegrations, saveMcpIntegrations } from '../../../lib/agent-abilities'
+import { listMcpIntegrations, saveMcpIntegrations } from '../../../lib/mcp-integrations'
 import { isMailOauthProvider, removeMailOauthApp, saveMailOauthApp } from '../../../lib/mail-oauth'
+import { beginMcpOauth } from '../../../lib/mcp-oauth'
 import { connectMcpServers } from '@bunkhouse/runtime'
 import { sealSecret } from '@appkit/crypto'
 import { db } from '../../../db/client'
@@ -218,6 +219,19 @@ export async function removeSearchProviderAction(): Promise<void> {
 
 // --- Integrations (MCP) -----------------------------------------------------
 
+/** The action categories the autonomy dial governs — an integration runs
+ *  entirely under the one chosen for it. */
+const ACTION_CATEGORIES = [
+  'external_email',
+  'internal_email',
+  'record_write',
+  'money_adjacent',
+  'file_write',
+  'computer_use',
+  'shell',
+  'phone_call',
+]
+
 /** Add or replace an MCP integration; the connection is probed before saving. */
 export async function saveMcpIntegrationAction(input: {
   slug: string
@@ -239,17 +253,9 @@ export async function saveMcpIntegrationAction(input: {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     return { ok: false, message: 'The server URL must be http(s).' }
   }
-  const categories = [
-    'external_email',
-    'internal_email',
-    'record_write',
-    'money_adjacent',
-    'file_write',
-    'computer_use',
-    'shell',
-    'phone_call',
-  ]
-  if (!categories.includes(input.category)) return { ok: false, message: 'Pick the action category it is governed under.' }
+  if (!ACTION_CATEGORIES.includes(input.category)) {
+    return { ok: false, message: 'Pick the action category it is governed under.' }
+  }
 
   const headers: Record<string, string> = {}
   for (const line of input.headersText.split('\n')) {
@@ -282,18 +288,69 @@ export async function saveMcpIntegrationAction(input: {
   const tenantId = await resolveTenantId()
   const app = db()
   await app.withTenant(tenantId, async () => {
-    const entries = (await listMcpIntegrations(tenantId)).filter((entry) => entry.slug !== slug)
+    const all = await listMcpIntegrations(tenantId)
+    const previous = all.find((entry) => entry.slug === slug)
+    const entries = all.filter((entry) => entry.slug !== slug)
+    // Blank headers on an edit mean "keep what is sealed", not "drop it".
+    const sealedHeaders =
+      Object.keys(headers).length > 0 ? sealSecret(JSON.stringify(headers)) : previous?.sealedHeaders
     entries.push({
       slug,
       label: input.label.trim(),
       url: url.toString(),
-      ...(Object.keys(headers).length > 0 ? { sealedHeaders: sealSecret(JSON.stringify(headers)) } : {}),
+      ...(sealedHeaders ? { sealedHeaders } : {}),
       category: input.category,
     })
     await saveMcpIntegrations(tenantId, entries)
   })
   revalidatePath('/admin/settings')
   return { ok: true, toolCount }
+}
+
+/**
+ * Start an OAuth sign-in for a connection. Returns the provider's consent URL
+ * for the browser to follow; the connection is only saved once the provider
+ * redirects back and the grant is proved against the server.
+ */
+export async function beginMcpOauthAction(input: {
+  slug: string
+  label: string
+  url: string
+  category: string
+  /** Only for servers that do not offer automatic client registration. */
+  clientId?: string
+  clientSecret?: string
+}): Promise<{ ok: true; url: string } | { ok: false; message: string }> {
+  const slug = input.slug.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '')
+  if (!slug) return { ok: false, message: 'Give the integration a short slug.' }
+  if (!input.label.trim()) return { ok: false, message: 'Give the integration a name.' }
+  let url: URL
+  try {
+    url = new URL(input.url.trim())
+  } catch {
+    return { ok: false, message: 'That URL is not valid.' }
+  }
+  if (url.protocol !== 'https:') {
+    return { ok: false, message: 'OAuth sign-in requires an https server URL.' }
+  }
+  if (!ACTION_CATEGORIES.includes(input.category)) {
+    return { ok: false, message: 'Pick the action category it is governed under.' }
+  }
+  try {
+    const tenantId = await resolveTenantId()
+    const { url: consentUrl } = await beginMcpOauth({
+      tenantId,
+      slug,
+      label: input.label.trim(),
+      url: url.toString(),
+      category: input.category,
+      ...(input.clientId?.trim() ? { clientId: input.clientId.trim() } : {}),
+      ...(input.clientSecret?.trim() ? { clientSecret: input.clientSecret.trim() } : {}),
+    })
+    return { ok: true, url: consentUrl }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 export async function removeMcpIntegrationAction(formData: FormData): Promise<void> {
