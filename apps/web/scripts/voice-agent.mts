@@ -1200,4 +1200,12 @@ export default defineAgent({
   },
 })
 
-cli.runApp(new ServerOptions({ agent: fileURLToPath(import.meta.url) }))
+// One warm job process, not one per core. In production mode the framework
+// prewarms `min(cores, 4)` idle processes, and each one is a full import of
+// this file — the app's db client, the appkit packages, the LiveKit plugins,
+// and silero's onnx runtime — so four of them cost more resident memory than
+// the deployment's container limit allows, and the whole worker is killed
+// before it can register. Dev mode prewarms none, which is why calls only go
+// unanswered once deployed. One process answers the first call just as fast;
+// further concurrent calls spawn their own.
+cli.runApp(new ServerOptions({ agent: fileURLToPath(import.meta.url), numIdleProcesses: 1 }))
