@@ -35,6 +35,7 @@
       "@appkit/db": "file:./vendor/appkit/appkit-db-0.2.0.tgz",
       "@appkit/design-studio": "file:./vendor/appkit/appkit-design-studio-0.2.0.tgz",
       "@appkit/editor": "file:./vendor/appkit/appkit-editor-0.2.0.tgz",
+      "@appkit/email-designer": "file:./vendor/appkit/appkit-email-designer-0.1.0.tgz",
       "@appkit/email-render": "file:./vendor/appkit/appkit-email-render-0.1.1.tgz",
       "@appkit/emails": "file:./vendor/appkit/appkit-emails-0.2.0.tgz",
       "@appkit/endpoints": "file:./vendor/appkit/appkit-endpoints-0.1.1.tgz",

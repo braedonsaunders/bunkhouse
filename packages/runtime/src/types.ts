@@ -35,6 +35,11 @@ export type AgentProfile = {
   /** This agent's manager on the org chart — its escalation path. */
   reportsToId?: string
   proactivity: 'reactive' | 'duties' | 'autonomous'
+  /**
+   * The company signature is appended mechanically on the send path, so the
+   * agent must not type a sign-off of its own or the message ends twice.
+   */
+  signatureAppended?: boolean
 }
 
 /** A directory entry — human or agent — the agent may route work to. */

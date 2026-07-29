@@ -35,6 +35,7 @@ import { AutonomySettings, type AgentDial } from './autonomy-settings'
 import { CompanyIdentitySettings, type CompanyIdentityView, type IdentityProviderOption } from './company-identity-settings'
 import { PhoneSystemRow, type AgentExtensionRow, type AgentOption, type PhoneNumberRowView, type SipTrunkSummary } from './phone-system'
 import { MailOauthApps, type MailOauthAppView } from './mail-oauth-apps'
+import { MailSignatureSettings, type MailSignatureView } from './mail-signature-settings'
 import { DocumentsSection, IntegrationsSection, ResearchSection, SmsSection, WorkspaceSection, type DocumentBrandingView, type IntegrationRowView, type McpOauthOutcome, type SmsSettingsView, type WorkspacePolicyView } from './capability-settings'
 import { VoiceCostSettings, type VoiceCostSettingsView } from './voice-cost-settings'
 import { DocumentTemplatesView, type TemplateRowView } from './document-templates-view'
@@ -244,6 +245,7 @@ export function SettingsView({
   agentsWithoutMailbox,
   mailOauthApps,
   mailOauthRedirectUri,
+  mailSignature,
   imageSetting,
   imageFallbackModels,
   voiceProviders,
@@ -274,6 +276,8 @@ export function SettingsView({
   mailOauthApps: MailOauthAppView[]
   /** The one address both providers call back to; operators copy it into their console. */
   mailOauthRedirectUri: string
+  /** The company signature appended to every agent's outbound mail. */
+  mailSignature: MailSignatureView
   imageSetting: { providerSlug: string; model: string } | null
   /** Static catalog offered only when the live provider model list fails. */
   imageFallbackModels: { id: string; name: string; provider: string }[]
@@ -474,6 +478,7 @@ export function SettingsView({
             onSelect={setMailTab}
             tabs={[
               { key: 'mailboxes', label: 'Mailboxes', count: mailboxes.length },
+              { key: 'signature', label: 'Signature' },
               { key: 'applications', label: 'Sign-in applications' },
             ]}
           />
@@ -523,6 +528,7 @@ export function SettingsView({
             </SettingsSection>
           ) : null}
 
+          {mailTab === 'signature' ? <MailSignatureSettings signature={mailSignature} /> : null}
 
           {mailTab === 'applications' ? (
             <SettingsSection

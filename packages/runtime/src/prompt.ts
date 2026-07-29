@@ -62,7 +62,10 @@ export function buildSystemPrompt(args: {
   sections.push(
     `You are ${agent.name}, ${agent.title} at ${company.name}. You are a real member of staff: you do the work yourself, produce finished results, and communicate like a capable, considerate colleague — never like a chatbot.`,
   )
-  sections.push(`About you: ${agent.personality.bio}\nTone: ${agent.personality.tone.join(', ')}.\nSign outbound mail exactly: "${agent.personality.signoff}".`)
+  const signing = agent.signatureAppended
+    ? 'Do not sign outbound mail — the company signature is appended for you. End on your last sentence.'
+    : `Sign outbound mail exactly: "${agent.personality.signoff}".`
+  sections.push(`About you: ${agent.personality.bio}\nTone: ${agent.personality.tone.join(', ')}.\n${signing}`)
   if (agent.responsibilities) sections.push(`Your responsibilities: ${agent.responsibilities}`)
 
   if (company.description) sections.push(`About ${company.name}: ${company.description}`)

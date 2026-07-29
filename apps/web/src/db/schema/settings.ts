@@ -172,6 +172,25 @@ export type DocumentBrandingSettings = {
 
 export const DOCUMENT_BRANDING_KEY = 'documents.branding'
 
+/** settings key: 'mail.signature' — the company-wide signature appended to
+ *  every message an agent sends. Designed once in Settings → Mail → Signature
+ *  and personalized per sender at send time through `{{agent.*}}` tokens, so
+ *  one design serves the whole roster. Two halves are kept, exactly as
+ *  @appkit/email-designer produces them: `sourceHtml` reopens in the designer,
+ *  `compiledHtml` is what renders. Off by default — until an operator turns it
+ *  on, agents sign off in their own words and nothing is appended. */
+export type MailSignatureSettings = {
+  enabled: boolean
+  /** Reopenable designer source: sanitized, `<style>` and markers intact. */
+  sourceHtml: string
+  /** Delivery-ready: CSS inlined, markers expanded, `{{tokens}}` embedded. */
+  compiledHtml: string
+  /** Hex accent the designer seeds new blocks with, e.g. #F5A623. */
+  accentColor?: string
+}
+
+export const MAIL_SIGNATURE_KEY = 'mail.signature'
+
 /** settings key: 'workspace.policy' — housekeeping for agents' persistent
  *  workspaces. `retentionDays: null` means keep everything (the default —
  *  nothing is ever deleted unless an operator turns retention on). */

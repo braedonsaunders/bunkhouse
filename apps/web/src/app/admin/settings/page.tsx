@@ -22,6 +22,7 @@ import { listDocumentTemplates } from '../../../lib/document-templates'
 import { getFilingSettingsView, listRecentFilings } from '../../../lib/filing'
 import { listMcpIntegrations } from '../../../lib/mcp-integrations'
 import { listMailOauthApps, mailOauthRedirectUri } from '../../../lib/mail-oauth'
+import { getMailSignature } from '../../../lib/mail-signature'
 import { AVATAR_PART_CATEGORIES, avatarPartCategory } from '../../../lib/avatar-parts'
 import { IMAGE_MODELS } from '@appkit/avatars'
 import { resolveTenantId } from '../../../lib/tenant'
@@ -143,6 +144,7 @@ export default async function SettingsPage({
   )
   const integrations = await app.withTenantContext(tenantId, () => listMcpIntegrations(tenantId))
   const mailOauthApps = await listMailOauthApps(tenantId)
+  const mailSignature = await getMailSignature(tenantId)
 
   return (
     <SettingsView
@@ -182,6 +184,11 @@ export default async function SettingsPage({
       agentsWithoutMailbox={mailboxData.unconnected}
       mailOauthApps={mailOauthApps}
       mailOauthRedirectUri={mailOauthRedirectUri()}
+      mailSignature={{
+        enabled: mailSignature.enabled,
+        sourceHtml: mailSignature.sourceHtml,
+        accentColor: mailSignature.accentColor ?? '',
+      }}
       imageSetting={imageSetting}
       imageFallbackModels={IMAGE_MODELS}
       voiceProviders={{ deepgram: Boolean(voiceProviders.deepgram), elevenlabs: Boolean(voiceProviders.elevenlabs) }}

@@ -31,6 +31,7 @@ import {
 import { db } from '../db/client'
 import { resolveAgentAiConfig } from './ai'
 import { companyPromptProfile, getCompanyIdentity } from './company-identity'
+import { getMailSignature } from './mail-signature'
 import { assembleAbilities } from './agent-abilities'
 import { resolvePrice } from './pricing'
 import { sendNewMail, sendReplyInThread } from './mailbox'
@@ -207,6 +208,8 @@ export async function executeAgentRun(args: {
 
     const directory = await app.db.select().from(people).where(eq(people.status, 'active'))
     const identity = await getCompanyIdentity(args.tenantId)
+    const signature = await getMailSignature(args.tenantId)
+    const signatureAppended = signature.enabled && signature.compiledHtml.trim().length > 0
     // The Logbook: pinned tier always in prompt; the rest scored per task.
     const retrievalQuery =
       args.input.type === 'email'
@@ -267,6 +270,7 @@ export async function executeAgentRun(args: {
         ...(person.responsibilities ? { responsibilities: person.responsibilities } : {}),
         ...(person.reportsToId ? { reportsToId: person.reportsToId } : {}),
         proactivity: person.proactivity ?? 'duties',
+        ...(signatureAppended ? { signatureAppended: true } : {}),
       },
       company: {
         ...companyPromptProfile(identity),

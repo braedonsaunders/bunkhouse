@@ -11,6 +11,7 @@ import { refreshPricesFromOpenRouter, setManualPrice } from '../../../lib/pricin
 import { setImageProviderSetting } from '../../../lib/avatars'
 import { removeSearchProvider, setSearchProvider } from '../../../lib/research'
 import { saveDocumentBranding } from '../../../lib/documents'
+import { compileMailSignature, saveMailSignature } from '../../../lib/mail-signature'
 import { removeSmsSettings, saveSmsSettings } from '../../../lib/sms'
 import { saveWorkspacePolicy } from '../../../lib/workspace'
 import { listMcpIntegrations, saveMcpIntegrations } from '../../../lib/mcp-integrations'
@@ -392,6 +393,41 @@ export async function saveDocumentBrandingAction(input: {
       ...(input.companyName.trim() ? { companyName: input.companyName.trim() } : {}),
       ...(accent ? { accentColor: accent } : {}),
       ...(input.footerText.trim() ? { footerText: input.footerText.trim() } : {}),
+    })
+  })
+  revalidatePath('/admin/settings')
+  return { ok: true }
+}
+
+/**
+ * Persist the company signature. The designer hands over its raw snapshot; the
+ * sanitize + inline + expand pipeline runs here, once, so the send path only
+ * ever renders already-trusted markup.
+ */
+export async function saveMailSignatureAction(input: {
+  enabled: boolean
+  accentColor: string
+  rawHtml: string
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const accent = input.accentColor.trim()
+  if (accent && !/^#[0-9a-fA-F]{6}$/.test(accent)) {
+    return { ok: false, message: 'Accent color must be a hex value like #F5A623.' }
+  }
+  const compiled = compileMailSignature(input.rawHtml)
+  if (compiled.errors.length > 0) {
+    return { ok: false, message: compiled.errors[0] ?? 'This signature could not be compiled.' }
+  }
+  if (input.enabled && !compiled.compiledHtml.trim()) {
+    return { ok: false, message: 'Design a signature before turning it on.' }
+  }
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await saveMailSignature(tenantId, {
+      enabled: input.enabled,
+      sourceHtml: compiled.sourceHtml,
+      compiledHtml: compiled.compiledHtml,
+      ...(accent ? { accentColor: accent } : {}),
     })
   })
   revalidatePath('/admin/settings')

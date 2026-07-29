@@ -16,6 +16,7 @@ import { mailboxAccounts, mailMessages, mailThreads, people, type MailAttachment
 import { db } from '../db/client'
 import { getFileBytes, getFileRecords, saveFile } from './files'
 import { freshAccessToken, mailOauthProviderOf, recordMailboxError } from './mail-oauth'
+import { loadSignatureContext, outboundHtmlBody, outboundTextBody, renderSignature } from './mail-signature'
 
 /** Attachments above this size are left in the mailbox, referenced but not ledgered. */
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
@@ -256,6 +257,7 @@ export async function sendReplyInThread(args: {
   attachFileIds?: string[]
 }): Promise<void> {
   const attachments = await resolveOutboundAttachments(args.tenantId, args.attachFileIds ?? [])
+  const signatureContext = await loadSignatureContext(args.tenantId)
   const app = db()
   await app.withTenant(args.tenantId, async () => {
     const [thread] = await app.db.select().from(mailThreads).where(eq(mailThreads.id, args.threadId))
@@ -284,10 +286,16 @@ export async function sendReplyInThread(args: {
     const to = lastInbound ? [lastInbound.from] : counterparties
     if (to.length === 0) throw new Error('Nobody to reply to on this thread.')
 
+    const signature = renderSignature(signatureContext, owner)
+    const body = signature
+      ? { text: outboundTextBody(args.text, signature.text), html: outboundHtmlBody(args.text, signature.html) }
+      : { text: args.text }
+
     const sendArgs: SendMailArgs = {
       to,
       subject: thread.subject.startsWith('Re:') ? thread.subject : `Re: ${thread.subject}`,
-      text: args.text,
+      text: body.text,
+      ...(body.html ? { html: body.html } : {}),
       ...(lastInbound?.externalMessageId ? { inReplyTo: lastInbound.externalMessageId } : {}),
       ...(references.length ? { references } : {}),
       ...(owner ? { fromName: owner.name } : {}),
@@ -303,7 +311,8 @@ export async function sendReplyInThread(args: {
       to,
       cc: [],
       subject: sendArgs.subject,
-      bodyText: args.text,
+      bodyText: body.text,
+      ...(body.html ? { bodyHtml: body.html } : {}),
       externalMessageId: sent.messageId,
       attachments: attachments.refs,
       runId: args.runId ?? null,
@@ -327,6 +336,7 @@ export async function sendNewMail(args: {
   attachFileIds?: string[]
 }): Promise<{ threadId: string }> {
   const attachments = await resolveOutboundAttachments(args.tenantId, args.attachFileIds ?? [])
+  const signatureContext = await loadSignatureContext(args.tenantId)
   const app = db()
   return app.withTenant(args.tenantId, async () => {
     const [account] = await app.db
@@ -335,10 +345,17 @@ export async function sendNewMail(args: {
       .where(eq(mailboxAccounts.personId, args.personId))
     if (!account) throw new Error('No mailbox connected for this agent.')
     const [owner] = await app.db.select().from(people).where(eq(people.id, args.personId))
+
+    const signature = renderSignature(signatureContext, owner)
+    const body = signature
+      ? { text: outboundTextBody(args.text, signature.text), html: outboundHtmlBody(args.text, signature.html) }
+      : { text: args.text }
+
     const sent = await sendMail(await toConnection(args.tenantId, account), {
       to: args.to,
       subject: args.subject,
-      text: args.text,
+      text: body.text,
+      ...(body.html ? { html: body.html } : {}),
       ...(owner ? { fromName: owner.name } : {}),
       ...(attachments.wire.length ? { attachments: attachments.wire } : {}),
     })
@@ -361,7 +378,8 @@ export async function sendNewMail(args: {
       to: args.to,
       cc: [],
       subject: args.subject,
-      bodyText: args.text,
+      bodyText: body.text,
+      ...(body.html ? { bodyHtml: body.html } : {}),
       externalMessageId: sent.messageId,
       attachments: attachments.refs,
       runId: args.runId ?? null,
