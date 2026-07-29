@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Phone } from 'lucide-react'
+import { ArrowDown, Phone } from 'lucide-react'
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -27,6 +27,7 @@ import {
   toast,
 } from '@appkit/ui'
 import { ComposedAvatar } from '@appkit/avatars/react'
+import { useElementSize } from '@appkit/scene'
 import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
 import type { ComposedAvatarAnimation } from '@appkit/avatars/react'
 import {
@@ -244,12 +245,31 @@ function screenView(frame: CallBrowserFrame, live: boolean): CallStageScreenView
 }
 
 /**
+ * How close to the bottom of the feed still counts as reading the live edge.
+ * Wide enough to survive a rounded scroll position and the last entry's own
+ * entrance, narrow enough that a reader who has deliberately scrolled up by a
+ * line is left where they put themselves.
+ */
+const LIVE_EDGE_PX = 32
+
+/**
  * Live captions and tool activity: the call's two ledgers, interleaved on the
  * call clock — chat bubbles for what was said, tool widgets for what the agent
  * is doing while it talks. The whole history lives here; the stage carries only
- * the current moment. The feed follows the newest entry, but only while the
- * reader is at the live edge — scrolling up to reread holds the history still
- * until they return to the bottom.
+ * the current moment.
+ *
+ * The feed follows the newest entry, but only while the reader is at the live
+ * edge — scrolling up to reread holds the history still, and says so with the
+ * one control that takes them back. Following resumes on its own the moment
+ * they scroll back down to the bottom.
+ *
+ * What it follows is the measured height of the feed, not a count of entries:
+ * an entry that is already on screen grows after it arrives — a tool call
+ * gaining its detail line, a status resolving, a long turn rewrapping when the
+ * panel is resized — and every one of those moves the newest line out of sight
+ * without adding anything to count. The viewport is measured for the same
+ * reason: a window resized shorter must not leave the reader stranded above
+ * the live edge.
  */
 function CaptionsPanel({
   turns,
@@ -260,8 +280,9 @@ function CaptionsPanel({
   items: ToolActivityItem[]
   agentName: string
 }) {
-  const scrollRef = React.useRef<HTMLDivElement>(null)
-  const pinnedRef = React.useRef(true)
+  const [viewportRef, viewport] = useElementSize<HTMLDivElement>()
+  const [contentRef, content] = useElementSize<HTMLDivElement>()
+  const [following, setFollowing] = React.useState(true)
 
   const feed = React.useMemo(() => {
     const entries: ({ sort: number } & ({ type: 'turn'; turn: TranscriptTurn } | { type: 'tool'; item: ToolActivityItem }))[] = [
@@ -272,65 +293,89 @@ function CaptionsPanel({
     return entries
   }, [turns, items])
 
-  React.useEffect(() => {
-    if (pinnedRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [feed.length])
+  // Before the browser paints, so the newest line is never shown arriving off
+  // the bottom of the panel. `scrollTop` past the end is clamped by the
+  // browser, which is exactly the "as far down as this goes" we want.
+  React.useLayoutEffect(() => {
+    if (!following) return
+    const el = viewportRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [following, feed.length, content.height, viewport.height, viewportRef])
 
   return (
     // The card fills whatever height it is handed and the feed scrolls inside
-    // it: beside the stage that is the stage's full height, so the two columns
+    // it: beside the stage that is the row's full height, so the two columns
     // end on the same line. Stacked on a narrow screen there is no height to
     // fill, and the capped reading height takes over instead.
-    <Card className="flex h-full flex-col">
-      <CardHeader>
+    <Card className="flex h-full min-h-0 flex-col">
+      <CardHeader className="shrink-0">
         <CardTitle className="text-base">Live transcript</CardTitle>
         <CardDescription>
           What is said and what {agentName} is doing, as it happens. It stays on the call record after you hang up.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex min-h-0 flex-1 flex-col">
+      <CardContent className="relative flex min-h-0 flex-1 flex-col">
         <div
-          ref={scrollRef}
+          ref={viewportRef}
           onScroll={(event) => {
             const el = event.currentTarget
-            pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+            setFollowing(el.scrollHeight - el.scrollTop - el.clientHeight <= LIVE_EDGE_PX)
           }}
-          className="min-h-[10rem] max-h-[24rem] space-y-2 overflow-y-auto pr-1 lg:max-h-none lg:flex-1"
+          className="app-scroll min-h-[10rem] max-h-[24rem] overflow-y-auto pr-1 lg:max-h-none lg:min-h-0 lg:flex-1"
         >
-          {feed.length === 0 ? (
-            <p className="text-sm text-fg-muted">Say hello — captions appear as the call is transcribed.</p>
-          ) : (
-            feed.map((entry) =>
-              entry.type === 'tool' ? (
-                <div key={entry.item.key} className="bh-call-enter">
-                  <ToolActivityCard item={entry.item} />
-                </div>
-              ) : (
-                <div
-                  key={`turn-${entry.turn.seq}`}
-                  className={`bh-call-enter flex ${entry.turn.speaker === 'human' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                      entry.turn.speaker === 'human'
-                        ? 'bg-primary-subtle text-fg'
-                        : 'border border-border bg-bg-subtle text-fg'
-                    }`}
-                  >
-                    <p className="mb-0.5 text-xs font-medium text-fg-muted">
-                      {entry.turn.speaker === 'human' ? 'You' : agentName} ·{' '}
-                      <span className="tabular-nums">
-                        {Math.floor(entry.turn.atMs / 60000)}:
-                        {String(Math.floor((entry.turn.atMs % 60000) / 1000)).padStart(2, '0')}
-                      </span>
-                    </p>
-                    <p className="whitespace-pre-wrap">{entry.turn.text}</p>
+          <div ref={contentRef} className="space-y-2">
+            {feed.length === 0 ? (
+              <p className="text-sm text-fg-muted">Say hello — captions appear as the call is transcribed.</p>
+            ) : (
+              feed.map((entry) =>
+                entry.type === 'tool' ? (
+                  <div key={entry.item.key} className="bh-call-enter">
+                    <ToolActivityCard item={entry.item} />
                   </div>
-                </div>
-              ),
-            )
-          )}
+                ) : (
+                  <div
+                    key={`turn-${entry.turn.seq}`}
+                    className={`bh-call-enter flex ${entry.turn.speaker === 'human' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                        entry.turn.speaker === 'human'
+                          ? 'bg-primary-subtle text-fg'
+                          : 'border border-border bg-bg-subtle text-fg'
+                      }`}
+                    >
+                      <p className="mb-0.5 text-xs font-medium text-fg-muted">
+                        {entry.turn.speaker === 'human' ? 'You' : agentName} ·{' '}
+                        <span className="tabular-nums">
+                          {Math.floor(entry.turn.atMs / 60000)}:
+                          {String(Math.floor((entry.turn.atMs % 60000) / 1000)).padStart(2, '0')}
+                        </span>
+                      </p>
+                      <p className="whitespace-pre-wrap">{entry.turn.text}</p>
+                    </div>
+                  </div>
+                ),
+              )
+            )}
+          </div>
         </div>
+        {/* The way back, and only while there is a way back to offer. Pressing
+            it hands the feed to the effect above rather than scrolling here:
+            following is the state, and the scrolling is what following does. */}
+        {following ? null : (
+          <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="bh-call-enter pointer-events-auto rounded-full border border-border shadow-md"
+              onClick={() => setFollowing(true)}
+            >
+              <ArrowDown aria-hidden className="size-3.5" />
+              Jump to latest
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -529,11 +574,20 @@ function LiveCallSurface({
   }, [agentScreen, browser, elapsedSeconds, phase])
 
   return (
+    // One row, as tall as whatever the screen has left. The row is explicitly
+    // allowed to be shorter than its contents' natural height (`minmax(0,1fr)`
+    // rather than the automatic track, whose floor is its content) — that is
+    // what lets the stage inside it give way instead of pushing the control
+    // bar off the bottom of the page. Below `lg` the two columns stack and the
+    // screen scrolls, so the row is left to size itself.
     <div
-      className={cn('grid gap-4', transcriptVisible && 'lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]')}
+      className={cn(
+        'grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)]',
+        transcriptVisible && 'lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]',
+      )}
     >
-      <Card>
-        <CardContent className="flex flex-col items-center gap-8 px-6 py-10">
+      <Card className="flex min-h-0 flex-col">
+        <CardContent className="flex min-h-0 flex-1 flex-col items-center gap-6 px-6 py-6">
           <CallStage
             name={agent.name}
             title={agent.title}
@@ -563,19 +617,27 @@ function LiveCallSurface({
           />
         </CardContent>
       </Card>
-      {transcriptVisible ? (
-        // Beside the stage the transcript is taken out of flow, so it can never
-        // be the thing that decides how tall the row is — the stage decides,
-        // always — and then it fills exactly the height it was given. That is
-        // what lines the two bottom edges up without the page growing a
-        // scrollbar, and what keeps the stage perfectly still when the caller
-        // dismisses the transcript. Stacked below lg it is an ordinary card.
-        <div className="lg:relative">
-          <div className="lg:absolute lg:inset-0">
-            <CaptionsPanel turns={turns} items={items} agentName={agent.name} />
-          </div>
-        </div>
-      ) : null}
+      {/* Beside the stage the transcript is simply the row's other column, and
+          the row's height is the screen's, not the stage's — so neither column
+          can make the page taller, the two bottom edges line up, and the stage
+          does not move when the caller dismisses the transcript. Stacked below
+          lg it is an ordinary card with its own reading height. */}
+      {transcriptVisible ? <CaptionsPanel turns={turns} items={items} agentName={agent.name} /> : null}
+    </div>
+  )
+}
+
+/**
+ * The call's one screen: the page header, then whatever is on the line. From
+ * `lg` up it is exactly as tall as the shell's canvas and no taller — a call is
+ * a fixed screen, and a caller must never have to scroll to find the button
+ * that ends it. Below `lg` the columns stack, the screen takes its natural
+ * height, and the canvas scrolls: a phone cannot hold all of this at once.
+ */
+function CallScreen({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mx-auto flex w-full max-w-(--breakpoint-2xl) flex-col gap-4 p-4 sm:p-6 lg:h-full">
+      {children}
     </div>
   )
 }
@@ -673,6 +735,7 @@ export function CallRoom({
 
   const header = (
     <PageHeader
+      className="shrink-0"
       title={`Calling ${agent.name}`}
       description={`${agent.title} · web call · everything said here lands on the call record and the run.`}
     />
@@ -680,10 +743,10 @@ export function CallRoom({
 
   if (!call) {
     return (
-      <div className="space-y-6">
+      <CallScreen>
         {header}
-        <Card>
-          <CardContent className="flex flex-col items-center gap-8 px-6 py-10">
+        <Card className="flex min-h-0 flex-col lg:flex-1">
+          <CardContent className="flex min-h-0 flex-1 flex-col items-center gap-6 px-6 py-6">
             <CallStage
               name={agent.name}
               title={agent.title}
@@ -700,7 +763,7 @@ export function CallRoom({
               avatar={<AgentFace agent={agent} avatar={avatar} animate="idle" />}
             />
             {placeError ? (
-              <div className="bh-call-enter flex flex-col items-center gap-3 text-center">
+              <div className="bh-call-enter flex shrink-0 flex-col items-center gap-3 text-center">
                 <p className="max-w-md text-sm text-fg-muted">{placeError}</p>
                 <Button type="button" onClick={place}>
                   <Phone className="mr-1.5 size-4" /> Try again
@@ -709,14 +772,18 @@ export function CallRoom({
             ) : null}
           </CardContent>
         </Card>
-      </div>
+      </CallScreen>
     )
   }
 
   return (
-    <div className="space-y-6">
+    <CallScreen>
       {header}
       <LiveKitRoom
+        // The room's own container is a link in the height chain — everything
+        // on the call hangs off it — so it fills the screen the same way the
+        // dialling card does.
+        className="flex min-h-0 flex-col lg:flex-1"
         serverUrl={serverUrl}
         token={call.token}
         audio
@@ -740,6 +807,6 @@ export function CallRoom({
           onEnd={finish}
         />
       </LiveKitRoom>
-    </div>
+    </CallScreen>
   )
 }

@@ -128,13 +128,18 @@ export default async function CallPage({ params }: { params: Promise<{ personId:
     loadAvatarPartLibrary(tenantId),
   ])
 
+  // Not PageContainer: a call is a single fixed screen, so it takes the shell's
+  // canvas whole rather than being a document that scrolls inside it. From `lg`
+  // up the room fills this exactly and nothing overflows; below it the columns
+  // stack and this is the one thing that scrolls — the same scroll region every
+  // other page in the app has, with the same scrollbar.
   return (
-    <PageContainer className="space-y-6">
+    <div className="app-scroll min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
       <CallRoom
         serverUrl={livekitUrl}
         agent={{ id: person.id, name: person.name, title: person.title }}
         avatar={{ composition, parts: partLibrary, categories: AVATAR_PART_CATEGORIES }}
       />
-    </PageContainer>
+    </div>
   )
 }

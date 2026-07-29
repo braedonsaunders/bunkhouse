@@ -23,6 +23,7 @@ import {
   useContextMenu,
   type ContextMenuEntry,
 } from '@appkit/ui'
+import { useElementSize } from '@appkit/scene'
 
 /**
  * The presentational half of a voice call: the stage the far side stands on,
@@ -38,6 +39,14 @@ export const CALL_STAGE_AVATAR_SIZE = 320
 const INSET_AVATAR_SIZE = 112
 /** The inset face's distance from the screen's corner, in pixels. */
 const INSET_MARGIN = 12
+/**
+ * The stage floor's width when nothing is squeezing it — `max-w-xl` in pixels.
+ * Every pixel figure on the floor is quoted at this width and multiplied by the
+ * width the floor actually got, so a stage that has been shortened to fit the
+ * viewport carries a face the right size for it rather than one that spills
+ * out of its own box.
+ */
+const STAGE_BASE_WIDTH = 576
 
 /**
  * What the far side is looking at, when it is working a screen rather than
@@ -257,6 +266,11 @@ function CallStageScreen({
  * scales on the motion system rather than being re-mounted somewhere else, so
  * the avatar's own animation never restarts mid-call.
  *
+ * The stage fills the height it is handed and never asks for more: the floor
+ * holds a screen's shape and shrinks inside it when the viewport is short, and
+ * the face — which is painted at a pixel size, not a CSS one — is scaled to
+ * whatever width the floor ended up with.
+ *
  * The ending is the same movement run out: on `ended` the face settles back
  * and fades where it stands — the far side stepping away from the phone — and
  * the line under it resolves to who was called, that the call ended, and how
@@ -288,10 +302,20 @@ export function CallStage({
   activity?: CallStageActivity | null
 }) {
   const inset = screen?.live === true
-  const scale = inset ? INSET_AVATAR_SIZE / CALL_STAGE_AVATAR_SIZE : 1
-  const centred = `calc(50% - ${CALL_STAGE_AVATAR_SIZE / 2}px)`
-
   const ended = phase === 'ended'
+
+  // The floor is measured because the face cannot be sized in CSS: the avatar
+  // renderer paints its layers at a pixel size, so a stage that has been given
+  // less room than its full width has to hand that ratio to the face itself.
+  // Until the first measurement lands the floor is assumed to be at full width,
+  // which is what it is on any desktop tall enough not to squeeze it — and the
+  // correction rides the same transition as every other move the face makes.
+  const [floorRef, floor] = useElementSize<HTMLDivElement>()
+  const stageScale = floor.width > 0 ? Math.min(1, floor.width / STAGE_BASE_WIDTH) : 1
+  const faceSize = (inset ? INSET_AVATAR_SIZE : CALL_STAGE_AVATAR_SIZE) * stageScale
+  const scale = faceSize / CALL_STAGE_AVATAR_SIZE
+  const centred = `calc(50% - ${faceSize / 2}px)`
+  const insetMargin = INSET_MARGIN * stageScale
 
   const statusLine =
     status ??
@@ -315,66 +339,87 @@ export function CallStage({
       'Calling…'
     ))
   return (
-    <div className="bh-call-enter flex w-full flex-col items-center gap-5 text-center">
-      {/* The stage floor: a screen's shape, kept whether or not one is shown, so
-          nothing below it moves when the far side picks up a keyboard. */}
-      <div className="relative aspect-[64/45] min-h-80 w-full max-w-xl">
-        {screen ? <CallStageScreen view={screen} name={name} activity={activity} /> : null}
+    <div className="bh-call-enter flex min-h-0 w-full flex-1 flex-col items-center gap-5 text-center">
+      {/* The room the floor stands in. From `lg` up it is a size container, and
+          it is what turns a height the page has already fixed into a width the
+          floor can use: the floor may be as wide as the column allows, but
+          never wider than its own height can carry at the screen's shape. That
+          is the whole trick to a call that fits the viewport — the stage gives
+          way, and the control bar under it never moves out of reach.
+
+          Below `lg` the columns stack and the screen scrolls, so there is no
+          height to divide up: containment is off and the floor is sized by its
+          width exactly as it always was. */}
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center lg:[container-type:size]">
+        {/* The stage floor: a screen's shape, kept whether or not one is shown,
+            so nothing below it moves when the far side picks up a keyboard. */}
         <div
-          className={cn(
-            'bh-call-avatar absolute z-10 rounded-full bg-surface',
-            // The settle-out, on the same transition that carries the face
-            // between its two homes: it steps back and dims where it stands,
-            // about its own centre, and stops there.
-            ended && 'scale-90 opacity-40',
-          )}
-          style={{
-            width: CALL_STAGE_AVATAR_SIZE * scale,
-            height: CALL_STAGE_AVATAR_SIZE * scale,
-            right: inset ? INSET_MARGIN : centred,
-            bottom: inset ? INSET_MARGIN : centred,
-          }}
+          ref={floorRef}
+          // The floor keeps a little height of its own even on a screen with
+          // nothing to spare: a floor of exactly nothing is indistinguishable
+          // from one that has not been measured yet, and the face would be
+          // drawn at full size on top of the controls.
+          className="relative aspect-[64/45] min-h-80 w-full max-w-xl lg:min-h-16 lg:max-w-[min(36rem,calc(100cqh*64/45))]"
         >
-          {phase === 'ringing' ? (
-            <span aria-hidden className="bh-call-ripple pointer-events-none absolute -inset-1.5 rounded-full border-2 border-primary/50" />
-          ) : null}
-          <span
-            aria-hidden
-            className={cn(
-              'pointer-events-none absolute -inset-5 rounded-full bg-primary/25 blur-2xl transition-opacity',
-              speaking ? 'opacity-100' : 'opacity-0',
-            )}
-          />
-          <span
-            aria-hidden
-            className={cn(
-              'pointer-events-none absolute -inset-1.5 rounded-full border-2 border-primary/60 transition-opacity',
-              speaking ? 'opacity-100' : 'opacity-0',
-            )}
-          />
+          {screen ? <CallStageScreen view={screen} name={name} activity={activity} /> : null}
           <div
-            className="bh-call-avatar-scale relative origin-top-left"
+            className={cn(
+              'bh-call-avatar absolute z-10 rounded-full bg-surface',
+              // The settle-out, on the same transition that carries the face
+              // between its two homes: it steps back and dims where it stands,
+              // about its own centre, and stops there.
+              ended && 'scale-90 opacity-40',
+            )}
             style={{
-              width: CALL_STAGE_AVATAR_SIZE,
-              height: CALL_STAGE_AVATAR_SIZE,
-              transform: `scale(${scale})`,
+              width: faceSize,
+              height: faceSize,
+              right: inset ? insetMargin : centred,
+              bottom: inset ? insetMargin : centred,
             }}
           >
-            {avatar}
+            {phase === 'ringing' ? (
+              <span aria-hidden className="bh-call-ripple pointer-events-none absolute -inset-1.5 rounded-full border-2 border-primary/50" />
+            ) : null}
+            <span
+              aria-hidden
+              className={cn(
+                'pointer-events-none absolute -inset-5 rounded-full bg-primary/25 blur-2xl transition-opacity',
+                speaking ? 'opacity-100' : 'opacity-0',
+              )}
+            />
+            <span
+              aria-hidden
+              className={cn(
+                'pointer-events-none absolute -inset-1.5 rounded-full border-2 border-primary/60 transition-opacity',
+                speaking ? 'opacity-100' : 'opacity-0',
+              )}
+            />
+            <div
+              className="bh-call-avatar-scale relative origin-top-left"
+              style={{
+                width: CALL_STAGE_AVATAR_SIZE,
+                height: CALL_STAGE_AVATAR_SIZE,
+                transform: `scale(${scale})`,
+              }}
+            >
+              {avatar}
+            </div>
           </div>
         </div>
       </div>
-      <div className="space-y-1">
+      {/* Everything under the floor keeps its full height whatever the viewport
+          does — the floor above is the one thing that gives way. */}
+      <div className="shrink-0 space-y-1">
         <p className="text-2xl font-semibold text-fg">{name}</p>
         <p className="text-sm text-fg-muted">{title}</p>
       </div>
       {activity && !inset ? (
-        <div className="flex w-full max-w-xl justify-center">
+        <div className="flex w-full max-w-xl shrink-0 justify-center">
           <CallStageActivityLine key={activity.key} activity={activity} />
         </div>
       ) : null}
       {/* Keyed by phase so each phase's line enters on the shared transition. */}
-      <div key={phase} className="bh-call-enter flex min-h-6 items-center justify-center text-sm text-fg-muted">
+      <div key={phase} className="bh-call-enter flex min-h-6 shrink-0 items-center justify-center text-sm text-fg-muted">
         {statusLine}
       </div>
       {/* The ending, said out loud. Mounted for the whole call and empty until
@@ -490,7 +535,9 @@ export function CallControlBar({
     <div
       inert={ended}
       className={cn(
-        'bh-call-enter flex w-full flex-col items-center gap-3',
+        // Never shrinks: on a screen too short for everything, the stage above
+        // gives way and the bar stays whole. Reaching it is the point.
+        'bh-call-enter flex w-full shrink-0 flex-col items-center gap-3',
         ended && 'scale-95 opacity-0',
       )}
     >
