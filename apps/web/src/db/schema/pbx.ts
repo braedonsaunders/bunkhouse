@@ -14,8 +14,12 @@ import type { SealedSecret } from '@appkit/crypto'
  * plus a callee dispatch rule (rooms `pbx-<extension>…`); the mirrored ids
  * are stored so re-provisioning is deterministic and idempotent.
  */
-export const sipTrunkFlavor = pgEnum('sip_trunk_flavor', ['avaya_ip_office', 'generic_sip'])
+export const sipTrunkFlavor = pgEnum('sip_trunk_flavor', ['avaya_ip_office', 'generic_sip', 'twilio_sip'])
 export const sipTrunkMode = pgEnum('sip_trunk_mode', ['trunk', 'extension'])
+/** What a line carries: the company's own extensions, outside numbers, or
+ *  both. A company with a PBX and a carrier has one of each, and dialing out
+ *  has to know which is which. */
+export const sipDialScope = pgEnum('sip_dial_scope', ['internal', 'external', 'both'])
 export const sipTransport = pgEnum('sip_transport', ['udp', 'tcp', 'tls'])
 export const sipTrunkStatus = pgEnum('sip_trunk_status', ['unconfigured', 'active', 'error'])
 /** Media encryption on the line: off, offered and used when the far end
@@ -41,6 +45,15 @@ export const sipTrunks = pgTable(
     sealedAuthPassword: jsonb('sealed_auth_password').$type<SealedSecret>(),
     /** Operator hint for the routed range, e.g. '7XX'. */
     extensionRange: text('extension_range'),
+    /** Which destinations this line carries. Existing lines are 'both', which
+     *  is what a single-trunk company has always had. */
+    dialScope: sipDialScope('dial_scope').notNull().default('both'),
+    /** The number presented on outbound calls when the agent placing one has
+     *  no provisioned number of its own. Bare E.164 digits, no '+'. */
+    callerId: text('caller_id'),
+    /** The carrier's own id for this trunk (a Twilio Elastic SIP Trunk SID),
+     *  set when this deployment provisioned it rather than an operator. */
+    carrierTrunkSid: text('carrier_trunk_sid'),
     /** Media encryption offered to the phone system on this line. */
     srtp: sipSrtpMode('srtp').notNull().default('disabled'),
     /** RFC 4028 session-expiry to match the phone system's own line setting;
@@ -68,12 +81,21 @@ export const sipTrunks = pgTable(
   (t) => [index('sip_trunks_tenant_idx').on(t.tenantId)],
 )
 
+/** Who the number was got from: typed in by an operator who bought it
+ *  elsewhere, or bought through this deployment's Twilio account. */
+export const phoneNumberProvider = pgEnum('phone_number_provider', ['manual', 'twilio'])
+
 /**
  * Real phone numbers agents answer. A carrier (Twilio, Telnyx, a PBX DID)
  * delivers the call over a sip_trunks connection with the dialed number as
  * the callee; this table maps that number to the agent who picks up. The
  * number is stored as bare digits (E.164 without '+') — the one shape every
  * carrier's callee header normalizes to.
+ *
+ * The mapping runs both ways. A call in rings the agent named here; a call out
+ * by that same agent presents this number as its caller id, because a carrier
+ * rejects a call whose From it does not recognise — and because the number
+ * someone can call you back on should be the one you called them from.
  */
 export const phoneNumbers = pgTable(
   'phone_numbers',
@@ -85,11 +107,19 @@ export const phoneNumbers = pgTable(
     /** Operator-facing label, e.g. "Main line" or "+1 (555) 123-4567". */
     label: text('label').notNull(),
     personId: uuid('person_id').notNull(),
+    /** The line this number lives on — the trunk a call out presenting it must
+     *  leave by. Null for numbers added before the carrier path existed. */
+    trunkId: uuid('trunk_id'),
+    provider: phoneNumberProvider('provider').notNull().default('manual'),
+    /** The carrier's id for the number (a Twilio IncomingPhoneNumber SID), so
+     *  releasing it here hands it back rather than merely forgetting it. */
+    providerSid: text('provider_sid'),
     ...auditColumns,
   },
   (t) => [
     index('phone_numbers_tenant_idx').on(t.tenantId),
     uniqueIndex('phone_numbers_tenant_number_key').on(t.tenantId, t.number),
+    index('phone_numbers_person_idx').on(t.tenantId, t.personId),
   ],
 )
 

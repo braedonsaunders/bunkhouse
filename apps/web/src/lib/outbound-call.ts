@@ -7,7 +7,7 @@ import { unsealSecret } from '@appkit/crypto'
 import { defineAbility, type Ability } from '@bunkhouse/runtime'
 import { callSessions, people } from '../db/schema'
 import { db } from '../db/client'
-import { listSipTrunks, type SipTrunkRow } from './pbx'
+import { listSipTrunks, outboundCallerId, type SipTrunkRow } from './pbx'
 import { callMinutesBudget, nextMonthPhrase } from './call-budget'
 
 /**
@@ -82,14 +82,56 @@ export function parseDialTarget(raw: string): DialTarget | null {
 }
 
 /**
- * The trunk the tenant dials out on. 'extension' mode is the registered-endpoint
- * bridge, which does not originate calls yet; a trunk with no PBX/carrier
- * address has nowhere to send an INVITE.
+ * The trunk the tenant dials out on, for the kind of destination in hand.
+ * 'extension' mode is the registered-endpoint bridge, which does not originate
+ * calls yet; a trunk with no PBX/carrier address has nowhere to send an INVITE.
+ *
+ * A company with both a phone system and a carrier has one line for each, so
+ * the destination decides: a line that says it carries this kind is preferred
+ * over one that carries everything, and only then is an active line preferred
+ * over an idle one. Without that ordering an internal extension can leave over
+ * the carrier — where it means nothing — and a real number can be handed to a
+ * PBX with no route for it.
  */
-async function selectOutboundTrunk(tenantId: string): Promise<SipTrunkRow | null> {
+async function selectOutboundTrunk(tenantId: string, kind: DialTarget['kind']): Promise<SipTrunkRow | null> {
   const trunks = await listSipTrunks(tenantId)
   const usable = trunks.filter((trunk) => trunk.mode === 'trunk' && Boolean(trunk.pbxHost))
-  return usable.find((trunk) => trunk.status === 'active') ?? usable[0] ?? null
+  const wanted = kind === 'extension' ? 'internal' : 'external'
+  const ordered = [
+    ...usable.filter((trunk) => trunk.dialScope === wanted),
+    ...usable.filter((trunk) => trunk.dialScope === 'both'),
+  ]
+  return ordered.find((trunk) => trunk.status === 'active') ?? ordered[0] ?? null
+}
+
+/**
+ * The caller id to present. On the company's own phone system that is the
+ * agent's extension, which is what a desk phone can call back. Off it, the
+ * extension means nothing and a carrier will refuse a From it does not own —
+ * so it is the agent's provisioned number, or the line's default, and if
+ * neither exists the call is not attempted at all. A rejected INVITE explains
+ * itself far worse than this does.
+ */
+async function resolveCallerId(args: {
+  tenantId: string
+  person: PersonRow
+  trunk: SipTrunkRow
+  kind: DialTarget['kind']
+}): Promise<{ ok: true; fromNumber: string | null } | { ok: false; reason: string }> {
+  if (args.kind === 'extension') return { ok: true, fromNumber: args.person.extension }
+  const own = await outboundCallerId({ tenantId: args.tenantId, personId: args.person.id, trunkId: args.trunk.id })
+  const presented = own ?? args.trunk.callerId
+  if (presented) return { ok: true, fromNumber: `+${presented}` }
+  if (args.trunk.flavor === 'twilio_sip') {
+    return {
+      ok: false,
+      reason:
+        'You have no phone number of your own, and the company line has no default caller id, so the carrier would refuse the call. Tell whoever asked that a number needs assigning to you in Settings → Phone system → Numbers, and offer to email in the meantime.',
+    }
+  }
+  // A PBX breaking out to the public network presents whatever its own trunk
+  // is configured to, which is the operator's business and not ours.
+  return { ok: true, fromNumber: args.person.extension }
 }
 
 /**
@@ -175,13 +217,18 @@ export async function placeOutboundCall(args: {
   if (!env) {
     return { placed: false, reason: 'The phone system is not connected on this deployment. Say plainly that you cannot make calls right now.' }
   }
-  const trunk = await selectOutboundTrunk(tenantId)
+  const trunk = await selectOutboundTrunk(tenantId, target.kind)
   if (!trunk) {
     return {
       placed: false,
-      reason: 'No outbound phone line is configured for the company, so there is nothing to dial through. Tell whoever asked that calling has not been set up yet, and offer to email instead.',
+      reason:
+        target.kind === 'extension'
+          ? 'No line to the company phone system is configured, so internal extensions cannot be dialed. Tell whoever asked, and reach them another way.'
+          : 'No outbound phone line is configured for the company, so there is nothing to dial through. Tell whoever asked that calling has not been set up yet, and offer to email instead.',
     }
   }
+  const callerId = await resolveCallerId({ tenantId, person, trunk, kind: target.kind })
+  if (!callerId.ok) return { placed: false, reason: callerId.reason }
 
   const client = new SipClient(env.host, env.apiKey, env.apiSecret)
   let livekitTrunkId: string
@@ -216,9 +263,9 @@ export async function placeOutboundCall(args: {
     await client.createSipParticipant(livekitTrunkId, target.number, room, {
       participantName: args.to.trim(),
       participantAttributes: { 'bunkhouse.tenantId': tenantId, 'bunkhouse.sessionId': sessionId },
-      // The caller id desk phones show: the agent's own extension when it has
-      // one, otherwise whatever the trunk presents.
-      ...(person.extension ? { fromNumber: person.extension } : {}),
+      // What the person being called sees: the agent's extension on the
+      // company's own system, its provisioned number off it.
+      ...(callerId.fromNumber ? { fromNumber: callerId.fromNumber } : {}),
       ringingTimeout: 45,
     })
   } catch (error) {
@@ -418,7 +465,7 @@ export async function transferCallToExtension(args: {
   if (!env) {
     return { transferred: false, reason: 'The phone system is not connected on this deployment, so the call cannot be transferred.' }
   }
-  const trunk = await selectOutboundTrunk(args.tenantId)
+  const trunk = await selectOutboundTrunk(args.tenantId, target.kind)
   // An extension is addressed at the PBX explicitly — its dial plan is what
   // resolves the digits. A real number goes as a tel: URI, which LiveKit routes
   // over the trunk the call already came in on.

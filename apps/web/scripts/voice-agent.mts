@@ -116,18 +116,32 @@ async function ensureInboundPhoneSession(ctx: JobContext, roomName: string): Pro
   }
   const digits = callee.replace(/[^0-9]/g, '')
 
-  // Provisioned numbers first — they are globally unique by nature — then the
-  // PBX extension path. An agent that is still onboarding is routed to as
-  // well: it cannot hold a conversation yet, but a ringing number must never
-  // go unanswered, and it can take a message. An offboarded agent is gone —
-  // its number belongs to whoever takes the work over.
+  // The SIP participant's join is what triggered dispatch. Its attributes
+  // carry the caller's number, and — from the trunk's dispatch rule — which
+  // company the line belongs to. Reading it before resolving the callee is
+  // what makes routing deterministic: numbers and extensions are unique per
+  // company, not across all of them, so two companies holding the same number
+  // would otherwise be an ambiguity with nowhere to send the call.
+  const participant = await ctx.waitForParticipant()
+  const callerNumber = participant.attributes?.['sip.phoneNumber'] || null
+  const lineTenantId = participant.attributes?.['bunkhouse.tenantId'] || null
+
+  // Provisioned numbers first, then the PBX extension path. An agent that is
+  // still onboarding is routed to as well: it cannot hold a conversation yet,
+  // but a ringing number must never go unanswered, and it can take a message.
+  // An offboarded agent is gone — its number belongs to whoever took the work.
   let person: PersonRow | null = null
   let viaNumber = false
   const numbered = await app.withSuperAdmin((superDb) =>
     superDb
       .select({ personId: phoneNumbers.personId })
       .from(phoneNumbers)
-      .where(eq(phoneNumbers.number, digits)),
+      .where(
+        and(
+          eq(phoneNumbers.number, digits),
+          ...(lineTenantId ? [eq(phoneNumbers.tenantId, lineTenantId)] : []),
+        ),
+      ),
   )
   if (numbered.length === 1) {
     const rows = await app.withSuperAdmin((superDb) =>
@@ -144,10 +158,17 @@ async function ensureInboundPhoneSession(ctx: JobContext, roomName: string): Pro
       superDb
         .select()
         .from(people)
-        .where(and(eq(people.extension, digits), eq(people.kind, 'agent'), ne(people.status, 'offboarded'))),
+        .where(
+          and(
+            eq(people.extension, digits),
+            eq(people.kind, 'agent'),
+            ne(people.status, 'offboarded'),
+            ...(lineTenantId ? [eq(people.tenantId, lineTenantId)] : []),
+          ),
+        ),
     )
-    // Extensions are unique per tenant; a cross-tenant collision (or an
-    // unassigned callee) cannot be routed deterministically.
+    // Still ambiguous when the line names no company and two of them use the
+    // same extension — that cannot be routed on the digits alone.
     if (agents.length === 1) person = agents[0] as PersonRow
   }
   if (!person) {
@@ -155,11 +176,6 @@ async function ensureInboundPhoneSession(ctx: JobContext, roomName: string): Pro
     return null
   }
   const tenantId = person.tenantId
-
-  // The SIP participant's join is what triggered dispatch; its attributes
-  // carry the caller's number.
-  const participant = await ctx.waitForParticipant()
-  const callerNumber = participant.attributes?.['sip.phoneNumber'] || null
   const counterparty = {
     name: callerNumber ? `Caller ${callerNumber}` : 'Caller',
     identity: participant.identity,

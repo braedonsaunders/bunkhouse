@@ -40,6 +40,7 @@ overrides:
   '@appkit/storage': file:./vendor/appkit/appkit-storage-0.2.0.tgz
   '@appkit/superadmin': file:./vendor/appkit/appkit-superadmin-0.3.0.tgz
   '@appkit/sync': file:./vendor/appkit/appkit-sync-1.0.0.tgz
+  '@appkit/telephony': file:./vendor/appkit/appkit-telephony-0.1.0.tgz
   '@appkit/tenant': file:./vendor/appkit/appkit-tenant-0.1.1.tgz
   '@appkit/tokens': file:./vendor/appkit/appkit-tokens-0.1.1.tgz
   '@appkit/ui': file:./vendor/appkit/appkit-ui-0.1.7.tgz
@@ -148,6 +149,9 @@ importers:
       '@appkit/superadmin':
         specifier: file:../../vendor/appkit/appkit-superadmin-0.3.0.tgz
         version: file:vendor/appkit/appkit-superadmin-0.3.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.7.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@appkit/telephony':
+        specifier: file:../../vendor/appkit/appkit-telephony-0.1.0.tgz
+        version: file:vendor/appkit/appkit-telephony-0.1.0.tgz
       '@appkit/tenant':
         specifier: file:../../vendor/appkit/appkit-tenant-0.1.1.tgz
         version: file:vendor/appkit/appkit-tenant-0.1.1.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
@@ -779,6 +783,11 @@ packages:
         optional: true
       postgres:
         optional: true
+
+  '@appkit/telephony@file:vendor/appkit/appkit-telephony-0.1.0.tgz':
+    resolution: {integrity: sha512-5BW0dsCwujaRX6cE+Pomf/y/ffNDZd5AaJfX/iwtCJ4fj0EXigJBbyIDzfjyw1hmLD5SfIb6sAhRneTh2oqTdA==, tarball: file:vendor/appkit/appkit-telephony-0.1.0.tgz}
+    version: 0.1.0
+    engines: {node: '>=22'}
 
   '@appkit/tenant@file:vendor/appkit/appkit-tenant-0.1.1.tgz':
     resolution: {integrity: sha512-C0btofrLW0GvhNxrSxVs66E9GVd3R2liBqyMem4uO0gr5FBzQ50rvFmS00zH7QW5os3+hXuGvABsjD/cZIUzug==, tarball: file:vendor/appkit/appkit-tenant-0.1.1.tgz}
@@ -7511,6 +7520,10 @@ snapshots:
     optionalDependencies:
       '@appkit/db': file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
+
+  '@appkit/telephony@file:vendor/appkit/appkit-telephony-0.1.0.tgz':
+    dependencies:
+      '@appkit/crypto': file:vendor/appkit/appkit-crypto-0.2.0.tgz
 
   '@appkit/tenant@file:vendor/appkit/appkit-tenant-0.1.1.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)':
     dependencies:

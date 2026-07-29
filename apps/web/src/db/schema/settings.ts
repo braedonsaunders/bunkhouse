@@ -2,6 +2,7 @@ import { jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core'
 import { auditColumns, id, tenantRef } from '@appkit/db'
 import type { SealedSecret } from '@appkit/crypto'
 import type { RawSmsConfig } from '@appkit/sms'
+import type { RawCarrierConfig } from '@appkit/telephony'
 
 /**
  * Per-tenant configuration, one row per key — the single source of truth for
@@ -147,6 +148,17 @@ export const WORKSPACE_POLICY_KEY = 'workspace.policy'
 export type SmsProviderSettings = RawSmsConfig
 
 export const SMS_PROVIDER_KEY = 'sms.provider'
+
+/** settings key: 'voice.carrier' — the company's telephony carrier account,
+ *  used to buy phone numbers and to build the SIP trunk that carries them, per
+ *  @appkit/telephony's RawCarrierConfig shape. Only the account's identity and
+ *  its sealed secret live here; the trunk the account provisions is a
+ *  sip_trunks row like any other, and the numbers are phone_numbers rows. The
+ *  secret is sealed at rest using that package's own ciphertext/nonce fields,
+ *  and is unsealed only for a request to the carrier. */
+export type CarrierSettings = RawCarrierConfig
+
+export const CARRIER_KEY = 'voice.carrier'
 
 /** settings key: 'mail.oauthApps' — the company's own Google Workspace and
  *  Microsoft 365 applications, used to sign agents into their mailboxes. Only

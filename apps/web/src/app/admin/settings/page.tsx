@@ -272,6 +272,7 @@ export default async function SettingsPage({
           number: n.number,
           label: n.label,
           personName: n.personName,
+          provider: n.provider,
         })),
         agents: activeAgents,
         ingress: sipIngressAddress(),

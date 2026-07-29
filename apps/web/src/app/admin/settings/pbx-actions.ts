@@ -9,16 +9,25 @@ import {
   deleteSipTrunk,
   listPbxExtensions,
   listSipTrunks,
+  normalizePhoneNumber,
   probeAllTrunks,
   probeTrunkHealth,
+  listPhoneNumbers,
   refreshBridgeRegistrations,
-  removePhoneNumber,
   republishBridge,
   savePbxExtension,
   sipIngressAddress,
   updateSipTrunk,
   type SipTrunkInput,
 } from '../../../lib/pbx'
+import {
+  buyCarrierNumber,
+  getCarrierSettings,
+  releaseCarrierNumber,
+  removeTwilioCredentials,
+  saveTwilioCredentials,
+  searchCarrierNumbers,
+} from '../../../lib/carrier'
 import { placeTestCall, type TestCallResult } from '../../../lib/outbound-call'
 import { people } from '../../../db/schema'
 import { db } from '../../../db/client'
@@ -28,8 +37,11 @@ import { resolveTenantId } from '../../../lib/tenant'
 export type SipTrunkFormInput = {
   id?: string
   name: string
-  flavor: 'avaya_ip_office' | 'generic_sip'
+  flavor: 'avaya_ip_office' | 'generic_sip' | 'twilio_sip'
   mode: 'trunk' | 'extension'
+  dialScope: 'internal' | 'external' | 'both'
+  /** Default outbound caller id, as typed. */
+  callerId: string
   pbxHost: string
   pbxPort: string
   transport: 'udp' | 'tcp' | 'tls'
@@ -64,10 +76,16 @@ export async function saveSipTrunkAction(
   if (testExtension && !/^[0-9+][0-9]{1,14}$/.test(testExtension)) {
     return { ok: false, message: 'The test extension is a dialable number, e.g. 201.' }
   }
+  const callerId = input.callerId.trim()
+  if (callerId && !normalizePhoneNumber(callerId)) {
+    return { ok: false, message: 'The caller id is a full number with country code, e.g. +1 555 123 4567.' }
+  }
   const payload: SipTrunkInput = {
     name,
     flavor: input.flavor,
     mode: input.mode,
+    dialScope: input.dialScope,
+    callerId,
     pbxHost: input.pbxHost,
     pbxPort: port,
     transport: input.transport,
@@ -127,10 +145,86 @@ export async function assignPhoneNumberAction(input: {
   return result
 }
 
-export async function removePhoneNumberAction(numberId: string): Promise<void> {
+/**
+ * Give up a number. A number bought through the connected carrier account goes
+ * back to it; one an operator typed in was never ours to release, so only the
+ * mapping goes.
+ */
+export async function removePhoneNumberAction(
+  numberId: string,
+): Promise<{ ok: true; released: boolean } | { ok: false; message: string }> {
   const tenantId = await resolveTenantId()
-  await removePhoneNumber(tenantId, numberId)
+  const result = await releaseCarrierNumber(tenantId, numberId)
+  if (result.ok) revalidatePath('/admin/settings')
+  return result
+}
+
+// ---------------------------------------------------------------------------
+// The carrier account — buying numbers without leaving the app
+// ---------------------------------------------------------------------------
+
+/** Connect a Twilio account. The credentials are checked against Twilio before
+ *  they are stored, and the token is sealed at rest. */
+export async function saveCarrierAccountAction(input: {
+  accountSid: string
+  authToken: string
+}): Promise<{ ok: true; friendlyName: string } | { ok: false; message: string }> {
+  const tenantId = await resolveTenantId()
+  const result = await saveTwilioCredentials({ tenantId, ...input })
+  if (result.ok) revalidatePath('/admin/settings')
+  return result
+}
+
+export async function removeCarrierAccountAction(): Promise<void> {
+  const tenantId = await resolveTenantId()
+  await removeTwilioCredentials(tenantId)
   revalidatePath('/admin/settings')
+}
+
+export type NumberSearchRow = {
+  number: string
+  friendlyName: string
+  locality: string
+  region: string
+  sms: boolean
+}
+
+/** Numbers the carrier has for sale, matching what the operator asked for. */
+export async function searchCarrierNumbersAction(input: {
+  country: string
+  areaCode: string
+  contains: string
+}): Promise<{ ok: true; numbers: NumberSearchRow[] } | { ok: false; message: string }> {
+  const tenantId = await resolveTenantId()
+  const result = await searchCarrierNumbers({
+    tenantId,
+    country: input.country,
+    areaCode: input.areaCode,
+    contains: input.contains,
+  })
+  if (!result.ok) return result
+  return {
+    ok: true,
+    numbers: result.numbers.map((row) => ({
+      number: row.number,
+      friendlyName: row.label,
+      locality: row.locality,
+      region: row.region,
+      sms: row.sms,
+    })),
+  }
+}
+
+/** Buy one of those numbers and put an agent on it. */
+export async function buyCarrierNumberAction(input: {
+  number: string
+  label: string
+  personId: string
+}): Promise<{ ok: true; number: string; trunkName: string } | { ok: false; message: string }> {
+  const tenantId = await resolveTenantId()
+  const result = await buyCarrierNumber({ tenantId, ...input })
+  if (result.ok) revalidatePath('/admin/settings')
+  return result
 }
 
 // ---------------------------------------------------------------------------
@@ -140,8 +234,13 @@ export async function removePhoneNumberAction(numberId: string): Promise<void> {
 export type TrunkDetailView = {
   id: string
   name: string
-  flavor: 'avaya_ip_office' | 'generic_sip'
+  flavor: 'avaya_ip_office' | 'generic_sip' | 'twilio_sip'
   mode: 'trunk' | 'extension'
+  dialScope: 'internal' | 'external' | 'both'
+  callerId: string
+  /** True when this deployment provisioned the line on a carrier account —
+   *  its address and credentials belong to the carrier, not the operator. */
+  carrierManaged: boolean
   pbxHost: string
   pbxPort: number
   transport: 'udp' | 'tcp' | 'tls'
@@ -173,11 +272,25 @@ export type BridgeExtensionView = {
   lastError: string
 }
 
+export type PhoneNumberDetailView = {
+  id: string
+  number: string
+  label: string
+  personName: string
+  /** 'manual' when an operator typed it in, 'twilio' when it was bought here. */
+  provider: 'manual' | 'twilio'
+}
+
 export type PhoneSystemDetail = {
   trunks: TrunkDetailView[]
   bridgeExtensions: BridgeExtensionView[]
+  /** Read here rather than passed in, so buying a number updates the drawer
+   *  without a page load. */
+  numbers: PhoneNumberDetailView[]
   agents: { id: string; name: string; title: string }[]
   ingress: { host: string; port: number } | null
+  /** The connected carrier account's SID, or null when none is connected. */
+  carrierAccountSid: string | null
 }
 
 function stamp(value: Date | null): string {
@@ -188,9 +301,11 @@ function stamp(value: Date | null): string {
 export async function loadPhoneSystemDetailAction(): Promise<PhoneSystemDetail> {
   const tenantId = await resolveTenantId()
   const app = db()
-  const [trunks, bridgeExtensions, agents] = await Promise.all([
+  const [trunks, bridgeExtensions, numbers, carrier, agents] = await Promise.all([
     listSipTrunks(tenantId),
     listPbxExtensions(tenantId),
+    listPhoneNumbers(tenantId),
+    getCarrierSettings(tenantId),
     app.withTenantContext(tenantId, () =>
       app.db
         .select({ id: people.id, name: people.name, title: people.title })
@@ -206,6 +321,9 @@ export async function loadPhoneSystemDetailAction(): Promise<PhoneSystemDetail> 
         name: trunk.name,
         flavor: trunk.flavor,
         mode: trunk.mode,
+        dialScope: trunk.dialScope,
+        callerId: trunk.callerId ?? '',
+        carrierManaged: trunk.carrierTrunkSid !== null,
         pbxHost: trunk.pbxHost ?? '',
         pbxPort: trunk.pbxPort,
         transport: trunk.transport,
@@ -236,8 +354,18 @@ export async function loadPhoneSystemDetailAction(): Promise<PhoneSystemDetail> 
       regExpiresAt: stamp(row.regExpiresAt),
       lastError: row.lastError ?? '',
     })),
+    numbers: numbers
+      .map((row) => ({
+        id: row.id,
+        number: row.number,
+        label: row.label,
+        personName: row.personName,
+        provider: row.provider,
+      }))
+      .sort((a, b) => a.number.localeCompare(b.number)),
     agents,
     ingress: sipIngressAddress(),
+    carrierAccountSid: carrier.accountId,
   }
 }
 

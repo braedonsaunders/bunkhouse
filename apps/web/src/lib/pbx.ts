@@ -31,8 +31,15 @@ export type PbxExtensionRow = typeof pbxExtensions.$inferSelect
 
 export type SipTrunkInput = {
   name: string
-  flavor: 'avaya_ip_office' | 'generic_sip'
+  flavor: 'avaya_ip_office' | 'generic_sip' | 'twilio_sip'
   mode?: 'trunk' | 'extension'
+  /** What the line carries. Defaults to 'both', which is every line that
+   *  existed before a company could have more than one kind. */
+  dialScope?: 'internal' | 'external' | 'both'
+  /** Default outbound caller id for this line, as typed; normalized here. */
+  callerId?: string | null
+  /** The carrier's id for a trunk this deployment provisioned. */
+  carrierTrunkSid?: string | null
   pbxHost?: string | null
   pbxPort?: number
   transport?: 'udp' | 'tcp' | 'tls'
@@ -93,12 +100,17 @@ const SIP_MEDIA_ENCRYPTION: Record<SipTrunkRow['srtp'], SipMediaEncryptionValue>
  * alongside anything the operator added. Through the bridge the sender is the
  * bridge container, never the phone system — so only the authored list applies,
  * plus the bridge's own address when the deployment publishes one.
+ *
+ * A carrier is the exception: its pbxHost is where calls are sent *to*
+ * (the trunk's termination domain), and calls arrive from the carrier's
+ * signalling ranges, which are on the authored list instead. Implying the
+ * termination domain here would allowlist a hostname that never dials in.
  */
 function ingressAllowlist(trunk: SipTrunkRow): string[] {
   const authored = trunk.allowedAddresses.map((entry) => entry.trim()).filter(Boolean)
   const implied =
     trunk.mode === 'trunk'
-      ? trunk.pbxHost
+      ? trunk.pbxHost && trunk.flavor !== 'twilio_sip'
         ? [trunk.pbxHost]
         : []
       : process.env.BUNKHOUSE_BRIDGE_SIP_ADDRESS
@@ -127,11 +139,17 @@ async function provisionTrunk(
     if (trunk.livekitTrunkId) {
       await client.deleteSipTrunk(trunk.livekitTrunkId).catch(() => undefined)
     }
-    const password = trunk.sealedAuthPassword ? unsealSecret(trunk.sealedAuthPassword) : null
+    // On a carrier line the stored credentials are termination credentials —
+    // what this deployment presents when it sends a call *out* to the carrier.
+    // A carrier delivering a call *in* does not authenticate at all, so asking
+    // the ingress to challenge it would refuse every inbound call. Its
+    // signalling ranges on the allowlist are the inbound control instead.
+    const inboundAuth = trunk.flavor !== 'twilio_sip'
+    const password = inboundAuth && trunk.sealedAuthPassword ? unsealSecret(trunk.sealedAuthPassword) : null
     const allowedAddresses = ingressAllowlist(trunk)
     const created = await client.createSipInboundTrunk(`bunkhouse-${trunk.id}`, [], {
       ...(allowedAddresses.length > 0 ? { allowedAddresses } : {}),
-      ...(trunk.authUsername ? { authUsername: trunk.authUsername } : {}),
+      ...(inboundAuth && trunk.authUsername ? { authUsername: trunk.authUsername } : {}),
       ...(password ? { authPassword: password } : {}),
       mediaEncryption: SIP_MEDIA_ENCRYPTION[trunk.srtp],
       metadata: JSON.stringify({ tenantId, trunkId: trunk.id }),
@@ -183,6 +201,9 @@ export async function createSipTrunk(tenantId: string, input: SipTrunkInput): Pr
         authUsername: input.authUsername?.trim() || null,
         sealedAuthPassword: input.authPassword ? sealSecret(input.authPassword) : null,
         extensionRange: input.extensionRange?.trim() || null,
+        dialScope: input.dialScope ?? 'both',
+        callerId: input.callerId ? normalizePhoneNumber(input.callerId) : null,
+        carrierTrunkSid: input.carrierTrunkSid ?? null,
       })
       .returning()
     return row!
@@ -214,6 +235,13 @@ export async function updateSipTrunk(tenantId: string, trunkId: string, input: S
           ? { sealedAuthPassword: input.authPassword ? sealSecret(input.authPassword) : null }
           : {}),
         extensionRange: input.extensionRange?.trim() || null,
+        dialScope: input.dialScope ?? current.dialScope,
+        // A carrier trunk's caller id and SID are provisioning facts, not form
+        // fields — undefined leaves whatever provisioning wrote.
+        ...(input.callerId !== undefined
+          ? { callerId: input.callerId ? normalizePhoneNumber(input.callerId) : null }
+          : {}),
+        ...(input.carrierTrunkSid !== undefined ? { carrierTrunkSid: input.carrierTrunkSid } : {}),
         updatedAt: new Date(),
       })
       .where(eq(sipTrunks.id, trunkId))
@@ -614,6 +642,10 @@ export async function assignPhoneNumber(args: {
   number: string
   label: string
   personId: string
+  /** The line this number arrives on and leaves by, when it is known. */
+  trunkId?: string | null
+  provider?: 'manual' | 'twilio'
+  providerSid?: string | null
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   const digits = normalizePhoneNumber(args.number)
   if (!digits) return { ok: false, message: 'Enter the number with country code, e.g. +1 555 123 4567.' }
@@ -625,15 +657,51 @@ export async function assignPhoneNumber(args: {
       .from(people)
       .where(and(eq(people.id, args.personId), eq(people.kind, 'agent'), eq(people.status, 'active')))
     if (!agent) return { ok: false as const, message: 'Pick an active agent to answer this number.' }
+    const carrier = {
+      trunkId: args.trunkId ?? null,
+      provider: args.provider ?? 'manual',
+      providerSid: args.providerSid ?? null,
+    }
     await app.db
       .insert(phoneNumbers)
-      .values({ tenantId: args.tenantId, number: digits, label: args.label.trim(), personId: args.personId })
+      .values({
+        tenantId: args.tenantId,
+        number: digits,
+        label: args.label.trim(),
+        personId: args.personId,
+        ...carrier,
+      })
       .onConflictDoUpdate({
         target: [phoneNumbers.tenantId, phoneNumbers.number],
-        set: { label: args.label.trim(), personId: args.personId, updatedAt: new Date() },
+        set: { label: args.label.trim(), personId: args.personId, ...carrier, updatedAt: new Date() },
       })
     return { ok: true as const }
   })
+}
+
+/**
+ * The number an agent should present when it dials out on a given line. A
+ * carrier only connects a call whose From is a number the account holds, so
+ * this is the agent's own provisioned number — the one whoever they called can
+ * ring back — and failing that whatever default the line carries.
+ */
+export async function outboundCallerId(args: {
+  tenantId: string
+  personId: string
+  trunkId: string
+}): Promise<string | null> {
+  const app = db()
+  const rows = await app.withTenantContext(args.tenantId, () =>
+    app.db
+      .select({ number: phoneNumbers.number, trunkId: phoneNumbers.trunkId })
+      .from(phoneNumbers)
+      .where(eq(phoneNumbers.personId, args.personId)),
+  )
+  // A number known to be on this line wins; one with no line recorded predates
+  // the carrier path and is still the agent's own, so it is the next best thing.
+  const onTrunk = rows.find((row) => row.trunkId === args.trunkId)
+  const unattached = rows.find((row) => row.trunkId === null)
+  return onTrunk?.number ?? unattached?.number ?? null
 }
 
 export async function removePhoneNumber(tenantId: string, numberId: string): Promise<void> {

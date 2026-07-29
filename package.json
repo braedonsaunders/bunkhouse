@@ -59,6 +59,7 @@
       "@appkit/storage": "file:./vendor/appkit/appkit-storage-0.2.0.tgz",
       "@appkit/superadmin": "file:./vendor/appkit/appkit-superadmin-0.3.0.tgz",
       "@appkit/sync": "file:./vendor/appkit/appkit-sync-1.0.0.tgz",
+      "@appkit/telephony": "file:./vendor/appkit/appkit-telephony-0.1.0.tgz",
       "@appkit/tenant": "file:./vendor/appkit/appkit-tenant-0.1.1.tgz",
       "@appkit/tokens": "file:./vendor/appkit/appkit-tokens-0.1.1.tgz",
       "@appkit/ui": "file:./vendor/appkit/appkit-ui-0.1.7.tgz",

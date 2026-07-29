@@ -21,18 +21,23 @@ import {
 } from '@appkit/ui'
 import {
   assignPhoneNumberAction,
+  buyCarrierNumberAction,
   deleteBridgeExtensionAction,
   deleteSipTrunkAction,
   loadPhoneSystemDetailAction,
   probeAllTrunksAction,
   probeTrunkHealthAction,
   refreshBridgeRegistrationsAction,
+  removeCarrierAccountAction,
   removePhoneNumberAction,
   republishBridgeAction,
   saveBridgeExtensionAction,
+  saveCarrierAccountAction,
   saveSipTrunkAction,
+  searchCarrierNumbersAction,
   testTrunkCallAction,
   type BridgeExtensionView,
+  type NumberSearchRow,
   type PhoneSystemDetail,
   type TrunkDetailView,
 } from '../app/admin/settings/pbx-actions'
@@ -40,7 +45,7 @@ import {
 export type SipTrunkSummary = {
   id: string
   name: string
-  flavor: 'avaya_ip_office' | 'generic_sip'
+  flavor: 'avaya_ip_office' | 'generic_sip' | 'twilio_sip'
   pbxHost: string
   pbxPort: number
   transport: 'udp' | 'tcp' | 'tls'
@@ -57,6 +62,8 @@ export type PhoneNumberRowView = {
   number: string
   label: string
   personName: string
+  /** 'twilio' when the number was bought here — releasing it hands it back. */
+  provider: 'manual' | 'twilio'
 }
 
 export type AgentOption = { id: string; name: string; title: string }
@@ -74,6 +81,13 @@ type TestCallReport = { ok: boolean; steps: TestCallStep[]; summary: string }
 const FLAVOR_LABELS: Record<SipTrunkSummary['flavor'], string> = {
   avaya_ip_office: 'Avaya IP Office',
   generic_sip: 'Generic SIP',
+  twilio_sip: 'Twilio',
+}
+
+const SCOPE_LABELS: Record<TrunkDetailView['dialScope'], string> = {
+  internal: 'Extensions',
+  external: 'Outside numbers',
+  both: 'Both',
 }
 
 const STATUS_LABELS: Record<SipTrunkSummary['status'], string> = {
@@ -104,6 +118,7 @@ type TrunkListRow = {
   name: string
   flavorLabel: string
   modeLabel: string
+  scopeLabel: string
   address: string
   range: string
   healthLabel: string
@@ -124,6 +139,13 @@ const TRUNK_COLUMNS: PagedColumn<TrunkListRow>[] = [
     cell: (row) => row.modeLabel,
     search: (row) => row.modeLabel,
     sortValue: (row) => row.modeLabel,
+  },
+  {
+    key: 'scopeLabel',
+    header: 'Carries',
+    cell: (row) => row.scopeLabel,
+    search: (row) => row.scopeLabel,
+    sortValue: (row) => row.scopeLabel,
   },
   { key: 'address', header: 'PBX address', cell: (row) => row.address, search: (row) => row.address },
   { key: 'range', header: 'Extensions', cell: (row) => row.range },
@@ -235,12 +257,23 @@ const numberColumns = (
     sortValue: (row) => row.personName,
   },
   {
+    key: 'provider',
+    header: 'From',
+    cell: (row) => (
+      <Badge variant="outline">{row.provider === 'twilio' ? 'Twilio' : 'Added by hand'}</Badge>
+    ),
+    search: (row) => (row.provider === 'twilio' ? 'Twilio' : 'Added by hand'),
+    sortValue: (row) => row.provider,
+  },
+  {
     key: 'actions',
     header: '',
     align: 'right',
     cell: (row) => (
       <Button variant="outline" size="sm" disabled={busy} onClick={() => remove(row.id)}>
-        Remove
+        {/* A number bought here goes back to the carrier and stops billing;
+            one typed in was never ours to give up, so only the mapping goes. */}
+        {row.provider === 'twilio' ? 'Release' : 'Remove'}
       </Button>
     ),
   },
@@ -268,6 +301,8 @@ type TrunkDraft = {
   name: string
   flavor: TrunkDetailView['flavor']
   mode: TrunkDetailView['mode']
+  dialScope: TrunkDetailView['dialScope']
+  callerId: string
   pbxHost: string
   pbxPort: string
   transport: TrunkDetailView['transport']
@@ -285,6 +320,8 @@ const emptyTrunkDraft = (): TrunkDraft => ({
   name: '',
   flavor: 'avaya_ip_office',
   mode: 'trunk',
+  dialScope: 'both',
+  callerId: '',
   pbxHost: '',
   pbxPort: '5060',
   transport: 'udp',
@@ -303,6 +340,8 @@ const trunkDraftFrom = (trunk: TrunkDetailView): TrunkDraft => ({
   name: trunk.name,
   flavor: trunk.flavor,
   mode: trunk.mode,
+  dialScope: trunk.dialScope,
+  callerId: trunk.callerId ? `+${trunk.callerId}` : '',
   pbxHost: trunk.pbxHost,
   pbxPort: String(trunk.pbxPort),
   transport: trunk.transport,
@@ -360,6 +399,15 @@ export function PhoneSystemRow({
   const [busy, startBusy] = React.useTransition()
   const [numberDraft, setNumberDraft] = React.useState({ number: '', label: '', personId: agents[0]?.id ?? '' })
   const [numberError, setNumberError] = React.useState<string | null>(null)
+  const [numberNotice, setNumberNotice] = React.useState<string | null>(null)
+  // The carrier account, and shopping on it. Kept separate from numberDraft:
+  // buying a number and recording one bought elsewhere are different errands
+  // that happen to end in the same table.
+  const [accountDraft, setAccountDraft] = React.useState({ accountSid: '', authToken: '' })
+  const [accountError, setAccountError] = React.useState<string | null>(null)
+  const [searchDraft, setSearchDraft] = React.useState({ country: 'US', areaCode: '', contains: '' })
+  const [searchResults, setSearchResults] = React.useState<NumberSearchRow[] | null>(null)
+  const [searchError, setSearchError] = React.useState<string | null>(null)
   const [testReport, setTestReport] = React.useState<TestCallReport | null>(null)
   const [bridgeDraft, setBridgeDraft] = React.useState<BridgeDraft | null>(null)
   const [bridgeError, setBridgeError] = React.useState<string | null>(null)
@@ -383,6 +431,10 @@ export function PhoneSystemRow({
   const detailTrunks = detail?.trunks ?? []
   const bridgeExtensions = detail?.bridgeExtensions ?? []
   const agentOptions = detail?.agents ?? agents
+  // Numbers come from the drawer's own load once it has one, so buying or
+  // releasing shows immediately rather than on the next page load.
+  const numberRows = detail?.numbers ?? numbers
+  const carrierAccountSid = detail?.carrierAccountSid ?? null
   const editing = draft?.id ? detailTrunks.find((t) => t.id === draft.id) : undefined
   const localIngress = ingress !== null && ['localhost', '127.0.0.1'].includes(ingress.host)
   const bridgeTrunks = detailTrunks.filter((trunk) => trunk.mode === 'extension')
@@ -392,6 +444,7 @@ export function PhoneSystemRow({
     name: trunk.name,
     flavorLabel: FLAVOR_LABELS[trunk.flavor],
     modeLabel: MODE_LABELS[trunk.mode],
+    scopeLabel: SCOPE_LABELS[trunk.dialScope],
     address: trunk.pbxHost ? `${trunk.pbxHost}:${trunk.pbxPort} (${trunk.transport.toUpperCase()})` : '—',
     range: trunk.extensionRange || '—',
     healthLabel: HEALTH_LABELS[trunk.health],
@@ -413,6 +466,8 @@ export function PhoneSystemRow({
         name: draft.name,
         flavor: draft.flavor,
         mode: draft.mode,
+        dialScope: draft.dialScope,
+        callerId: draft.callerId,
         pbxHost: draft.pbxHost,
         pbxPort: draft.pbxPort,
         transport: draft.transport,
@@ -709,8 +764,24 @@ export function PhoneSystemRow({
           {tab === 'numbers' ? (
             <div className="space-y-4">
               <PagedTable
-                columns={numberColumns(busy, (id) => startBusy(async () => removePhoneNumberAction(id)))}
-                rows={numbers}
+                columns={numberColumns(busy, (id) =>
+                  startBusy(async () => {
+                    setNumberError(null)
+                    setNumberNotice(null)
+                    const result = await removePhoneNumberAction(id)
+                    if (!result.ok) {
+                      setNumberError(result.message)
+                      return
+                    }
+                    setNumberNotice(
+                      result.released
+                        ? 'The number has gone back to Twilio and is no longer billed.'
+                        : 'The number no longer rings an agent here. It is still yours at the carrier.',
+                    )
+                    await refresh()
+                  }),
+                )}
+                rows={numberRows}
                 rowKey={(row) => row.id}
                 pageSize={10}
                 searchable
@@ -719,12 +790,226 @@ export function PhoneSystemRow({
                 empty={
                   <EmptyState
                     title="No numbers yet"
-                    description="Buy a number from your carrier, point its SIP trunk at the connection details, and map it to an agent here — calls to it ring that agent from any phone."
+                    description="Connect a Twilio account to buy a number here, or point a carrier trunk you already have at the connection details and record its number below. Either way, calls to it ring the agent you name."
                   />
                 }
               />
+              {numberNotice ? <p className="text-xs text-fg-muted">{numberNotice}</p> : null}
+
+              {/* Buying a number in-app: the account, then the shopping. */}
               <div className="space-y-3 rounded-md border border-border p-3">
-                <p className="text-sm font-medium">Add a number</p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium">Twilio account</p>
+                  {carrierAccountSid ? <Badge variant="default">connected</Badge> : null}
+                </div>
+                {carrierAccountSid ? (
+                  <div className="space-y-3">
+                    <p className="text-xs text-fg-muted">
+                      Connected as <span className="font-medium tabular-nums">{carrierAccountSid}</span>. Numbers bought
+                      here are billed to that account, and the first purchase builds the SIP trunk they arrive on.
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() =>
+                        startBusy(async () => {
+                          setAccountError(null)
+                          setSearchResults(null)
+                          await removeCarrierAccountAction()
+                          await refresh()
+                        })
+                      }
+                    >
+                      Disconnect
+                    </Button>
+                    <p className="text-xs text-fg-muted">
+                      Disconnecting stops numbers being bought or released from here. Numbers already bought keep
+                      working — they are on Twilio and on the trunk.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="carrier-sid">Account SID</Label>
+                        <Input
+                          id="carrier-sid"
+                          value={accountDraft.accountSid}
+                          onChange={(e) => setAccountDraft((d) => ({ ...d, accountSid: e.target.value }))}
+                          placeholder="AC…"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="carrier-token">Auth Token</Label>
+                        <Input
+                          id="carrier-token"
+                          type="password"
+                          value={accountDraft.authToken}
+                          onChange={(e) => setAccountDraft((d) => ({ ...d, authToken: e.target.value }))}
+                          placeholder="Sealed at rest"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Button
+                        size="sm"
+                        disabled={busy || !accountDraft.accountSid.trim() || !accountDraft.authToken.trim()}
+                        onClick={() =>
+                          startBusy(async () => {
+                            setAccountError(null)
+                            const result = await saveCarrierAccountAction(accountDraft)
+                            if (!result.ok) {
+                              setAccountError(result.message)
+                              return
+                            }
+                            setAccountDraft({ accountSid: '', authToken: '' })
+                            await refresh()
+                          })
+                        }
+                      >
+                        Connect
+                      </Button>
+                      {accountError ? <p className="text-sm text-danger">{accountError}</p> : null}
+                    </div>
+                    <p className="text-xs text-fg-muted">
+                      Both values are on the Twilio Console dashboard. The token is checked against Twilio before it is
+                      stored, and is sealed at rest.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {carrierAccountSid ? (
+                <div className="space-y-3 rounded-md border border-border p-3">
+                  <p className="text-sm font-medium">Buy a number</p>
+                  <div className="grid gap-3 sm:grid-cols-4">
+                    <div className="space-y-1">
+                      <Label htmlFor="buy-country">Country</Label>
+                      <Input
+                        id="buy-country"
+                        value={searchDraft.country}
+                        onChange={(e) => setSearchDraft((d) => ({ ...d, country: e.target.value.toUpperCase() }))}
+                        placeholder="US"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="buy-area">Area code</Label>
+                      <Input
+                        id="buy-area"
+                        value={searchDraft.areaCode}
+                        onChange={(e) => setSearchDraft((d) => ({ ...d, areaCode: e.target.value }))}
+                        placeholder="415"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="buy-contains">Contains</Label>
+                      <Input
+                        id="buy-contains"
+                        value={searchDraft.contains}
+                        onChange={(e) => setSearchDraft((d) => ({ ...d, contains: e.target.value }))}
+                        placeholder="Optional"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="buy-agent">Answered by</Label>
+                      <Select
+                        id="buy-agent"
+                        value={numberDraft.personId}
+                        onChange={(e) => setNumberDraft((d) => ({ ...d, personId: e.target.value }))}
+                      >
+                        {agentOptions.map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.name} — {agent.title}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy || !searchDraft.country.trim()}
+                      onClick={() =>
+                        startBusy(async () => {
+                          setSearchError(null)
+                          const result = await searchCarrierNumbersAction(searchDraft)
+                          if (!result.ok) {
+                            setSearchError(result.message)
+                            setSearchResults(null)
+                            return
+                          }
+                          setSearchResults(result.numbers)
+                        })
+                      }
+                    >
+                      Search
+                    </Button>
+                    {searchError ? <p className="text-sm text-danger">{searchError}</p> : null}
+                  </div>
+
+                  {searchResults !== null ? (
+                    searchResults.length === 0 ? (
+                      <p className="text-sm text-fg-muted">
+                        Twilio has nothing matching that. Try a different area code, or drop the “contains” filter.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {searchResults.map((row) => (
+                          <div
+                            key={row.number}
+                            className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
+                          >
+                            <div>
+                              <p className="font-medium tabular-nums">{row.number}</p>
+                              <p className="text-xs text-fg-muted">
+                                {[row.locality, row.region].filter(Boolean).join(', ') || row.friendlyName}
+                                {row.sms ? ' · texts too' : ''}
+                              </p>
+                            </div>
+                            <Button
+                              size="sm"
+                              disabled={busy || !numberDraft.personId}
+                              onClick={() =>
+                                startBusy(async () => {
+                                  setNumberError(null)
+                                  setNumberNotice(null)
+                                  const agent = agentOptions.find((a) => a.id === numberDraft.personId)
+                                  const result = await buyCarrierNumberAction({
+                                    number: row.number,
+                                    label: agent ? `${agent.name}'s line` : row.number,
+                                    personId: numberDraft.personId,
+                                  })
+                                  if (!result.ok) {
+                                    setNumberError(result.message)
+                                    return
+                                  }
+                                  setNumberNotice(
+                                    `+${result.number} is live on "${result.trunkName}" and rings ${agent?.name ?? 'the chosen agent'}. Try it from a phone.`,
+                                  )
+                                  setSearchResults(null)
+                                  await refresh()
+                                })
+                              }
+                            >
+                              Buy
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  ) : null}
+                  <p className="text-xs text-fg-muted">
+                    Buying puts the number on the company&apos;s Twilio trunk and points it here, so it answers straight
+                    away. The first purchase creates that trunk — it appears on the Trunks tab afterwards, and calls out
+                    over it present the agent&apos;s own number.
+                  </p>
+                </div>
+              ) : null}
+
+              <div className="space-y-3 rounded-md border border-border p-3">
+                <p className="text-sm font-medium">Record a number you already have</p>
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="space-y-1">
                     <Label htmlFor="pn-number">Number</Label>
@@ -751,7 +1036,7 @@ export function PhoneSystemRow({
                       value={numberDraft.personId}
                       onChange={(e) => setNumberDraft((d) => ({ ...d, personId: e.target.value }))}
                     >
-                      {agents.map((agent) => (
+                      {agentOptions.map((agent) => (
                         <option key={agent.id} value={agent.id}>
                           {agent.name} — {agent.title}
                         </option>
@@ -766,12 +1051,14 @@ export function PhoneSystemRow({
                     onClick={() =>
                       startBusy(async () => {
                         setNumberError(null)
+                        setNumberNotice(null)
                         const result = await assignPhoneNumberAction(numberDraft)
                         if (!result.ok) {
                           setNumberError(result.message)
                           return
                         }
                         setNumberDraft((d) => ({ ...d, number: '', label: '' }))
+                        await refresh()
                       })
                     }
                   >
@@ -781,9 +1068,11 @@ export function PhoneSystemRow({
                 </div>
               </div>
               <p className="text-xs text-fg-muted">
-                Carrier side: create a SIP trunk (Twilio Elastic SIP Trunking, Telnyx SIP Connection, or your
-                provider&apos;s equivalent), set its origination to the SIP address under Connection details, and
-                route the number to that trunk. The dialed number arrives as the callee and rings the mapped agent.
+                For a number bought elsewhere, the carrier side is yours to set up: create a SIP trunk (Twilio Elastic
+                SIP Trunking, Telnyx SIP Connection, or your provider&apos;s equivalent), set its origination to the SIP
+                address under Connection details, and route the number to that trunk. The dialed number arrives as the
+                callee and rings the mapped agent. Add a trunk here for the same carrier so agents can call out on it,
+                and set its default caller id.
               </p>
             </div>
           ) : null}
@@ -897,6 +1186,7 @@ export function PhoneSystemRow({
                     >
                       <option value="avaya_ip_office">Avaya IP Office</option>
                       <option value="generic_sip">Generic SIP</option>
+                      <option value="twilio_sip">Twilio</option>
                     </Select>
                   </div>
                   <div className="space-y-1">
@@ -909,6 +1199,39 @@ export function PhoneSystemRow({
                       <option value="trunk">SIP line</option>
                       <option value="extension">Registered extensions</option>
                     </Select>
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="trunk-scope">Carries</Label>
+                    <Select
+                      id="trunk-scope"
+                      value={draft.dialScope}
+                      onChange={(e) =>
+                        setDraft({ ...draft, dialScope: e.target.value as TrunkDetailView['dialScope'] })
+                      }
+                    >
+                      <option value="both">Extensions and outside numbers</option>
+                      <option value="internal">Extensions on this phone system only</option>
+                      <option value="external">Outside numbers only</option>
+                    </Select>
+                    <p className="text-xs text-fg-muted">
+                      What agents dial out over this line. With a phone system and a carrier both connected, this is
+                      what tells an internal extension from a real number.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="trunk-caller-id">Default caller id</Label>
+                    <Input
+                      id="trunk-caller-id"
+                      value={draft.callerId}
+                      onChange={(e) => setDraft({ ...draft, callerId: e.target.value })}
+                      placeholder="+1 555 123 4567"
+                    />
+                    <p className="text-xs text-fg-muted">
+                      Shown on outside calls by agents with no number of their own. A carrier will only connect a call
+                      presenting a number the account holds.
+                    </p>
                   </div>
                 </div>
                 <p className="text-xs text-fg-muted">
