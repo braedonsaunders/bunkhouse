@@ -22,7 +22,7 @@ import { VoiceConfigForm } from '../../components/voice-config-form'
 import { DutiesCard } from '../../components/duties-card'
 import { MailboxSection } from './mailbox-section'
 import { AssignmentsSection } from './assignments-section'
-import { AutonomySection, MemorySection, OverviewSection, PayrollSection } from './person-sections'
+import { AutonomySection, MemorySection, ModelSection, OverviewSection, PayrollSection } from './person-sections'
 
 type Person = typeof people.$inferSelect
 
@@ -150,11 +150,7 @@ export async function personDrawer({
       key: 'overview',
       label: 'Overview',
       content: (
-        <OverviewSection
-          person={selected}
-          providers={providers.map((p) => ({ slug: p.slug, label: p.label }))}
-          roster={rosterOptions}
-        />
+        <OverviewSection person={selected} roster={rosterOptions} />
       ),
     },
     {
@@ -175,6 +171,16 @@ export async function personDrawer({
     },
     ...(isAgent
       ? [
+          {
+            key: 'model',
+            label: 'Model',
+            content: (
+              <ModelSection
+                person={selected}
+                providers={providers.map((p) => ({ slug: p.slug, label: p.label }))}
+              />
+            ),
+          },
           {
             key: 'mailbox',
             label: 'Mailbox',

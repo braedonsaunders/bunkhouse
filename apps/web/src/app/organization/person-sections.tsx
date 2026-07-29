@@ -31,11 +31,9 @@ type Person = typeof people.$inferSelect
 /** Overview: every field an operator owns, editable in place. */
 export function OverviewSection({
   person,
-  providers,
   roster,
 }: {
   person: Person
-  providers: { slug: string; label: string }[]
   roster: { id: string; name: string; title: string }[]
 }) {
   const isAgent = person.kind === 'agent'
@@ -194,31 +192,54 @@ export function OverviewSection({
           </PersonRecordForm>
         </CardContent>
       </Card>
-      {isAgent ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Model</CardTitle>
-            <CardDescription>
-              {person.modelConfig
-                ? `${person.modelConfig.provider} / ${person.modelConfig.model}`
-                : 'Not assigned yet — this agent cannot work without a brain.'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {providers.length === 0 ? (
-              <p className="text-xs text-fg-muted">Add a model provider in Settings to assign a brain.</p>
-            ) : (
-              <AssignModelForm
-                personId={person.id}
-                providers={providers}
-                {...(person.modelConfig
-                  ? { currentProvider: person.modelConfig.provider, currentModel: person.modelConfig.model }
-                  : {})}
-              />
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
+    </div>
+  )
+}
+
+/**
+ * Which brain this agent thinks with. Its own tab rather than a card under the
+ * record: the provider and model are a standing decision about how the agent
+ * works and what it costs, not another field on the personnel form.
+ */
+export function ModelSection({
+  person,
+  providers,
+}: {
+  person: Person
+  providers: { slug: string; label: string }[]
+}) {
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Assigned model</CardTitle>
+          <CardDescription>
+            {person.modelConfig
+              ? `${person.modelConfig.provider} / ${person.modelConfig.model}`
+              : 'Not assigned yet — this agent cannot work without a brain.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {providers.length === 0 ? (
+            <p className="text-sm text-fg-muted">
+              No model providers connected yet. Add one under Settings → Intelligence → Models, and it becomes
+              assignable here.
+            </p>
+          ) : (
+            <AssignModelForm
+              personId={person.id}
+              providers={providers}
+              {...(person.modelConfig
+                ? { currentProvider: person.modelConfig.provider, currentModel: person.modelConfig.model }
+                : {})}
+            />
+          )}
+        </CardContent>
+      </Card>
+      <p className="text-xs text-fg-muted">
+        Every agent runs on whichever provider and model you assign it — a cheap model for routine mail, a stronger one
+        for work that has to be right. Spend is metered against this agent&apos;s salary at the price on record.
+      </p>
     </div>
   )
 }

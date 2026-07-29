@@ -30,8 +30,11 @@ export type RealtimeProviderOption = { slug: string; label: string; kind: 'opena
 
 /**
  * The agent's voice, as HR config: how it hears, thinks, and speaks on a call.
- * Cascade keeps the agent's own governed model in the loop (the doctrinal
- * default); realtime trades that for latency on an OpenAI/Google key.
+ * Realtime is the default — one speech-to-speech model on an OpenAI or Google
+ * key, which is what a caller actually wants to hear: no relay latency and a
+ * voice that can be interrupted. Cascade keeps the agent's own governed model
+ * in the loop instead, at the cost of a hearing-thinking-speaking hop, and is
+ * the fallback when no realtime-capable key is connected.
  */
 export function VoiceConfigForm({
   personId,
@@ -65,8 +68,11 @@ export function VoiceConfigForm({
     geminiLiveVoices: VoiceCatalogOption[]
   }
 }) {
+  // Realtime unless the tenant has no OpenAI/Google key to run it on — an
+  // unconfigured agent should open on the mode we want people to use, not be
+  // parked on one they cannot run.
   const [mode, setMode] = React.useState<'cascade' | 'realtime'>(
-    current?.mode ?? (cascadeModelSupported ? 'cascade' : 'realtime'),
+    current?.mode ?? (realtimeProviders.length > 0 || !cascadeModelSupported ? 'realtime' : 'cascade'),
   )
   const [sttModel, setSttModel] = React.useState(current?.cascade?.sttModel ?? catalogs.deepgramSttModels[0]?.id ?? '')
   const [ttsVoiceId, setTtsVoiceId] = React.useState(current?.cascade?.ttsVoiceId ?? '')
@@ -283,10 +289,10 @@ export function VoiceConfigForm({
                 setMode(e.target.value as 'cascade' | 'realtime')
               }}
             >
+              <option value="realtime">Realtime — one speech-to-speech model (OpenAI or Google key)</option>
               <option value="cascade" disabled={!cascadeModelSupported && mode !== 'cascade'}>
                 Cascade — their own model thinks; Deepgram hears, ElevenLabs speaks
               </option>
-              <option value="realtime">Realtime — one speech-to-speech model (OpenAI or Google key)</option>
             </Select>
             {!cascadeModelSupported ? (
               <p className="text-xs text-fg-muted">
