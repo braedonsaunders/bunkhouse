@@ -525,6 +525,11 @@ async function buildSpeechPipeline(args: {
           model: cascade.ttsModel,
           ...(config.language ? { language: config.language } : {}),
         }),
+        // The framework already generates the reply preemptively on the
+        // stable partial transcript; speaking it preemptively too takes TTS
+        // off the critical path as well. The cost is resynthesizing the odd
+        // discarded turn — characters, not conversations.
+        turnHandling: { preemptiveGeneration: { preemptiveTts: true } },
       }),
       ai,
       cascadeLlm,
