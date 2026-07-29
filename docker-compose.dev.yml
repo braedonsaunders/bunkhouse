@@ -10,8 +10,8 @@
 # carrier) points a SIP trunk at <docker-host>:5060 (UDP/TCP); inbound calls
 # become LiveKit rooms via the dispatch rules the app provisions. The SIP
 # service and the LiveKit server coordinate over Redis, so both attach to
-# the dedicated media-redis below (media infrastructure only — the shared
-# application Redis at 10.0.0.90 is intentionally NOT used here). No new
+# the dedicated media-redis below (media infrastructure only — whatever Redis
+# the application itself uses is intentionally NOT shared with it). No new
 # .env entries are needed: the app reaches SIP provisioning through the
 # existing LIVEKIT_URL/LIVEKIT_API_KEY/LIVEKIT_API_SECRET. When deploying
 # beyond the LAN, announce the host's public address to remote SIP peers by
@@ -62,22 +62,14 @@ services:
       - '5060:5060/tcp'
       - '10000-10100:10000-10100/udp'
 
-  # Object storage for the files ledger (agent deliverables, mail attachments).
-  # The app reaches it through APPKIT_STORAGE_* in .env.local; the console at
-  # http://localhost:9001 (minioadmin/minioadmin) is for poking around locally.
-  minio:
-    image: minio/minio:latest
-    container_name: bunkhouse-minio
-    restart: unless-stopped
-    command: server /data --console-address ':9001'
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - '9000:9000'
-      - '9001:9001'
-    volumes:
-      - minio-data:/data
+  # Object storage for the files ledger (agent deliverables, mail attachments)
+  # is deliberately not a container here. It is an external S3-compatible
+  # service — configure it with APPKIT_STORAGE_* in .env.local, pointing at
+  # whichever bucket your deployment already uses.
+  #
+  # Do not add one to this file. A bundled bucket shadows the configured one:
+  # writes land somewhere nothing else reads, reads come back empty, and it all
+  # looks like it is working. If a storage call is refused, fix the endpoint.
 
   # The registered-extensions bridge (phone system mode B). Dev only for now:
   # the app ignores it entirely unless BUNKHOUSE_BRIDGE_CONFIG_DIR is set, and
@@ -120,5 +112,4 @@ services:
         -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled
 
 volumes:
-  minio-data:
   asterisk-config:

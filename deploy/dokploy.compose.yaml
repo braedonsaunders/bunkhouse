@@ -1,38 +1,44 @@
-# bunkhouse dev stack for Dokploy (project "bunkhouse").
+# bunkhouse stack for Dokploy (project "bunkhouse").
 #
-# Deployed as a SWARM STACK (composeType "stack") pinned to the manager node,
-# like openbooks/beaconhs: placement puts every service beside dokploy-traefik,
-# and ingress is wired by Dokploy managed domains (Traefik file provider):
-#   bunkhouse.cloud.rassaun.com          → web:3000
-#   bunkhouse-livekit.cloud.rassaun.com  → livekit:7880 (wss)
-# The GitHub deploy workflow bumps BUNKHOUSE_TAG and triggers compose.deploy.
+# Deployed as a SWARM STACK (composeType "stack") pinned to the manager node:
+# placement puts every service beside dokploy-traefik, and ingress is wired by
+# Dokploy managed domains (Traefik file provider) — one hostname to web:3000,
+# one to livekit:7880 over wss. The GitHub deploy workflow bumps BUNKHOUSE_TAG
+# and triggers compose.deploy.
 #
-# Database, app Redis, and object storage are EXISTING shared services
-# (Patroni pgcluster, HA Redis, the NAS-backed MinIO at s3.beaconhs.io) —
-# never bundled containers. The media plane (LiveKit + SIP) runs
-# here with its own private Redis, exactly as in local dev, but with real API
-# keys and the public address announced to SIP peers. SIP/RTP ports publish in
-# host mode on the manager — the public ingress a carrier or PBX points at.
+# Database, app Redis, and object storage are EXISTING shared services, never
+# bundled containers — point BUNKHOUSE_DB_URL, BUNKHOUSE_REDIS_URL, and the
+# APPKIT_STORAGE_* variables at whatever your infrastructure already runs. The
+# media plane (LiveKit + SIP) runs here with its own private Redis, exactly as
+# in local dev, but with real API keys and the public address announced to SIP
+# peers. SIP/RTP ports publish in host mode on the manager — the public ingress
+# a carrier or PBX points at.
 
 networks:
   dokploy-network:
     external: true
-  # The shared services network: the NAS-backed MinIO lives here, alongside
-  # the rest of the company's infrastructure stacks.
+  # The shared services network, where the database, Redis, and object storage
+  # this stack talks to already live. Create it out of band; it is not managed
+  # here, and its name is the only thing this file needs to know about it.
   infra-net:
     external: true
 
 volumes:
-  # Agent workspaces live on the NAS like every other durable volume here —
-  # nothing bunkhouse keeps should sit on a swarm node's local disk. The key is
-  # deliberately NOT 'agent-homes': that name already exists as a local volume,
-  # and Docker reuses an existing volume verbatim, driver options and all.
+  # Agent workspaces belong on shared network storage like every other durable
+  # volume — nothing bunkhouse keeps should sit on a swarm node's local disk,
+  # or it vanishes when the task reschedules. The key is deliberately NOT
+  # 'agent-homes': that name already exists as a local volume, and Docker
+  # reuses an existing volume verbatim, driver options and all.
+  #
+  # Both variables are required. If either is unset the deploy fails outright,
+  # which is the point: falling back to a node-local disk would look like it
+  # worked right up until an agent's files disappeared.
   agent-workspaces:
     driver: local
     driver_opts:
       type: nfs
-      o: "addr=10.0.1.106,nfsvers=4,rw,hard,timeo=600"
-      device: ":/volume1/dokploy-storage/bunkhouse-agent-homes"
+      o: "addr=${BUNKHOUSE_NFS_ADDR:?set the NFS server address},nfsvers=4,rw,hard,timeo=600"
+      device: "${BUNKHOUSE_NFS_EXPORT:?set the NFS export path for agent workspaces}"
 
 services:
   web:
