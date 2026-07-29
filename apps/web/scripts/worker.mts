@@ -501,6 +501,7 @@ type HeartbeatPass =
   | 'gardener'
   | 'trunks'
   | 'money'
+  | 'tools'
 type DeepWorkJob = { kind: 'assignment' | 'approval'; tenantId: string; id: string }
 
 // Deep work — assignment runs and approval continuations — gets its own queue

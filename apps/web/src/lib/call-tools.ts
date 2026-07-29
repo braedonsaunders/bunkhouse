@@ -30,6 +30,14 @@ import { describeError, type CallWorker, type WorkReport } from './call-worker'
  * Imported only by the voice agent process; the web app never bundles this.
  */
 
+/**
+ * One of the talker's tools, with its arguments and result erased. Each tool
+ * has its own schema and its own result, so a map of them has no narrower
+ * type — the framework's own `ToolDefinitionMap` is keyed exactly this way.
+ */
+/* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+type AnyTalkerTool = llm.AnonFunctionTool<any, unknown, any>
+
 /** How the agent should hear about the work it just handed over. */
 const HANDED_OVER =
   'You have this in hand and it is running now. Say in a few natural words that you are on it, and never claim a result you have not been told. Then keep the caller company the way a person does while something loads: ask the thing you would need to know anyway to make the answer useful, pick up the thread of what they were saying, or make a little ordinary conversation. Silence is the one wrong answer.'
@@ -74,7 +82,7 @@ function surfacedAbility(args: {
   ability: Ability
   governance: CallGovernance
   record: (kind: 'tool_call' | 'tool_result' | 'approval_request', payload: Record<string, unknown>) => Promise<void>
-}): llm.FunctionTool {
+}): AnyTalkerTool {
   const { ability, governance } = args
   const base = ability.tool
   const execute = base.execute!.bind(base)
@@ -138,7 +146,7 @@ function surfacedAbility(args: {
         return { error: message, note: 'Tell the caller this did not work, plainly, and offer an alternative.' }
       }
     },
-  }) as unknown as llm.FunctionTool
+  })
 }
 
 export function callTools(args: {
@@ -168,9 +176,9 @@ export function callTools(args: {
     | null
   /** Operator-facing log line for anything that goes wrong along the way. */
   onError: (message: string) => void
-}): Record<string, llm.FunctionTool> {
+}): Record<string, AnyTalkerTool> {
   const { worker } = args
-  const tools: Record<string, llm.FunctionTool> = {}
+  const tools: Record<string, AnyTalkerTool> = {}
 
   tools.do_work = llm.tool({
     description:
@@ -220,7 +228,7 @@ export function callTools(args: {
       if (!settled) return null
       return readable(settled)
     },
-  }) as unknown as llm.FunctionTool
+  })
 
   tools.check_work = llm.tool({
     description:
@@ -234,7 +242,7 @@ export function callTools(args: {
       }
       return { work: work.map(readable) }
     },
-  }) as unknown as llm.FunctionTool
+  })
 
   // Hanging up is the agent's to do when the goodbye is genuinely said — the
   // receiver going down, not a timeout. The tool returns immediately so the
@@ -256,7 +264,7 @@ export function callTools(args: {
       args.hangUp(reason)
       return { ended: true, note: 'The line is closing — finish your goodbye if any words are left, nothing more.' }
     },
-  }) as unknown as llm.FunctionTool
+  })
 
   // Handing the caller to a human is not a shared ability: it acts on this
   // room's SIP leg, so it exists only where there is one.
@@ -287,7 +295,7 @@ export function callTools(args: {
           note: `The line is on its way to ${extension.trim()}. Say nothing further — you are off this call.`,
         }
       },
-    }) as unknown as llm.FunctionTool
+    })
   }
 
   // Two of the agent's own abilities are genuinely part of talking: committing

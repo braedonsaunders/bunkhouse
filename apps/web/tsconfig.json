@@ -32,6 +32,13 @@
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
+    // The two long-running services the image runs. They are .mts, which
+    // "**/*.ts" does not match, so until they were named here a broken import
+    // in either sailed through a green build and crash-looped in the
+    // deployment. The one-off scripts stay out: they are run by hand through
+    // tsx, which resolves .ts imports that tsc will not.
+    "scripts/voice-agent.mts",
+    "scripts/worker.mts",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
