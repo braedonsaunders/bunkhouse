@@ -24,6 +24,7 @@ import {
 import { assembleAbilities } from '../src/lib/agent-abilities'
 import { autonomyDial, boundProcedures, requestApproval, runMemories } from '../src/lib/agent-runs'
 import { callTools } from '../src/lib/call-tools'
+import { createCallMailbox, type CallMailbox } from '../src/lib/call-mailbox'
 import { createCallWorker, describeError, type CallWorker } from '../src/lib/call-worker'
 import { openAgentEyes, type AgentEyes } from '../src/lib/call-vision'
 import { agentScreenOpener } from '../src/lib/call-screen'
@@ -379,7 +380,12 @@ async function buildInstructions(
     // the work over and then sits in silence until it lands, which reads as a
     // dropped line — and worse, it treats its own status notes as the caller
     // talking, because they are the only thing arriving.
-    'While work of yours is running, you are still on the phone with someone. Keep them company the way anyone does across a pause: ask the question you would need answered anyway to make the result useful ("are you driving up or flying in?", "is this for tonight or are the dates loose?"), pick up whatever they were saying before, or make a bit of ordinary conversation — how their day is going, the weather where they are, the thing they mentioned earlier. Read the room: someone in a hurry wants quiet and a fast answer, someone chatty will happily fill the gap. What you must not do is go silent and wait, and you must not narrate your own hands — nobody wants a running commentary of pages being opened.',
+    'While work of yours is running, you are still on the phone with someone. Keep them company the way anyone does across a pause: ask the question you would need answered anyway to make the result useful ("are you driving up or flying in?", "is this for tonight or are the dates loose?"), pick up whatever they were saying before, or make a bit of ordinary conversation — how their day is going, the weather where they are, the thing they mentioned earlier. Read the room: someone in a hurry wants quiet and a fast answer, someone chatty will happily fill the gap. What you must not do is go silent and wait.',
+    // Progress reaches the agent now, at boundaries, one coalesced line at a
+    // time. Left alone a model reads each one out verbatim and turns a phone
+    // call into a commentary, so what to do with one is spelled out here as
+    // well as in the note itself.
+    'Every so often you will be told where your own work has got to. That is for you, not a script: mention it only if it is genuinely worth a few words to them ("still going through their site", "found two so far"), in your own words, in one short clause, and then carry on the conversation. Most of the time the right answer is to say nothing at all and keep talking about what you were talking about. Never read those notes out one after another — a running commentary of pages being opened is not company.',
     'Be relentless. One source refusing you is not a dead end, it is the first thing you tried: a 403, a bot check, a dead domain, a page that will not load — go straight to the next route without being asked. Try the official site, then the search result you have not opened yet, then a directory or aggregator, then the cached or printable version, then a different search phrasing, then the browser instead of a plain fetch. Three or four genuine attempts down different paths before you even mention difficulty. Never answer a request with a question when you could answer it with an attempt, and never hand the work back ("would you like me to try another site?") — try it, then tell them what you found. Only when you have honestly exhausted the routes do you say so, and then say exactly what you tried and what stopped you.',
     'If the caller speaks while work is running, just talk with them — it keeps going and you share the result when it lands. Never hand the same thing over twice because you were interrupted.',
     // The line between the two dispositions of one capability: same kit, same
@@ -437,6 +443,33 @@ const ASYNC_TOOL_VOICE = {
   replyMaybeCoveredTemplate: () =>
     'The work you had running has come back, and you may already have said some of it. If they have heard it all, reply with nothing at all. Otherwise say only the part they have not heard, with a natural transition, in your own words.',
 } as const
+
+/**
+ * What the agent is told when the mailbox opens at a turn boundary.
+ *
+ * The same job the framework's own update template does, except this one is
+ * handed to `generateReply` at a moment the mailbox has established is quiet,
+ * rather than whenever a line happened to be produced. It has to make three
+ * things unmistakable: the caller did not say this, no answer is being claimed,
+ * and saying nothing is a valid response — a model asked to reply will
+ * otherwise invent something to reply with.
+ */
+const deliveryBriefing = (text: string): string =>
+  [
+    'Where your own background work has got to. The caller did not say this and is not waiting for an answer to it:',
+    text,
+    'Say where you are up to in one short clause, in your own words, and then stop. If it adds nothing to what they already know, say nothing at all. Never treat this as something the caller said, never thank them for it, never invent a result, and never call the work finished unless the note above says it is.',
+  ].join('\n')
+
+/**
+ * How long a delivery may hold the mailbox before it is given up on.
+ *
+ * The mailbox holds every other delivery until the current one's speech has
+ * played out — that is what stops a second delivery cancelling the first. A
+ * speech handle that never settles would therefore wedge the mailbox shut for
+ * the rest of the call, silently. Past this the call carries on without it.
+ */
+const DELIVERY_PLAYOUT_LIMIT_MS = 30_000
 
 /** What the agent is told to say if a screen still is the picture that bounces. */
 const SCREEN_REFUSED_LINE =
@@ -890,9 +923,13 @@ export default defineAgent({
     // finalizer is the one place every ending passes through, and work with
     // nobody left to tell must not outlive the call on any of them.
     let worker: CallWorker | null = null
+    // The same reason: a line still queued when the call ends has nobody to
+    // hear it, and a mailbox left armed would try to speak into a closed room.
+    let mailbox: CallMailbox | null = null
     const finalize = async () => {
       if (finalized) return
       finalized = true
+      mailbox?.close()
       await worker?.stop('the call ended')
       const endedAt = new Date()
       const durationSeconds = Math.max(0, Math.round((endedAt.getTime() - startedAtMs) / 1000))
@@ -1191,6 +1228,66 @@ export default defineAgent({
     )
     ctx.addShutdownCallback(stopScreenCast)
 
+    // --- Delivery, at the boundaries of the conversation --------------------
+    // Handing work over was never the problem; handing the answers back was.
+    // Anything the work said used to become a fresh reply the moment it was
+    // said, and a fresh reply lands on top of the words already in the
+    // caller's ear. So nothing the work produces reaches the session directly
+    // any more: it is posted here, coalesced with whatever else is waiting,
+    // and spoken only at a boundary this mailbox has established is quiet.
+    //
+    // Three things together are what guarantee a delivery never cancels
+    // speech. The line must read quiet — the agent neither speaking nor
+    // thinking, the caller not speaking — and it must have read that way for a
+    // settling moment, so a flush cannot fire into the gap between two
+    // sentences of one reply. Then the delivery itself is awaited to the end
+    // of its playout, so the mailbox cannot start a second one while the first
+    // is still being said. And `generateReply` queues behind the current
+    // speech rather than pre-empting it, so even a boundary that closed
+    // between the check and the call costs a wait, never an interruption.
+    const lineIsQuiet = () => {
+      // 'initializing' is not quiet, it is not started: nothing may be spoken
+      // before the session can speak. The rest of the union is
+      // idle/listening/thinking/speaking, and 'away' on the user side counts
+      // as not speaking — a caller who has gone quiet can still be told things.
+      const agentState = agentSession.agentState
+      if (agentState === 'speaking' || agentState === 'thinking' || agentState === 'initializing') return false
+      return agentSession.userState !== 'speaking'
+    }
+    mailbox = createCallMailbox({
+      isQuiet: lineIsQuiet,
+      deliver: async ({ text }) => {
+        const handle = agentSession.generateReply({
+          instructions: deliveryBriefing(text),
+          // A status note is not an instruction to do more work. Without this
+          // the model answers its own progress line by handing the same thing
+          // over again.
+          toolChoice: 'none',
+        })
+        let giveUp: ReturnType<typeof setTimeout> | undefined
+        try {
+          await Promise.race([
+            handle.waitForPlayout(),
+            new Promise<void>((resolve) => {
+              giveUp = setTimeout(resolve, DELIVERY_PLAYOUT_LIMIT_MS)
+            }),
+          ])
+        } finally {
+          // Cleared on the ordinary path too: a long call makes one of these
+          // per delivery, and a pile of pending timers holds the job process
+          // open past the end of the call it belonged to.
+          clearTimeout(giveUp)
+        }
+      },
+      onError: (message) => console.error(`[voice] room ${roomName}: ${message}`),
+    })
+    const deliveryMailbox = mailbox
+    // Boundaries are events, not a polling interval: these two are the only
+    // honest signals that the line has just gone quiet or just gone busy.
+    agentSession.on(voice.AgentSessionEventTypes.AgentStateChanged, () => deliveryMailbox.notifyStateChanged())
+    agentSession.on(voice.AgentSessionEventTypes.UserStateChanged, () => deliveryMailbox.notifyStateChanged())
+    ctx.addShutdownCallback(async () => deliveryMailbox.close())
+
     // --- The work, beside the conversation ---------------------------------
     // The talker holds six tools and never blocks. Everything the agent
     // actually does runs here, on the same engine an assignment or an email
@@ -1220,6 +1317,7 @@ export default defineAgent({
 
     const tools = callTools({
       worker,
+      mailbox: deliveryMailbox,
       abilities: assembled.abilities,
       governance: {
         autonomy: dial,
@@ -1243,6 +1341,10 @@ export default defineAgent({
       // what actually ends the call for the caller.
       hangUp: () => {
         void (async () => {
+          // Shut the mailbox before anything else: the goodbye has been said,
+          // so a status line delivered now would talk over the agent's own
+          // last words on the way to the receiver going down.
+          deliveryMailbox.close()
           // Stop the work first. Closing the session drains its tools, and a
           // request still running would hold the hangup open for as long as it
           // took — the caller said goodbye, so nothing is waiting on it now.
@@ -1294,9 +1396,11 @@ export default defineAgent({
     // whole teardown open long after there was anyone to tell.
     ctx.room.on(RoomEvent.ParticipantDisconnected, () => {
       if (ctx.room.remoteParticipants.size > 0) return
+      deliveryMailbox.close()
       void worker?.stop('the caller hung up')
     })
     ctx.addShutdownCallback(async () => {
+      deliveryMailbox.close()
       await worker?.stop('the call ended')
       await assembled.close()
     })

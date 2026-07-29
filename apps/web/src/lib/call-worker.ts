@@ -2,6 +2,7 @@ import { takeAbilityFrame, type Ability, type AbilityFrame, type RunEvent } from
 import type { people, RunTrigger } from '../db/schema'
 import { executeAgentRun } from './agent-runs'
 import { describeToolCall } from './call-activity'
+import type { DeliveryKind } from './call-mailbox'
 import { closeBrowserSession } from './browser-use'
 
 /**
@@ -61,10 +62,30 @@ export type StartedWork = {
   settled: Promise<WorkReport>
 }
 
+/**
+ * One thing worth telling the caller, and how badly it wants to be heard.
+ *
+ * Deliberately not a line to speak: this is a *post*, and where it goes is the
+ * mailbox's business. The worker says what happened; the mailbox decides
+ * whether it is still worth saying by the time the line is quiet, and coalesces
+ * it with whatever else is waiting.
+ *
+ * A result is not among the kinds a worker emits: the answer travels back as
+ * `do_work`'s own return value, which the framework already speaks at the turn
+ * tail in the agent's words.
+ */
+export type WorkNote = {
+  /** The handle the talker was given when it handed the work over. */
+  workId: string
+  kind: Exclude<DeliveryKind, 'result'>
+  /** What a person would say. Plain words, no mechanics. */
+  text: string
+}
+
 /** How the talker hears about work while it runs. */
 export type WorkHooks = {
-  /** One line a person could say out loud, per thing that happened. */
-  onProgress?: (line: string) => void
+  /** One note per thing that happened that a colleague would mention. */
+  onNote?: (note: WorkNote) => void
 }
 
 export type CallWorker = {
@@ -195,24 +216,26 @@ export function createCallWorker(args: {
 
   const run = async (item: Item, hooks: WorkHooks | undefined): Promise<WorkReport> => {
     // Two different things, deliberately separated: what the work is doing,
-    // and what is worth saying out loud about it.
+    // and what is worth telling the caller about it.
     //
     // A colleague looking something up for you does not read their own actions
     // back — "opening the site", "read the site", "searching again". They work,
-    // and every so often they say where they are up to. Narrating every event
-    // made the agent interrupt itself on every step and treat its own status
-    // line as a new thing the caller had said.
+    // and every so often they say where they are up to.
     //
     // So: the detail is updated on everything (check_work reads it, and it
-    // costs nothing), while speech is reserved for what a person would
-    // actually mention — trouble, a decision that needs a manager, and the
-    // answer — plus one unhurried "still going" if the work is long.
+    // costs nothing), while a *post* is reserved for what a person would
+    // actually mention — where they are up to, trouble, and a decision that
+    // needs a manager. Posting is not speaking: the mailbox holds each post
+    // until the line is quiet, coalesces it with anything else waiting, and
+    // drops it if a newer one about the same work has already turned up. That
+    // is why every step can be posted now, where an earlier version had to go
+    // silent to stop the agent cutting itself off mid-sentence.
     const note = (line: string) => {
       item.detail = line
     }
-    const say = (line: string) => {
+    const post = (kind: WorkNote['kind'], line: string) => {
       item.detail = line
-      hooks?.onProgress?.(line)
+      hooks?.onNote?.({ workId: item.id, kind, text: line })
     }
     // Tool calls and their results are paired first-in-first-out per tool, the
     // same way the call page pairs the ledger it renders.
@@ -232,18 +255,22 @@ export function createCallWorker(args: {
           const queue = openLabels.get(raw.toolName) ?? []
           queue.push(label)
           openLabels.set(raw.toolName, queue)
-          // Noted, never spoken. Every line handed to the talker becomes a
-          // fresh reply, and a fresh reply cancels the one already in the
-          // caller's ear — so progress chatter does not make the agent
-          // conversational, it makes it stammer. The caller is kept company by
-          // the agent talking to them, not by a commentary on its own hands.
-          note(label)
+          // The genuine progress line: "Reading example.com", "Searching the
+          // web — 'galvanised pipe'". The same words `describeToolCall` puts
+          // on the call page, so what the caller hears and what the operator
+          // watches are one story from one ledger. Posting every step is safe
+          // precisely because the mailbox rate-limits progress and keeps only
+          // the newest per piece of work — the caller hears roughly one of
+          // these per pause, not one per tool call.
+          post('progress', label)
           return
         }
         case 'tool_result': {
           const label = openLabels.get(raw.toolName)?.shift() ?? describeToolCall(raw.toolName, undefined)
-          // Never spoken: "read the page" the moment after "reading the page"
-          // is the agent narrating its own hands. The call page shows every
+          // Noted, never posted: "read the page" the moment after "reading the
+          // page" is the agent narrating its own hands, and a step that failed
+          // is not the work failing — the loop is expected to try the next
+          // route without announcing the last one. The call page shows every
           // one of these; the caller does not need them read out.
           note(describeToolResult(label, raw.output))
           return
@@ -251,7 +278,7 @@ export function createCallWorker(args: {
         case 'approval_request':
           // The description is rendered by `describeToolCall`, so it is already
           // the same human label a tool call gets.
-          say(`${raw.description} — it needs a manager's sign-off before it can happen.`)
+          post('needs_approval', `${raw.description} — it needs a manager's sign-off before it can happen.`)
           return
         case 'message': {
           // The loop's own prose — its working notes to itself. It belongs on
@@ -262,7 +289,10 @@ export function createCallWorker(args: {
           return
         }
         case 'error':
-          say(`That ran into trouble: ${raw.message}`)
+          // 'failed' names how urgently this wants to be heard, not the run's
+          // final verdict — the loop may well recover. Trouble a caller could
+          // act on is worth breaking a short silence for either way.
+          post('failed', `That ran into trouble: ${raw.message}`)
           return
         case 'procedure_citation':
           return

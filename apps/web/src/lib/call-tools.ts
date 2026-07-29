@@ -3,6 +3,7 @@ import { llm } from '@livekit/agents'
 import { z } from 'zod'
 import type { Ability, ActionCategory, AutonomyLevel } from '@bunkhouse/runtime'
 import { describeToolCall } from './call-activity'
+import type { CallMailbox } from './call-mailbox'
 import { describeError, type CallWorker, type WorkReport } from './call-worker'
 
 /**
@@ -25,14 +26,14 @@ import { describeError, type CallWorker, type WorkReport } from './call-worker'
  * on. The tool's eventual return value arrives the same way, as the result the
  * agent reads out. There is no filler timer.
  *
- * Deliberately nothing in between. Every line handed to the talker becomes a
- * fresh reply, and a fresh reply cancels the speech already in the caller's
- * ear — so a running commentary on the work does not sound attentive, it
- * sounds like someone breaking off mid-sentence to start a different thought.
- * Two moments speak: the handover (which says nothing, because the agent has
- * already said it is on it) and the result. Anything the caller genuinely must
- * hear before then — a refusal, something needing a signature — comes through
- * as its own line, because those are worth interrupting for.
+ * Everything between those two moments goes through the mailbox instead. A
+ * line handed straight to the talker becomes a fresh reply, and a fresh reply
+ * lands on top of whatever was already in the caller's ear — so a running
+ * commentary did not sound attentive, it sounded like someone breaking off
+ * mid-sentence to start a different thought. The mailbox holds each post until
+ * the line is genuinely quiet, coalesces everything waiting into one message,
+ * and drops what has gone stale. That is what makes real progress reporting
+ * safe rather than something to be deleted.
  *
  * Imported only by the voice agent process; the web app never bundles this.
  */
@@ -47,7 +48,7 @@ type AnyTalkerTool = llm.AnonFunctionTool<any, unknown, any>
 
 /** How the agent should hear about the work it just handed over. */
 const HANDED_OVER =
-  'It is running now, beside this call. You have ALREADY told the caller you are on it, so do not announce it again — every word you produce from here cancels whatever you were saying, and that is what makes an agent sound like it is stammering. Say nothing about this handover. Just carry on the conversation you were having: answer what they asked, ask what you still need to know to make the result useful, or make ordinary conversation. The result will come back to you when it is ready, and that is the moment to speak about it.'
+  'It is running now, beside this call. You have ALREADY told the caller you are on it, so do not announce it again — repeating yourself the moment you have handed something over is what makes an agent sound like it is stammering. Say nothing about this handover. Just carry on the conversation you were having: answer what they asked, ask what you still need to know to make the result useful, or make ordinary conversation. You will be told where it has got to as it goes, and the result comes back to you when it is ready.'
 
 /** One line per piece of work, for `check_work` and for the model to read. */
 function readable(report: WorkReport): Record<string, unknown> {
@@ -160,6 +161,11 @@ export function callTools(args: {
   /** The worker this call hands its work to. */
   worker: CallWorker
   /**
+   * Where everything the work has to say is queued until the line is quiet.
+   * Constructed per call, alongside the session whose state it reads.
+   */
+  mailbox: CallMailbox
+  /**
    * The agent's assembled ability set. Two of them are genuinely part of
    * talking and are surfaced by name; the rest belong to the worker and the
    * talker never sees them.
@@ -184,7 +190,7 @@ export function callTools(args: {
   /** Operator-facing log line for anything that goes wrong along the way. */
   onError: (message: string) => void
 }): Record<string, AnyTalkerTool> {
-  const { worker } = args
+  const { mailbox, worker } = args
   const tools: Record<string, AnyTalkerTool> = {}
 
   tools.do_work = llm.tool({
@@ -203,24 +209,16 @@ export function callTools(args: {
     // listing and cancel tools on the line beside these six.
     flags: llm.ToolFlag.NONE,
     execute: async ({ intent }, { ctx, abortSignal }) => {
-      // Every update copies the chat context, inserts into it, and writes it
-      // back, so two landing at once would lose one: they go through in a
-      // chain. Nothing here is awaited by the session — the chain runs beside
-      // the conversation, and the framework holds each line until nobody is
-      // talking before it is spoken.
-      let narration: Promise<void> = Promise.resolve()
-      const work = worker.startWork(intent, {
-        onProgress: (line) => {
-          narration = narration
-            .then(() => ctx.update(line))
-            .catch((error: unknown) => args.onError(`a progress line was not delivered: ${describeError(error)}`))
-        },
-      })
-      // Head of the chain, assigned before any await so no progress line can
-      // get in front of it: this first update is what answers the model, in
-      // milliseconds, and turns the call non-blocking.
-      narration = ctx.update(`Working on it now, under the handle ${work.id}. ${HANDED_OVER}`)
-      await narration
+      // Nothing the work says goes near `ctx.update` any more: every note is
+      // posted to the mailbox, which is the one thing on this call that
+      // decides when the caller can be spoken to. Several pieces of work can
+      // be running at once, and they all queue into the same mailbox, so what
+      // lands at a boundary is one message rather than one per worker.
+      const work = worker.startWork(intent, { onNote: (note) => mailbox.post(note) })
+      // The one exception, and it is not a delivery: this first update is what
+      // answers the model in milliseconds and turns the call non-blocking. It
+      // never reaches the caller as speech, so it cannot cancel any.
+      await ctx.update(`Working on it now, under the handle ${work.id}. ${HANDED_OVER}`)
       // The signal fires when the session is being torn down. Stop waiting
       // then — the call's own teardown stops the work itself.
       const settled = await Promise.race([
@@ -233,6 +231,13 @@ export function callTools(args: {
       // Nothing to deliver: the line is gone, and returning nothing is how the
       // framework is told there is no deferred reply to make.
       if (!settled) return null
+      // The answer travels back as this tool's return value — the framework's
+      // deferred-reply path, which already waits for the turn to end and gives
+      // the agent its own words for it. Telling the mailbox it has been said
+      // is what retires the work: progress still queued about it is dropped,
+      // so "still looking at the site" can never land behind the answer, and
+      // the same words can never go out twice by two routes.
+      mailbox.delivered({ kind: 'result', workId: work.id, text: settled.detail })
       return readable(settled)
     },
   })
@@ -244,10 +249,18 @@ export function callTools(args: {
     flags: llm.ToolFlag.NONE,
     execute: async () => {
       const work = worker.checkWork()
+      // Asking is a delivery in itself. Everything the mailbox was holding for
+      // the next quiet moment is handed over here instead and counted as told,
+      // so the agent is not interrupted a second later with what it has just
+      // read — and so nothing waiting is invisible to the model that asked.
+      const waiting = mailbox.acknowledge()
       if (work.length === 0) {
         return { work: [], note: 'Nothing is running. If the caller has asked for something, hand it over with do_work.' }
       }
-      return { work: work.map(readable) }
+      return {
+        work: work.map(readable),
+        ...(waiting.length > 0 ? { sinceYouLastHeard: waiting.map((item) => item.text) } : {}),
+      }
     },
   })
 

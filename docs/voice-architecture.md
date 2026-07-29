@@ -103,7 +103,8 @@ Three mechanisms, in order of preference:
    the site", "two of four checked", "no availability on those dates" — into
    the talker's context. The agent says what is actually happening, in its own
    words. Canned filler is the fallback for gaps between real events, not the
-   primary mechanism.
+   primary mechanism. Where that narration is allowed to land is a problem of
+   its own; see [Delivery: the mailbox](#delivery-the-mailbox).
 3. **Barge-in that knows a backchannel.** "Uh-huh" while the agent talks is not
    an interruption. A minimum speech duration before treating detected speech
    as barge-in keeps the agent from being shredded mid-sentence.
@@ -162,6 +163,7 @@ exactly the single-model behaviour every existing agent already had.
 |---|---|
 | The talker's six tools | `apps/web/src/lib/call-tools.ts` |
 | The worker bound to one call | `apps/web/src/lib/call-worker.ts` |
+| The delivery mailbox | `apps/web/src/lib/call-mailbox.ts` (tested by `apps/web/scripts/mailbox.test.mts`) |
 | The engine, and its live disposition | `executeAgentRun` / `LiveRun` in `apps/web/src/lib/agent-runs.ts` |
 | The call itself | `apps/web/scripts/voice-agent.mts` |
 | The two models an agent runs on | `AgentModelConfig` in `apps/web/src/db/schema/people.ts`, resolved by `resolveAgentAiConfig` in `apps/web/src/lib/ai.ts` |
@@ -170,15 +172,61 @@ exactly the single-model behaviour every existing agent already had.
 
 `do_work` is the framework's own async tool. The first `RunContext.update()`
 answers the model with the handle, marks the call non-blocking, and returns
-control to the session; every later update is inserted into the chat context
-and spoken only once the session is idle, so progress never lands on top of the
-caller or of the agent itself. The tool's eventual return value arrives the same
+control to the session. The tool's eventual return value comes back the same
 way, as the result the agent reads out. Nothing is on a timer.
 
 The worker's progress lines are the run's own events, put into words with the
 same `describeToolCall` the call page renders — so what the caller hears and
 what the operator watches are the same story from the same ledger. Browser
 frames go to the call's eyes, unchanged.
+
+## Delivery: the mailbox
+
+Dispatch and delivery are separate problems, and only the first one was solved
+by making `do_work` async. Everything the worker had to say went straight out
+as another `RunContext.update()`, and every update becomes a fresh reply. A
+fresh reply lands on top of the speech already in the caller's ear:
+
+```
+agent 37s  Got it... Let me check what's available.
+agent 38s  I'm                          <- one word, cut off
+agent 45s  Any preferences on type?     <- a different thought
+agent 55s  Understood. I'm seeing...    <- "Understood" to nobody
+```
+
+Deleting the narration stopped the bleeding and cost the whole point of the
+architecture: the agent went silent while it worked. The fix is the shape a
+coding agent already uses to receive a finished subagent — queue it, coalesce
+it, deliver it at a turn boundary — and it is one framework-free module.
+
+**Four rules on the queue.** *Coalescing:* everything pending at one boundary
+goes out as one message, and progress about the same piece of work supersedes
+itself, because only where it is up to now matters. *Priority:* an approval or
+a failure outranks the answer itself — those are the two things a caller can
+act on while still on the phone — and plain progress ranks bottom, so an
+answer arriving discards the progress still queued behind it. *Rate limiting:*
+progress opens a delivery of its own at most once every twenty seconds, which
+is about how often a colleague looking something up says where they are up to;
+answers, approvals and failures are never rate limited, and progress waiting
+behind one rides along free. *Deduplication:* the same words about the same
+work are never said twice, by any route.
+
+**One boundary, defined by events.** `AgentSession` publishes `agentState` and
+`userState` and emits `AgentStateChanged` / `UserStateChanged`; the mailbox
+flushes when the agent is neither speaking nor thinking and the caller is not
+speaking. Driven off those two events, never polled.
+
+**A delivery can never cancel speech**, and three things together are why. The
+line must read quiet, and must have read that way for a settling moment, so a
+flush cannot fire into the gap between two sentences of one reply. The delivery
+is then awaited to the end of its playout, so a second one cannot start while
+the first is still being said. And the framework's own speech queue plays
+handles serially rather than pre-empting, so even a boundary that closed
+between the check and the call costs a wait, never an interruption.
+
+The answer itself does not go through the mailbox: it is `do_work`'s return
+value, which the framework already speaks at the turn tail in the agent's own
+words. The mailbox is told it was said, which is what retires the work.
 
 ## Watching the agent work
 

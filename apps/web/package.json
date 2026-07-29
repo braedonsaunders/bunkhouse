@@ -12,7 +12,7 @@
     "db:migrate": "tsx --env-file=.env.local scripts/migrate.mts",
     "db:generate": "drizzle-kit generate",
     "db:seed": "tsx --env-file=.env.local scripts/seed.mts",
-    "test": "tsx scripts/duties.test.mts && tsx scripts/org.test.mts && tsx scripts/tools.test.mts",
+    "test": "tsx scripts/duties.test.mts && tsx scripts/org.test.mts && tsx scripts/tools.test.mts && tsx scripts/mailbox.test.mts",
     "seed:avatar-parts": "tsx --env-file=.env.local scripts/seed-avatar-parts.mts",
     "worker": "NODE_OPTIONS=\"--conditions=react-server\" tsx --env-file=.env.local scripts/worker.mts",
     "voice-agent": "NODE_OPTIONS=\"--conditions=react-server\" tsx --env-file=.env.local scripts/voice-agent.mts dev",
