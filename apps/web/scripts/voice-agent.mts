@@ -317,7 +317,8 @@ async function buildInstructions(
     meeting
       ? `You are in a live video meeting with ${caller}.`
       : `You are on a live voice call with ${caller}.`,
-    'Talk like the colleague you are, not like a system. Warm, engaged, specific: react to what they actually said, use their name sometimes, carry context forward, and have opinions where your job gives you standing to. Contractions are normal speech. Vary your rhythm — a quick "sure, done" one moment, a couple of sentences of substance the next; never a monologue, and let them in often. Plain spoken words only: no markdown, no lists, no headings, nothing that only works on a screen.',
+    'Talk like the colleague you are, not like a system. Warm, engaged, specific: react to what they actually said, use their name sometimes, carry context forward, and have opinions where your job gives you standing to. Contractions are normal speech. Plain spoken words only: no markdown, no lists, no headings, nothing that only works on a screen.',
+    'Keep your turns SHORT — a sentence or two, five to ten seconds of speech, then stop and let them back in. This is a phone call, not a briefing: nobody listens to fifteen seconds of you without a turn. Give the headline first and offer the rest ("I found four that fit — want me to run through them?") rather than delivering all four unasked. Go longer only when they explicitly ask for detail, and even then come up for air.',
     'Never answer with a bare fact when a colleague would add the sentence of judgment that makes it useful. And never pad with filler phrases a human would not say on the phone.',
     ...(meeting
       ? [
@@ -766,7 +767,10 @@ export default defineAgent({
       } else if (m.type === 'tts_metrics') {
         console.log(`[voice] ${session.id} tts: first byte ${ms(m.ttfbMs)}`)
       } else if (m.type === 'realtime_model_metrics') {
-        console.log(`[voice] ${session.id} realtime: first audio ${ms(m.ttftMs)}, total ${ms(m.durationMs)}`)
+        // Named, because which speech-to-speech model is answering is the
+        // single biggest lever on how long a caller waits.
+        const who = [m.metadata?.modelProvider, m.metadata?.modelName].filter(Boolean).join(' ') || m.label
+        console.log(`[voice] ${session.id} realtime (${who}): first audio ${ms(m.ttftMs)}, total ${ms(m.durationMs)}`)
       }
     })
     agentSession.on(voice.AgentSessionEventTypes.ConversationItemAdded, (event) => {

@@ -75,8 +75,13 @@ export function VoiceConfigForm({
   const [sttModel, setSttModel] = React.useState(current?.cascade?.sttModel ?? catalogs.deepgramSttModels[0]?.id ?? '')
   const [ttsVoiceId, setTtsVoiceId] = React.useState(current?.cascade?.ttsVoiceId ?? '')
   const [ttsModel, setTtsModel] = React.useState(current?.cascade?.ttsModel ?? catalogs.elevenLabsTtsModels[0]?.id ?? '')
+  // A new agent starts on OpenAI Realtime where the company has a key for it:
+  // measured on this deployment it answers in well under a second, where
+  // Gemini Live takes two to four — the difference between a colleague and a
+  // pause. An operator can still choose either.
   const [realtimeKind, setRealtimeKind] = React.useState<'openai' | 'google'>(
-    current?.realtime?.provider ?? realtimeProviders[0]?.kind ?? 'openai',
+    current?.realtime?.provider ??
+      (realtimeProviders.some((p) => p.kind === 'openai') ? 'openai' : (realtimeProviders[0]?.kind ?? 'openai')),
   )
   const [realtimeModel, setRealtimeModel] = React.useState(current?.realtime?.model ?? '')
   const [realtimeVoice, setRealtimeVoice] = React.useState(current?.realtime?.voice ?? '')
@@ -419,12 +424,20 @@ export function VoiceConfigForm({
                         setRealtimeVoice('')
                       }}
                     >
-                      {[...new Map(realtimeProviders.map((p) => [p.kind, p])).values()].map((p) => (
-                        <option key={p.kind} value={p.kind}>
-                          {p.label} ({p.kind === 'openai' ? 'OpenAI Realtime' : 'Gemini Live'})
-                        </option>
-                      ))}
+                      {/* OpenAI first: it is the one that answers instantly, and
+                          the order of a list is advice an operator reads. */}
+                      {[...new Map(realtimeProviders.map((p) => [p.kind, p])).values()]
+                        .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'openai' ? -1 : 1))
+                        .map((p) => (
+                          <option key={p.kind} value={p.kind}>
+                            {p.label} ({p.kind === 'openai' ? 'OpenAI Realtime' : 'Gemini Live'})
+                          </option>
+                        ))}
                     </Select>
+                    <p className="text-xs text-fg-subtle">
+                      OpenAI Realtime answers fastest on a live call — Gemini voices take a noticeable pause before
+                      speaking.
+                    </p>
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-1">
