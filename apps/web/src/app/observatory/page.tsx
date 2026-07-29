@@ -9,8 +9,11 @@ import { RosterAvatar } from '../../components/roster-avatar'
 import { describeToolCall } from '../../lib/call-activity'
 import { listAvatarCompositions, loadAvatarPartLibrary } from '../../lib/avatars'
 import { AVATAR_PART_CATEGORIES } from '../../lib/avatar-parts'
+import { runDrawer } from '../runs/run-record'
 
 export const dynamic = 'force-dynamic'
+
+const BASE_PATH = '/observatory'
 
 const TRIGGER_LABELS: Record<string, string> = {
   email: 'Inbound email',
@@ -72,7 +75,12 @@ function describeLatestEvent(kind: string, payload: Record<string, unknown>): st
   }
 }
 
-export default async function ObservatoryPage() {
+export default async function ObservatoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ run?: string; tab?: string }>
+}) {
+  const { run: selectedRunId, tab } = await searchParams
   const tenantId = await resolveTenantId()
   const app = db()
 
@@ -205,7 +213,14 @@ export default async function ObservatoryPage() {
         title="Observatory"
         description="Watch an agent work — every run across the company, and what's on their screen right now."
       />
-      <ObservatoryFloor active={active} history={history} renderedAt={new Date().toISOString()} />
+      <ObservatoryFloor
+        active={active}
+        history={history}
+        renderedAt={new Date().toISOString()}
+        basePath={BASE_PATH}
+        recordOpen={Boolean(selectedRunId)}
+      />
+      {await runDrawer({ tenantId, runId: selectedRunId, basePath: BASE_PATH, tab })}
     </PageContainer>
   )
 }

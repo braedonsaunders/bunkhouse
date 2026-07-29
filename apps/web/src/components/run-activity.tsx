@@ -2,7 +2,18 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState } from '@appkit/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  PagedTable,
+  type PagedColumn,
+} from '@appkit/ui'
 import type { ToolActivityItem } from '../lib/call-activity'
 import { ToolActivityCard } from './tool-activity'
 
@@ -53,15 +64,13 @@ const KIND_LABELS: Record<string, string> = {
   error: 'Error',
 }
 
-const KIND_TINT: Record<string, string> = {
-  thought: 'text-fg-muted',
-  message: 'text-info',
-  tool_call: 'text-fg',
-  tool_result: 'text-fg-muted',
-  procedure_citation: 'text-primary',
-  approval_request: 'text-warning',
-  delegation: 'text-info',
-  error: 'text-danger',
+const KIND_VARIANT: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
+  message: 'default',
+  tool_call: 'secondary',
+  approval_request: 'outline',
+  procedure_citation: 'outline',
+  delegation: 'outline',
+  error: 'destructive',
 }
 
 const APPROVAL_VARIANT: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
@@ -232,108 +241,60 @@ function Screen({
 }
 
 /**
- * The desk view: the event feed on the left, and on the right whatever was on
- * the agent's screen at the selected moment. Clicking a feed line selects it;
- * with nothing selected the desk follows the latest event.
+ * The activity subtab: the append-only ledger as a searchable, sortable table,
+ * and beside it whatever was on the agent's screen at the selected moment.
+ * With nothing selected the desk follows the newest event.
  */
-function offsetLabel(atMs: number): string {
-  return `${Math.floor(atMs / 60000)}:${String(Math.floor((atMs % 60000) / 1000)).padStart(2, '0')}`
-}
-
-/**
- * The call ledger rendered as chat bubbles — shown when a run is a call. Tool
- * activity from the same run interleaves on the call clock, so the record
- * reads the way the call happened: said, did, said.
- */
-function CallTranscriptCard({
-  transcript,
-  activity,
-  agentName,
-}: {
-  transcript: CallTranscriptTurn[]
-  activity: ToolActivityItem[]
-  agentName: string
-}) {
-  const feed: ({ sort: number } & ({ type: 'turn'; turn: CallTranscriptTurn } | { type: 'tool'; item: ToolActivityItem }))[] = [
-    ...transcript.map((turn) => ({ type: 'turn' as const, sort: turn.atMs, turn })),
-    ...activity.map((item) => ({ type: 'tool' as const, sort: item.atMs, item })),
-  ]
-  feed.sort((a, b) => a.sort - b.sort)
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Call transcript</CardTitle>
-        <CardDescription>
-          Every turn of the call and everything the agent did during it, from the append-only ledger — corrections
-          would be new records, never edits.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {feed.length === 0 ? (
-          <EmptyState title="No turns recorded" description="The call ended before anything was transcribed." />
-        ) : (
-          <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
-            {feed.map((entry, index) =>
-              entry.type === 'tool' ? (
-                <ToolActivityCard key={entry.item.key} item={entry.item} />
-              ) : (
-                <div key={index} className={`flex ${entry.turn.speaker === 'human' ? 'justify-end' : 'justify-start'}`}>
-                  <div
-                    className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                      entry.turn.speaker === 'human'
-                        ? 'bg-primary-subtle text-fg'
-                        : 'border border-border bg-bg-subtle text-fg'
-                    }`}
-                  >
-                    <p className="mb-0.5 text-xs font-medium text-fg-muted">
-                      {entry.turn.speaker === 'human' ? 'Caller' : agentName} ·{' '}
-                      <span className="tabular-nums">{offsetLabel(entry.turn.atMs)}</span>
-                    </p>
-                    <p className="whitespace-pre-wrap">{entry.turn.text}</p>
-                  </div>
-                </div>
-              ),
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-export function RunDesk({
+export function RunActivity({
   events,
   procedures,
   approvals,
-  transcript,
-  callActivity,
-  agentName,
 }: {
   events: DeskEvent[]
   procedures: Record<string, ProcedureArtifact>
   approvals: Record<string, ApprovalArtifact>
-  /** Present when a call session references this run — rendered as the call's transcript artifact. */
-  transcript?: CallTranscriptTurn[]
-  /** Tool activity during the call, interleaved with the transcript on the call clock. */
-  callActivity?: ToolActivityItem[]
-  agentName?: string
 }) {
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
-  const selected = events.find((e) => e.id === selectedId) ?? events[events.length - 1] ?? null
-  const following = selectedId === null || selected?.id === events[events.length - 1]?.id
+  const latest = events[events.length - 1] ?? null
+  const selected = events.find((e) => e.id === selectedId) ?? latest
+  const following = selectedId === null || selected?.id === latest?.id
+
+  const columns: PagedColumn<DeskEvent>[] = React.useMemo(
+    () => [
+      {
+        key: 'at',
+        header: 'Time',
+        cell: (row) => <span className="tabular-nums text-fg-muted">{timeOf(row.at)}</span>,
+        search: (row) => timeOf(row.at),
+        sortValue: (row) => row.seq,
+      },
+      {
+        key: 'kind',
+        header: 'Event',
+        cell: (row) => (
+          <Badge variant={KIND_VARIANT[row.kind] ?? 'outline'}>{KIND_LABELS[row.kind] ?? row.kind}</Badge>
+        ),
+        search: (row) => KIND_LABELS[row.kind] ?? row.kind,
+        sortValue: (row) => KIND_LABELS[row.kind] ?? row.kind,
+      },
+      {
+        key: 'detail',
+        header: 'Detail',
+        cell: (row) => <span className="block max-w-xl truncate text-fg-muted">{preview(row)}</span>,
+        search: (row) => preview(row),
+      },
+    ],
+    [],
+  )
 
   if (events.length === 0) {
     return (
-      <Card>
-        <CardContent className="pt-6">
-          <EmptyState title="No events" description="This run recorded nothing before finishing." />
-        </CardContent>
-      </Card>
+      <EmptyState title="No events" description="This run recorded nothing before finishing." />
     )
   }
 
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between gap-2 text-base">
@@ -347,34 +308,22 @@ export function RunDesk({
           <CardDescription>Append-only record of everything this run did — the audit trail.</CardDescription>
         </CardHeader>
         <CardContent>
-          <ol className="max-h-[32rem] space-y-0.5 overflow-y-auto rounded-md border border-border bg-bg-subtle p-2 font-mono text-xs">
-            {events.map((event) => {
-              const isSelected = selected?.id === event.id
-              return (
-                <li key={event.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(event.id)}
-                    aria-current={isSelected}
-                    className={`flex w-full items-baseline gap-2 rounded px-2 py-1.5 text-left transition-colors ${
-                      isSelected ? 'bg-primary-subtle text-fg' : 'hover:bg-surface-hover'
-                    }`}
-                  >
-                    <span className="shrink-0 tabular-nums text-fg-subtle">{timeOf(event.at)}</span>
-                    <span className={`shrink-0 font-semibold ${KIND_TINT[event.kind] ?? 'text-fg'}`}>
-                      {KIND_LABELS[event.kind] ?? event.kind}
-                    </span>
-                    <span className="min-w-0 truncate text-fg-muted">{preview(event)}</span>
-                  </button>
-                </li>
-              )
-            })}
-          </ol>
+          <PagedTable
+            columns={columns}
+            rows={events}
+            rowKey={(row) => row.id}
+            pageSize={15}
+            searchable
+            defaultSort={{ key: 'at', dir: 'desc' }}
+            onRowClick={(row) => setSelectedId(row.id)}
+            rowClassName={(row) => (selected?.id === row.id ? 'bg-primary-subtle' : undefined)}
+            labels={{ searchPlaceholder: 'Search events…', searchLabel: 'Search events' }}
+            empty={<EmptyState title="No events" description="This run recorded nothing." />}
+          />
         </CardContent>
       </Card>
 
-      <div className="space-y-4">
-      <Card>
+      <Card className="xl:sticky xl:top-0">
         <CardHeader>
           <CardTitle className="flex items-center justify-between gap-2 text-base">
             On their screen
@@ -387,17 +336,68 @@ export function RunDesk({
           <CardDescription>
             {selected
               ? `Event ${selected.seq + 1} of ${events.length} · ${timeOf(selected.at)}${following ? ' · following latest' : ''}`
-              : 'Select an event in the feed.'}
+              : 'Select an event in the table.'}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {selected ? <Screen event={selected} procedures={procedures} approvals={approvals} /> : null}
         </CardContent>
       </Card>
-      {transcript ? (
-        <CallTranscriptCard transcript={transcript} activity={callActivity ?? []} agentName={agentName ?? 'Agent'} />
-      ) : null}
-      </div>
+    </div>
+  )
+}
+
+function offsetLabel(atMs: number): string {
+  return `${Math.floor(atMs / 60000)}:${String(Math.floor((atMs % 60000) / 1000)).padStart(2, '0')}`
+}
+
+/**
+ * The call ledger rendered as chat bubbles. Tool activity from the same run
+ * interleaves on the call clock, so the record reads the way the call
+ * happened: said, did, said.
+ */
+export function RunTranscript({
+  transcript,
+  activity,
+  agentName,
+}: {
+  transcript: CallTranscriptTurn[]
+  activity: ToolActivityItem[]
+  agentName: string
+}) {
+  const feed: ({ sort: number } & ({ type: 'turn'; turn: CallTranscriptTurn } | { type: 'tool'; item: ToolActivityItem }))[] = [
+    ...transcript.map((turn) => ({ type: 'turn' as const, sort: turn.atMs, turn })),
+    ...activity.map((item) => ({ type: 'tool' as const, sort: item.atMs, item })),
+  ]
+  feed.sort((a, b) => a.sort - b.sort)
+
+  if (feed.length === 0) {
+    return <EmptyState title="No turns recorded" description="The call ended before anything was transcribed." />
+  }
+
+  return (
+    <div className="space-y-2">
+      {feed.map((entry, index) =>
+        entry.type === 'tool' ? (
+          <ToolActivityCard key={entry.item.key} item={entry.item} />
+        ) : (
+          <div key={index} className={`flex ${entry.turn.speaker === 'human' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                entry.turn.speaker === 'human'
+                  ? 'bg-primary-subtle text-fg'
+                  : 'border border-border bg-bg-subtle text-fg'
+              }`}
+            >
+              <p className="mb-0.5 text-xs font-medium text-fg-muted">
+                {entry.turn.speaker === 'human' ? 'Caller' : agentName} ·{' '}
+                <span className="tabular-nums">{offsetLabel(entry.turn.atMs)}</span>
+              </p>
+              <p className="whitespace-pre-wrap">{entry.turn.text}</p>
+            </div>
+          </div>
+        ),
+      )}
     </div>
   )
 }

@@ -83,7 +83,7 @@ const COLUMNS: PagedColumn<ObservatoryRunRow>[] = [
 ]
 
 /** The observatory floor: every run across every agent, newest first. */
-export function ObservatoryList({ rows }: { rows: ObservatoryRunRow[] }) {
+export function ObservatoryList({ rows, basePath }: { rows: ObservatoryRunRow[]; basePath: string }) {
   const router = useRouter()
 
   return (
@@ -94,7 +94,7 @@ export function ObservatoryList({ rows }: { rows: ObservatoryRunRow[] }) {
       pageSize={25}
       searchable
       defaultSort={{ key: 'started', dir: 'desc' }}
-      onRowClick={(row) => router.push(`/runs/${row.id}?from=observatory`)}
+      onRowClick={(row) => router.push(`${basePath}?run=${row.id}`, { scroll: false })}
       labels={{ searchPlaceholder: 'Search runs…', searchLabel: 'Search runs' }}
       empty={
         <EmptyState

@@ -57,10 +57,14 @@ function formatElapsed(startedAt: string, nowMs: number): string {
   return `${Math.floor(hours / 24)}d ${hours % 24}h`
 }
 
-function ActiveRunCard({ row, nowMs }: { row: ActiveRunCardRow; nowMs: number }) {
+function ActiveRunCard({ row, nowMs, basePath }: { row: ActiveRunCardRow; nowMs: number; basePath: string }) {
   const router = useRouter()
   return (
-    <Card interactive onClick={() => router.push(`/runs/${row.id}?from=observatory`)} className="cursor-pointer">
+    <Card
+      interactive
+      onClick={() => router.push(`${basePath}?run=${row.id}`, { scroll: false })}
+      className="cursor-pointer"
+    >
       <CardContent className="flex h-full flex-col gap-4 p-5">
         <div className="flex items-start justify-between gap-3">
           <span className="flex min-w-0 items-center gap-3">
@@ -95,25 +99,33 @@ function ActiveRunCard({ row, nowMs }: { row: ActiveRunCardRow; nowMs: number })
 /**
  * The observatory floor: one big card per run in flight — who's working, what
  * they're doing this second, and what it's cost so far. Finished runs live in
- * the History subtab. Always live: server data re-fetches every five seconds.
+ * the History subtab. Always live: server data re-fetches every five seconds,
+ * except while a run record is open — that flyout carries its own live switch.
  */
 export function ObservatoryFloor({
   active,
   history,
   renderedAt,
+  basePath,
+  recordOpen = false,
 }: {
   active: ActiveRunCardRow[]
   history: ObservatoryRunRow[]
   renderedAt: string
+  /** The surface a run record opens over; closing the flyout returns here. */
+  basePath: string
+  /** A run record is open over the floor, so the floor stops polling. */
+  recordOpen?: boolean
 }) {
   const router = useRouter()
   const [tab, setTab] = React.useState('live')
   const nowMs = useNowMs(renderedAt)
 
   React.useEffect(() => {
+    if (recordOpen) return
     const timer = setInterval(() => router.refresh(), 5000)
     return () => clearInterval(timer)
-  }, [router])
+  }, [router, recordOpen])
 
   return (
     <div className="space-y-4">
@@ -129,7 +141,7 @@ export function ObservatoryFloor({
         active.length ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {active.map((row) => (
-              <ActiveRunCard key={row.id} row={row} nowMs={nowMs} />
+              <ActiveRunCard key={row.id} row={row} nowMs={nowMs} basePath={basePath} />
             ))}
           </div>
         ) : (
@@ -139,7 +151,7 @@ export function ObservatoryFloor({
           />
         )
       ) : (
-        <ObservatoryList rows={history} />
+        <ObservatoryList rows={history} basePath={basePath} />
       )}
     </div>
   )
