@@ -195,8 +195,10 @@ function CallControls({
 /**
  * The browser side of a call: a LiveKit room with the agent's voice agent as
  * the other participant. Audio only; captions poll the append-only ledger.
- * Nothing is created until the caller places the call — the session, its run,
- * and the token all come from startCallAction on click.
+ * Opening the page IS placing the call — the session, its run, and the token
+ * come from startCallAction the moment the page mounts, so there is no lobby
+ * to click through. The ref guard keeps a remounted effect (React strict mode)
+ * from opening a second session and run for the same call.
  */
 export function CallRoom({
   serverUrl,
@@ -209,22 +211,26 @@ export function CallRoom({
 }) {
   const router = useRouter()
   const [call, setCall] = React.useState<{ sessionId: string; token: string } | null>(null)
-  const [placing, setPlacing] = React.useState(false)
   const [placeError, setPlaceError] = React.useState<string | null>(null)
   const [ending, setEnding] = React.useState(false)
   const endedRef = React.useRef(false)
+  const placedRef = React.useRef(false)
 
   const place = React.useCallback(async () => {
-    setPlacing(true)
+    if (placedRef.current) return
+    placedRef.current = true
     setPlaceError(null)
     try {
       setCall(await startCallAction(agent.id))
     } catch (error) {
+      placedRef.current = false
       setPlaceError(error instanceof Error ? error.message : 'The call could not be started.')
-    } finally {
-      setPlacing(false)
     }
   }, [agent.id])
+
+  React.useEffect(() => {
+    void place()
+  }, [place])
 
   const finish = React.useCallback(async () => {
     if (endedRef.current || !call) return
@@ -241,15 +247,14 @@ export function CallRoom({
     return (
       <div className="space-y-6">
         <PageHeader
-          title={`Call ${agent.name}`}
+          title={`Calling ${agent.name}`}
           description={`${agent.title} · web call · everything said lands on the call record and the run.`}
         />
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Ready when you are</CardTitle>
+            <CardTitle className="text-base">{placeError ? 'The call did not go through' : 'Dialling…'}</CardTitle>
             <CardDescription>
-              Placing the call connects your microphone and rings {agent.name}. Ask for work on the call — research,
-              documents, spreadsheets — and it is produced and emailed to you after you hang up.
+              {placeError ?? `Connecting your microphone and ringing ${agent.name}.`}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -267,10 +272,11 @@ export function CallRoom({
                 />
               </div>
             ) : null}
-            {placeError ? <p className="text-sm text-danger">{placeError}</p> : null}
-            <Button type="button" onClick={() => void place()} disabled={placing}>
-              <Phone className="mr-1.5 size-4" /> {placing ? 'Ringing…' : 'Place call'}
-            </Button>
+            {placeError ? (
+              <Button type="button" onClick={() => void place()}>
+                <Phone className="mr-1.5 size-4" /> Try again
+              </Button>
+            ) : null}
           </CardContent>
         </Card>
       </div>

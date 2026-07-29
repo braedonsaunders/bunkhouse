@@ -268,7 +268,7 @@ export async function personDrawer({
           },
           {
             key: 'payroll',
-            label: 'Payroll & work',
+            label: 'Cost',
             content: (
               <PayrollSection person={selected} monthSpend={detail.monthSpend} recentRuns={detail.recentRuns} />
             ),
