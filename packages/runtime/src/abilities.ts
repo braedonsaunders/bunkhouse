@@ -204,7 +204,7 @@ export function governedToolSet(args: {
   const set: ToolSet = {}
   for (const ability of args.abilities) {
     const base = ability.tool
-    if (ability.category === null || !base.execute) {
+    if (!base.execute) {
       set[ability.name] = base as ToolSet[string]
       continue
     }
@@ -213,14 +213,21 @@ export function governedToolSet(args: {
     set[ability.name] = {
       ...base,
       execute: async (input: unknown, options: unknown) => {
-        const level = args.autonomy(category)
-        if (level === 'forbidden') {
+        // An ungoverned ability — reading a page, a search, a calculation — has
+        // no dial to consult, but it still has to come back. It used to skip
+        // this wrapper entirely, so when one threw there was no result, no
+        // error and nothing on the ledger: the activity showed as running for
+        // ever, the caller was told "almost there" indefinitely, and the fault
+        // was invisible to everyone. Governance is what the category decides;
+        // finishing is not optional for anything.
+        const level = category === null ? 'trusted' : args.autonomy(category)
+        if (category !== null && level === 'forbidden') {
           return {
             status: 'forbidden',
             note: `The ${category} ability is disabled for you. Route this to a colleague who owns it or tell the requester it needs a human.`,
           }
         }
-        if (level === 'approval' && ability.approval !== 'continues') {
+        if (category !== null && level === 'approval' && ability.approval !== 'continues') {
           const description =
             args.describeAction?.(ability.name, input) ?? `${ability.name} with ${JSON.stringify(input)}`
           const { approvalId } = await args.approvals.request({
@@ -245,14 +252,19 @@ export function governedToolSet(args: {
             text: `Performed under notify-level autonomy (${category}): ${description}`,
           })
         }
-        // Every tool is bounded. A hung tool used to take the run with it,
-        // silently: no result, no error, nothing on the ledger to look at.
+        // Every tool is bounded, and every tool comes back with something.
+        // A throw used to escape here and be recorded nowhere: the loop only
+        // ledgers successful results, so a page that 403'd left a tool_call
+        // with no outcome — the activity read as running for ever, the caller
+        // was told "almost there" indefinitely, and nothing anywhere said what
+        // had happened. Failing is fine; failing invisibly is not.
         try {
           return await withDeadline(ability.name, Promise.resolve(execute(input as any, options as any)))
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
-          await args.sink.event({ kind: 'error', message: `${ability.name}: ${message}` })
-          return { error: message, note: 'That did not come back. Say so plainly and try another way.' }
+          const output = { error: message, note: 'That did not work. Say so plainly and try another way.' }
+          await args.sink.event({ kind: 'tool_result', toolName: ability.name, output })
+          return output
         }
       },
     } as ToolSet[string]
