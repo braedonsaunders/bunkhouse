@@ -216,21 +216,27 @@ export function CallRoom({
   const endedRef = React.useRef(false)
   const placedRef = React.useRef(false)
 
-  const place = React.useCallback(async () => {
+  // Every state change lands in a promise callback rather than in the body:
+  // this runs straight out of an effect on mount, and a setState reached
+  // synchronously from there costs a cascading render. A previous error
+  // clears when the retry actually succeeds, so the message stays put while
+  // the retry is in flight instead of blinking out and back.
+  const place = React.useCallback(() => {
     if (placedRef.current) return
     placedRef.current = true
-    setPlaceError(null)
-    try {
-      setCall(await startCallAction(agent.id))
-    } catch (error) {
-      placedRef.current = false
-      setPlaceError(error instanceof Error ? error.message : 'The call could not be started.')
-    }
+    startCallAction(agent.id).then(
+      (started) => {
+        setCall(started)
+        setPlaceError(null)
+      },
+      (error: unknown) => {
+        placedRef.current = false
+        setPlaceError(error instanceof Error ? error.message : 'The call could not be started.')
+      },
+    )
   }, [agent.id])
 
-  React.useEffect(() => {
-    void place()
-  }, [place])
+  React.useEffect(place, [place])
 
   const finish = React.useCallback(async () => {
     if (endedRef.current || !call) return
@@ -273,7 +279,7 @@ export function CallRoom({
               </div>
             ) : null}
             {placeError ? (
-              <Button type="button" onClick={() => void place()}>
+              <Button type="button" onClick={place}>
                 <Phone className="mr-1.5 size-4" /> Try again
               </Button>
             ) : null}
