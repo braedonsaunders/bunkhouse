@@ -8,17 +8,19 @@ import { addAiProvider, listAiProviders, removeAiProvider, resolveProviderAiConf
 import { listTenantElevenLabsVoices, removeSpeechProvider, setSpeechProviderKey, type SpeechProvider } from '../../../lib/voice'
 import { resolveTenantId } from '../../../lib/tenant'
 import { refreshPricesFromOpenRouter, setManualPrice } from '../../../lib/pricing'
+import {
+  isReconcilableProvider,
+  reconcileTenant,
+  removeBillingKey,
+  setBillingKey,
+} from '../../../lib/cost-reconciliation'
 import { setImageProviderSetting } from '../../../lib/avatars'
 import { removeSearchProvider, setSearchProvider } from '../../../lib/research'
 import { saveDocumentBranding } from '../../../lib/documents'
 import { compileMailSignature, saveMailSignature } from '../../../lib/mail-signature'
 import { removeSmsSettings, saveSmsSettings } from '../../../lib/sms'
 import { saveWorkspacePolicy } from '../../../lib/workspace'
-import { listMcpIntegrations, saveMcpIntegrations } from '../../../lib/mcp-integrations'
 import { isMailOauthProvider, removeMailOauthApp, saveMailOauthApp } from '../../../lib/mail-oauth'
-import { beginMcpOauth } from '../../../lib/mcp-oauth'
-import { connectMcpServers } from '@bunkhouse/runtime'
-import { sealSecret } from '@appkit/crypto'
 import { db } from '../../../db/client'
 import { listImageModels, type ImageModelId } from '@appkit/avatars'
 
@@ -139,14 +141,79 @@ export async function loadModelsForProviderAction(
   }
 }
 
-/** Pull current prices from the OpenRouter catalog for models in use. */
-export async function refreshPricesAction(): Promise<void> {
-  const tenantId = await resolveTenantId()
-  const { updated, unmatched } = await refreshPricesFromOpenRouter(tenantId)
-  if (updated.length === 0 && unmatched.length > 0) {
-    throw new Error(`No prices matched for: ${unmatched.join(', ')}. Add them manually.`)
+/**
+ * Pull current prices from the OpenRouter catalog for models in use. Both
+ * halves of the answer matter to an operator: what moved, and what the catalog
+ * has never heard of — the second list is exactly the set of models that will
+ * keep costing $0 until somebody prices them by hand.
+ */
+export async function refreshPricesAction(): Promise<
+  { ok: true; updated: string[]; unmatched: string[] } | { ok: false; message: string }
+> {
+  try {
+    const tenantId = await resolveTenantId()
+    const { updated, unmatched } = await refreshPricesFromOpenRouter(tenantId)
+    revalidatePath('/admin/settings')
+    return { ok: true, updated, unmatched }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+// --- Reconciliation (what the provider says it charged) ---------------------
+
+/** Connect a provider's administration key — proved against its own cost
+ *  report before it is sealed, so an agent key pasted here fails here rather
+ *  than silently every night. */
+export async function setBillingKeyAction(input: {
+  provider: string
+  adminKey: string
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!isReconcilableProvider(input.provider)) {
+    return { ok: false, message: `${input.provider} does not publish a cost report.` }
+  }
+  if (!input.adminKey.trim()) return { ok: false, message: 'Enter the administration key first.' }
+  try {
+    const tenantId = await resolveTenantId()
+    await setBillingKey({ tenantId, provider: input.provider, adminKey: input.adminKey.trim() })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
   revalidatePath('/admin/settings')
+  return { ok: true }
+}
+
+/** Disconnect an administration key. Spend for that provider stays as the
+ *  price table estimated it, unchecked, until a key is connected again. */
+export async function removeBillingKeyAction(provider: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!isReconcilableProvider(provider)) return { ok: false, message: 'Unknown provider.' }
+  const tenantId = await resolveTenantId()
+  await removeBillingKey(tenantId, provider)
+  revalidatePath('/admin/settings')
+  return { ok: true }
+}
+
+/** Pull the providers' cost reports now instead of waiting for tonight's pass. */
+export async function reconcileNowAction(): Promise<
+  { ok: true; recorded: number; driftUsd: number; notes: string[] } | { ok: false; message: string }
+> {
+  try {
+    const tenantId = await resolveTenantId()
+    const outcomes = await reconcileTenant(tenantId)
+    if (outcomes.length === 0) {
+      return { ok: false, message: 'No administration key is connected, so there is no invoice to read.' }
+    }
+    return {
+      ok: true,
+      recorded: outcomes.reduce((total, outcome) => total + outcome.recorded, 0),
+      driftUsd: outcomes.reduce((total, outcome) => total + outcome.driftUsd, 0),
+      notes: outcomes.flatMap((outcome) => (outcome.message ? [`${outcome.provider}: ${outcome.message}`] : [])),
+    }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  } finally {
+    revalidatePath('/admin/settings')
+  }
 }
 
 /** Append a manual effective-dated price row ('*' = company default). */
@@ -257,153 +324,6 @@ export async function setSearchProviderAction(input: {
 export async function removeSearchProviderAction(): Promise<void> {
   const tenantId = await resolveTenantId()
   await removeSearchProvider(tenantId)
-  revalidatePath('/admin/settings')
-}
-
-// --- Integrations (MCP) -----------------------------------------------------
-
-/** The action categories the autonomy dial governs — an integration runs
- *  entirely under the one chosen for it. */
-const ACTION_CATEGORIES = [
-  'external_email',
-  'internal_email',
-  'record_write',
-  'money_adjacent',
-  'file_write',
-  'computer_use',
-  'shell',
-  'phone_call',
-]
-
-/** Add or replace an MCP integration; the connection is probed before saving. */
-export async function saveMcpIntegrationAction(input: {
-  slug: string
-  label: string
-  url: string
-  /** One header per line, `Name: value`. Sealed at rest, never echoed back. */
-  headersText: string
-  category: string
-}): Promise<{ ok: true; toolCount: number } | { ok: false; message: string }> {
-  const slug = input.slug.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '')
-  if (!slug) return { ok: false, message: 'Give the integration a short slug.' }
-  if (!input.label.trim()) return { ok: false, message: 'Give the integration a name.' }
-  let url: URL
-  try {
-    url = new URL(input.url.trim())
-  } catch {
-    return { ok: false, message: 'That URL is not valid.' }
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    return { ok: false, message: 'The server URL must be http(s).' }
-  }
-  if (!ACTION_CATEGORIES.includes(input.category)) {
-    return { ok: false, message: 'Pick the action category it is governed under.' }
-  }
-
-  const headers: Record<string, string> = {}
-  for (const line of input.headersText.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    const colon = trimmed.indexOf(':')
-    if (colon <= 0) return { ok: false, message: `Header line "${trimmed.slice(0, 40)}" is not "Name: value".` }
-    headers[trimmed.slice(0, colon).trim()] = trimmed.slice(colon + 1).trim()
-  }
-
-  // Probe the connection so a typo'd URL or bad token fails here, not mid-call.
-  let toolCount = 0
-  try {
-    const probe = await connectMcpServers([
-      {
-        slug,
-        url: url.toString(),
-        ...(Object.keys(headers).length > 0 ? { headers } : {}),
-      },
-    ])
-    toolCount = probe.abilities.length
-    await probe.close()
-  } catch (error) {
-    return {
-      ok: false,
-      message: `Could not connect: ${error instanceof Error ? error.message : String(error)}`,
-    }
-  }
-
-  const tenantId = await resolveTenantId()
-  const app = db()
-  await app.withTenant(tenantId, async () => {
-    const all = await listMcpIntegrations(tenantId)
-    const previous = all.find((entry) => entry.slug === slug)
-    const entries = all.filter((entry) => entry.slug !== slug)
-    // Blank headers on an edit mean "keep what is sealed", not "drop it".
-    const sealedHeaders =
-      Object.keys(headers).length > 0 ? sealSecret(JSON.stringify(headers)) : previous?.sealedHeaders
-    entries.push({
-      slug,
-      label: input.label.trim(),
-      url: url.toString(),
-      ...(sealedHeaders ? { sealedHeaders } : {}),
-      category: input.category,
-    })
-    await saveMcpIntegrations(tenantId, entries)
-  })
-  revalidatePath('/admin/settings')
-  return { ok: true, toolCount }
-}
-
-/**
- * Start an OAuth sign-in for a connection. Returns the provider's consent URL
- * for the browser to follow; the connection is only saved once the provider
- * redirects back and the grant is proved against the server.
- */
-export async function beginMcpOauthAction(input: {
-  slug: string
-  label: string
-  url: string
-  category: string
-  /** Only for servers that do not offer automatic client registration. */
-  clientId?: string
-  clientSecret?: string
-}): Promise<{ ok: true; url: string } | { ok: false; message: string }> {
-  const slug = input.slug.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '')
-  if (!slug) return { ok: false, message: 'Give the integration a short slug.' }
-  if (!input.label.trim()) return { ok: false, message: 'Give the integration a name.' }
-  let url: URL
-  try {
-    url = new URL(input.url.trim())
-  } catch {
-    return { ok: false, message: 'That URL is not valid.' }
-  }
-  if (url.protocol !== 'https:') {
-    return { ok: false, message: 'OAuth sign-in requires an https server URL.' }
-  }
-  if (!ACTION_CATEGORIES.includes(input.category)) {
-    return { ok: false, message: 'Pick the action category it is governed under.' }
-  }
-  try {
-    const tenantId = await resolveTenantId()
-    const { url: consentUrl } = await beginMcpOauth({
-      tenantId,
-      slug,
-      label: input.label.trim(),
-      url: url.toString(),
-      category: input.category,
-      ...(input.clientId?.trim() ? { clientId: input.clientId.trim() } : {}),
-      ...(input.clientSecret?.trim() ? { clientSecret: input.clientSecret.trim() } : {}),
-    })
-    return { ok: true, url: consentUrl }
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
-  }
-}
-
-export async function removeMcpIntegrationAction(formData: FormData): Promise<void> {
-  const slug = String(formData.get('slug') ?? '')
-  const tenantId = await resolveTenantId()
-  const app = db()
-  await app.withTenant(tenantId, async () => {
-    const entries = (await listMcpIntegrations(tenantId)).filter((entry) => entry.slug !== slug)
-    await saveMcpIntegrations(tenantId, entries)
-  })
   revalidatePath('/admin/settings')
 }
 

@@ -8,7 +8,8 @@ import { ACTION_CATEGORIES, DEFAULT_AUTONOMY_LEVEL } from '../../../lib/autonomy
 import { listAiProviders } from '../../../lib/ai'
 import { getVoiceProviders } from '../../../lib/voice'
 import { listPhoneNumbers, listSipTrunks, sipIngressAddress } from '../../../lib/pbx'
-import { listPrices } from '../../../lib/pricing'
+import { listPrices, unpricedModelsInUse } from '../../../lib/pricing'
+import { billingKeyStatus, listReconciliations } from '../../../lib/cost-reconciliation'
 import { getImageProviderSetting, listAvatarPartRows, loadAvatarPartLibrary } from '../../../lib/avatars'
 import { getResearchSettings } from '../../../lib/research'
 import { getDocumentBranding } from '../../../lib/documents'
@@ -133,6 +134,11 @@ export default async function SettingsPage({
     listChatConnections(tenantId),
     listChatChannelRoutes(tenantId),
   ])
+  const [unpricedModels, billingKeys, reconciliations] = await Promise.all([
+    unpricedModelsInUse(tenantId),
+    billingKeyStatus(tenantId),
+    listReconciliations(tenantId),
+  ])
   const smsSettings = await getSmsSettings(tenantId)
   const phoneNumberRows = await listPhoneNumbers(tenantId)
   const activeAgents = await app.withTenantContext(tenantId, () =>
@@ -193,6 +199,20 @@ export default async function SettingsPage({
         ...(p.sourceRef ? { sourceRef: p.sourceRef } : {}),
         effectiveAt: fmt(p.effectiveAt),
       }))}
+      unpricedModels={unpricedModels}
+      billing={{
+        connected: billingKeys,
+        rows: reconciliations.map((row) => ({
+          id: row.id,
+          provider: row.provider,
+          day: row.day,
+          model: row.model,
+          reportedUsd: row.reportedUsd,
+          ledgerUsd: row.ledgerUsd,
+          driftUsd: row.driftUsd,
+          fetchedAt: fmt(row.fetchedAt),
+        })),
+      }}
       mailboxes={mailboxData.boxes.map((b) => ({
         id: b.id,
         personId: b.personId,
@@ -244,6 +264,7 @@ export default async function SettingsPage({
         deepgramUsdPerMinute: voicePricing.deepgramUsdPerMinute ?? null,
         elevenLabsUsdPerMinute: voicePricing.elevenLabsUsdPerMinute ?? null,
         realtimeUsdPerMinute: voicePricing.realtimeUsdPerMinute ?? null,
+        measuredDeepgram: voicePricing.measured?.deepgram ?? null,
       }}
       templates={templates.map((t) => ({
         id: t.id,

@@ -36,6 +36,26 @@ export type AiProviderEntry = {
 
 export const AI_PROVIDERS_KEY = 'ai.providers'
 
+/**
+ * settings key: 'ai.billing' — the company's administration keys for the model
+ * providers that will report what they actually charged.
+ *
+ * These are deliberately separate credentials from the keys agents think on.
+ * Anthropic and OpenAI both refuse billing endpoints to an inference key and
+ * issue a distinct administration key for them, and the split is worth keeping
+ * on its own merits: the key that can read the company's invoices is not the
+ * key handed to every agent. Sealed at rest, unsealed only for a cost report.
+ *
+ * A provider with no key here is simply not reconciled — its spend stays the
+ * estimate the price table produced, and the settings screen says so.
+ */
+export type AiBillingSettings = {
+  anthropic?: { sealedAdminKey: SealedSecret }
+  openai?: { sealedAdminKey: SealedSecret }
+}
+
+export const AI_BILLING_KEY = 'ai.billing'
+
 /** settings key: 'voice.providers' — the tenant's speech-provider keys
  *  (STT/TTS for cascade voice), sealed at rest like AI provider keys.
  *  Realtime speech-to-speech reuses the AI providers above — no second key. */

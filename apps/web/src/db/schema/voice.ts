@@ -154,9 +154,28 @@ export type VoiceRetentionSettings = {
 export const VOICE_RETENTION_KEY = 'voice.retention'
 
 /**
- * settings key: 'voice.pricing' — what a minute of speech costs THIS company,
- * from its own provider contracts. Unset prices are not guessed: the minutes
- * are still recorded, the money simply is not claimed.
+ * A rate read off a provider's own billing API rather than typed in: what the
+ * company was charged over a window, divided by the minutes it bought. Kept
+ * beside the operator's figure rather than replacing it, so a measurement can
+ * never quietly overwrite a negotiated rate somebody entered on purpose.
+ */
+export type MeasuredVoiceRate = {
+  usdPerMinute: number
+  /** The billing window measured, `YYYY-MM-DD…YYYY-MM-DD`. */
+  window: string
+  /** When the measurement was taken, ISO 8601. */
+  observedAt: string
+}
+
+/**
+ * settings key: 'voice.pricing' — what a minute of speech costs THIS company.
+ *
+ * Two sources, in that order of authority: the rate an operator entered from
+ * the company's own agreement, and the rate measured from the provider's
+ * billing API. The typed figure always wins — a contract an operator knows
+ * about beats an average taken over last month's invoices. Where neither
+ * exists the price is not guessed: the minutes are still recorded, the money
+ * simply is not claimed.
  */
 export type VoicePricingSettings = {
   /** Deepgram streaming transcription, USD per minute of call. */
@@ -165,6 +184,15 @@ export type VoicePricingSettings = {
   elevenLabsUsdPerMinute?: number
   /** Speech-to-speech (OpenAI Realtime, Gemini Live), USD per minute of call. */
   realtimeUsdPerMinute?: number
+  /**
+   * Rates measured from a provider's billing API. Only Deepgram reports what
+   * it charged; ElevenLabs meters in credits whose dollar value depends on the
+   * plan, and realtime speech is billed as model tokens, so neither can be
+   * measured this way and both stay operator-entered.
+   */
+  measured?: {
+    deepgram?: MeasuredVoiceRate
+  }
 }
 
 export const VOICE_PRICING_KEY = 'voice.pricing'

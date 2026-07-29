@@ -39,7 +39,7 @@ import { resolveAgentAiConfig } from './ai'
 import { companyPromptProfile, getCompanyIdentity } from './company-identity'
 import { getMailSignature } from './mail-signature'
 import { assembleAbilities } from './agent-abilities'
-import { resolvePrice } from './pricing'
+import { priceSpend } from './pricing'
 import { sendNewMail, sendReplyInThread } from './mailbox'
 import { pinnedNotes, retrieveNotes } from './memory'
 import { describeToolCall } from './call-activity'
@@ -213,9 +213,13 @@ export async function assembleRunFoundation(args: {
         overagePolicy: person.salary?.overagePolicy ?? 'ask',
       },
       spend: async (usage) => {
-        const price = await resolvePrice(tenantId, usage.model)
-        const cost =
-          (usage.inputTokens * price.inputUsdPerMtok + usage.outputTokens * price.outputUsdPerMtok) / 1_000_000
+        const priced = await priceSpend({
+          tenantId,
+          model: usage.model,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          ...(usage.costUsd === undefined ? {} : { reportedCostUsd: usage.costUsd }),
+        })
         await app.db.insert(tokenSpend).values({
           tenantId,
           personId: person.id,
@@ -224,10 +228,7 @@ export async function assembleRunFoundation(args: {
           model: usage.model,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
-          costUsd: cost.toFixed(6),
-          inputUsdPerMtok: price.inputUsdPerMtok.toFixed(4),
-          outputUsdPerMtok: price.outputUsdPerMtok.toFixed(4),
-          priceSource: price.source,
+          ...priced,
         })
       },
     },

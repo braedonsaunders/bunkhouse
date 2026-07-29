@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Badge, Button, Input, Label, Select, SettingsRow, SettingsSection } from '@appkit/ui'
 import {
+  measureSpeechRatesAction,
   saveVoicePricingAction,
   saveVoiceRetentionAction,
   sweepRecordingsNowAction,
@@ -12,9 +13,21 @@ import {
  * Call costs and call recordings — the money and the housekeeping side of
  * voice, in one section. Prices come from the company's own agreements with
  * its speech providers; nothing here is supplied or marked up by bunkhouse,
- * and a blank price means the minutes are recorded without a cost attached
+ * and an unset price means the minutes are recorded without a cost attached
  * rather than guessed at.
+ *
+ * Deepgram is the one provider that will say what it charged, so its rate can
+ * be measured from the company's own invoices instead of typed. A rate typed
+ * here still wins — somebody entering a number knows a contract the invoices
+ * have not caught up with.
  */
+
+/** A rate read off Deepgram's billing API rather than entered by hand. */
+export type MeasuredRateView = {
+  usdPerMinute: number
+  window: string
+  observedAt: string
+}
 
 export type VoiceCostSettingsView = {
   /** Days a recording is kept, or null to keep recordings indefinitely. */
@@ -22,6 +35,8 @@ export type VoiceCostSettingsView = {
   deepgramUsdPerMinute: number | null
   elevenLabsUsdPerMinute: number | null
   realtimeUsdPerMinute: number | null
+  /** What Deepgram's own invoices work out to, when they have been read. */
+  measuredDeepgram: MeasuredRateView | null
 }
 
 const asField = (value: number | null): string => (value === null ? '' : String(value))
@@ -40,9 +55,16 @@ export function VoiceCostSettings({ settings }: { settings: VoiceCostSettingsVie
   const [pricingNotice, setPricingNotice] = React.useState<string | null>(null)
   const [pricingError, setPricingError] = React.useState<string | null>(null)
   const [savingPricing, startSavingPricing] = React.useTransition()
+  const [measuring, startMeasuring] = React.useTransition()
+  const [measured, setMeasured] = React.useState(settings.measuredDeepgram)
 
+  // What each leg is actually charged at: the typed rate where there is one,
+  // the measured rate where there is not.
+  const deepgramEffective = deepgram.trim() ? Number(deepgram) : (measured?.usdPerMinute ?? null)
   const cascadePerMinute =
-    deepgram.trim() || eleven.trim() ? (Number(deepgram || 0) + Number(eleven || 0)).toFixed(4) : null
+    deepgramEffective !== null || eleven.trim()
+      ? ((deepgramEffective ?? 0) + Number(eleven || 0)).toFixed(4)
+      : null
 
   return (
     <SettingsSection
@@ -140,7 +162,35 @@ export function VoiceCostSettings({ settings }: { settings: VoiceCostSettingsVie
 
       <SettingsRow
         title="Speech rates"
-        description="What one minute of call time costs you, per provider. Leave a rate blank and its minutes are still recorded — no cost is claimed for them."
+        description="What one minute of call time costs you, per provider. Deepgram will say what it charged, so its rate can be read off your own invoices; ElevenLabs meters in credits and realtime speech is billed as model tokens, so those two come from your agreements. Leave a rate unset and its minutes are still recorded — no cost is claimed for them."
+        control={
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={measuring}
+            onClick={() =>
+              startMeasuring(async () => {
+                setPricingError(null)
+                setPricingNotice(null)
+                const result = await measureSpeechRatesAction()
+                if (!result.ok) {
+                  setPricingError(result.message)
+                  return
+                }
+                setMeasured({
+                  usdPerMinute: result.usdPerMinute,
+                  window: result.window,
+                  observedAt: new Date().toISOString(),
+                })
+                setPricingNotice(
+                  `Deepgram billed you $${result.usdPerMinute.toFixed(4)} a minute over ${result.window}.`,
+                )
+              })
+            }
+          >
+            {measuring ? 'Reading…' : 'Measure Deepgram'}
+          </Button>
+        }
         stacked
       >
         <div className="grid gap-3 sm:grid-cols-3">
@@ -151,8 +201,15 @@ export function VoiceCostSettings({ settings }: { settings: VoiceCostSettingsVie
               inputMode="decimal"
               value={deepgram}
               onChange={(event) => setDeepgram(event.target.value)}
-              placeholder="0.0077"
+              placeholder={measured ? measured.usdPerMinute.toFixed(4) : '0.0077'}
             />
+            <p className="text-xs text-fg-muted">
+              {measured
+                ? deepgram.trim()
+                  ? `Your figure is in force. Deepgram's own invoices work out to $${measured.usdPerMinute.toFixed(4)} over ${measured.window} — clear this field to use that instead.`
+                  : `Measured from your invoices: $${measured.usdPerMinute.toFixed(4)} a minute over ${measured.window}.`
+                : 'Not measured yet — connect a Deepgram key and measure, or enter the rate from your agreement.'}
+            </p>
           </div>
           <div className="space-y-1">
             <Label htmlFor="voice-price-elevenlabs">ElevenLabs — speaking ($/min)</Label>

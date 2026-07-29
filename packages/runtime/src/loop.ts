@@ -7,6 +7,7 @@ import {
   type Ability,
   type GovernanceState,
 } from './abilities'
+import { reportedCostUsd, usageAccountingOptions } from './cost'
 import { buildRunInstruction, buildSystemPrompt } from './prompt'
 import type {
   ApprovalGate,
@@ -112,6 +113,10 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
     },
   ]
 
+  // Where the provider is willing to price its own work, ask it to. The flag
+  // costs nothing and makes the ledger authoritative rather than estimated.
+  const providerOptions = usageAccountingOptions(args.agent.ai)
+
   try {
     const result = await generateText({
       model,
@@ -119,6 +124,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
       messages,
       tools,
       temperature: args.agent.temperature,
+      ...(providerOptions ? { providerOptions } : {}),
       stopWhen: [
         stepCountIs(args.maxSteps ?? DEFAULT_MAX_STEPS),
         () => state.pendingApprovalId !== null || state.pendingWait !== null,
@@ -148,11 +154,15 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
           })
         }
         if (step.text) await args.sink.event({ kind: 'message', text: step.text })
+        // What the provider says the step cost, where it says anything. Null
+        // means it did not, and the sink prices the tokens itself.
+        const reported = providerOptions ? reportedCostUsd(step.response.body) : null
         await args.sink.spend({
           provider: args.agent.ai.provider,
           model: args.agent.ai.modelSmart ?? '',
           inputTokens: step.usage.inputTokens ?? 0,
           outputTokens: step.usage.outputTokens ?? 0,
+          ...(reported === null ? {} : { costUsd: reported }),
         })
       },
     })

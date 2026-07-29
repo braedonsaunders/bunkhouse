@@ -24,14 +24,20 @@ import { removeSpeechProviderAction, setSpeechProviderKeyAction } from '../app/a
 import type { AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
 import { AvatarPartsView, type AvatarPartRowView } from './avatar-parts-view'
 import { type ProviderKindOption } from './add-provider-form'
-import { ModelSettings, type PriceRow, type ProviderAssignment, type ProviderSummary } from './model-settings'
+import {
+  ModelSettings,
+  type BillingView,
+  type PriceRow,
+  type ProviderAssignment,
+  type ProviderSummary,
+} from './model-settings'
 import { ImageProviderForm } from './image-provider-form'
 import { AutonomySettings, type AgentDial } from './autonomy-settings'
 import { CompanyIdentitySettings, type CompanyIdentityView, type IdentityProviderOption } from './company-identity-settings'
 import { PhoneSystemRow, type AgentExtensionRow, type AgentOption, type PhoneNumberRowView, type SipTrunkSummary } from './phone-system'
 import { MailOauthApps, type MailOauthAppView } from './mail-oauth-apps'
 import { MailSignatureSettings, type MailSignatureView } from './mail-signature-settings'
-import { DocumentsSection, IntegrationsSection, ResearchSection, SmsSection, WorkspaceSection, type DocumentBrandingView, type IntegrationRowView, type McpOauthOutcome, type SmsSettingsView, type WorkspacePolicyView } from './capability-settings'
+import { DocumentsSection, ResearchSection, SmsSection, WorkspaceSection, type DocumentBrandingView, type SmsSettingsView, type WorkspacePolicyView } from './capability-settings'
 import { VoiceCostSettings, type VoiceCostSettingsView } from './voice-cost-settings'
 import { DocumentTemplatesView, type TemplateRowView } from './document-templates-view'
 import { FilingSection, type FilingActivityRow, type FilingSettingsView } from './filing-settings'
@@ -140,10 +146,7 @@ const NAV: SettingsNavGroup[] = [
   },
   {
     label: 'Systems',
-    items: [
-      { key: 'workspace', label: 'Workspace', icon: <FolderCog /> },
-      { key: 'integrations', label: 'Integrations', icon: <Plug /> },
-    ],
+    items: [{ key: 'workspace', label: 'Workspace', icon: <FolderCog /> }],
   },
 ]
 
@@ -219,6 +222,8 @@ export function SettingsView({
   providerAssignments,
   kinds,
   prices,
+  unpricedModels,
+  billing,
   mailboxes,
   agentsWithoutMailbox,
   mailOauthApps,
@@ -236,8 +241,6 @@ export function SettingsView({
   templates,
   filing,
   sms,
-  integrations,
-  mcpOauthOutcome,
   phoneSystem,
   agentDials,
   initialSection,
@@ -250,6 +253,10 @@ export function SettingsView({
   providerAssignments: ProviderAssignment[]
   kinds: ProviderKindOption[]
   prices: PriceRow[]
+  /** Models agents can spend on that no price row covers. */
+  unpricedModels: string[]
+  /** What the providers say they charged, against what the ledger counted. */
+  billing: BillingView
   mailboxes: MailboxRow[]
   agentsWithoutMailbox: AgentWithoutMailbox[]
   /** The company's Google Workspace / Microsoft 365 applications, secrets withheld. */
@@ -277,9 +284,6 @@ export function SettingsView({
     webhookUrls: { slack: string; teams: string }
   }
   sms: SmsSettingsView
-  integrations: IntegrationRowView[]
-  /** How the last MCP OAuth sign-in ended, when the operator just came back. */
-  mcpOauthOutcome?: McpOauthOutcome | null
   phoneSystem: {
     trunks: SipTrunkSummary[]
     extensions: AgentExtensionRow[]
@@ -351,6 +355,8 @@ export function SettingsView({
           providers={providers}
           kinds={kinds}
           prices={prices}
+          unpricedModels={unpricedModels}
+          billing={billing}
           assignments={providerAssignments}
           initialTab={arrival.tab ?? 'providers'}
         />
@@ -549,10 +555,6 @@ export function SettingsView({
           agents={chat.agents}
           webhookUrls={chat.webhookUrls}
         />
-      ) : null}
-
-      {active === 'integrations' ? (
-        <IntegrationsSection integrations={integrations} oauthOutcome={mcpOauthOutcome ?? null} />
       ) : null}
 
       {active === 'images' ? (

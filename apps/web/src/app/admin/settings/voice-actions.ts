@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { resolveTenantId } from '../../../lib/tenant'
 import { saveVoiceRetention, sweepExpiredRecordings } from '../../../lib/voice-recording'
-import { saveVoicePricing } from '../../../lib/voice-pricing'
+import { refreshMeasuredVoiceRates, saveVoicePricing } from '../../../lib/voice-pricing'
 
 /**
  * Company settings for what calls cost and how long they are kept. Both are
@@ -59,6 +59,25 @@ export async function saveVoicePricingAction(input: {
     })
     revalidatePath('/admin/settings')
     return { ok: true }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
+ * Read the company's real Deepgram rate off its own invoices. Deepgram is the
+ * one speech provider that will say what it charged; the rate it reports is
+ * used only where no rate has been entered by hand.
+ */
+export async function measureSpeechRatesAction(): Promise<
+  { ok: true; usdPerMinute: number; window: string } | { ok: false; message: string }
+> {
+  try {
+    const tenantId = await resolveTenantId()
+    const result = await refreshMeasuredVoiceRates(tenantId)
+    if (!result.ok) return result
+    revalidatePath('/admin/settings')
+    return { ok: true, usdPerMinute: result.deepgram.usdPerMinute, window: result.deepgram.window }
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }

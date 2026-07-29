@@ -159,10 +159,19 @@ export type RunEvent =
 
 export type TokenUsage = { inputTokens: number; outputTokens: number }
 
+/**
+ * What one model call actually cost, as the provider itself reported it —
+ * present only when the provider returns money rather than tokens. Gateways
+ * route the same model id to different upstreams at different prices and apply
+ * cache discounts, so tokens × a price table can never reconstruct this number.
+ * When it is present the sink must bank it verbatim instead of estimating.
+ */
+export type ReportedCost = { costUsd: number }
+
 /** Injected persistence — the runtime never touches a database directly. */
 export type RunSink = {
   event: (event: RunEvent) => Promise<void>
-  spend: (usage: TokenUsage & { provider: string; model: string }) => Promise<void>
+  spend: (usage: TokenUsage & { provider: string; model: string } & Partial<ReportedCost>) => Promise<void>
 }
 
 /** Resolves the dial for this agent. Missing categories default to 'approval' —

@@ -520,7 +520,11 @@ async function buildSpeechPipeline(args: {
     const baseURL = ai.baseUrl ?? (isAiProvider(ai.provider) ? providerSpec(ai.provider).baseUrl : null)
     const cascadeLlm = new openai.LLM({
       apiKey: ai.apiKey,
-      model: ai.modelSmart,
+      // The conversation runs on the agent's fast model: every 100ms here is
+      // audible to the caller. The thinking model does the work behind
+      // `do_work`, off the line. Unset, the fast model resolves to the
+      // thinking one, which is the old single-model behaviour.
+      model: ai.modelFast || ai.modelSmart,
       ...(baseURL ? { baseURL } : {}),
     })
     return {

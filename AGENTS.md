@@ -139,6 +139,8 @@ After changing AppKit: `pnpm build:packages` there, re-pack with
   autonomy enforcement, budget metering. Publishable; keep it free of web coupling.
 - `packages/roles` — role-pack format + first-party packs (MIT).
 - `docs/organization.md` — the roster, the reporting hierarchy, and the tree invariant.
+- `docs/cost-accounting.md` — where every figure in the spend ledger comes from: reported
+  cost beats calculated cost, and what each provider will and will not tell you.
 - `vendor/appkit` — pinned AppKit tarballs (36 packages).
 
 ## Validation gates (green before "done")

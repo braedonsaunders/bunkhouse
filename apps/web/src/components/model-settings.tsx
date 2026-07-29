@@ -19,8 +19,11 @@ import {
 import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
 import {
   loadModelsForProviderAction,
+  reconcileNowAction,
   refreshPricesAction,
+  removeBillingKeyAction,
   removeProviderAction,
+  setBillingKeyAction,
   setManualPriceAction,
   updateProviderAction,
 } from '../app/admin/settings/actions'
@@ -61,6 +64,32 @@ export type PriceRow = {
   sourceRef?: string
   effectiveAt: string
 }
+
+/** One day's invoice against one day's ledger, as the last reading found it. */
+export type ReconciliationView = {
+  id: string
+  provider: string
+  day: string
+  model: string
+  reportedUsd: number
+  ledgerUsd: number
+  driftUsd: number
+  fetchedAt: string
+}
+
+export type BillingView = {
+  /** Providers whose cost report this company has a key for. */
+  connected: { anthropic: boolean; openai: boolean }
+  rows: ReconciliationView[]
+}
+
+/** Providers that publish a cost report, and what their admin key looks like. */
+const BILLING_PROVIDERS = [
+  { value: 'anthropic', label: 'Anthropic', hint: 'sk-ant-admin-…' },
+  { value: 'openai', label: 'OpenAI', hint: 'sk-admin-…' },
+] as const
+
+const usd = (value: number): string => `${value < 0 ? '−' : ''}$${Math.abs(value).toFixed(2)}`
 
 type ProviderRow = ProviderSummary & { kindLabel: string; agentCount: number }
 
@@ -143,26 +172,82 @@ const PRICE_COLUMNS: PagedColumn<PriceRow>[] = [
   },
 ]
 
+const RECONCILIATION_COLUMNS: PagedColumn<ReconciliationView>[] = [
+  { key: 'day', header: 'Day', cell: (row) => row.day, search: (row) => row.day, sortValue: (row) => row.day },
+  {
+    key: 'provider',
+    header: 'Provider',
+    cell: (row) => <Badge variant="secondary">{row.provider}</Badge>,
+    search: (row) => row.provider,
+    sortValue: (row) => row.provider,
+  },
+  {
+    key: 'model',
+    header: 'Line',
+    cell: (row) => (row.model === '*' ? <span className="text-fg-muted">unattributed</span> : row.model),
+    search: (row) => row.model,
+    sortValue: (row) => row.model,
+  },
+  {
+    key: 'reported',
+    header: 'Charged',
+    align: 'right',
+    cell: (row) => <span className="tabular-nums">{usd(row.reportedUsd)}</span>,
+    sortValue: (row) => row.reportedUsd,
+  },
+  {
+    key: 'ledger',
+    header: 'Counted',
+    align: 'right',
+    cell: (row) => <span className="tabular-nums">{usd(row.ledgerUsd)}</span>,
+    sortValue: (row) => row.ledgerUsd,
+  },
+  {
+    key: 'drift',
+    header: 'Gap',
+    align: 'right',
+    cell: (row) => (
+      <span className={`tabular-nums ${Math.abs(row.driftUsd) >= 0.01 ? 'text-danger' : 'text-fg-muted'}`}>
+        {usd(row.driftUsd)}
+      </span>
+    ),
+    sortValue: (row) => Math.abs(row.driftUsd),
+  },
+]
+
+const TABS = ['providers', 'pricing', 'reconciliation'] as const
+
 export function ModelSettings({
   providers,
   kinds,
   prices,
+  unpricedModels,
+  billing,
   assignments,
   initialTab,
 }: {
   providers: ProviderSummary[]
   kinds: ProviderKindOption[]
   prices: PriceRow[]
+  /** Models agents can spend on that no price row covers — the $0 spend. */
+  unpricedModels: string[]
+  billing: BillingView
   /** Agents currently assigned to each provider slug. */
   assignments: ProviderAssignment[]
   initialTab: string
 }) {
-  const [tab, setTab] = React.useState(initialTab === 'pricing' ? 'pricing' : 'providers')
+  const [tab, setTab] = React.useState<string>(
+    (TABS as readonly string[]).includes(initialTab) ? initialTab : 'providers',
+  )
   const [adding, setAdding] = React.useState(false)
   const [editing, setEditing] = React.useState<ProviderSummary | null>(null)
   const [priceDrawer, setPriceDrawer] = React.useState<string | null>(null)
+  const [billingDrawer, setBillingDrawer] = React.useState<string | null>(null)
   const [notice, setNotice] = React.useState<string | null>(null)
   const [busy, startBusy] = React.useTransition()
+
+  const totalDrift = billing.rows.reduce((total, row) => total + row.driftUsd, 0)
+  const connectedCount = Object.values(billing.connected).filter(Boolean).length
 
   const rows: ProviderRow[] = providers.map((provider) => ({
     ...provider,
@@ -180,6 +265,7 @@ export function ModelSettings({
         tabs={[
           { key: 'providers', label: 'Providers', count: providers.length },
           { key: 'pricing', label: 'Pricing', count: prices.length },
+          { key: 'reconciliation', label: 'Reconciliation', count: billing.rows.length },
         ]}
       />
 
@@ -222,11 +308,11 @@ export function ModelSettings({
       {tab === 'pricing' ? (
         <SettingsSection
           title="Model pricing"
-          description="Effective-dated, append-only price rows — every spend record stamps the exact price it used, so costs are auditable forever. Refresh pulls live prices from the OpenRouter catalog for models your agents use; '*' is the company default."
+          description="What a token costs where the provider does not say. OpenRouter reports the exact cost of every request, and those charges are banked as-is; the rows here price the providers that bill in tokens and leave the arithmetic to you. Effective-dated and append-only, so every spend record keeps the price it was charged at."
         >
           <SettingsRow
             title="Keeping prices current"
-            description="Refreshing appends a new effective row only where the price actually changed."
+            description="Prices refresh from the OpenRouter catalog nightly, appending a new effective row only where a price actually changed. '*' is the company default for any model with no row of its own."
             control={
               <span className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={() => setPriceDrawer('*new*')}>
@@ -238,20 +324,39 @@ export function ModelSettings({
                   onClick={() =>
                     startBusy(async () => {
                       setNotice(null)
-                      try {
-                        await refreshPricesAction()
-                        setNotice('Prices refreshed.')
-                      } catch (err) {
-                        setNotice(err instanceof Error ? err.message : String(err))
+                      const result = await refreshPricesAction()
+                      if (!result.ok) {
+                        setNotice(result.message)
+                        return
                       }
+                      const changed =
+                        result.updated.length === 0
+                          ? 'Every price is already current.'
+                          : `Updated ${result.updated.length} price${result.updated.length === 1 ? '' : 's'}.`
+                      setNotice(
+                        result.unmatched.length === 0
+                          ? changed
+                          : `${changed} The catalog lists no price for ${result.unmatched.join(', ')} — add ${result.unmatched.length === 1 ? 'it' : 'them'} by hand.`,
+                      )
                     })
                   }
                 >
-                  {busy ? 'Refreshing…' : 'Refresh from OpenRouter'}
+                  {busy ? 'Refreshing…' : 'Refresh now'}
                 </Button>
               </span>
             }
           />
+          {unpricedModels.length > 0 ? (
+            <SettingsRow
+              title="Models with no price"
+              description={`${unpricedModels.join(', ')} — work on ${unpricedModels.length === 1 ? 'this model' : 'these models'} is recorded against salary at $0 until a price exists for ${unpricedModels.length === 1 ? 'it' : 'them'}.`}
+              control={
+                <Button size="sm" variant="outline" onClick={() => setPriceDrawer(unpricedModels[0] ?? '*new*')}>
+                  Price {unpricedModels.length === 1 ? 'it' : 'them'}
+                </Button>
+              }
+            />
+          ) : null}
           {notice ? <p className="px-5 py-3 text-sm text-fg-muted">{notice}</p> : null}
           <div className="px-5 py-4">
             <PagedTable
@@ -266,8 +371,80 @@ export function ModelSettings({
               empty={
                 <EmptyState
                   title="No prices yet"
-                  description="Refresh from OpenRouter or add a manual price. Unpriced spend records cost $0 and are flagged."
+                  description="Refresh the catalog or add a price by hand. Work on a model with no price is recorded at $0 and flagged as unpriced."
                   action={<Button onClick={() => setPriceDrawer('*new*')}>Add manual price</Button>}
+                />
+              }
+            />
+          </div>
+        </SettingsSection>
+      ) : null}
+
+      {tab === 'reconciliation' ? (
+        <SettingsSection
+          title="Reconciliation"
+          description="Anthropic and OpenAI will tell you what they actually charged, a day in arrears, for the organization as a whole. That is too coarse to bill an agent with, and exactly right for checking the books: each night their invoice is compared against what this company counted, and the gap is recorded here. Salary figures are never rewritten from it — a gap that persists means a price above needs correcting."
+        >
+          <SettingsRow
+            title="Invoice access"
+            description={
+              connectedCount === 0
+                ? 'No provider is connected, so nothing is being checked. Each provider issues a separate administration key for billing — an agent key cannot read invoices.'
+                : `${connectedCount === 2 ? 'Both providers are' : 'One provider is'} connected. Invoices are read nightly.`
+            }
+            control={
+              <Button size="sm" variant="outline" onClick={() => setBillingDrawer('*keys*')}>
+                Manage keys
+              </Button>
+            }
+          />
+          <SettingsRow
+            title="Last 30 days"
+            description={
+              billing.rows.length === 0
+                ? 'Nothing has been compared yet.'
+                : `Charged ${usd(billing.rows.reduce((total, row) => total + row.reportedUsd, 0))} against ${usd(billing.rows.reduce((total, row) => total + row.ledgerUsd, 0))} counted — a gap of ${usd(totalDrift)}.`
+            }
+            control={
+              <Button
+                size="sm"
+                disabled={busy || connectedCount === 0}
+                title={connectedCount === 0 ? 'Connect an administration key first.' : undefined}
+                onClick={() =>
+                  startBusy(async () => {
+                    setNotice(null)
+                    const result = await reconcileNowAction()
+                    if (!result.ok) {
+                      setNotice(result.message)
+                      return
+                    }
+                    const summary =
+                      result.recorded === 0
+                        ? 'Checked — nothing has moved since the last reading.'
+                        : `Checked — ${result.recorded} figure${result.recorded === 1 ? '' : 's'} updated, a gap of ${usd(result.driftUsd)}.`
+                    setNotice([summary, ...result.notes].join(' '))
+                  })
+                }
+              >
+                {busy ? 'Checking…' : 'Check now'}
+              </Button>
+            }
+          />
+          {notice ? <p className="px-5 py-3 text-sm text-fg-muted">{notice}</p> : null}
+          <div className="px-5 py-4">
+            <PagedTable
+              columns={RECONCILIATION_COLUMNS}
+              rows={billing.rows}
+              rowKey={(row) => row.id}
+              pageSize={15}
+              searchable
+              defaultSort={{ key: 'day', dir: 'desc' }}
+              labels={{ searchPlaceholder: 'Search days…', searchLabel: 'Search reconciliation' }}
+              empty={
+                <EmptyState
+                  title="Nothing checked yet"
+                  description="Connect an administration key and the nightly pass will start comparing what you were charged against what was counted."
+                  action={<Button onClick={() => setBillingDrawer('*keys*')}>Manage keys</Button>}
                 />
               }
             />
@@ -299,6 +476,16 @@ export function ModelSettings({
             onDone={() => setEditing(null)}
           />
         ) : null}
+      </Drawer>
+
+      <Drawer
+        open={billingDrawer !== null}
+        onClose={() => setBillingDrawer(null)}
+        title="Invoice access"
+        description="One administration key per provider, sealed at rest and used only to read what you were charged."
+        size="md"
+      >
+        {billingDrawer ? <BillingKeysBody connected={billing.connected} /> : null}
       </Drawer>
 
       <Drawer
@@ -364,6 +551,91 @@ export function ModelSettings({
           </form>
         </div>
       </Drawer>
+    </div>
+  )
+}
+
+/**
+ * The keys that read invoices. Deliberately not the keys agents think on: both
+ * providers refuse billing endpoints to an inference key, and the separation is
+ * worth keeping anyway — whatever can read the company's spending should not be
+ * the credential handed to every agent.
+ */
+function BillingKeysBody({ connected }: { connected: BillingView['connected'] }) {
+  const [entered, setEntered] = React.useState<Record<string, string>>({})
+  const [error, setError] = React.useState<string | null>(null)
+  const [notice, setNotice] = React.useState<string | null>(null)
+  const [busy, startBusy] = React.useTransition()
+
+  return (
+    <div className="space-y-6">
+      {BILLING_PROVIDERS.map((provider) => {
+        const isConnected = connected[provider.value]
+        return (
+          <div key={provider.value} className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor={`billing-${provider.value}`}>{provider.label}</Label>
+              <Badge variant={isConnected ? 'secondary' : 'outline'}>{isConnected ? 'connected' : 'not connected'}</Badge>
+            </div>
+            <Input
+              id={`billing-${provider.value}`}
+              type="password"
+              value={entered[provider.value] ?? ''}
+              onChange={(event) => setEntered((current) => ({ ...current, [provider.value]: event.target.value }))}
+              placeholder={isConnected ? 'Leave blank to keep the sealed key' : provider.hint}
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                disabled={busy || !(entered[provider.value] ?? '').trim()}
+                onClick={() =>
+                  startBusy(async () => {
+                    setError(null)
+                    setNotice(null)
+                    const result = await setBillingKeyAction({
+                      provider: provider.value,
+                      adminKey: entered[provider.value] ?? '',
+                    })
+                    if (!result.ok) {
+                      setError(result.message)
+                      return
+                    }
+                    setEntered((current) => ({ ...current, [provider.value]: '' }))
+                    setNotice(`${provider.label} answered — its invoices are now being read.`)
+                  })
+                }
+              >
+                {busy ? 'Checking…' : isConnected ? 'Replace key' : 'Connect'}
+              </Button>
+              {isConnected ? (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={busy}
+                  onClick={() =>
+                    startBusy(async () => {
+                      setError(null)
+                      setNotice(null)
+                      const result = await removeBillingKeyAction(provider.value)
+                      if (!result.ok) setError(result.message)
+                      else setNotice(`${provider.label} spend is no longer being checked.`)
+                    })
+                  }
+                >
+                  Disconnect
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        )
+      })}
+      <p className="text-xs text-fg-muted">
+        A key is proved against the provider&apos;s own cost report before it is saved, so a mistyped or under-privileged
+        key fails here rather than quietly every night. Google and OpenRouter publish no equivalent report — OpenRouter
+        prices every request as it serves it, so there is nothing left to reconcile.
+      </p>
+      {notice ? <p className="text-sm text-fg-muted">{notice}</p> : null}
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
     </div>
   )
 }

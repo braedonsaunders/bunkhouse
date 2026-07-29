@@ -13,6 +13,9 @@ import { decidedApprovalIds, executeDecidedApproval } from '../src/lib/approval-
 import { tidyWorkspaces } from '../src/lib/workspace'
 import { probeAllTrunks, refreshBridgeRegistrations } from '../src/lib/pbx'
 import { sweepExpiredRecordings } from '../src/lib/voice-recording'
+import { refreshPricesFromOpenRouter } from '../src/lib/pricing'
+import { refreshMeasuredVoiceRates } from '../src/lib/voice-pricing'
+import { reconcileTenant } from '../src/lib/cost-reconciliation'
 
 // The bunkhouse worker: mailbox sync → inbound runs, the duty scheduler,
 // approval execution/resume, assignment runs, and the Logbook consolidation
@@ -416,6 +419,54 @@ async function callSweepPass(): Promise<void> {
   if (meetings.rows.length > 0) console.log(`[calls] closed ${meetings.rows.length} unopened meeting invitation(s)`)
 }
 
+/**
+ * Nightly money pass: keep the fallback price table current, re-measure what
+ * speech actually costs, and check both against the invoices the providers are
+ * willing to show.
+ *
+ * None of the three rewrites a spend row. Prices are effective-dated, so a
+ * refresh only ever changes what future work is charged at; the reconciliation
+ * is a measurement kept beside the ledger, not a correction applied to it.
+ * Every step is skippable on its own — a company with no OpenRouter-listed
+ * model, no Deepgram key, or no administration key simply has less to do.
+ */
+async function moneyPass(): Promise<void> {
+  for (const tenantId of await activeTenantIds()) {
+    try {
+      const { updated, unmatched } = await refreshPricesFromOpenRouter(tenantId)
+      if (updated.length > 0) console.log(`[prices] tenant ${tenantId}: repriced ${updated.join(', ')}`)
+      if (unmatched.length > 0) {
+        console.log(`[prices] tenant ${tenantId}: no catalog price for ${unmatched.join(', ')} — needs a manual row`)
+      }
+    } catch (error) {
+      console.error(`[prices] tenant ${tenantId}:`, (error as Error).message)
+    }
+
+    try {
+      const measured = await refreshMeasuredVoiceRates(tenantId)
+      if (measured.ok) {
+        console.log(`[speech] tenant ${tenantId}: deepgram $${measured.deepgram.usdPerMinute.toFixed(4)}/min`)
+      }
+    } catch (error) {
+      console.error(`[speech] tenant ${tenantId}:`, (error as Error).message)
+    }
+
+    try {
+      for (const outcome of await reconcileTenant(tenantId)) {
+        if (outcome.message) {
+          console.log(`[reconcile] tenant ${tenantId} ${outcome.provider}: ${outcome.message}`)
+        } else if (outcome.recorded > 0) {
+          console.log(
+            `[reconcile] tenant ${tenantId} ${outcome.provider}: ${outcome.recorded} figure(s) moved, gap $${outcome.driftUsd.toFixed(2)}`,
+          )
+        }
+      }
+    } catch (error) {
+      console.error(`[reconcile] tenant ${tenantId}:`, (error as Error).message)
+    }
+  }
+}
+
 type HeartbeatPass =
   | 'mailbox'
   | 'duties'
@@ -429,6 +480,7 @@ type HeartbeatPass =
   | 'reports'
   | 'gardener'
   | 'trunks'
+  | 'money'
 type DeepWorkJob = { kind: 'assignment' | 'approval'; tenantId: string; id: string }
 
 // Deep work — assignment runs and approval continuations — gets its own queue
@@ -448,6 +500,9 @@ await heartbeat.upsertJobScheduler('gardener', { every: 86_400_000 }, { name: 't
 await heartbeat.upsertJobScheduler('trunks', { every: 300_000 }, { name: 'tick', data: { pass: 'trunks' } })
 await heartbeat.upsertJobScheduler('journal', { every: 21_600_000 }, { name: 'tick', data: { pass: 'journal' } })
 await heartbeat.upsertJobScheduler('reflection', { every: 43_200_000 }, { name: 'tick', data: { pass: 'reflection' } })
+// Providers publish yesterday's charges, so a daily pass is as often as there
+// is anything new to read.
+await heartbeat.upsertJobScheduler('money', { every: 86_400_000 }, { name: 'tick', data: { pass: 'money' } })
 
 const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
   'bunkhouse-heartbeat',
@@ -463,6 +518,7 @@ const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
     else if (job.data.pass === 'trunks') await trunkHealthPass()
     else if (job.data.pass === 'journal') await journalPass()
     else if (job.data.pass === 'reflection') await reflectionPass()
+    else if (job.data.pass === 'money') await moneyPass()
     else await approvalsPass()
   },
   { concurrency: 1 },
@@ -485,7 +541,7 @@ await heartbeat.add('tick', { pass: 'duties' })
 await heartbeat.add('tick', { pass: 'approvals' })
 await heartbeat.add('tick', { pass: 'assignments' })
 console.log(
-  'bunkhouse worker up — mailbox 2m, duties 1m, approvals 30s, assignments 30s, call sweep 5m, journal 6h, reflection 12h; deep-work queue ×2 (initial passes queued)',
+  'bunkhouse worker up — mailbox 2m, duties 1m, approvals 30s, assignments 30s, call sweep 5m, journal 6h, reflection 12h, money 24h; deep-work queue ×2 (initial passes queued)',
 )
 
 async function shutdown(): Promise<void> {
