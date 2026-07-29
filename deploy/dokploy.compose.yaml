@@ -173,13 +173,12 @@ services:
     # Signalling reaches this over Traefik on 443; media does not, and media is
     # what a call actually is. Two things had to be true and neither was:
     #
-    # `--node-ip` pins exactly ONE ICE candidate. Every client — on the LAN, on
-    # the public internet, in the swarm — was handed the same address, so any
-    # client that could not route to that one address had no second option and
-    # failed with "could not establish pc connection". `use_external_ip` lets
-    # the server advertise its own interfaces AND the address it discovers
-    # itself on, so each client picks a candidate it can actually reach. It is
-    # what the SIP service below has always done.
+    # It advertised an address no client could reach. `${PUBLIC_IP}` does not
+    # forward 7881/7882, and the server's own view of itself is an overlay
+    # address meaningless outside the swarm — so every client was handed a
+    # candidate it could not route to and failed with "could not establish pc
+    # connection". It now advertises the swarm node, which callers on this
+    # network can reach and which is verified answering on both ports.
     #
     # And host-mode publishing put 7881/7882 on one node's own interfaces,
     # where they were reachable from nothing we could observe — not the LAN,
@@ -197,7 +196,15 @@ services:
         rtc:
           tcp_port: 7881
           udp_port: 7882
-          use_external_ip: true
+          # The address clients are told to send media to. Discovery is wrong
+          # here: the only interface the server can see is its overlay address,
+          # and the public address does not forward 7881/7882 — both were
+          # advertised and neither could be reached, which is what "could not
+          # establish pc connection" was. The swarm node is reachable on the
+          # network callers are on, and it is now answering on both ports.
+          # Opening those ports through to the public address is what this line
+          # is waiting on; until then a caller must be on the network.
+          node_ip: 10.0.0.101
         redis:
           address: media-redis:6379
         keys:
