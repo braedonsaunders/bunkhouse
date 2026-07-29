@@ -21,7 +21,12 @@ import { sealSecret } from '@appkit/crypto'
 import { db } from '../../../db/client'
 import { listImageModels, type ImageModelId } from '@appkit/avatars'
 
-export async function addProviderAction(formData: FormData): Promise<void> {
+/** Add a model provider. Returns the failure rather than throwing: a thrown
+ *  server-action error reaches the browser as an opaque digest in production,
+ *  which tells an operator nothing about which model or key was refused. */
+export async function addProviderAction(
+  formData: FormData,
+): Promise<{ ok: true } | { ok: false; message: string }> {
   const slug = String(formData.get('slug') ?? '').trim().toLowerCase()
   const provider = String(formData.get('provider') ?? '')
   const label = String(formData.get('label') ?? '').trim() || slug
@@ -29,20 +34,27 @@ export async function addProviderAction(formData: FormData): Promise<void> {
   const baseUrl = String(formData.get('baseUrl') ?? '').trim()
   const modelSmart = String(formData.get('modelSmart') ?? '').trim()
   const modelFast = String(formData.get('modelFast') ?? '').trim()
-  if (!slug || !provider || !apiKey) throw new Error('Slug, provider kind, and API key are required.')
+  if (!slug || !provider || !apiKey) {
+    return { ok: false, message: 'Slug, provider kind, and API key are required.' }
+  }
 
-  const tenantId = await resolveTenantId()
-  await addAiProvider({
-    tenantId,
-    slug,
-    provider,
-    label,
-    apiKey,
-    ...(baseUrl ? { baseUrl } : {}),
-    ...(modelSmart ? { modelSmart } : {}),
-    ...(modelFast ? { modelFast } : {}),
-  })
-  revalidatePath('/settings')
+  try {
+    const tenantId = await resolveTenantId()
+    await addAiProvider({
+      tenantId,
+      slug,
+      provider,
+      label,
+      apiKey,
+      ...(baseUrl ? { baseUrl } : {}),
+      ...(modelSmart ? { modelSmart } : {}),
+      ...(modelFast ? { modelFast } : {}),
+    })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  revalidatePath('/admin/settings')
+  return { ok: true }
 }
 
 export async function removeProviderAction(formData: FormData): Promise<void> {
@@ -50,7 +62,7 @@ export async function removeProviderAction(formData: FormData): Promise<void> {
   if (!slug) throw new Error('slug is required')
   const tenantId = await resolveTenantId()
   await removeAiProvider(tenantId, slug)
-  revalidatePath('/settings')
+  revalidatePath('/admin/settings')
 }
 
 /** Live model discovery for a key being entered (nothing is stored yet). */

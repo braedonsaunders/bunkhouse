@@ -55,19 +55,19 @@ export function AddProviderForm({ kinds }: { kinds: ProviderKindOption[] }) {
       form.set('baseUrl', baseUrl)
       form.set('modelSmart', modelSmart)
       form.set('modelFast', modelFast)
-      try {
-        await addProviderAction(form)
-        setLabel('')
-        setSlug('')
-        setSlugTouched(false)
-        setApiKey('')
-        setBaseUrl('')
-        setModels(null)
-        setModelSmart('')
-        setModelFast('')
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err))
+      const result = await addProviderAction(form)
+      if (!result.ok) {
+        setError(result.message)
+        return
       }
+      setLabel('')
+      setSlug('')
+      setSlugTouched(false)
+      setApiKey('')
+      setBaseUrl('')
+      setModels(null)
+      setModelSmart('')
+      setModelFast('')
     })
 
   const modelOptions = (models ?? []).map((m) => ({ value: m.id, label: m.label ? `${m.label} (${m.id})` : m.id }))

@@ -42,16 +42,37 @@ export async function addAiProvider(args: {
   modelFast?: string
 }): Promise<void> {
   if (!isAiProvider(args.provider)) throw new Error(`Unknown provider kind: ${args.provider}`)
-  // Ping with the provider's DEFAULT text model: the key's validity is what's
-  // being checked, and the chosen default may be an image model (which cannot
-  // answer a text ping and used to block saving image-only providers).
-  const probe: AiConfig = {
-    provider: args.provider,
+  // Held in a local so the guard's narrowing survives into the probe closure.
+  const provider = args.provider
+  // Prove the key works by pinging the models this provider will actually be
+  // used with, then the provider's built-in default as a fallback. Both ends
+  // matter: an aggregator retires model slugs out from under the built-in
+  // default (OpenRouter has dropped several), which would reject a perfectly
+  // good key — while a chosen model may be an image model that cannot answer
+  // a text ping, which is what the built-in default covers.
+  const probe = (model?: string): AiConfig => ({
+    provider,
     apiKey: args.apiKey,
     ...(args.baseUrl ? { baseUrl: args.baseUrl } : {}),
+    ...(model ? { modelFast: model } : {}),
+  })
+  const attempts: (string | undefined)[] = []
+  for (const chosen of [args.modelFast, args.modelSmart]) {
+    if (chosen && !attempts.includes(chosen)) attempts.push(chosen)
   }
-  const ping = await pingModel(probe)
-  if (!ping.ok) throw new Error(`Provider check failed: ${ping.message}`)
+  attempts.push(undefined)
+
+  const failures: string[] = []
+  let verified = false
+  for (const model of attempts) {
+    const ping = await pingModel(probe(model))
+    if (ping.ok) {
+      verified = true
+      break
+    }
+    failures.push(`${model ?? "the provider's default model"} — ${ping.message}`)
+  }
+  if (!verified) throw new Error(`Provider check failed. ${failures.join('; ')}`)
 
   const app = db()
   await app.withTenant(args.tenantId, async () => {
