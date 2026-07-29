@@ -28,6 +28,14 @@ import { closeBrowserSession } from './browser-use'
 
 type PersonRow = typeof people.$inferSelect
 
+/**
+ * How long the work may go without a word before the agent mentions where it
+ * is up to. Short enough that a caller is never left wondering whether anyone
+ * is still there, long enough that the agent is not talking over itself: the
+ * pace of someone glancing up from a screen, not of someone reading it aloud.
+ */
+const HEARTBEAT_MS = 20_000
+
 /** Where one piece of handed-over work has got to. */
 export type WorkStatus =
   /** Still going. */
@@ -194,8 +202,33 @@ export function createCallWorker(args: {
   })
 
   const run = async (item: Item, hooks: WorkHooks | undefined): Promise<WorkReport> => {
+    // Two different things, deliberately separated: what the work is doing,
+    // and what is worth saying out loud about it.
+    //
+    // A colleague looking something up for you does not read their own actions
+    // back — "opening the site", "read the site", "searching again". They work,
+    // and every so often they say where they are up to. Narrating every event
+    // made the agent interrupt itself on every step and treat its own status
+    // line as a new thing the caller had said.
+    //
+    // So: the detail is updated on everything (check_work reads it, and it
+    // costs nothing), while speech is reserved for what a person would
+    // actually mention — trouble, a decision that needs a manager, and the
+    // answer — plus one unhurried "still going" if the work is long.
+    let lastSpokenAt = Date.now()
+    const note = (line: string) => {
+      item.detail = line
+    }
     const say = (line: string) => {
       item.detail = line
+      lastSpokenAt = Date.now()
+      hooks?.onProgress?.(line)
+    }
+    /** Say where we are up to, but only if it has been quiet for a while. */
+    const sayIfDue = (line: string) => {
+      item.detail = line
+      if (Date.now() - lastSpokenAt < HEARTBEAT_MS) return
+      lastSpokenAt = Date.now()
       hooks?.onProgress?.(line)
     }
     // Tool calls and their results are paired first-in-first-out per tool, the
@@ -216,12 +249,17 @@ export function createCallWorker(args: {
           const queue = openLabels.get(raw.toolName) ?? []
           queue.push(label)
           openLabels.set(raw.toolName, queue)
-          say(label)
+          // Where we are up to, said only if the caller has been waiting in
+          // silence long enough that a person would fill it.
+          sayIfDue(label)
           return
         }
         case 'tool_result': {
           const label = openLabels.get(raw.toolName)?.shift() ?? describeToolCall(raw.toolName, undefined)
-          say(describeToolResult(label, raw.output))
+          // Never spoken: "read the page" the moment after "reading the page"
+          // is the agent narrating its own hands. The call page shows every
+          // one of these; the caller does not need them read out.
+          note(describeToolResult(label, raw.output))
           return
         }
         case 'approval_request':
@@ -230,8 +268,11 @@ export function createCallWorker(args: {
           say(`${raw.description} — it needs a manager's sign-off before it can happen.`)
           return
         case 'message': {
+          // The loop's own prose — its working notes to itself. It belongs on
+          // the run record, not in the agent's mouth: reading it out is how
+          // the agent ends up narrating its own thinking mid-sentence.
           const text = raw.text.trim()
-          if (text) say(text)
+          if (text) note(text)
           return
         }
         case 'error':

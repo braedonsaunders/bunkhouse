@@ -32,7 +32,7 @@ import { describeError, type CallWorker, type WorkReport } from './call-worker'
 
 /** How the agent should hear about the work it just handed over. */
 const HANDED_OVER =
-  'You have this in hand and it is running now. Carry on talking to the caller — say in a few natural words that you are on it, and never claim a result you have not been told.'
+  'You have this in hand and it is running now. Say in a few natural words that you are on it, and never claim a result you have not been told. Then keep the caller company the way a person does while something loads: ask the thing you would need to know anyway to make the answer useful, pick up the thread of what they were saying, or make a little ordinary conversation. Silence is the one wrong answer.'
 
 /** One line per piece of work, for `check_work` and for the model to read. */
 function readable(report: WorkReport): Record<string, unknown> {

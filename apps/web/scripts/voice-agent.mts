@@ -33,7 +33,7 @@ import { MEETING_ROOM_PREFIX } from '../src/lib/meetings'
 import { watchScreenShare } from '../src/lib/screen-share'
 import { saveFile } from '../src/lib/files'
 import { companyPromptProfile, getCompanyIdentity } from '../src/lib/company-identity'
-import { resolvePrice } from '../src/lib/pricing'
+import { priceSpend } from '../src/lib/pricing'
 import { isWithinWorkingHours } from '../src/lib/working-hours'
 import { callMinutesBudget } from '../src/lib/call-budget'
 import { finishCallRecording, startCallRecording, type CallRecordingHandle } from '../src/lib/voice-recording'
@@ -368,6 +368,11 @@ async function buildInstructions(
     'The default is to do the work RIGHT NOW, on the call, together — hand it over while you talk, and share what you are finding as you find it. Say what you are doing in a few words ("give me a second, I am pulling that up"), keep the conversation going, and let them steer while the work is live in front of you both.',
     // Relentlessness. Models treat the first failure as a verdict and hand the
     // problem back to the person who asked; a colleague does not.
+    // What a person does while something loads. Without this the agent hands
+    // the work over and then sits in silence until it lands, which reads as a
+    // dropped line — and worse, it treats its own status notes as the caller
+    // talking, because they are the only thing arriving.
+    'While work of yours is running, you are still on the phone with someone. Keep them company the way anyone does across a pause: ask the question you would need answered anyway to make the result useful ("are you driving up or flying in?", "is this for tonight or are the dates loose?"), pick up whatever they were saying before, or make a bit of ordinary conversation — how their day is going, the weather where they are, the thing they mentioned earlier. Read the room: someone in a hurry wants quiet and a fast answer, someone chatty will happily fill the gap. What you must not do is go silent and wait, and you must not narrate your own hands — nobody wants a running commentary of pages being opened.',
     'Be relentless. One source refusing you is not a dead end, it is the first thing you tried: a 403, a bot check, a dead domain, a page that will not load — go straight to the next route without being asked. Try the official site, then the search result you have not opened yet, then a directory or aggregator, then the cached or printable version, then a different search phrasing, then the browser instead of a plain fetch. Three or four genuine attempts down different paths before you even mention difficulty. Never answer a request with a question when you could answer it with an attempt, and never hand the work back ("would you like me to try another site?") — try it, then tell them what you found. Only when you have honestly exhausted the routes do you say so, and then say exactly what you tried and what stopped you.',
     'If the caller speaks while work is running, just talk with them — it keeps going and you share the result when it lands. Never hand the same thing over twice because you were interrupted.',
     // The line between the two dispositions of one capability: same kit, same
@@ -399,7 +404,10 @@ const GREETING_GRACE_MS = 12_000
  */
 const ASYNC_TOOL_VOICE = {
   updateTemplate: ({ message }: { message: string }) =>
-    `${message}\n(That is where the work you have running has got to — it is still going. Say only what is in that line, in your own words, in a sentence. Never invent a result, and never call it finished.)`,
+    // Emphatically not a turn from the caller: without this the model answers
+    // the status line as though it had been spoken to, thanks them for it, and
+    // carries on a conversation nobody was having.
+    `[Status of your own background work — the caller did not say this and is not waiting for an answer to it: ${message}]\n(If you are already speaking, finish your sentence first. Then, only if it is worth mentioning, say where you are up to in one short clause, in your own words. If it adds nothing, say nothing at all. Never treat this as something the caller said, never thank them for it, never invent a result, and never call the work finished.)`,
   replyAtTailTemplate: () =>
     'The work you had running has come back. Tell them what came of it, briefly and naturally, in your own words — the actual facts, no mechanics, no reference numbers.',
   replyMaybeCoveredTemplate: () =>
@@ -902,9 +910,18 @@ export default defineAgent({
           const outputTokens = entry.outputTokens ?? 0
           if (inputTokens === 0 && outputTokens === 0) continue
           const model = entry.model ?? 'unknown'
-          const price = await resolvePrice(session.tenantId, model)
-          const cost = (inputTokens * price.inputUsdPerMtok + outputTokens * price.outputUsdPerMtok) / 1_000_000
-          totalCost = (totalCost ?? 0) + cost
+          // The call framework hands back token counts and nothing else — its
+          // model client takes no request-body options, so there is no way to
+          // ask the gateway to price the turn the way an email run does. These
+          // rows are priced from the table and reconciled afterwards like any
+          // other estimate.
+          const priced = await priceSpend({
+            tenantId: session.tenantId,
+            model,
+            inputTokens,
+            outputTokens,
+          })
+          totalCost = (totalCost ?? 0) + Number(priced.costUsd)
           await app.withTenant(session.tenantId, async () => {
             await app.db.insert(tokenSpend).values({
               tenantId: session.tenantId,
@@ -914,10 +931,7 @@ export default defineAgent({
               model,
               inputTokens,
               outputTokens,
-              costUsd: cost.toFixed(6),
-              inputUsdPerMtok: price.inputUsdPerMtok.toFixed(4),
-              outputUsdPerMtok: price.outputUsdPerMtok.toFixed(4),
-              priceSource: price.source,
+              ...priced,
             })
           })
         }
