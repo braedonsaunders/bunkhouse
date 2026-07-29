@@ -26,6 +26,7 @@ import {
 import { assembleAbilities } from '../src/lib/agent-abilities'
 import { boundProcedures } from '../src/lib/agent-runs'
 import { governedCallTools } from '../src/lib/call-tools'
+import { openAgentEyes, type AgentEyes } from '../src/lib/call-vision'
 import { resolveAgentAiConfig } from '../src/lib/ai'
 import { OUTBOUND_ROOM_PREFIX, transferCallToExtension } from '../src/lib/outbound-call'
 import { resolveRealtimeCredential, resolveSpeechCredential } from '../src/lib/voice'
@@ -65,16 +66,18 @@ import {
 // - realtime: OpenAI Realtime and Gemini Live. The Gemini plugin enables
 //   input+output audio transcription by default, so both speakers land in
 //   the transcript ledger on either provider.
-// - seeing a shared screen: neither the framework's room input (videoEnabled
-//   is declared but unimplemented in 1.6.0) nor the Gemini plugin's pushVideo
-//   (a no-op) carries video into a realtime session, so frames reach the model
-//   the way both realtime plugins genuinely do accept images — as chat-context
-//   image content, pushed between turns. Cascade sessions take the same path,
-//   but only when the operator has turned live vision on for that agent: a
-//   text model may have no vision at all, and the runtime cannot tell in
-//   advance. If the model then refuses the picture, vision is switched off for
-//   the rest of the meeting and the agent says so out loud. Either way every
-//   sampled frame is stored as evidence on the run.
+// - seeing: neither the framework's room input (videoEnabled is declared but
+//   unimplemented in 1.6.0) nor the Gemini plugin's pushVideo (a no-op)
+//   carries video into a realtime session, so pictures reach the model the way
+//   both realtime plugins genuinely do accept images — as chat-context image
+//   content, pushed between turns. Cascade sessions take the same path. There
+//   are two sources: the guest's shared screen in a meeting, and the agent's
+//   own browser while it works on the line. Both go through one pair of eyes
+//   (openAgentEyes), and every picture is offered rather than predicted: a
+//   model with no vision refuses one, and that refusal switches vision off for
+//   the rest of the call, pulls the offered pictures back out of the context,
+//   and has the agent say plainly that it cannot see. Every sampled screen
+//   frame and every browser step is stored as evidence on the run regardless.
 // - recording: LiveKit Egress mixes the room (audio only) straight into the
 //   tenant's own object storage; this process never handles the bytes. The
 //   uploaded object is ledgered in `files` and stamped on the session.
@@ -255,10 +258,18 @@ async function markFailed(session: SessionRow, message: string): Promise<void> {
   })
 }
 
-/** What a video meeting adds on top of a call: a purpose, and a screen. */
-type MeetingPosture = {
-  /** True when frames of a shared screen actually reach the speech model. */
+/** What the agent can see on this call, and what kind of call it is. */
+type CallPosture = {
+  /** A video meeting rather than a phone call: there is a screen to share. */
+  meeting: boolean
+  /**
+   * True when pictures can reach the model at all — a shared screen, and the
+   * agent's own browser. A model that turns out to refuse them is told so at
+   * the moment it happens, by the eyes that offered the picture.
+   */
   seesScreen: boolean
+  /** True when this agent has its browser on the call. */
+  browser: boolean
 }
 
 /** The agent's whole working identity, plus how to behave on a live call. */
@@ -267,7 +278,7 @@ async function buildInstructions(
   person: PersonRow,
   config: BunkhouseVoiceConfig,
   ai: AiConfig | null,
-  meeting: MeetingPosture | null = null,
+  posture: CallPosture,
 ): Promise<string> {
   const directory = await app.withTenantContext(session.tenantId, () =>
     app.db.select().from(people).where(eq(people.status, 'active')),
@@ -314,21 +325,28 @@ async function buildInstructions(
 
   const caller = session.counterparty.name ?? 'the caller'
   const voiceAddendum = [
-    meeting
+    posture.meeting
       ? `You are in a live video meeting with ${caller}.`
       : `You are on a live voice call with ${caller}.`,
     'Talk like the colleague you are, not like a system. Warm, engaged, specific: react to what they actually said, use their name sometimes, carry context forward, and have opinions where your job gives you standing to. Contractions are normal speech. Plain spoken words only: no markdown, no lists, no headings, nothing that only works on a screen.',
     'Keep your turns SHORT — a sentence or two, five to ten seconds of speech, then stop and let them back in. This is a phone call, not a briefing: nobody listens to fifteen seconds of you without a turn. Give the headline first and offer the rest ("I found four that fit — want me to run through them?") rather than delivering all four unasked. Go longer only when they explicitly ask for detail, and even then come up for air.',
     'Never answer with a bare fact when a colleague would add the sentence of judgment that makes it useful. And never pad with filler phrases a human would not say on the phone.',
-    ...(meeting
+    ...(posture.meeting
       ? [
           ...(session.purpose
             ? [`You set this meeting up. What it is for: ${session.purpose}. Open by saying who you are and what the meeting is about, then let them talk.`]
             : []),
           'They joined from a link in their browser, so they have a camera, a microphone, and a Share screen button. If it would be quicker to be shown than told — an error, a document, a system they are stuck in — ask them to share their screen.',
-          meeting.seesScreen
+          posture.seesScreen
             ? 'While a screen is shared you are sent a still picture of it every few seconds, whenever it changes. Talk about what you can actually see in those pictures, and ask them to scroll or move on when you need to see more. Never describe anything that has not appeared in one — if no picture has arrived yet, say so and ask them to start sharing. If the pictures ever stop reaching you, say so plainly at that point rather than guessing at what is on the screen.'
             : 'You cannot see their screen while the meeting is running. Say that plainly rather than pretending, and ask them to describe what is on it. Everything they share is captured to the meeting record, so you can tell them honestly that you will go through it after the meeting and follow up.',
+        ]
+      : []),
+    ...(posture.browser
+      ? [
+          posture.seesScreen
+            ? 'When you use your own browser on this call, a picture of the page arrives right after each step, so you can see what you are doing. Look at it before you decide what happened: if the picture and what you expected disagree, the picture is right. Never tell them a search came back empty, or a form went through, on the strength of a tool saying "done" — say what you can actually see on the page.'
+            : 'Your browser gives you the page as text on this call; the pictures of it cannot reach you here. Work from the text and from what each step reports, never claim to have looked at something, and if a page will not do what you expect, say so plainly and offer to finish it after the call rather than guessing.',
         ]
       : []),
     ...(session.direction === 'outbound_phone' && session.purpose
@@ -338,7 +356,16 @@ async function buildInstructions(
       : []),
     `Speak ${config.language && config.language !== 'en' ? `in the language with BCP-47 tag "${config.language}"` : 'English'}.`,
     ...(config.style ? [`Speaking style: ${config.style}.`] : []),
-    'You have your working tools on this call: search the web, read pages, send email, search and save your logbook, schedule follow-ups, and use the company integrations. The default is to do the work RIGHT NOW, on the call, together — search while you talk, read the results, and share what you are finding as you find it, like a colleague at the next desk with a laptop open. Say what you are doing in a few words ("give me a second, I am pulling that up"), keep the conversation going, and let them steer while the work is live in front of you both.',
+    // The enumeration matters more than it looks: a model believes this
+    // sentence over its own tool list, and an earlier version of it named only
+    // search and email — so agents told callers they could not drive a browser
+    // or run a command they had the tools for the whole time. Never describe
+    // the toolset as narrower than it is.
+    'You have your whole working kit on this call, not a reduced one: search the web and read pages; drive a real browser (open, click, type, read, screenshot) for anything a plain fetch cannot do; a persistent workspace of your own with a shell in it, where you can fetch, run, build and organize real files; write documents and spreadsheets; send email and messages; search and save your logbook; schedule follow-ups; and every company integration connected to you. If you are unsure whether you can do something, TRY THE TOOL — the answer comes back from the tool, never from your assumptions about yourself. Never tell a caller you cannot do something you have not attempted.',
+    'The default is to do the work RIGHT NOW, on the call, together — search while you talk, read the results, and share what you are finding as you find it, like a colleague at the next desk with a laptop open. Say what you are doing in a few words ("give me a second, I am pulling that up"), keep the conversation going, and let them steer while the work is live in front of you both.',
+    // Relentlessness. Models treat the first failure as a verdict and hand the
+    // problem back to the person who asked; a colleague does not.
+    'Be relentless. One source refusing you is not a dead end, it is the first thing you tried: a 403, a bot check, a dead domain, a page that will not load — go straight to the next route without being asked. Try the official site, then the search result you have not opened yet, then a directory or aggregator, then the cached or printable version, then a different search phrasing, then the browser instead of a plain fetch. Three or four genuine attempts down different paths before you even mention difficulty. Never answer a request with a question when you could answer it with an attempt, and never hand the work back ("would you like me to try another site?") — try it, then tell them what you found. Only when you have honestly exhausted the routes do you say so, and then say exactly what you tried and what stopped you.',
     'If the caller speaks while you are mid-task, just talk with them — the work keeps running in the background and you can share the result when it lands. Never restart a task because you were interrupted.',
     `Work becomes an assignment (take_assignment) only when it genuinely cannot be finished while you talk — hours of research, a document or spreadsheet to produce, waiting on someone else to reply — or when the caller asks you to take it away, get back to them, or send it on. Then confirm the brief out loud first: what a good outcome looks like, any file format they want (PDF, Word, Excel — many assignments need no file at all), who receives it, and any deadline; the outcome arrives by email and the work continues after the call. Never take something as an assignment that you could simply start doing on the line — if in doubt, start live and offer to finish it as an assignment when it turns out to be bigger than the call.`,
     'Some actions need human sign-off first. When a tool answers pending_approval, tell the caller it is queued for approval and will happen once signed off — never claim it is done.',
@@ -351,68 +378,30 @@ async function buildInstructions(
 /** How often a captured still is put in front of the model, at most. */
 const SCREEN_VISION_INTERVAL_MS = 20_000
 
-/** Live vision, once the meeting is running. */
-type ScreenWatch = {
-  /** True while stills are still being put in front of the model. */
-  visionActive: () => boolean
-  /**
-   * The model would not take the picture. Stop sending them, take the ones
-   * already sent back out of the context so the next turn can succeed, and
-   * have the agent say plainly that it cannot see the screen.
-   */
-  imageRejected: (message: string) => void
-}
+/** How long a greeting may take before silence is treated as a fault. */
+const GREETING_GRACE_MS = 12_000
+
+/** What the agent is told to say if a screen still is the picture that bounces. */
+const SCREEN_REFUSED_LINE =
+  'The pictures of their screen are not reaching you after all. Tell them plainly, in one sentence, that you cannot see their screen, ask them to describe what is on it, and carry on with the meeting.'
 
 /**
- * The meeting's eyes. Every sampled still of a shared screen is stored and
+ * The meeting's screen. Every sampled still of a shared screen is stored and
  * ledgered on the run — that is the record of what the agent was shown, and it
- * outlives the meeting. Where the speech model takes images, the most recent
- * still is also handed to it between turns, so the agent is talking about the
- * screen it can actually see rather than one it was told about.
- *
- * Whether a text model takes images at all is not something the runtime can
- * know in advance, which is why live vision for cascade agents is an explicit
- * choice on the Voice tab. If the model turns out to refuse the picture, the
- * meeting does not fail: vision goes off, the pictures come back out of the
- * context, and the agent tells the guest it cannot see their screen.
+ * outlives the meeting. The most recent still is also handed to the agent's
+ * eyes between turns, so the agent is talking about the screen it can actually
+ * see rather than one it was told about.
  */
 function watchMeetingScreen(args: {
   ctx: JobContext
   session: SessionRow
   person: PersonRow
-  agent: voice.Agent
-  agentSession: voice.AgentSession
-  seesScreen: boolean
+  eyes: AgentEyes
   recordEvent: (kind: string, payload: Record<string, unknown>) => Promise<void>
-}): ScreenWatch {
-  const { ctx, session, person, agent, agentSession, seesScreen, recordEvent } = args
+}): void {
+  const { ctx, session, person, eyes, recordEvent } = args
   let frameSeq = 0
   let shownAt = 0
-  let visionOn = seesScreen
-  const shownMessageIds = new Set<string>()
-
-  const imageRejected = (message: string) => {
-    if (!visionOn || shownMessageIds.size === 0) return
-    visionOn = false
-    console.error(`[voice] room ${ctx.room.name ?? ''}: the model refused a screen still — vision off for this meeting: ${message}`)
-    void recordEvent('error', {
-      message: `Live screen vision was switched off for this meeting: the agent's model would not accept the picture (${message}).`,
-    }).catch(() => undefined)
-    // The refused pictures are still in the context; leave them there and
-    // every following turn fails the same way.
-    const chatCtx = agent.chatCtx.copy()
-    chatCtx.items = chatCtx.items.filter((item) => !shownMessageIds.has(item.id))
-    shownMessageIds.clear()
-    void agent
-      .updateChatCtx(chatCtx)
-      .then(() => {
-        agentSession.generateReply({
-          instructions:
-            'The pictures of their screen are not reaching you after all. Tell them plainly, in one sentence, that you cannot see their screen, ask them to describe what is on it, and carry on with the meeting.',
-        })
-      })
-      .catch((error) => console.error(`[voice] room ${ctx.room.name ?? ''}: ${(error as Error).message}`))
-  }
 
   const watcher = watchScreenShare({
     room: ctx.room,
@@ -436,31 +425,18 @@ function watchMeetingScreen(args: {
         width: frame.width,
         height: frame.height,
       })
-      if (!visionOn) return
+      if (!eyes.active()) return
       const now = Date.now()
       if (now - shownAt < SCREEN_VISION_INTERVAL_MS) return
       shownAt = now
-      const chatCtx = agent.chatCtx.copy()
-      const message = chatCtx.addMessage({
-        role: 'user',
-        content: [
-          `${frame.participantName} is sharing their screen. This is what it looks like right now:`,
-          llm.createImageContent({ image: frame.dataUrl }),
-        ],
+      await eyes.show({
+        dataUrl: frame.dataUrl,
+        caption: `${frame.participantName} is sharing their screen. This is what it looks like right now:`,
+        ifRefused: SCREEN_REFUSED_LINE,
       })
-      try {
-        await agent.updateChatCtx(chatCtx)
-        shownMessageIds.add(message.id)
-      } catch (error) {
-        // Some models refuse image content the moment it is offered rather
-        // than at inference time; either way the answer is the same.
-        shownMessageIds.add(message.id)
-        imageRejected((error as Error).message)
-      }
     },
   })
   ctx.addShutdownCallback(() => watcher.stop())
-  return { visionActive: () => visionOn, imageRejected }
 }
 
 /** A built speech pipeline, and what it can do. */
@@ -470,7 +446,10 @@ type SpeechPipeline = {
   ai: AiConfig | null
   /** The cascade LLM leg, so its errors can be told apart from the others'. */
   cascadeLlm: openai.LLM | null
-  /** True when stills of a shared screen genuinely reach the model. */
+  /**
+   * True when this session can carry a picture at all. It says nothing about
+   * whether the model will accept one — that is discovered by offering.
+   */
   seesScreen: boolean
 }
 
@@ -534,9 +513,11 @@ async function buildSpeechPipeline(args: {
       }),
       ai,
       cascadeLlm,
-      // Live vision is the operator's call for a cascade agent: their text
-      // model may have no eyes, and only they know.
-      seesScreen: config.cascadeVision === true,
+      // Nobody can say in advance whether a text model has eyes — not the
+      // runtime, not the operator. So the pictures are offered, and a model
+      // that refuses one turns vision off for the rest of the call and says
+      // so out loud. An unknown answered by trying, not by a settings switch.
+      seesScreen: true,
     }
   }
 
@@ -826,6 +807,10 @@ export default defineAgent({
     // The call's audio, once it is running. Started below, after the finalizer
     // is registered — nothing may be left recording with no one to stop it.
     let recording: CallRecordingHandle | null = null
+    // Settles when the egress request has been answered, one way or the other.
+    // Declared before the finalizer that awaits it, because the finalizer is
+    // registered as a shutdown callback before the request is made.
+    let recordingStarted: Promise<unknown> = Promise.resolve()
 
     // --- End of call: finalize the ledger, complete the run, meter spend ---
     // A completed REFER hands the line to a human and the call ends there; the
@@ -841,6 +826,10 @@ export default defineAgent({
 
       // Stop the recording and file the object the egress uploaded. A lost
       // recording never takes the transcript, the run, or the metering with it.
+      // The start was left running in the background so the caller was not kept
+      // waiting; a call that ends before it settled waits for it here, which is
+      // the one place waiting costs nobody anything.
+      await recordingStarted
       if (recording) {
         const result = await finishCallRecording({
           tenantId: session.tenantId,
@@ -1007,19 +996,30 @@ export default defineAgent({
     // LiveKit Egress mixes the room straight into the company's own object
     // storage; the bytes never come through this process. A call that cannot
     // be recorded still happens — the reason goes on the run, in the open.
-    const startedRecording = await startCallRecording({
+    //
+    // Deliberately NOT awaited. Someone is on the line: making them listen to
+    // silence while an egress request negotiates — or worse, times out — buys
+    // nothing, because the recording covers the room from whenever it starts.
+    // `finalize` waits on this promise, so a hangup can never race past a
+    // recording that was still being set up.
+    recordingStarted = startCallRecording({
       tenantId: session.tenantId,
       sessionId: session.id,
       room: roomName,
     })
-    if (startedRecording.started) {
-      recording = startedRecording.recording
-    } else {
-      console.warn(`[voice] room ${roomName}: not recording — ${startedRecording.reason}`)
-      await recordEvent('message', {
-        text: `This call is not being recorded: ${startedRecording.reason}`,
-      }).catch(() => undefined)
-    }
+      .then((started) => {
+        if (started.started) {
+          recording = started.recording
+          return
+        }
+        console.warn(`[voice] room ${roomName}: not recording — ${started.reason}`)
+        return recordEvent('message', {
+          text: `This call is not being recorded: ${started.reason}`,
+        }).catch(() => undefined)
+      })
+      .catch((error: unknown) => {
+        console.error(`[voice] room ${roomName}: recording could not be started — ${(error as Error).message}`)
+      })
 
     // --- Taking a message ---------------------------------------------------
     // The agent cannot hold this conversation, so it answers, says why, and
@@ -1131,6 +1131,9 @@ export default defineAgent({
       }, 2000)
     }
 
+    // The agent's eyes open with the session, which is built below; the tools
+    // are wired first, so the frame handler reaches them through this.
+    let eyes: AgentEyes | null = null
     const tools = governedCallTools({
       abilities: assembled.abilities,
       // Missing categories default to 'approval' — the safe posture for
@@ -1162,6 +1165,18 @@ export default defineAgent({
       record: (kind, payload) => recordEvent(kind, payload),
       onSlow: ({ toolName }) => speakFiller(toolName),
       onSettled: ({ toolName }) => resumeAfterSettle(toolName),
+      // A tool that took a picture of what it did — the browser, today. The
+      // result itself carries only text, so the picture goes into the context
+      // as image content, and it has to land before the tool answers.
+      onFrame: async ({ frame }) => {
+        if (!eyes?.active()) return
+        await eyes.show({
+          dataUrl: `data:${frame.mediaType};base64,${frame.data}`,
+          caption: frame.label,
+          ifRefused:
+            'The pictures from your browser are not reaching you after all. Tell them plainly, in one sentence, that you cannot see the page and are working from its text, and carry on.',
+        })
+      },
     })
     // Handing the caller to a human is not a shared ability: it acts on this
     // room's SIP leg, so it exists only where there is one. A completed REFER
@@ -1247,23 +1262,43 @@ export default defineAgent({
     ctx.addShutdownCallback(() => assembled.close())
 
     try {
-      const instructions = await buildInstructions(session, person, liveConfig, ai, isMeeting ? { seesScreen } : null)
+      const instructions = await buildInstructions(session, person, liveConfig, ai, {
+        meeting: isMeeting,
+        seesScreen,
+        browser: assembled.abilities.some((ability) => ability.name.startsWith('browser_')),
+      })
       const agent = new voice.Agent({ instructions, tools })
       await agentSession.start({ agent, room: ctx.room })
-      if (isMeeting) {
-        const screen = watchMeetingScreen({ ctx, session, person, agent, agentSession, seesScreen, recordEvent })
-        // A cascade agent's text model may simply refuse the picture. The
-        // failure surfaces on its next inference, so the LLM leg's errors are
-        // what tell us — and only that leg's, which is why the instance is
-        // kept: an STT or TTS hiccup must never be read as blindness.
-        if (cascadeLlm) {
-          agentSession.on(voice.AgentSessionEventTypes.Error, (event) => {
-            if (event.source !== cascadeLlm || !screen.visionActive()) return
-            const error = event.error as { message?: string }
-            screen.imageRejected(error.message ?? 'the model rejected the request')
-          })
-        }
+      // One pair of eyes for the whole call: the guest's shared screen in a
+      // meeting, and the agent's own browser on any call at all.
+      eyes = openAgentEyes({
+        agent,
+        session: agentSession,
+        sees: seesScreen,
+        onBlind: (message) => {
+          console.error(`[voice] room ${roomName}: the model refused a picture — vision off for this call: ${message}`)
+          void recordEvent('error', {
+            message: `Live vision was switched off for this call: the agent's model would not accept the picture (${message}).`,
+          }).catch(() => undefined)
+        },
+        onError: (message) => console.error(`[voice] room ${roomName}: ${message}`),
+      })
+      // A cascade agent's text model may simply refuse the picture. The
+      // failure surfaces on its next inference, so the LLM leg's errors are
+      // what tell us — and only that leg's, which is why the instance is
+      // kept: an STT or TTS hiccup must never be read as blindness.
+      if (cascadeLlm) {
+        const cascade = cascadeLlm
+        agentSession.on(voice.AgentSessionEventTypes.Error, (event) => {
+          if (event.source !== cascade || !eyes?.active()) return
+          const error = event.error as { message?: string }
+          eyes.refused(error.message ?? 'the model rejected the request')
+        })
       }
+      // A shared screen is watched on every call, not only in meetings. The
+      // caller has a Share screen button on the call page too, and a screen
+      // nobody is looking at is worse than no button at all.
+      watchMeetingScreen({ ctx, session, person, eyes, recordEvent })
       agentSession.generateReply({
         instructions: isMeeting
           ? session.purpose
@@ -1274,6 +1309,24 @@ export default defineAgent({
             : `Greet ${session.counterparty.name ?? 'the caller'} briefly, as yourself, and ask how you can help.`,
       })
       console.log(`[voice] ${person.name} answered room ${roomName} (${liveConfig.mode})`)
+
+      // A call where nobody speaks is the worst failure this process has,
+      // because every part of it reports success: the session starts, the
+      // model answers, and the caller hears silence. It happens when a leg
+      // produces nothing — a text model that returns no content has nothing
+      // for the voice to say — and nothing throws. So watch the ledger: if the
+      // agent has not said one word by the time a greeting should long since
+      // have landed, say so on the run and in the log, where it can be acted
+      // on, instead of leaving an operator to guess from a silent recording.
+      const spokeCheck = setTimeout(() => {
+        if (finalized || transcript.some((turn) => turn.speaker === 'agent')) return
+        const detail = `${liveConfig.mode === 'cascade' ? `the ${ai?.modelSmart ?? 'assigned'} model` : 'the realtime model'} produced no speech`
+        console.error(`[voice] room ${roomName}: SILENT — ${detail}, ${GREETING_GRACE_MS}ms after answering`)
+        void recordEvent('error', {
+          message: `${person.name} answered but said nothing: ${detail}. The caller heard silence.`,
+        }).catch(() => undefined)
+      }, GREETING_GRACE_MS)
+      ctx.addShutdownCallback(async () => clearTimeout(spokeCheck))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.error(`[voice] room ${roomName} session error: ${message}`)
