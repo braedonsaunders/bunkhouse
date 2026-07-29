@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 
 /** Where the operator is sent back to, with an explanation when something fails. */
 function backToAgent(request: Request, personId: string, error?: string): Response {
-  const target = new URL('/organization/agents', request.url)
+  const target = new URL('/organization', request.url)
   if (personId) target.searchParams.set('person', personId)
   if (error) target.searchParams.set('mailboxError', error)
   return Response.redirect(target, 302)

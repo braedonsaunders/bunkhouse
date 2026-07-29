@@ -31,7 +31,7 @@ export default async function RunPage({
       <DetailHeader
         back={
           from === 'person' && view.agent
-            ? { href: `/organization/agents?person=${view.agent.id}`, label: view.agent.name }
+            ? { href: `/organization?person=${view.agent.id}`, label: view.agent.name }
             : { href: '/observatory', label: 'Observatory' }
         }
         title={view.title}

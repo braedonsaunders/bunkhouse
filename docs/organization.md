@@ -20,7 +20,7 @@ model that is blank for the other half — and no honest heading covers both. So
 | Surface | Route | Shows |
 | --- | --- | --- |
 | People | `/organization/people` | Humans: job title, email, phone, manager, status |
-| Agents | `/organization/agents` | Agents: role, mailbox, model, extension, manager, status |
+| Agents | `/organization` | Agents: role, mailbox, model, extension, manager, status |
 | Org chart | `/organization/chart` | Both, drawn as the reporting hierarchy |
 
 The sidebar names one destination — Agents — and the three surfaces sit behind

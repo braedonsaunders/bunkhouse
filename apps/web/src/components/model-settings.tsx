@@ -488,7 +488,7 @@ function ProviderDrawerBody({
             {agents.map((agent) => (
               <Link
                 key={agent.personId}
-                href={`/organization/agents?person=${agent.personId}`}
+                href={`/organization?person=${agent.personId}`}
                 className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm transition-colors hover:border-primary/50"
               >
                 <span className="font-medium text-primary">{agent.personName}</span>

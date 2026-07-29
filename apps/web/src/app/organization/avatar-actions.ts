@@ -20,7 +20,7 @@ export async function saveAvatarCompositionAction(
     const tenantId = await resolveTenantId()
     await saveAvatarComposition({ tenantId, personId, composition })
     revalidatePath('/organization/people')
-    revalidatePath('/organization/agents')
+    revalidatePath('/organization')
     revalidatePath('/organization/chart')
     revalidatePath('/')
     return { ok: true }

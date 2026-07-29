@@ -4,7 +4,7 @@ import { completeMailOauth, mailOauthRedirectUri, mailOauthStatePerson } from '.
 export const dynamic = 'force-dynamic'
 
 function backToAgent(request: Request, personId: string | null, error?: string): Response {
-  const target = new URL('/organization/agents', request.url)
+  const target = new URL('/organization', request.url)
   if (personId) target.searchParams.set('person', personId)
   if (error) target.searchParams.set('mailboxError', error)
   return Response.redirect(target, 302)
@@ -33,7 +33,7 @@ export async function GET(request: Request): Promise<Response> {
   const result = await completeMailOauth({ state, code, redirectUri: mailOauthRedirectUri() })
   if (!result.ok) return backToAgent(request, result.personId, result.message)
 
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
   revalidatePath('/admin/settings')
   return backToAgent(request, result.personId)
 }

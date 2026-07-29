@@ -67,7 +67,7 @@ export function Lobby({
   parts,
   categories,
   children,
-  selectBasePath = '/organization/agents',
+  selectBasePath = '/organization',
 }: {
   people: LobbyPerson[]
   parts: AvatarPart[]

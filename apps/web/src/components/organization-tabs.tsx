@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { Tabs } from '@appkit/ui'
 
 const SECTIONS = [
-  { value: 'agents', label: 'Agents', href: '/organization/agents' },
+  { value: 'agents', label: 'Agents', href: '/organization' },
   { value: 'people', label: 'People', href: '/organization/people' },
   { value: 'chart', label: 'Org chart', href: '/organization/chart' },
 ] as const

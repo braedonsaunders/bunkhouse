@@ -742,7 +742,7 @@ export function SettingsView({
               </p>
             )}
             <Button asChild variant={mailboxDrawer.connected ? 'outline' : 'default'} size="sm">
-              <Link href={`/organization/agents?person=${mailboxDrawer.personId}`}>
+              <Link href={`/organization?person=${mailboxDrawer.personId}`}>
                 {mailboxDrawer.connected ? 'Open agent profile' : 'Connect an address'}
               </Link>
             </Button>

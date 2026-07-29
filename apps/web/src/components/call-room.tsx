@@ -569,7 +569,7 @@ export function CallRoom({
     try {
       await endCallAction(call.sessionId)
     } finally {
-      router.push(`/organization/agents?person=${agent.id}`)
+      router.push(`/organization?person=${agent.id}`)
     }
   }, [agent.id, call, router])
 

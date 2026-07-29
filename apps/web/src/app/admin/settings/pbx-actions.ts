@@ -127,7 +127,7 @@ export async function setAgentExtensionAction(input: {
     extension: input.extension.trim() || null,
   })
   if (result.ok) {
-    revalidatePath('/organization/agents')
+    revalidatePath('/organization')
     revalidatePath('/admin/settings')
   }
   return result
@@ -433,7 +433,7 @@ export async function saveBridgeExtensionAction(
   })
   if (result.ok) {
     revalidatePath('/admin/settings')
-    revalidatePath('/organization/agents')
+    revalidatePath('/organization')
   }
   return result
 }

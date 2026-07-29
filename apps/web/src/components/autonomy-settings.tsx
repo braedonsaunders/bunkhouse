@@ -34,7 +34,7 @@ export type AgentDial = {
 type DialRow = AgentDial & { trusted: number; notify: number; approval: number; forbidden: number }
 
 const COLUMNS: RecordColumn<DialRow>[] = [
-  { key: 'name', label: 'Agent', kind: 'reference', sortable: true, href: (row) => `/organization/agents?person=${row.personId}` },
+  { key: 'name', label: 'Agent', kind: 'reference', sortable: true, href: (row) => `/organization?person=${row.personId}` },
   { key: 'title', label: 'Job title', sortable: true },
   { key: 'trusted', label: 'Acts alone', sortable: true },
   { key: 'notify', label: 'Acts, then tells you', sortable: true },

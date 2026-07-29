@@ -27,7 +27,7 @@ import { assertValidManager } from '../../lib/org'
 /** Everything the roster and the org chart re-read after a personnel change. */
 function revalidateOrganization(): void {
   revalidatePath('/organization/people')
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
   revalidatePath('/organization/chart')
 }
 
@@ -230,7 +230,7 @@ export async function hireAgent(formData: FormData): Promise<void> {
     return person.id
   })
 
-  redirect(`/organization/agents?person=${personId}`)
+  redirect(`/organization?person=${personId}`)
 }
 
 /**
@@ -256,7 +256,7 @@ export async function setAutonomy(formData: FormData): Promise<void> {
         set: { level, updatedAt: new Date() },
       })
   })
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
   revalidatePath('/admin/settings')
 }
 
@@ -273,7 +273,7 @@ export async function addMemoryNote(formData: FormData): Promise<void> {
   await app.withTenant(tenantId, async () => {
     await createNote({ tenantId, scope: 'agent', personId, kind, title, body, author: 'human', importance })
   })
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
 }
 
 /** Forget = expire, never delete: the note closes its validity window. */
@@ -285,7 +285,7 @@ export async function deleteMemoryNote(formData: FormData): Promise<void> {
   await app.withTenant(tenantId, async () => {
     await expireNote(tenantId, memoryId)
   })
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
   revalidatePath('/knowledge')
 }
 
@@ -299,7 +299,7 @@ export async function togglePinNote(formData: FormData): Promise<void> {
   await app.withTenant(tenantId, async () => {
     await app.db.update(memories).set({ pinned, updatedAt: new Date() }).where(eq(memories.id, memoryId))
   })
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
   revalidatePath('/knowledge')
 }
 
@@ -343,7 +343,7 @@ export async function connectMailboxAction(formData: FormData): Promise<void> {
     smtpPort,
     smtpSecure: smtpPort === 465,
   })
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
 }
 
 /** Pull new mail for an agent right now (the worker also does this on schedule). */
@@ -352,7 +352,7 @@ export async function syncMailboxAction(formData: FormData): Promise<void> {
   if (!personId) throw new Error('personId is required')
   const tenantId = await resolveTenantId()
   await syncPersonMailbox(tenantId, personId)
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
 }
 
 /** Assign which brain this agent runs on: a tenant provider slug + model id. */
@@ -374,7 +374,7 @@ export async function setAgentModel(formData: FormData): Promise<void> {
       .set({ modelConfig: { provider: providerSlug, model }, updatedAt: new Date() })
       .where(eq(people.id, personId))
   })
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
 }
 
 /** Set (or clear) how an agent sounds on a call. Mode-specific fields validated. */
@@ -415,7 +415,7 @@ export async function setAgentVoiceConfig(input: {
     if (!person || person.kind !== 'agent') throw new Error('Voice can only be configured on an agent.')
     await app.db.update(people).set({ voiceConfig: config, updatedAt: new Date() }).where(eq(people.id, personId))
   })
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
   return { ok: true }
 }
 
@@ -483,7 +483,7 @@ export async function updateDuty(formData: FormData): Promise<void> {
       .set({ title, instruction, ...schedule, enabled, nextDueAt, updatedAt: new Date() })
       .where(eq(duties.id, dutyId))
   })
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
 }
 
 /** Full record edit from the person drawer — every field an operator owns. */
@@ -610,7 +610,7 @@ export async function addDuty(formData: FormData): Promise<void> {
       nextDueAt,
     })
   })
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
 }
 
 /** Remove a duty entirely (runs it produced stay in the ledger). */
@@ -622,7 +622,7 @@ export async function deleteDuty(formData: FormData): Promise<void> {
   await app.withTenant(tenantId, async () => {
     await app.db.delete(duties).where(eq(duties.id, dutyId))
   })
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
 }
 
 /** Correct a memory note in place — the prior head is snapshotted. */
@@ -644,7 +644,7 @@ export async function updateMemoryNote(formData: FormData): Promise<void> {
       ...(importance >= 1 && importance <= 5 ? { importance } : {}),
     })
   })
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
   revalidatePath('/knowledge')
 }
 
@@ -658,7 +658,7 @@ export async function disconnectMailboxAction(formData: FormData): Promise<void>
     await app.db.delete(mailboxAccounts).where(eq(mailboxAccounts.personId, personId))
     await app.db.update(people).set({ status: 'onboarding', updatedAt: new Date() }).where(eq(people.id, personId))
   })
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
 }
 
 /**
@@ -691,6 +691,6 @@ export async function setAgentCallMinutes(input: {
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
   return { ok: true }
 }

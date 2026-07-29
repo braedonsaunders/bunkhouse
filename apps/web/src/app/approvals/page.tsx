@@ -59,7 +59,7 @@ export default async function ApprovalsPage() {
             <CardHeader>
               <CardTitle className="flex items-center justify-between gap-2 text-base">
                 <span>
-                  <Link href={`/organization/agents?person=${row.personId}`} className="hover:text-primary">
+                  <Link href={`/organization?person=${row.personId}`} className="hover:text-primary">
                     {row.personName}
                   </Link>{' '}
                   <span className="text-fg-muted">· {row.personTitle}</span>

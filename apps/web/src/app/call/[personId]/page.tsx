@@ -41,7 +41,7 @@ export default async function CallPage({ params }: { params: Promise<{ personId:
   )
   if (!person || person.kind !== 'agent') notFound()
 
-  const profileHref = `/organization/agents?person=${person.id}`
+  const profileHref = `/organization?person=${person.id}`
   if (person.status !== 'active') {
     return (
       <Blocked

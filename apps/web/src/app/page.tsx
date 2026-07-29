@@ -78,10 +78,10 @@ export default async function HomePage({
   }))
 
   const stats: { label: string; value: string; href: string; alert?: boolean }[] = [
-    { label: 'On staff', value: String(agents.length), href: '/organization/agents' },
+    { label: 'On staff', value: String(agents.length), href: '/organization' },
     { label: 'Working now', value: String(data.working), href: '/observatory' },
     { label: 'Approvals', value: String(data.pending), href: '/approvals', alert: data.pending > 0 },
-    { label: 'Payroll', value: `$${data.payroll.toFixed(2)}`, href: '/organization/agents' },
+    { label: 'Payroll', value: `$${data.payroll.toFixed(2)}`, href: '/organization' },
   ]
 
   // Widgets float over the scene; the wrapper is pointer-transparent so the
@@ -134,7 +134,7 @@ export default async function HomePage({
       {onboarding > 0 ? (
         <p className="bh-hud pointer-events-auto w-fit shrink-0 rounded-full px-3.5 py-1.5 text-xs text-fg-muted">
           {onboarding} agent{onboarding === 1 ? '' : 's'} still onboarding —{' '}
-          <Link href="/organization/agents" className="font-medium text-primary hover:underline">
+          <Link href="/organization" className="font-medium text-primary hover:underline">
             finish setting them up
           </Link>
           .

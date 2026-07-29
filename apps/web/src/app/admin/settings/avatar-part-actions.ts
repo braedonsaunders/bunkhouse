@@ -13,7 +13,7 @@ import {
 function revalidateLibrary(): void {
   revalidatePath('/admin/settings')
   revalidatePath('/organization/people')
-  revalidatePath('/organization/agents')
+  revalidatePath('/organization')
   revalidatePath('/organization/chart')
   revalidatePath('/')
 }

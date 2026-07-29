@@ -126,7 +126,7 @@ type TrunkListRow = {
 }
 
 const agentLink = (personId: string, label: string) => (
-  <Link href={`/organization/agents?person=${personId}`} className="font-medium text-primary hover:underline">
+  <Link href={`/organization?person=${personId}`} className="font-medium text-primary hover:underline">
     {label}
   </Link>
 )
