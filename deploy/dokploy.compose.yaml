@@ -30,15 +30,16 @@ volumes:
   # 'agent-homes': that name already exists as a local volume, and Docker
   # reuses an existing volume verbatim, driver options and all.
   #
-  # Override both for your own storage. They default to the values this stack
-  # was built against so a deploy needs no additional configuration; point them
-  # at your own NFS export by setting them in the deployment's environment.
+  # Both values come from the deployment's environment, which the deploy
+  # workflow writes from repository variables before every deploy — so this
+  # file names no particular company's storage, and nothing has to be set by
+  # hand. Deploying outside that workflow means setting them yourself.
   agent-workspaces:
     driver: local
     driver_opts:
       type: nfs
-      o: "addr=${BUNKHOUSE_NFS_ADDR:-10.0.1.106},nfsvers=4,rw,hard,timeo=600"
-      device: "${BUNKHOUSE_NFS_EXPORT:-:/volume1/dokploy-storage/bunkhouse-agent-homes}"
+      o: "addr=${BUNKHOUSE_NFS_ADDR},nfsvers=4,rw,hard,timeo=600"
+      device: "${BUNKHOUSE_NFS_EXPORT}"
 
 services:
   web:

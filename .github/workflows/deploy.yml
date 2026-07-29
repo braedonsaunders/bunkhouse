@@ -81,17 +81,35 @@ jobs:
           DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
           COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
           NEW_TAG: ${{ needs.build.outputs.tag }}
+          # Where this deployment's durable storage lives. Repository variables
+          # rather than literals in the compose: the file is written to be
+          # public, and one company's NFS export is not part of the product.
+          NFS_ADDR: ${{ vars.BUNKHOUSE_NFS_ADDR }}
+          NFS_EXPORT: ${{ vars.BUNKHOUSE_NFS_EXPORT }}
         run: |
           set -euo pipefail
+          # Fail here, naming the variable, rather than letting an empty value
+          # reach the compose and mount agent workspaces onto nothing.
+          : "${NFS_ADDR:?repository variable BUNKHOUSE_NFS_ADDR is not set}"
+          : "${NFS_EXPORT:?repository variable BUNKHOUSE_NFS_EXPORT is not set}"
           base="${DOKPLOY_URL%/}"
           current="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
             -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID")"
-          env_text="$(echo "$current" | jq -r '.env // ""')"
-          if echo "$env_text" | grep -q '^BUNKHOUSE_TAG='; then
-            new_env="$(echo "$env_text" | sed "s|^BUNKHOUSE_TAG=.*|BUNKHOUSE_TAG=${NEW_TAG}|")"
-          else
-            new_env="$(printf '%s\nBUNKHOUSE_TAG=%s\n' "$env_text" "$NEW_TAG")"
-          fi
+          new_env="$(echo "$current" | jq -r '.env // ""')"
+
+          # Replace the line if Dokploy already carries the key, append it if
+          # not. Values hold ':' and '/' but never '|', so '|' delimits safely.
+          upsert() {
+            if printf '%s\n' "$new_env" | grep -q "^$1="; then
+              new_env="$(printf '%s\n' "$new_env" | sed "s|^$1=.*|$1=$2|")"
+            else
+              new_env="$(printf '%s\n%s=%s\n' "$new_env" "$1" "$2")"
+            fi
+          }
+          upsert BUNKHOUSE_TAG "$NEW_TAG"
+          upsert BUNKHOUSE_NFS_ADDR "$NFS_ADDR"
+          upsert BUNKHOUSE_NFS_EXPORT "$NFS_EXPORT"
+
           compose_file="$(cat deploy/dokploy.compose.yaml)"
           jq -n --arg id "$COMPOSE_ID" --arg env "$new_env" --arg composeFile "$compose_file" \
             '{composeId:$id, env:$env, composeFile:$composeFile}' \
@@ -142,14 +160,21 @@ jobs:
       # image pull can outlast any polling window), so slow-to-healthy must
       # never mark the deploy failed — it reports, it does not gate.
       - name: Health check
+        env:
+          PUBLIC_URL: ${{ vars.BUNKHOUSE_PUBLIC_URL }}
         run: |
           set -euo pipefail
+          if [ -z "${PUBLIC_URL:-}" ]; then
+            echo "::warning::repository variable BUNKHOUSE_PUBLIC_URL is not set — skipping the health check."
+            exit 0
+          fi
+          host="${PUBLIC_URL#*://}"
           for i in $(seq 1 120); do
             sleep 5
-            code="$(curl -s -o /dev/null -w '%{http_code}' https://bunkhouse.cloud.rassaun.com/login || true)"
+            code="$(curl -s -o /dev/null -w '%{http_code}' "${PUBLIC_URL%/}/login" || true)"
             echo "https status: $code"
             if [ "$code" = "200" ]; then
-              echo "bunkhouse.cloud.rassaun.com is serving"
+              echo "$host is serving"
               exit 0
             fi
           done
