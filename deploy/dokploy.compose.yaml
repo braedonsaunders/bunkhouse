@@ -170,21 +170,49 @@ services:
 
   livekit:
     image: livekit/livekit-server:latest
-    command: '--bind 0.0.0.0 --redis-host media-redis:6379 --node-ip ${PUBLIC_IP}'
+    # Signalling reaches this over Traefik on 443; media does not, and media is
+    # what a call actually is. Two things had to be true and neither was:
+    #
+    # `--node-ip` pins exactly ONE ICE candidate. Every client — on the LAN, on
+    # the public internet, in the swarm — was handed the same address, so any
+    # client that could not route to that one address had no second option and
+    # failed with "could not establish pc connection". `use_external_ip` lets
+    # the server advertise its own interfaces AND the address it discovers
+    # itself on, so each client picks a candidate it can actually reach. It is
+    # what the SIP service below has always done.
+    #
+    # And host-mode publishing put 7881/7882 on one node's own interfaces,
+    # where they were reachable from nothing we could observe — not the LAN,
+    # not the public address, not the manager. Ingress publishing puts them on
+    # the swarm routing mesh instead, so they answer on every node, including
+    # the one the ingress domain already resolves to.
     environment:
-      # Real key pair (not --dev): the ws endpoint is public.
-      LIVEKIT_KEYS: '${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}'
+      # One config body rather than flags plus environment: the media settings
+      # below have no flag equivalents, and splitting the configuration across
+      # both is how a setting ends up silently not applying.
+      LIVEKIT_CONFIG: |
+        port: 7880
+        bind_addresses:
+          - 0.0.0.0
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+          use_external_ip: true
+        redis:
+          address: media-redis:6379
+        keys:
+          ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
+        logging:
+          level: info
     networks:
       - dokploy-network
     ports:
-      # WebRTC media must reach the process directly; host mode on the manager.
       - target: 7881
         published: 7881
-        mode: host
+        protocol: tcp
       - target: 7882
         published: 7882
         protocol: udp
-        mode: host
     deploy:
       replicas: 1
       placement:
