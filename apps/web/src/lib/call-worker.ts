@@ -198,7 +198,17 @@ export function createCallWorker(args: {
   let stopped = false
   let counter = 0
 
-  const abilities = watchedForFrames(args.abilities, async (frame) => {
+  // A page the caller is waiting on gets VISITED, not fetched. read_webpage is
+  // quick and invisible: nothing appears on the screen of the person watching,
+  // and a site whose menu is images or needs a click comes back empty — which
+  // is exactly what happened when a caller could see the menu on their screen
+  // while the agent said it was still looking. Asking nicely in the tool's
+  // description did not move the model off it, so on a call it is simply not
+  // there and the browser is the only way to read a page. Every other
+  // disposition keeps it: an email run has nobody watching and wants the fast
+  // path.
+  const visible = args.abilities.filter((ability) => ability.name !== 'read_webpage')
+  const abilities = watchedForFrames(visible, async (frame) => {
     try {
       await args.onFrame(frame)
     } catch (error) {
