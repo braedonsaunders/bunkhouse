@@ -28,14 +28,6 @@ import { closeBrowserSession } from './browser-use'
 
 type PersonRow = typeof people.$inferSelect
 
-/**
- * How long the work may go without a word before the agent mentions where it
- * is up to. Short enough that a caller is never left wondering whether anyone
- * is still there, long enough that the agent is not talking over itself: the
- * pace of someone glancing up from a screen, not of someone reading it aloud.
- */
-const HEARTBEAT_MS = 20_000
-
 /** Where one piece of handed-over work has got to. */
 export type WorkStatus =
   /** Still going. */
@@ -215,20 +207,11 @@ export function createCallWorker(args: {
     // costs nothing), while speech is reserved for what a person would
     // actually mention — trouble, a decision that needs a manager, and the
     // answer — plus one unhurried "still going" if the work is long.
-    let lastSpokenAt = Date.now()
     const note = (line: string) => {
       item.detail = line
     }
     const say = (line: string) => {
       item.detail = line
-      lastSpokenAt = Date.now()
-      hooks?.onProgress?.(line)
-    }
-    /** Say where we are up to, but only if it has been quiet for a while. */
-    const sayIfDue = (line: string) => {
-      item.detail = line
-      if (Date.now() - lastSpokenAt < HEARTBEAT_MS) return
-      lastSpokenAt = Date.now()
       hooks?.onProgress?.(line)
     }
     // Tool calls and their results are paired first-in-first-out per tool, the
@@ -249,9 +232,12 @@ export function createCallWorker(args: {
           const queue = openLabels.get(raw.toolName) ?? []
           queue.push(label)
           openLabels.set(raw.toolName, queue)
-          // Where we are up to, said only if the caller has been waiting in
-          // silence long enough that a person would fill it.
-          sayIfDue(label)
+          // Noted, never spoken. Every line handed to the talker becomes a
+          // fresh reply, and a fresh reply cancels the one already in the
+          // caller's ear — so progress chatter does not make the agent
+          // conversational, it makes it stammer. The caller is kept company by
+          // the agent talking to them, not by a commentary on its own hands.
+          note(label)
           return
         }
         case 'tool_result': {

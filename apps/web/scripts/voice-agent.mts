@@ -394,6 +394,23 @@ async function buildInstructions(
   return `${base}\n\n${voiceAddendum}`
 }
 
+/**
+ * What it takes to interrupt the agent, and what happens when the interruption
+ * turns out to be nothing. A breath, a door, a cough — anything the microphone
+ * hears that is not words — was enough to cut the agent off mid-sentence and
+ * then be answered as though it were a question: "No problem, I'm here", said
+ * to nobody. Barge-in now needs real speech behind it, and a false one resumes
+ * what was being said rather than abandoning it.
+ */
+const TURN_HANDLING = {
+  interruption: {
+    minDuration: 700,
+    minWords: 1,
+    falseInterruptionTimeout: 2_000,
+    resumeFalseInterruption: true,
+  },
+} as const
+
 /** How often a captured still is put in front of the model, at most. */
 const SCREEN_VISION_INTERVAL_MS = 20_000
 
@@ -553,7 +570,7 @@ async function buildSpeechPipeline(args: {
         // stable partial transcript; speaking it preemptively too takes TTS
         // off the critical path as well. The cost is resynthesizing the odd
         // discarded turn — characters, not conversations.
-        turnHandling: { preemptiveGeneration: { preemptiveTts: true } },
+        turnHandling: { ...TURN_HANDLING, preemptiveGeneration: { preemptiveTts: true } },
       }),
       ai,
       cascadeLlm,
@@ -592,7 +609,7 @@ async function buildSpeechPipeline(args: {
           voice: realtime.voice,
         })
   return {
-    session: new voice.AgentSession({ llm: realtimeModel }),
+    session: new voice.AgentSession({ llm: realtimeModel, turnHandling: TURN_HANDLING }),
     ai: null,
     cascadeLlm: null,
     // Screen frames go in as chat-context images between turns, which a
