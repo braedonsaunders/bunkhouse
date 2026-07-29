@@ -121,7 +121,7 @@ const NAV: SettingsNavGroup[] = [
     items: [
       { key: 'identity', label: 'Identity', icon: <Building2 /> },
       { key: 'documents', label: 'Documents', icon: <FileText /> },
-      { key: 'avatar-parts', label: 'Avatar parts', icon: <Boxes /> },
+      { key: 'avatar-parts', label: 'Avatars', icon: <Boxes /> },
     ],
   },
   {
@@ -611,7 +611,7 @@ export function SettingsView({
           {voiceTab === 'phone' ? (
             <SettingsSection
               title="Phone system"
-              description="The SIP lines that carry a call to an agent: your own PBX routing an extension range, or a carrier delivering a provisioned number."
+              description="How a call reaches an agent: buy real numbers on a connected Twilio account, or point your own PBX or carrier trunk at this deployment."
             >
               <PhoneSystemRow
                 trunks={phoneSystem.trunks}
@@ -696,7 +696,7 @@ export function SettingsView({
 
       {active === 'avatar-parts' ? (
         <SettingsSection
-          title="Avatar parts"
+          title="Avatars"
           description="The library everyone's likeness is built from — bodies, outfits, faces, hair. Parts are company assets: generate a set once and every person is assembled from it in their own avatar composer."
         >
           <AvatarPartsView

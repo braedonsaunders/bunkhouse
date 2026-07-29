@@ -391,7 +391,9 @@ export function PhoneSystemRow({
   ingress: { host: string; port: number } | null
 }) {
   const [open, setOpen] = React.useState(false)
-  const [tab, setTab] = React.useState('trunks')
+  // First run opens on Numbers — connecting Twilio and buying a number is the
+  // onboarding path; the Trunks ledger is where you land once lines exist.
+  const [tab, setTab] = React.useState(trunks.length === 0 ? 'numbers' : 'trunks')
   const [detail, setDetail] = React.useState<PhoneSystemDetail | null>(null)
   const [draft, setDraft] = React.useState<TrunkDraft | null>(null)
   const [trunkTab, setTrunkTab] = React.useState('connection')
@@ -454,7 +456,7 @@ export function PhoneSystemRow({
   const activeCount = trunks.filter((t) => t.status === 'active').length
   const summary =
     trunks.length === 0
-      ? 'Connect your office phone system so agents answer real desk-phone extensions.'
+      ? 'Give agents real phone numbers — connect a Twilio account and buy numbers here, or connect your office phone system so they answer desk-phone extensions.'
       : `${trunks.length} trunk${trunks.length === 1 ? '' : 's'} · ${activeCount} active · ${extensions.length} extension${extensions.length === 1 ? '' : 's'} · ${numbers.length} number${numbers.length === 1 ? '' : 's'}`
 
   const saveTrunk = () => {
