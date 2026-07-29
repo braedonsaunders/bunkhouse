@@ -12,10 +12,10 @@ import {
   PageContainer,
 } from '@appkit/ui'
 import { formatAttachmentSize } from '@appkit/storage'
-import { approvals, browserSessions, browserSteps, callSessions, callTurns, files, people, procedureRevisions, procedures, runEvents, runs, tokenSpend, type BrowserStepDetail } from '../../../db/schema'
+import { approvals, browserSessions, browserSteps, callSessions, callTurns, files, people, procedureRevisions, procedures, runEvents, runs, tokenSpend } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
-import { toolActivityFromEvents, type CallActivityEvent } from '../../../lib/call-activity'
+import { describeBrowserStep, toolActivityFromEvents, type CallActivityEvent } from '../../../lib/call-activity'
 import { RunDesk, type ApprovalArtifact, type DeskEvent, type ProcedureArtifact } from '../../../components/run-desk'
 import { LiveToggle } from '../../../components/live-toggle'
 
@@ -53,24 +53,6 @@ function describeTrigger(trigger: Record<string, unknown>): string {
 
 /** Frames are captured at 1280×900, so the thumbnail keeps that exact ratio. */
 const BROWSER_THUMBNAIL = { width: 128, height: 90 }
-
-const BROWSER_STEP_VERBS: Record<string, string> = {
-  open: 'Opened',
-  click: 'Clicked',
-  type: 'Typed into',
-  read: 'Read',
-  screenshot: 'Captured',
-  close: 'Closed the browser',
-}
-
-/** One plain line per recorded step: what the agent did, and where it landed. */
-function describeBrowserStep(action: string, detail: BrowserStepDetail): string {
-  const verb = BROWSER_STEP_VERBS[action] ?? action
-  const target = detail.target ?? detail.title ?? detail.url ?? ''
-  const typed = detail.text ? ` — "${detail.text}"` : ''
-  const failure = detail.error ? ` — ${detail.error}` : ''
-  return `${verb}${target ? ` ${target}` : ''}${typed}${failure}`
-}
 
 export default async function RunPage({
   params,

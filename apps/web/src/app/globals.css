@@ -328,6 +328,23 @@ html, body { min-height: 100%; }
 .bh-call-ripple {
   animation: bh-call-ripple 2.2s var(--ease-out) infinite;
 }
+/* The face moving between its two homes on the stage — the centre of an
+   ordinary call, and the corner it takes while the caller watches the agent
+   work a screen. Box and scale ride the same duration so the two read as one
+   movement, and the element itself never changes place in the tree, which is
+   what keeps the avatar's own animation from restarting on the way. */
+.bh-call-avatar {
+  transition:
+    width var(--duration-slow) var(--ease-out),
+    height var(--duration-slow) var(--ease-out),
+    right var(--duration-slow) var(--ease-out),
+    bottom var(--duration-slow) var(--ease-out);
+}
+.bh-call-avatar-scale {
+  transition:
+    transform var(--duration-slow) var(--ease-out),
+    opacity var(--duration-slow) var(--ease-out);
+}
 /* A still stage still reads: the ripple simply rests as a faint ring. */
 @media (prefers-reduced-motion: reduce) {
   .bh-call-enter {
@@ -336,6 +353,10 @@ html, body { min-height: 100%; }
   .bh-call-ripple {
     animation: none;
     opacity: 0.3;
+  }
+  .bh-call-avatar,
+  .bh-call-avatar-scale {
+    transition: none;
   }
 }
 

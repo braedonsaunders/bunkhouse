@@ -1,9 +1,10 @@
 /**
  * Tool activity on a call, distilled from the run's event ledger into items a
  * caller can watch: one item per tool call, moving running → done/failed, or
- * parked as queued when the action needs human sign-off. Pure data in, pure
- * data out — shared by the live call page (polling) and the finished run view,
- * so both render the same story from the same ledger.
+ * parked as queued when the action needs human sign-off. Browser steps — the
+ * other ledger a caller watches, frame by frame — are put into words here too.
+ * Pure data in, pure data out — shared by the live call page (polling) and the
+ * finished run view, so both render the same story from the same ledger.
  */
 
 export type CallActivityEvent = {
@@ -34,7 +35,8 @@ const quote = (value: unknown): string | null => {
   return `“${text.length > 60 ? `${text.slice(0, 57)}…` : text}”`
 }
 
-const hostOf = (value: unknown): string | null => {
+/** The host of a URL, for saying where the agent is without the whole address. */
+export const hostOf = (value: unknown): string | null => {
   if (typeof value !== 'string' || !value.trim()) return null
   try {
     return new URL(value.includes('://') ? value : `https://${value}`).hostname
@@ -147,6 +149,34 @@ export function describeToolCall(toolName: string, input: unknown): string {
       // Integration tools keep their own names, made readable.
       return `Using ${toolName.replace(/[_-]+/g, ' ')}`
   }
+}
+
+/** What a recorded browser step did beyond its verb — structural on purpose, so
+ * this file stays free of database imports and runs on either side of the wire. */
+export type BrowserStepWords = {
+  url?: string
+  title?: string
+  target?: string
+  text?: string
+  error?: string
+}
+
+const BROWSER_STEP_VERBS: Record<string, string> = {
+  open: 'Opened',
+  click: 'Clicked',
+  type: 'Typed into',
+  read: 'Read',
+  screenshot: 'Captured',
+  close: 'Closed the browser',
+}
+
+/** One plain line per recorded step: what the agent did, and where it landed. */
+export function describeBrowserStep(action: string, detail: BrowserStepWords): string {
+  const verb = BROWSER_STEP_VERBS[action] ?? action
+  const target = detail.target ?? detail.title ?? detail.url ?? ''
+  const typed = detail.text ? ` — "${detail.text}"` : ''
+  const failure = detail.error ? ` — ${detail.error}` : ''
+  return `${verb}${target ? ` ${target}` : ''}${typed}${failure}`
 }
 
 /**

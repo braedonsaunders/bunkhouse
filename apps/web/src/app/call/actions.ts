@@ -1,15 +1,33 @@
 'use server'
 
 import { randomUUID } from 'node:crypto'
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import { mintLiveKitToken } from '@appkit/voice'
-import { callSessions, callTurns, people, runEvents, runs } from '../../db/schema'
+import { browserSessions, browserSteps, callSessions, callTurns, people, runEvents, runs, type BrowserStepDetail } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
 import { requireUser } from '../../lib/auth'
 import type { CallActivityEvent } from '../../lib/call-activity'
 
 export type TranscriptTurn = { seq: number; speaker: 'agent' | 'human'; text: string; atMs: number }
+
+/**
+ * The newest frame from the agent's browser on this call's run — what it is
+ * looking at right now, for the caller to watch on the stage. One frame, never
+ * the history: the whole visit replays on the run record.
+ */
+export type CallBrowserFrame = {
+  seq: number
+  /** The verb recorded for the step: open, click, type, read, screenshot, close. */
+  action: string
+  detail: BrowserStepDetail
+  /** The captured frame in the files ledger — null when the capture itself failed. */
+  fileId: string | null
+  /** Offset from the call's start, milliseconds. */
+  atMs: number
+  /** True while the visit is still open; false once the browser has closed. */
+  live: boolean
+}
 
 /**
  * Start a web call: the session, its run, and the room token are created only
@@ -78,14 +96,18 @@ export async function startCallAction(personId: string): Promise<{ sessionId: st
 }
 
 /**
- * Live captions and tool activity for the call page — polled while the call
- * is up. Tool activity is the call run's own event ledger (the audit trail),
- * offset onto the call clock so it interleaves with the transcript.
+ * Live captions, tool activity, and the agent's screen for the call page —
+ * polled together while the call is up, so the page keeps one loop. Tool
+ * activity is the call run's own event ledger (the audit trail), offset onto
+ * the call clock so it interleaves with the transcript; the browser frame is
+ * the newest row of the run's step ledger, fetched by the step ledger's own
+ * (session, seq) index rather than by reading the visit's history.
  */
 export async function getCallTranscriptAction(sessionId: string): Promise<{
   status: 'active' | 'ended' | 'failed'
   turns: TranscriptTurn[]
   activity: CallActivityEvent[]
+  browser: CallBrowserFrame | null
 }> {
   const tenantId = await resolveTenantId()
   const app = db()
@@ -120,7 +142,35 @@ export async function getCallTranscriptAction(sessionId: string): Promise<{
             payload: e.payload,
           }))
       : []
-    return { status: session.status, turns, activity }
+    const [frame] = session.runId
+      ? await app.db
+          .select({
+            seq: browserSteps.seq,
+            action: browserSteps.action,
+            detail: browserSteps.detail,
+            fileId: browserSteps.screenshotFileId,
+            at: browserSteps.at,
+            sessionStatus: browserSessions.status,
+          })
+          .from(browserSteps)
+          .innerJoin(browserSessions, eq(browserSteps.sessionId, browserSessions.id))
+          .where(eq(browserSessions.runId, session.runId))
+          .orderBy(desc(browserSteps.seq))
+          .limit(1)
+      : []
+    // Closing the browser is a step of its own, so the last step tells us both
+    // what the screen shows and whether anyone is still at the keyboard.
+    const browser: CallBrowserFrame | null = frame
+      ? {
+          seq: frame.seq,
+          action: frame.action,
+          detail: frame.detail,
+          fileId: frame.fileId,
+          atMs: Math.max(0, frame.at.getTime() - startedAtMs),
+          live: frame.sessionStatus === 'active' && frame.action !== 'close',
+        }
+      : null
+    return { status: session.status, turns, activity, browser }
   })
 }
 
