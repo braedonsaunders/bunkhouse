@@ -1283,18 +1283,33 @@ export default defineAgent({
         },
         onError: (message) => console.error(`[voice] room ${roomName}: ${message}`),
       })
-      // A cascade agent's text model may simply refuse the picture. The
-      // failure surfaces on its next inference, so the LLM leg's errors are
-      // what tell us — and only that leg's, which is why the instance is
-      // kept: an STT or TTS hiccup must never be read as blindness.
-      if (cascadeLlm) {
-        const cascade = cascadeLlm
-        agentSession.on(voice.AgentSessionEventTypes.Error, (event) => {
-          if (event.source !== cascade || !eyes?.active()) return
-          const error = event.error as { message?: string }
-          eyes.refused(error.message ?? 'the model rejected the request')
-        })
-      }
+      // Every error the session raises is written down, whichever leg it came
+      // from. Nothing did this before, and a hearing, thinking or speaking leg
+      // could fail on every turn while the process logged not one word — which
+      // is exactly how a call ends up silent with no explanation anywhere. The
+      // leg is named, because "the model refused" and "the voice would not
+      // synthesize" are different problems with different fixes.
+      agentSession.on(voice.AgentSessionEventTypes.Error, (event) => {
+        const error = event.error as { message?: string } | undefined
+        const leg =
+          event.source === cascadeLlm
+            ? 'model'
+            : event.source === agentSession.stt
+              ? 'hearing'
+              : event.source === agentSession.tts
+                ? 'voice'
+                : 'session'
+        const message = error?.message ?? String(event.error ?? 'no detail given')
+        console.error(`[voice] ${session.id} ${leg} error: ${message}`)
+        void recordEvent('error', { message: `The ${leg} leg of this call failed: ${message}` }).catch(() => undefined)
+        // A cascade agent's text model may simply be refusing the picture; that
+        // surfaces as an error on the LLM leg and nowhere else, which is why
+        // the instance is kept — an STT or TTS hiccup must never read as
+        // blindness.
+        if (cascadeLlm && event.source === cascadeLlm && eyes?.active()) {
+          eyes.refused(message)
+        }
+      })
       // A shared screen is watched on every call, not only in meetings. The
       // caller has a Share screen button on the call page too, and a screen
       // nobody is looking at is worse than no button at all.
