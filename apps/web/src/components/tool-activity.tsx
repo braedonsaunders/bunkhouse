@@ -68,6 +68,16 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   send_meeting_link: Video,
 }
 
+/**
+ * A tool's mark on its own — the same icon the card uses, for surfaces that
+ * name one action rather than list them (the call stage's live status line).
+ * Anything without a mark of its own is an integration: a plug.
+ */
+export function ToolMark({ toolName, className }: { toolName: string; className?: string }) {
+  const Icon = TOOL_ICONS[toolName] ?? Plug
+  return <Icon aria-hidden className={className ?? 'size-4'} />
+}
+
 function StatusMark({ status }: { status: ToolActivityItem['status'] }) {
   switch (status) {
     case 'running':
@@ -86,7 +96,6 @@ function StatusMark({ status }: { status: ToolActivityItem['status'] }) {
 }
 
 export function ToolActivityCard({ item }: { item: ToolActivityItem }) {
-  const Icon = TOOL_ICONS[item.toolName] ?? Plug
   return (
     <div
       className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${
@@ -94,7 +103,7 @@ export function ToolActivityCard({ item }: { item: ToolActivityItem }) {
       }`}
     >
       <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-bg text-fg-muted">
-        <Icon className="size-4" />
+        <ToolMark toolName={item.toolName} />
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-fg">{item.label}</p>

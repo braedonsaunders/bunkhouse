@@ -25,6 +25,12 @@ const INSET_MARGIN = 12
  * from. The stage renders it; it never goes looking for it.
  */
 export type CallStageScreenView = {
+  /**
+   * True while the far side is still at this screen. A screen that has been
+   * left stays on the stage one beat longer, faded, so the face grows back
+   * into an empty stage instead of out of a hole.
+   */
+  live: boolean
   /** The frame's URL, or null when that step's capture failed. */
   imageUrl: string | null
   /** The page: its title, or its address when the page has no title. */
@@ -33,6 +39,8 @@ export type CallStageScreenView = {
   host: string | null
   /** What was just done on the page, in plain words — "Clicked Sign in". */
   action: string
+  /** When the frame was captured, on the call clock. */
+  atSeconds: number
   /** Changes with every frame, so each new caption enters on the transition. */
   frameKey: string
 }
@@ -95,12 +103,13 @@ export function useCallTimer(live: boolean): number {
  * The line under the face: what the far side is doing this second. Running
  * work spins quietly; work parked for a signature says so plainly, because a
  * caller who is not told will keep waiting for something that cannot happen.
+ * Callers key it by the action so each new one enters on the shared
+ * transition rather than swapping its words in place.
  */
 function CallStageActivityLine({ activity }: { activity: CallStageActivity }) {
   const queued = activity.status === 'queued'
   return (
     <div
-      key={activity.key}
       aria-live="polite"
       className={cn(
         'bh-call-enter flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-left text-xs shadow-sm backdrop-blur',
@@ -129,27 +138,23 @@ function CallStageActivityLine({ activity }: { activity: CallStageActivity }) {
 
 /**
  * The far side's screen, on the stage: the newest captured frame with the page
- * it belongs to named above it and the current action below. It stays mounted
- * once shown and fades out instead of vanishing, so the face grows back into
- * an empty stage rather than out of a hole.
+ * it belongs to named above it and the current action below.
  */
 function CallStageScreen({
   view,
   name,
-  visible,
   activity,
 }: {
   view: CallStageScreenView
   name: string
-  visible: boolean
   activity: CallStageActivity | null
 }) {
   return (
     <div
-      aria-hidden={!visible}
+      aria-hidden={!view.live}
       className={cn(
         'bh-call-enter absolute inset-0 overflow-hidden rounded-xl border border-border bg-bg-subtle shadow-md transition-opacity',
-        visible ? 'opacity-100' : 'pointer-events-none opacity-0',
+        view.live ? 'opacity-100' : 'pointer-events-none opacity-0',
       )}
     >
       {view.imageUrl ? (
@@ -178,13 +183,13 @@ function CallStageScreen({
         </div>
         <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-fg-muted">
           <span aria-hidden className="inline-block size-1.5 animate-pulse rounded-full bg-primary" />
-          Live
+          Live · <span className="tabular-nums">{formatCallDuration(view.atSeconds)}</span>
         </span>
       </div>
       {/* Cleared on the right for the inset face, which shares this corner. */}
       <div className="absolute inset-x-3 bottom-3 flex justify-start pr-32">
         {activity ? (
-          <CallStageActivityLine activity={activity} />
+          <CallStageActivityLine key={activity.key} activity={activity} />
         ) : (
           <p
             key={view.frameKey}
@@ -232,19 +237,12 @@ export function CallStage({
   /** Overrides the phase-derived status line (e.g. an error headline). */
   status?: React.ReactNode
   avatar: React.ReactNode
-  /** The screen the far side is working, while it is working one. */
+  /** The screen the far side is working — `live: false` once it has left it. */
   screen?: CallStageScreenView | null
   /** The one action in flight right now, if there is one. */
   activity?: CallStageActivity | null
 }) {
-  // The last screen shown outlives the screen going away by one transition, so
-  // the frame can fade out on the same beat the face grows back.
-  const [lastScreen, setLastScreen] = React.useState<CallStageScreenView | null>(null)
-  React.useEffect(() => {
-    if (screen) setLastScreen(screen)
-  }, [screen])
-  const shownScreen = screen ?? lastScreen
-  const inset = screen !== null
+  const inset = screen?.live === true
   const scale = inset ? INSET_AVATAR_SIZE / CALL_STAGE_AVATAR_SIZE : 1
   const centred = `calc(50% - ${CALL_STAGE_AVATAR_SIZE / 2}px)`
 
@@ -268,9 +266,7 @@ export function CallStage({
       {/* The stage floor: a screen's shape, kept whether or not one is shown, so
           nothing below it moves when the far side picks up a keyboard. */}
       <div className="relative aspect-[64/45] min-h-80 w-full max-w-xl">
-        {shownScreen ? (
-          <CallStageScreen view={shownScreen} name={name} visible={inset} activity={activity} />
-        ) : null}
+        {screen ? <CallStageScreen view={screen} name={name} activity={activity} /> : null}
         <div
           className="bh-call-avatar absolute z-10 rounded-full bg-surface"
           style={{
@@ -318,7 +314,7 @@ export function CallStage({
       </div>
       {activity && !inset ? (
         <div className="flex w-full max-w-xl justify-center">
-          <CallStageActivityLine activity={activity} />
+          <CallStageActivityLine key={activity.key} activity={activity} />
         </div>
       ) : null}
       {/* Keyed by phase so each phase's line enters on the shared transition. */}

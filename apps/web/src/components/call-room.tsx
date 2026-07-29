@@ -16,10 +16,31 @@ import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Page
 import { ComposedAvatar } from '@appkit/avatars/react'
 import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
 import type { ComposedAvatarAnimation } from '@appkit/avatars/react'
-import { endCallAction, getCallTranscriptAction, startCallAction, type TranscriptTurn } from '../app/call/actions'
-import { toolActivityFromEvents, type CallActivityEvent, type ToolActivityItem } from '../lib/call-activity'
-import { ToolActivityCard } from './tool-activity'
-import { CallControlBar, CallStage, useCallTimer, type CallPhase, type CallStatusTone } from './call-stage'
+import {
+  endCallAction,
+  getCallTranscriptAction,
+  startCallAction,
+  type CallBrowserFrame,
+  type TranscriptTurn,
+} from '../app/call/actions'
+import {
+  describeBrowserStep,
+  hostOf,
+  toolActivityFromEvents,
+  type CallActivityEvent,
+  type ToolActivityItem,
+} from '../lib/call-activity'
+import { ToolActivityCard, ToolMark } from './tool-activity'
+import {
+  CALL_STAGE_AVATAR_SIZE,
+  CallControlBar,
+  CallStage,
+  useCallTimer,
+  type CallPhase,
+  type CallStageActivity,
+  type CallStageScreenView,
+  type CallStatusTone,
+} from './call-stage'
 
 const CONNECTION_LABELS: Record<string, string> = {
   [ConnectionState.Connecting]: 'Connecting',
@@ -32,13 +53,11 @@ const CONNECTION_LABELS: Record<string, string> = {
 type AgentProfile = { id: string; name: string; title: string }
 type AgentAvatar = { composition: AvatarComposition | null; parts: AvatarPart[]; categories: AvatarPartCategory[] }
 
-/** The stage avatar's rendered size — the call's centerpiece, not a thumbnail. */
-const STAGE_AVATAR_SIZE = 320
-
 /**
  * The face on the call: the same composition the directory crops, zoomed to
  * its head viewport at stage size. An agent with no composition yet still has
- * a face — the initials disc — so the stage never stands empty.
+ * a face — the initials disc — so the stage never stands empty. Both forms are
+ * rendered at the stage's own size; the stage scales them when it needs to.
  */
 function AgentFace({ agent, avatar, animate }: { agent: AgentProfile; avatar: AgentAvatar; animate: ComposedAvatarAnimation }) {
   if (!avatar.composition) {
@@ -46,7 +65,8 @@ function AgentFace({ agent, avatar, animate }: { agent: AgentProfile; avatar: Ag
       <div
         role="img"
         aria-label={agent.name}
-        className="flex size-80 items-center justify-center rounded-full border border-border bg-primary-subtle text-primary"
+        style={{ width: CALL_STAGE_AVATAR_SIZE, height: CALL_STAGE_AVATAR_SIZE }}
+        className="flex items-center justify-center rounded-full border border-border bg-primary-subtle text-primary"
       >
         <span className="text-8xl font-semibold">{agent.name.charAt(0).toUpperCase()}</span>
       </div>
@@ -58,7 +78,7 @@ function AgentFace({ agent, avatar, animate }: { agent: AgentProfile; avatar: Ag
       parts={avatar.parts}
       categories={avatar.categories}
       variant="head"
-      size={STAGE_AVATAR_SIZE}
+      size={CALL_STAGE_AVATAR_SIZE}
       rounded
       animate={animate}
       name={agent.name}
@@ -66,27 +86,24 @@ function AgentFace({ agent, avatar, animate }: { agent: AgentProfile; avatar: Ag
   )
 }
 
+/** Everything the call page polls for, on one loop. */
+type CallFeed = { turns: TranscriptTurn[]; activity: CallActivityEvent[]; browser: CallBrowserFrame | null }
+
+const EMPTY_FEED: CallFeed = { turns: [], activity: [], browser: null }
+
 /**
- * Live captions and tool activity: the call's two ledgers polled together and
- * interleaved on the call clock — chat bubbles for what was said, tool widgets
- * for what the agent is doing while it talks. The feed follows the newest
- * entry, but only while the reader is at the live edge — scrolling up to
- * reread holds the history still until they return to the bottom.
+ * The call's one poll: captions, tool activity, and the agent's screen arrive
+ * together every two seconds and are shared by the stage and the transcript.
+ * A failed poll is left alone — the next one two seconds later is the retry.
  */
-function CaptionsPanel({ sessionId, agentName }: { sessionId: string; agentName: string }) {
-  const [turns, setTurns] = React.useState<TranscriptTurn[]>([])
-  const [activity, setActivity] = React.useState<CallActivityEvent[]>([])
-  const scrollRef = React.useRef<HTMLDivElement>(null)
-  const pinnedRef = React.useRef(true)
+function useCallFeed(sessionId: string): CallFeed {
+  const [feed, setFeed] = React.useState<CallFeed>(EMPTY_FEED)
   React.useEffect(() => {
     let cancelled = false
     const poll = async () => {
       try {
         const result = await getCallTranscriptAction(sessionId)
-        if (!cancelled) {
-          setTurns(result.turns)
-          setActivity(result.activity)
-        }
+        if (!cancelled) setFeed({ turns: result.turns, activity: result.activity, browser: result.browser })
       } catch {
         // transient — next poll retries
       }
@@ -98,16 +115,56 @@ function CaptionsPanel({ sessionId, agentName }: { sessionId: string; agentName:
       clearInterval(interval)
     }
   }, [sessionId])
+  return feed
+}
+
+/**
+ * The newest browser frame as the stage wants it: a picture and its labels.
+ * A frame from a visit that is over is still handed over — marked not live, so
+ * the stage can retire it gracefully rather than have it disappear.
+ */
+function screenView(frame: CallBrowserFrame, live: boolean): CallStageScreenView {
+  const host = hostOf(frame.detail.url)
+  const title = frame.detail.title?.trim() || host || 'Working in the browser'
+  return {
+    live,
+    imageUrl: frame.fileId ? `/api/files/${frame.fileId}` : null,
+    title,
+    host: host && host !== title ? host : null,
+    action: describeBrowserStep(frame.action, frame.detail),
+    atSeconds: Math.floor(frame.atMs / 1000),
+    frameKey: String(frame.seq),
+  }
+}
+
+/**
+ * Live captions and tool activity: the call's two ledgers, interleaved on the
+ * call clock — chat bubbles for what was said, tool widgets for what the agent
+ * is doing while it talks. The whole history lives here; the stage carries only
+ * the current moment. The feed follows the newest entry, but only while the
+ * reader is at the live edge — scrolling up to reread holds the history still
+ * until they return to the bottom.
+ */
+function CaptionsPanel({
+  turns,
+  items,
+  agentName,
+}: {
+  turns: TranscriptTurn[]
+  items: ToolActivityItem[]
+  agentName: string
+}) {
+  const scrollRef = React.useRef<HTMLDivElement>(null)
+  const pinnedRef = React.useRef(true)
 
   const feed = React.useMemo(() => {
-    const items = toolActivityFromEvents(activity)
     const entries: ({ sort: number } & ({ type: 'turn'; turn: TranscriptTurn } | { type: 'tool'; item: ToolActivityItem }))[] = [
       ...turns.map((turn) => ({ type: 'turn' as const, sort: turn.atMs, turn })),
       ...items.map((item) => ({ type: 'tool' as const, sort: item.atMs, item })),
     ]
     entries.sort((a, b) => a.sort - b.sort)
     return entries
-  }, [turns, activity])
+  }, [turns, items])
 
   React.useEffect(() => {
     if (pinnedRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
@@ -222,6 +279,30 @@ function LiveCallSurface({
         ? 'off'
         : 'pending'
 
+  const { turns, activity, browser } = useCallFeed(sessionId)
+  const items = React.useMemo(() => toolActivityFromEvents(activity), [activity])
+
+  // The stage carries the present tense: the newest action still in flight —
+  // running, or parked for a signature — and the screen behind it while the
+  // agent is at the keyboard. Once the call has ended, the face has the stage
+  // back for the goodbye; the whole story stays in the transcript beside it.
+  const current = React.useMemo(() => {
+    if (phase === 'ended') return null
+    const item = [...items].reverse().find((i) => i.status === 'running' || i.status === 'queued')
+    if (!item) return null
+    const stageActivity: CallStageActivity = {
+      key: item.key,
+      label: item.label,
+      status: item.status === 'queued' ? 'queued' : 'running',
+      icon: <ToolMark toolName={item.toolName} className="size-3.5" />,
+    }
+    return stageActivity
+  }, [items, phase])
+  const screen = React.useMemo(
+    () => (browser ? screenView(browser, browser.live && phase !== 'ended') : null),
+    [browser, phase],
+  )
+
   return (
     <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <Card>
@@ -232,6 +313,8 @@ function LiveCallSurface({
             phase={phase}
             speaking={agentSpeaking}
             elapsedSeconds={elapsedSeconds}
+            screen={screen}
+            activity={current}
             avatar={<AgentFace agent={agent} avatar={avatar} animate={agentSpeaking ? 'talking' : phase === 'ended' ? 'none' : 'idle'} />}
           />
           <CallControlBar
@@ -244,7 +327,7 @@ function LiveCallSurface({
           />
         </CardContent>
       </Card>
-      <CaptionsPanel sessionId={sessionId} agentName={agent.name} />
+      <CaptionsPanel turns={turns} items={items} agentName={agent.name} />
     </div>
   )
 }
