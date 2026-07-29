@@ -44,7 +44,7 @@ export async function createProcedure(formData: FormData): Promise<void> {
       changeNote: 'Initial version.',
     })
   })
-  revalidatePath('/knowledge')
+  revalidatePath('/resources')
 }
 
 /** Append a revision: new version row, head pointer advances. Version-pinned history stays. */
@@ -65,7 +65,7 @@ export async function addRevision(formData: FormData): Promise<void> {
       .values({ tenantId, procedureId, version, body: renderProcedureBody(content), content, changeNote })
     await app.db.update(procedures).set({ currentVersion: version, updatedAt: new Date() }).where(eq(procedures.id, procedureId))
   })
-  revalidatePath('/knowledge')
+  revalidatePath('/resources')
 }
 
 /** Activate or retire; retired procedures stop binding but keep history. */
@@ -78,7 +78,7 @@ export async function setProcedureStatus(formData: FormData): Promise<void> {
   await app.withTenant(tenantId, async () => {
     await app.db.update(procedures).set({ status, updatedAt: new Date() }).where(eq(procedures.id, procedureId))
   })
-  revalidatePath('/knowledge')
+  revalidatePath('/resources')
 }
 
 /** Rebind who the procedure applies to. */
@@ -93,5 +93,5 @@ export async function setProcedureAssignment(formData: FormData): Promise<void> 
       .set({ assignment: parseAssignment(formData), updatedAt: new Date() })
       .where(and(eq(procedures.id, procedureId)))
   })
-  revalidatePath('/knowledge')
+  revalidatePath('/resources')
 }

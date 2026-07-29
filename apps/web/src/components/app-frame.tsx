@@ -20,7 +20,7 @@ const navigation: SidebarNavGroup[] = [
   { id: 'roles', label: 'Roles', items: [{ href: '/roles', label: 'Roles', iconKey: 'clipboard' }] },
   { id: 'approvals', label: 'Approvals', items: [{ href: '/approvals', label: 'Approvals', iconKey: 'list-checks', mobile: true }] },
   { id: 'observatory', label: 'Observatory', items: [{ href: '/observatory', label: 'Observatory', iconKey: 'activity' }] },
-  { id: 'knowledge', label: 'Knowledge', items: [{ href: '/knowledge', label: 'Knowledge', iconKey: 'library' }] },
+  { id: 'resources', label: 'Resources', items: [{ href: '/resources', label: 'Resources', iconKey: 'library' }] },
   { id: 'settings', label: 'Settings', items: [{ href: '/admin/settings', label: 'Settings', iconKey: 'settings', mobile: true }] },
 ]
 

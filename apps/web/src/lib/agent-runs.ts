@@ -19,6 +19,7 @@ import {
   type RunInputImage,
   type RunOutcome,
   type RunSink,
+  type BoundSkill,
 } from '@bunkhouse/runtime'
 import {
   autonomySettings,
@@ -46,6 +47,8 @@ import { describeToolCall } from './call-activity'
 import { isWithinWorkingHours } from './working-hours'
 import { getFileBytes, getFileRecord } from './files'
 import { closeBrowserSession } from './browser-use'
+import { readSkillBundle, skillsForAgent, type BoundSkillRow } from './skills'
+import { materializeSkillBundle } from './workspace'
 
 
 
@@ -93,6 +96,10 @@ export type RunFoundation = {
   agent: AgentProfile
   company: CompanyProfile
   procedures: BoundProcedure[]
+  /** Skills bound to this agent — indexed in the prompt, loaded on demand. */
+  skills: BoundSkill[]
+  /** Writes a loaded skill's bundle into this agent's workspace. */
+  materializeSkill: (skill: BoundSkill) => Promise<{ path: string; files: string[] }>
   autonomy: AutonomyResolver
   budget: BudgetMeter
   spend: RunSink['spend']
@@ -174,6 +181,7 @@ export async function assembleRunFoundation(args: {
   const identity = await getCompanyIdentity(tenantId)
   const signature = await getMailSignature(tenantId)
   const signatureAppended = signature.enabled && signature.compiledHtml.trim().length > 0
+  const skills = await boundSkills(tenantId, person)
 
   return {
     ok: true,
@@ -207,6 +215,8 @@ export async function assembleRunFoundation(args: {
         })),
       },
       procedures: await boundProcedures(tenantId, person),
+      skills: skills.skills,
+      materializeSkill: skillMaterializer({ tenantId, personId: person.id, rows: skills.rows }),
       autonomy,
       budget: {
         remainingUsd: async () => (person.salary?.monthlyUsd ?? 50) - (await monthSpendUsd(tenantId, person.id)),
@@ -254,6 +264,68 @@ export async function boundProcedures(tenantId: string, person: typeof people.$i
     if (rev) out.push({ id: head.id, slug: head.slug, title: head.title, version: rev.version, body: rev.body })
   }
   return out
+}
+
+/**
+ * The skills bound to a person — shared with the voice agent, so an agent that
+ * can lay out a proposal by email can do it on a call too. Only the name and
+ * description reach the prompt; `body` travels along for load_skill to hand
+ * over without a second query mid-run.
+ *
+ * Returns the underlying rows alongside, because the materializer needs the
+ * skill's id and version and resolving assignment a second time to find them
+ * would be both wasteful and a chance to resolve it differently.
+ */
+export async function boundSkills(
+  tenantId: string,
+  person: typeof people.$inferSelect,
+): Promise<{ skills: BoundSkill[]; rows: BoundSkillRow[] }> {
+  const rows = await skillsForAgent({
+    tenantId,
+    personId: person.id,
+    rolePack: person.rolePackSlug ?? null,
+  })
+  return {
+    rows,
+    skills: rows.map(({ skill, revision, fileCount }) => ({
+      slug: skill.slug,
+      title: skill.title,
+      description: skill.description,
+      version: revision.version,
+      body: revision.body,
+      hasFiles: fileCount > 0,
+    })),
+  }
+}
+
+/**
+ * Writes a loaded skill's bundle into the agent's workspace. Reading the bytes
+ * is deferred to the moment a skill is actually loaded — most runs load none,
+ * and pulling every assigned bundle out of storage up front would be paid for
+ * on every run to serve the few that need it.
+ */
+export function skillMaterializer(args: {
+  tenantId: string
+  personId: string
+  rows: BoundSkillRow[]
+}): (skill: BoundSkill) => Promise<{ path: string; files: string[] }> {
+  const bySlug = new Map(args.rows.map((row) => [row.skill.slug, row]))
+  return async (skill) => {
+    const match = bySlug.get(skill.slug)
+    if (!match || match.fileCount === 0) return { path: '', files: [] }
+    const files = await readSkillBundle({
+      tenantId: args.tenantId,
+      skillId: match.skill.id,
+      version: match.skill.currentVersion,
+    })
+    if (files.length === 0) return { path: '', files: [] }
+    return materializeSkillBundle({
+      tenantId: args.tenantId,
+      personId: args.personId,
+      slug: skill.slug,
+      files,
+    })
+  }
 }
 
 /**
@@ -461,6 +533,8 @@ export async function executeAgentRun(args: {
       company: foundation.company,
       procedures: foundation.procedures,
       memories,
+      skills: foundation.skills,
+      materializeSkill: foundation.materializeSkill,
       abilities,
       input: args.input,
       autonomy: foundation.autonomy,

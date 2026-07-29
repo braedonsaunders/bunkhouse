@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { AI_PROVIDER_SPECS } from '@appkit/ai'
 import { autonomySettings, mailboxAccounts, people } from '../../../db/schema'
@@ -21,7 +22,6 @@ import { getVoiceRetention } from '../../../lib/voice-recording'
 import { getVoicePricing } from '../../../lib/voice-pricing'
 import { listDocumentTemplates } from '../../../lib/document-templates'
 import { getFilingSettingsView, listRecentFilings } from '../../../lib/filing'
-import { listMcpIntegrations } from '../../../lib/mcp-integrations'
 import { listMailOauthApps, mailOauthRedirectUri } from '../../../lib/mail-oauth'
 import { getMailSignature } from '../../../lib/mail-signature'
 import { AVATAR_PART_CATEGORIES, avatarPartCategory } from '../../../lib/avatar-parts'
@@ -36,27 +36,12 @@ const fmt = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 16).re
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{
-    section?: string
-    mcpOauthConnected?: string
-    mcpOauthTools?: string
-    mcpOauthError?: string
-  }>
+  searchParams: Promise<{ section?: string }>
 }) {
-  const { section, mcpOauthConnected, mcpOauthTools, mcpOauthError } = await searchParams
-  // What the MCP OAuth callback left behind, if the operator just came back
-  // from a provider. The section clears it from the address bar once shown.
-  const mcpOauthOutcome = mcpOauthConnected
-    ? {
-        ok: true,
-        message: (() => {
-          const tools = Number(mcpOauthTools ?? '0')
-          return `${mcpOauthConnected} is connected — ${tools} tool${tools === 1 ? '' : 's'} available to your agents.`
-        })(),
-      }
-    : mcpOauthError
-      ? { ok: false, message: mcpOauthError }
-      : null
+  const { section } = await searchParams
+  // Connected systems moved to Resources; a bookmarked deep link follows them
+  // there rather than landing on a section that no longer exists.
+  if (section === 'integrations') redirect('/resources?tab=systems')
   const tenantId = await resolveTenantId()
   const app = db()
   const [providers, prices, imageSetting, voiceProviders, trunks, agentExtensions, mailboxData, agentDials, partRows, partLibrary] = await Promise.all([
@@ -148,7 +133,6 @@ export default async function SettingsPage({
       .where(and(eq(people.kind, 'agent'), eq(people.status, 'active')))
       .orderBy(asc(people.name)),
   )
-  const integrations = await app.withTenantContext(tenantId, () => listMcpIntegrations(tenantId))
   const mailOauthApps = await listMailOauthApps(tenantId)
   const mailSignature = await getMailSignature(tenantId)
   // Who thinks on which provider, so Settings → Models can show what a removal
@@ -307,15 +291,6 @@ export default async function SettingsPage({
         webhookUrls: chatWebhookUrls(),
       }}
       sms={{ provider: smsSettings.provider, fromNumber: smsSettings.fromNumber }}
-      integrations={integrations.map((entry) => ({
-        slug: entry.slug,
-        label: entry.label,
-        url: entry.url,
-        category: entry.category,
-        hasHeaders: Boolean(entry.sealedHeaders),
-        isOauth: Boolean(entry.oauth),
-      }))}
-      mcpOauthOutcome={mcpOauthOutcome}
       phoneSystem={{
         trunks: trunks.map((t) => ({
           id: t.id,

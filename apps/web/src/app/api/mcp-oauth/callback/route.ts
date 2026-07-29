@@ -3,8 +3,9 @@ import { completeMcpOauth } from '../../../../lib/mcp-oauth'
 
 export const dynamic = 'force-dynamic'
 
-function backToSettings(request: Request, params: Record<string, string>): Response {
-  const target = new URL('/admin/settings', request.url)
+function backToSystems(request: Request, params: Record<string, string>): Response {
+  const target = new URL('/resources', request.url)
+  target.searchParams.set('tab', 'systems')
   for (const [key, value] of Object.entries(params)) target.searchParams.set(key, value)
   return Response.redirect(target, 302)
 }
@@ -22,16 +23,16 @@ export async function GET(request: Request): Promise<Response> {
   const code = params.get('code') ?? ''
   const denied = params.get('error_description') ?? params.get('error')
 
-  if (denied) return backToSettings(request, { mcpOauthError: `Sign-in was not completed: ${denied}` })
+  if (denied) return backToSystems(request, { mcpOauthError: `Sign-in was not completed: ${denied}` })
   if (!state || !code) {
-    return backToSettings(request, {
+    return backToSystems(request, {
       mcpOauthError: 'The provider did not return a sign-in code. Start the connection again.',
     })
   }
 
   const result = await completeMcpOauth({ state, code })
-  if (!result.ok) return backToSettings(request, { mcpOauthError: result.message })
+  if (!result.ok) return backToSystems(request, { mcpOauthError: result.message })
 
-  revalidatePath('/admin/settings')
-  return backToSettings(request, { mcpOauthConnected: result.label, mcpOauthTools: String(result.toolCount) })
+  revalidatePath('/resources')
+  return backToSystems(request, { mcpOauthConnected: result.label, mcpOauthTools: String(result.toolCount) })
 }

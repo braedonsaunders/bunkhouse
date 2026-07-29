@@ -154,6 +154,8 @@ export type RunEvent =
   | { kind: 'tool_call'; toolName: string; category: ActionCategory | null; input: unknown }
   | { kind: 'tool_result'; toolName: string; output: unknown }
   | { kind: 'procedure_citation'; slug: string; version: number }
+  /** An installed skill's instructions were disclosed to the agent mid-run. */
+  | { kind: 'skill_loaded'; slug: string; version: number }
   | { kind: 'approval_request'; approvalId: string; category: ActionCategory; description: string }
   | { kind: 'error'; message: string }
 

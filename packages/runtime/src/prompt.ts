@@ -1,3 +1,4 @@
+import { renderSkillIndex, type BoundSkill } from './skills'
 import type { BoundProcedure, CompanyIdentity, CompanyProfile, AgentProfile, MemoryNote, RunInput } from './types'
 
 /**
@@ -55,8 +56,11 @@ export function buildSystemPrompt(args: {
   company: CompanyProfile
   procedures: BoundProcedure[]
   memories: MemoryNote[]
+  /** Names and descriptions only; bodies arrive through load_skill. */
+  skills?: BoundSkill[]
 }): string {
   const { agent, company, procedures, memories } = args
+  const skills = args.skills ?? []
   const sections: string[] = []
 
   sections.push(
@@ -119,6 +123,11 @@ export function buildSystemPrompt(args: {
     const notes = memories.map((m) => `- [${m.scope}] ${m.title}: ${m.body}`).join('\n')
     sections.push(`Things you know (your notes and company knowledge):\n${notes}`)
   }
+
+  // After procedures on purpose: doctrine binds, a skill is only ever a way of
+  // doing the work well. Nothing here may be read as loosening a procedure.
+  const skillIndex = renderSkillIndex(skills)
+  if (skillIndex) sections.push(skillIndex)
 
   sections.push(
     `Ground rules: never invent facts about the company, its customers, or its records — check with a tool or ask the right person. Some abilities require human approval; when a tool reports that approval is pending, wrap up cleanly and note what is awaiting sign-off. Write outputs a person would be glad to receive.

@@ -14,6 +14,7 @@ export { reportedCostUsd, reportsItsOwnCost, usageAccountingOptions } from './co
 export { buildRunInstruction, buildSystemPrompt } from './prompt'
 export { runAgent, type RunAgentArgs } from './loop'
 export { connectMcpServers, type McpConnection, type McpServerConfig } from './mcp'
+export { loadSkillAbility, renderSkillIndex, type BoundSkill } from './skills'
 export type {
   ActionCategory,
   ApprovalGate,

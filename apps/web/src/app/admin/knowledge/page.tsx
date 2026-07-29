@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 
-/** Knowledge is a top-level area now. */
+/** Knowledge is part of the top-level Resources area now. */
 export default function OldKnowledgePage() {
-  redirect('/knowledge')
+  redirect('/resources')
 }

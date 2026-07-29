@@ -9,6 +9,7 @@ import {
 } from './abilities'
 import { reportedCostUsd, usageAccountingOptions } from './cost'
 import { buildRunInstruction, buildSystemPrompt } from './prompt'
+import { loadSkillAbility, type BoundSkill } from './skills'
 import type {
   ApprovalGate,
   AutonomyResolver,
@@ -28,6 +29,10 @@ export type RunAgentArgs = {
   company: CompanyProfile
   procedures: BoundProcedure[]
   memories: MemoryNote[]
+  /** Skills this agent may draw on; indexed in the prompt, loaded on demand. */
+  skills?: BoundSkill[]
+  /** Writes a loaded skill's bundle into the agent's workspace. */
+  materializeSkill?: (skill: BoundSkill) => Promise<{ path: string; files: string[] }>
   abilities: Ability[]
   input: RunInput
   autonomy: AutonomyResolver
@@ -75,7 +80,22 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
   }
 
   const state: GovernanceState = args.state ?? { pendingApprovalId: null, pendingWait: null }
-  const abilities = [...args.abilities, citeProcedureAbility({ sink: args.sink, procedures: args.procedures })]
+  const skills = args.skills ?? []
+  const abilities = [
+    ...args.abilities,
+    citeProcedureAbility({ sink: args.sink, procedures: args.procedures }),
+    // Offered only when the agent actually has skills, so an agent with none
+    // is never told about a tool that can only answer "you have no skills".
+    ...(skills.length > 0
+      ? [
+          loadSkillAbility({
+            sink: args.sink,
+            skills,
+            ...(args.materializeSkill ? { materialize: args.materializeSkill } : {}),
+          }),
+        ]
+      : []),
+  ]
   const tools = governedToolSet({
     abilities,
     autonomy: args.autonomy,
@@ -90,6 +110,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
     company: args.company,
     procedures: args.procedures,
     memories: args.memories,
+    skills,
   })
   // Image attachments ride the opening turn so multimodal models genuinely
   // see what was sent — a photo of a receipt is content, not a filename.

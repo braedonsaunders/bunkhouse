@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { Boxes, Brain, Building2, FileText, FolderCog, Globe, ImageIcon, Mail, MessageSquare,
-  MessagesSquare, Phone, Plug, Shield } from 'lucide-react'
+  MessagesSquare, Phone, Shield } from 'lucide-react'
 import {
   Badge,
   Button,

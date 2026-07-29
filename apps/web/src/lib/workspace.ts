@@ -1,6 +1,6 @@
 import 'server-only'
-import { mkdir, readdir, readFile, rm, rmdir, stat } from 'node:fs/promises'
-import { join, resolve, sep } from 'node:path'
+import { mkdir, readdir, readFile, rm, rmdir, stat, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve, sep } from 'node:path'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { runSandbox } from '@appkit/sandbox'
@@ -59,6 +59,44 @@ function insideHome(home: string, relativePath: string): string {
 
 export function shellSupported(): boolean {
   return isProcessSandboxSupported()
+}
+
+/** Where a loaded skill's bundle lands inside the agent's home. */
+export const SKILLS_FOLDER = 'skills'
+
+/**
+ * Write one skill's files into the agent's workspace so its own instructions
+ * can refer to them — and so any script it ships is reachable by the sandboxed
+ * shell the agent already has. Nothing new is granted here: `run_shell` is
+ * still the only way anything executes, still bubblewrapped with the home as
+ * the sole writable path, still governed by the shell dial, and still recorded.
+ * A skill with scripts is inert on a deployment where the shell is unavailable.
+ *
+ * Rewritten from the database on every load, so a file an agent altered on a
+ * previous run never becomes what the skill "is" — the installed bytes are the
+ * only truth, and this folder is a cache of them.
+ */
+export async function materializeSkillBundle(args: {
+  tenantId: string
+  personId: string
+  slug: string
+  files: { path: string; bytes: Uint8Array }[]
+}): Promise<{ path: string; files: string[] }> {
+  const home = await agentHomePath(args.tenantId, args.personId)
+  const root = insideHome(home, join(SKILLS_FOLDER, args.slug))
+  await rm(root, { recursive: true, force: true })
+  await mkdir(root, { recursive: true })
+
+  const written: string[] = []
+  for (const file of args.files) {
+    // Belt and braces: install already refuses unsafe paths, but this is the
+    // moment one would actually escape, so it is checked again here.
+    const target = insideHome(root, file.path)
+    await mkdir(dirname(target), { recursive: true })
+    await writeFile(target, file.bytes)
+    written.push(file.path)
+  }
+  return { path: `~/${SKILLS_FOLDER}/${args.slug}`, files: written }
 }
 
 export async function getWorkspacePolicy(tenantId: string): Promise<WorkspacePolicySettings> {

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 
-/** Procedures live under Company knowledge now. */
+/** Procedures live under Resources now. */
 export default function OldProceduresPage() {
-  redirect('/knowledge')
+  redirect('/resources?tab=procedures')
 }

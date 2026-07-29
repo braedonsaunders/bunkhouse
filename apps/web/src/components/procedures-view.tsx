@@ -12,7 +12,7 @@ import {
   type RecordColumn,
 } from '@appkit/ui'
 import type { ProcedureContent } from '../db/schema'
-import { addRevision, createProcedure, setProcedureAssignment, setProcedureStatus } from '../app/knowledge/procedure-actions'
+import { addRevision, createProcedure, setProcedureAssignment, setProcedureStatus } from '../app/resources/procedure-actions'
 import { contentFromLegacyBody } from '../lib/procedures'
 import { ProcedureEditor, emptyDraft } from './procedure-editor'
 import { ProcedureReader } from './procedure-reader'
@@ -57,7 +57,12 @@ const COLUMNS: RecordColumn<ProcedureRow>[] = [
   { key: 'updatedAt', label: 'Updated', sortable: true },
 ]
 
-function AssignmentFields({
+/**
+ * Who a governed object binds to: everyone, whole role packs, or named agents.
+ * Shared with skills so "applies to" means one thing across the app, and the
+ * hidden inputs keep it usable as a plain form field.
+ */
+export function AssignmentFields({
   rolePackOptions,
   agentOptions,
   current,

@@ -141,6 +141,8 @@ After changing AppKit: `pnpm build:packages` there, re-pack with
 - `docs/organization.md` — the roster, the reporting hierarchy, and the tree invariant.
 - `docs/cost-accounting.md` — where every figure in the spend ledger comes from: reported
   cost beats calculated cost, and what each provider will and will not tell you.
+- `docs/skills.md` — portable competence in the public `SKILL.md` format: why a skill is not
+  a procedure, progressive disclosure, the commit pin, and why scripts need no new gate.
 - `vendor/appkit` — pinned AppKit tarballs (36 packages).
 
 ## Validation gates (green before "done")

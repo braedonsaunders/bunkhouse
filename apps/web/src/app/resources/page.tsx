@@ -4,14 +4,41 @@ import { PageContainer, PageHeader } from '@appkit/ui'
 import { memories, memoryProposals, people, procedureRevisions, procedures } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
-import { KnowledgeView } from '../../components/knowledge-view'
+import { listMcpIntegrations } from '../../lib/mcp-integrations'
+import { listCurrentRevisions, listSkillFiles, listSkills } from '../../lib/skills'
+import { shellSupported } from '../../lib/workspace'
+import { ResourcesView } from '../../components/resources-view'
 import type { ProcedureRow } from '../../components/procedures-view'
+import type { SkillRowView } from '../../components/skills-view'
 
 export const dynamic = 'force-dynamic'
 
 const stamp = (d: Date) => d.toISOString().slice(0, 16).replace('T', ' ')
 
-export default async function KnowledgePage() {
+export default async function ResourcesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    tab?: string
+    mcpOauthConnected?: string
+    mcpOauthTools?: string
+    mcpOauthError?: string
+  }>
+}) {
+  const { tab, mcpOauthConnected, mcpOauthTools, mcpOauthError } = await searchParams
+  // What the MCP OAuth callback left behind, if the operator just came back
+  // from a provider. The Systems tab clears it from the address bar once shown.
+  const mcpOauthOutcome = mcpOauthConnected
+    ? {
+        ok: true,
+        message: (() => {
+          const tools = Number(mcpOauthTools ?? '0')
+          return `${mcpOauthConnected} is connected — ${tools} tool${tools === 1 ? '' : 's'} available to your agents.`
+        })(),
+      }
+    : mcpOauthError
+      ? { ok: false, message: mcpOauthError }
+      : null
   const tenantId = await resolveTenantId()
   const app = db()
   const data = await app.withTenantContext(tenantId, async () => {
@@ -65,20 +92,65 @@ export default async function KnowledgePage() {
       .from(people)
       .where(eq(people.kind, 'agent'))
       .orderBy(asc(people.name))
-    return { notes, proposals, refNoteById, procedureHeads, revisions, agents }
+    const systems = await listMcpIntegrations(tenantId)
+    const skillHeads = await listSkills(tenantId)
+    const skillRevisions = await listCurrentRevisions(tenantId)
+    const skillFileRows = await listSkillFiles(tenantId)
+    return {
+      notes,
+      proposals,
+      refNoteById,
+      procedureHeads,
+      revisions,
+      agents,
+      systems,
+      skillHeads,
+      skillRevisions,
+      skillFileRows,
+    }
   })
 
   const agentNames = new Map(data.agents.map((h) => [h.id, h.name]))
   const packTitles = new Map(ROLE_PACKS.map((p) => [p.slug, p.title]))
+
+  /** "Applies to" reads the same for a skill as for a procedure. */
+  const describeAssignment = (assignment: {
+    everyone?: boolean
+    rolePacks?: string[]
+    personIds?: string[]
+  }): string =>
+    assignment.everyone
+      ? 'Everyone'
+      : [
+          ...(assignment.rolePacks ?? []).map((slug) => packTitles.get(slug) ?? slug),
+          ...(assignment.personIds ?? []).map((id) => agentNames.get(id) ?? 'an agent'),
+        ].join(', ') || 'Nobody yet'
+
+  const skillRows: SkillRowView[] = data.skillHeads.map((head) => {
+    const revision = data.skillRevisions.find((r) => r.skillId === head.id && r.version === head.currentVersion)
+    const files = data.skillFileRows.filter((f) => f.skillId === head.id && f.version === head.currentVersion)
+    return {
+      id: head.id,
+      slug: head.slug,
+      title: head.title,
+      description: head.description,
+      status: head.status,
+      version: head.currentVersion,
+      appliesTo: describeAssignment(head.assignment),
+      origin: head.source.path ? `${head.source.repo}/${head.source.path}` : head.source.repo,
+      pinned: `${head.source.ref} · ${head.source.commitSha.slice(0, 7)}`,
+      licence: head.license ?? 'Not stated by the author',
+      hasScripts: head.hasScripts,
+      updatedAt: stamp(head.updatedAt),
+      body: revision?.body ?? '',
+      files: files.map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, isScript: f.isScript })),
+      assignment: head.assignment,
+    }
+  })
   const procedureRows: ProcedureRow[] = data.procedureHeads.map((head) => {
     const revs = data.revisions.filter((r) => r.procedureId === head.id)
     const current = revs.find((r) => r.version === head.currentVersion)
-    const appliesTo = head.assignment.everyone
-      ? 'Everyone'
-      : [
-          ...(head.assignment.rolePacks ?? []).map((slug) => packTitles.get(slug) ?? slug),
-          ...(head.assignment.personIds ?? []).map((id) => agentNames.get(id) ?? 'an agent'),
-        ].join(', ') || 'Nobody yet'
+    const appliesTo = describeAssignment(head.assignment)
     return {
       id: head.id,
       slug: head.slug,
@@ -104,11 +176,11 @@ export default async function KnowledgePage() {
   return (
     <PageContainer className="space-y-6">
       <PageHeader
-        title="Company knowledge"
-        description="The governed shared layer every agent loads: the notes they read, the procedures they follow, and the changes they nominate. Agents can only nominate — humans decide what crosses this boundary."
+        title="Company resources"
+        description="Everything your agents bring to the job: the notes they read, the procedures they follow, the systems they work in, and the changes they nominate. Agents can only nominate — humans decide what crosses this boundary."
       />
 
-      <KnowledgeView
+      <ResourcesView
         notes={data.notes.map((note) => ({
           id: note.id,
           slug: note.slug,
@@ -139,8 +211,20 @@ export default async function KnowledgePage() {
           }
         })}
         procedures={procedureRows}
+        skills={skillRows}
+        shellAvailable={shellSupported()}
+        systems={data.systems.map((entry) => ({
+          slug: entry.slug,
+          label: entry.label,
+          url: entry.url,
+          category: entry.category,
+          hasHeaders: Boolean(entry.sealedHeaders),
+          isOauth: Boolean(entry.oauth),
+        }))}
+        mcpOauthOutcome={mcpOauthOutcome}
         rolePackOptions={ROLE_PACKS.map((p) => ({ value: p.slug, label: p.title }))}
         agentOptions={data.agents.map((h) => ({ value: h.id, label: h.name }))}
+        {...(tab ? { initialTab: tab } : {})}
       />
     </PageContainer>
   )

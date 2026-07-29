@@ -17,7 +17,7 @@ export async function addCompanyNote(formData: FormData): Promise<void> {
   await app.withTenant(tenantId, async () => {
     await createNote({ tenantId, scope: 'company', personId: null, kind, title, body, author: 'human', importance })
   })
-  revalidatePath('/knowledge')
+  revalidatePath('/resources')
 }
 
 /** Human decision on a memory proposal (promotion etc). */
@@ -30,6 +30,6 @@ export async function decideMemoryProposal(formData: FormData): Promise<void> {
   await app.withTenant(tenantId, async () => {
     await decideProposal({ tenantId, proposalId, approve, decidedBy: 'human' })
   })
-  revalidatePath('/knowledge')
+  revalidatePath('/resources')
   revalidatePath('/organization')
 }
