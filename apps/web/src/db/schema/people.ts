@@ -31,10 +31,28 @@ export type AgentPersonality = {
   signoff: string
 }
 
+/**
+ * Which brains an agent works with. Both models come from the same provider —
+ * one key, one bill, one place to rotate.
+ */
 export type AgentModelConfig = {
   /** Provider key registered with the runtime, e.g. 'anthropic', 'openai-compatible'. */
   provider: string
+  /**
+   * The thinking model — the one every governed run uses: the email it writes,
+   * the assignment it takes, the duty it runs, and the work a caller is waiting
+   * on the line for. Historically the agent's only model, which is why the
+   * field keeps the bare name: every existing row already carries it here.
+   */
   model: string
+  /**
+   * The fast model — the one that holds the live conversation on a cascade
+   * call, where first-token latency is audible to the person on the phone.
+   * Optional: unset, the agent uses the provider's fast model, and failing
+   * that the thinking model above. On a realtime voice agent the speech model
+   * itself does the talking, so this applies only away from the call.
+   */
+  modelFast?: string
   /** Provider base URL override for openai-compatible/self-hosted gateways. */
   baseUrl?: string
   temperature?: number

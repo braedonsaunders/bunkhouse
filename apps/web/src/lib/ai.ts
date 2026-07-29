@@ -186,7 +186,12 @@ export async function resolveProviderAiConfig(tenantId: string, slug: string): P
 
 /**
  * Resolve the live AiConfig for an agent: its modelConfig names a tenant
- * provider slug + model; the sealed key is opened only here, at use time.
+ * provider slug + models; the sealed key is opened only here, at use time.
+ *
+ * Two models, one provider. The thinking model runs every governed run; the
+ * fast model answers on a live call. An agent that names no fast model of its
+ * own falls back to the provider's, and failing that to its own thinking
+ * model — so an agent is never left without one.
  */
 export async function resolveAgentAiConfig(tenantId: string, personId: string): Promise<AiConfig | null> {
   const app = db()
@@ -197,9 +202,11 @@ export async function resolveAgentAiConfig(tenantId: string, personId: string): 
   if (!person?.modelConfig) return null
   const base = await resolveProviderAiConfig(tenantId, person.modelConfig.provider)
   if (!base) return null
+  const modelSmart = person.modelConfig.model || base.modelSmart || null
   return {
     ...base,
-    modelSmart: person.modelConfig.model || base.modelSmart || null,
+    modelSmart,
+    modelFast: person.modelConfig.modelFast || base.modelFast || modelSmart,
     baseUrl: person.modelConfig.baseUrl ?? base.baseUrl ?? null,
   }
 }

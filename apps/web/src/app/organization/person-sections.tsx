@@ -24,6 +24,7 @@ import {
   DEFAULT_AUTONOMY_LEVEL,
   LEVEL_BADGES,
 } from '../../lib/autonomy'
+import { assignedModelsSummary } from '../../lib/model-assignment'
 import { setAutonomy } from './actions'
 
 type Person = typeof people.$inferSelect
@@ -197,27 +198,24 @@ export function OverviewSection({
 }
 
 /**
- * Which brain this agent thinks with. Its own tab rather than a card under the
- * record: the provider and model are a standing decision about how the agent
- * works and what it costs, not another field on the personnel form.
+ * Which brains this agent thinks with. Its own tab rather than a card under
+ * the record: the provider and models are a standing decision about how the
+ * agent works and what it costs, not another field on the personnel form.
  */
 export function ModelSection({
   person,
   providers,
 }: {
   person: Person
-  providers: { slug: string; label: string }[]
+  providers: { slug: string; label: string; modelFast?: string | undefined }[]
 }) {
+  const assignedProviderFast = providers.find((p) => p.slug === person.modelConfig?.provider)?.modelFast
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Assigned model</CardTitle>
-          <CardDescription>
-            {person.modelConfig
-              ? `${person.modelConfig.provider} / ${person.modelConfig.model}`
-              : 'Not assigned yet — this agent cannot work without a brain.'}
-          </CardDescription>
+          <CardTitle>Assigned models</CardTitle>
+          <CardDescription>{assignedModelsSummary(person.modelConfig, assignedProviderFast)}</CardDescription>
         </CardHeader>
         <CardContent>
           {providers.length === 0 ? (
@@ -230,15 +228,20 @@ export function ModelSection({
               personId={person.id}
               providers={providers}
               {...(person.modelConfig
-                ? { currentProvider: person.modelConfig.provider, currentModel: person.modelConfig.model }
+                ? {
+                    currentProvider: person.modelConfig.provider,
+                    currentModel: person.modelConfig.model,
+                    ...(person.modelConfig.modelFast ? { currentModelFast: person.modelConfig.modelFast } : {}),
+                  }
                 : {})}
             />
           )}
         </CardContent>
       </Card>
       <p className="text-xs text-fg-muted">
-        Every agent runs on whichever provider and model you assign it — a cheap model for routine mail, a stronger one
-        for work that has to be right. Spend is metered against this agent&apos;s salary at the price on record.
+        Every agent runs on whichever provider and models you assign it — a cheap model for routine mail, a stronger
+        one for work that has to be right, and a quick one so nobody waits on the phone. Spend is metered against this
+        agent&apos;s salary at the price on record, whichever model earned it.
       </p>
     </div>
   )

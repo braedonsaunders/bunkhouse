@@ -179,7 +179,13 @@ export async function personDrawer({
             content: (
               <ModelSection
                 person={selected}
-                providers={providers.map((p) => ({ slug: p.slug, label: p.label }))}
+                providers={providers.map((p) => ({
+                  slug: p.slug,
+                  label: p.label,
+                  // The provider's own quick model: what an agent that names
+                  // none of its own answers with on a call.
+                  ...(p.modelFast ? { modelFast: p.modelFast } : {}),
+                }))}
               />
             ),
           },

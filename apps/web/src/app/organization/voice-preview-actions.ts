@@ -7,14 +7,16 @@ import { resolveRealtimeCredential, resolveSpeechCredential } from '../../lib/vo
  * Voice previews for the agent drawer's Voice tab: a short audio sample of the
  * currently selected voice, resolved server-side so provider keys stay sealed.
  *
- * - ElevenLabs voices ship a hosted preview clip; we return its URL.
+ * - ElevenLabs voices are synthesized on the company's own key, with the same
+ *   model the agent speaks with — never the catalog's hosted clip, which plays
+ *   for voices the account can see but is not entitled to use.
  * - OpenAI realtime voices are sampled through the speech endpoint (the same
  *   voice names are shared with gpt-4o-mini-tts) and returned as an mp3 data URI.
  * - Gemini Live voices are sampled through the Gemini TTS model; the API
  *   returns raw PCM, which we wrap in a WAV header so the browser can play it.
  */
 export type VoicePreviewRequest =
-  | { source: 'elevenlabs'; voiceId: string }
+  | { source: 'elevenlabs'; voiceId: string; model?: string }
   | { source: 'openai'; voice: string }
   | { source: 'google'; voice: string }
 
@@ -30,7 +32,7 @@ export async function previewVoiceSampleAction(request: VoicePreviewRequest): Pr
   try {
     switch (request.source) {
       case 'elevenlabs':
-        return await previewElevenLabsVoice(tenantId, request.voiceId)
+        return await previewElevenLabsVoice(tenantId, request.voiceId, request.model)
       case 'openai':
         return await previewOpenAiVoice(tenantId, request.voice)
       case 'google':
@@ -43,24 +45,53 @@ export async function previewVoiceSampleAction(request: VoicePreviewRequest): Pr
   }
 }
 
-async function previewElevenLabsVoice(tenantId: string, voiceId: string): Promise<VoicePreviewResult> {
+async function previewElevenLabsVoice(
+  tenantId: string,
+  voiceId: string,
+  model?: string,
+): Promise<VoicePreviewResult> {
   if (!voiceId) return { ok: false, message: 'Pick a voice first.' }
   const apiKey = await resolveSpeechCredential(tenantId, 'elevenlabs')
   if (apiKey === null) {
     return { ok: false, message: 'Add an ElevenLabs key under Settings → Voice to preview this voice.' }
   }
-  const response = await fetch(`https://api.elevenlabs.io/v1/voices/${encodeURIComponent(voiceId)}`, {
-    headers: { 'xi-api-key': apiKey },
-    signal: AbortSignal.timeout(15_000),
+  // Synthesize with the company's own key rather than playing the catalog's
+  // pre-rendered clip. The clip plays for any voice the account can SEE, and a
+  // library voice on a free plan is one the account cannot USE — so the old
+  // preview sounded perfect and then the call was silent, with a 402 nobody
+  // ever saw. A preview that does not exercise the same call the agent makes
+  // is not a preview.
+  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`, {
+    method: 'POST',
+    headers: { 'xi-api-key': apiKey, 'content-type': 'application/json' },
+    body: JSON.stringify({ text: SAMPLE_TEXT, model_id: model || 'eleven_turbo_v2_5' }),
+    signal: AbortSignal.timeout(30_000),
   })
   if (!response.ok) {
-    return { ok: false, message: `ElevenLabs could not load this voice (${response.status}).` }
+    return { ok: false, message: await elevenLabsRefusal(response) }
   }
-  const json = (await response.json()) as { preview_url?: string | null }
-  if (!json.preview_url) {
-    return { ok: false, message: 'This voice has no preview clip in your ElevenLabs account.' }
+  const audio = Buffer.from(await response.arrayBuffer())
+  if (audio.byteLength === 0) {
+    return { ok: false, message: 'ElevenLabs returned no audio for this voice.' }
   }
-  return { ok: true, url: json.preview_url }
+  return { ok: true, url: `data:audio/mpeg;base64,${audio.toString('base64')}` }
+}
+
+/**
+ * What ElevenLabs actually said, in its own words. Their refusals are
+ * specific and actionable — "Free users cannot use library voices via the
+ * API" — and paraphrasing them into a status code is how an operator ends up
+ * debugging a silent call instead of reading one sentence.
+ */
+async function elevenLabsRefusal(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as { detail?: { message?: string } | string }
+    const detail = typeof body.detail === 'string' ? body.detail : body.detail?.message
+    if (detail?.trim()) return detail.trim()
+  } catch {
+    // Not JSON — fall through to the status.
+  }
+  return `ElevenLabs would not speak with this voice (${response.status}).`
 }
 
 async function previewOpenAiVoice(tenantId: string, voice: string): Promise<VoicePreviewResult> {

@@ -360,7 +360,7 @@ export function VoiceConfigForm({
                       />
                       {previewButton(
                         `elevenlabs:${ttsVoiceId}`,
-                        { source: 'elevenlabs', voiceId: ttsVoiceId },
+                        { source: 'elevenlabs', voiceId: ttsVoiceId, model: ttsModel },
                         !ttsVoiceId,
                       )}
                     </div>

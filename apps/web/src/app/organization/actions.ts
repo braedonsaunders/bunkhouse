@@ -286,7 +286,7 @@ export async function deleteMemoryNote(formData: FormData): Promise<void> {
     await expireNote(tenantId, memoryId)
   })
   revalidatePath('/organization')
-  revalidatePath('/knowledge')
+  revalidatePath('/resources')
 }
 
 /** Pin/unpin: the pinned tier is always in the agent's prompt, budgeted. */
@@ -300,7 +300,7 @@ export async function togglePinNote(formData: FormData): Promise<void> {
     await app.db.update(memories).set({ pinned, updatedAt: new Date() }).where(eq(memories.id, memoryId))
   })
   revalidatePath('/organization')
-  revalidatePath('/knowledge')
+  revalidatePath('/resources')
 }
 
 /** Nominate an agent note for company knowledge (approval-gated). */
@@ -313,7 +313,7 @@ export async function promoteNoteAction(formData: FormData): Promise<void> {
   await app.withTenant(tenantId, async () => {
     await proposePromotion({ tenantId, noteId: memoryId, rationale })
   })
-  revalidatePath('/knowledge')
+  revalidatePath('/resources')
 }
 
 /** Connect an IMAP/SMTP mailbox to an agent — verifies both endpoints first. */
@@ -355,11 +355,19 @@ export async function syncMailboxAction(formData: FormData): Promise<void> {
   revalidatePath('/organization')
 }
 
-/** Assign which brain this agent runs on: a tenant provider slug + model id. */
+/**
+ * Assign which brains this agent runs on: a tenant provider slug, the thinking
+ * model that does the work, and — optionally — the fast model that answers
+ * while someone is on the phone. Both models come from the same provider.
+ * A blank fast model is a real choice, not an error: it is stored absent, and
+ * resolution falls back to the provider's fast model, then to the thinking
+ * model. An empty string is never written.
+ */
 export async function setAgentModel(formData: FormData): Promise<void> {
   const personId = String(formData.get('personId') ?? '')
   const providerSlug = String(formData.get('providerSlug') ?? '')
   const model = String(formData.get('model') ?? '').trim()
+  const modelFast = String(formData.get('modelFast') ?? '').trim()
   if (!personId || !providerSlug || !model) throw new Error('Provider and model are required.')
 
   const tenantId = await resolveTenantId()
@@ -371,7 +379,10 @@ export async function setAgentModel(formData: FormData): Promise<void> {
   await app.withTenant(tenantId, async () => {
     await app.db
       .update(people)
-      .set({ modelConfig: { provider: providerSlug, model }, updatedAt: new Date() })
+      .set({
+        modelConfig: { provider: providerSlug, model, ...(modelFast ? { modelFast } : {}) },
+        updatedAt: new Date(),
+      })
       .where(eq(people.id, personId))
   })
   revalidatePath('/organization')
@@ -645,7 +656,7 @@ export async function updateMemoryNote(formData: FormData): Promise<void> {
     })
   })
   revalidatePath('/organization')
-  revalidatePath('/knowledge')
+  revalidatePath('/resources')
 }
 
 /** Disconnect an agent's mailbox: config is deletable, the mail ledger is not. */

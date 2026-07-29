@@ -7,6 +7,7 @@ import { resolveTenantId } from '../../lib/tenant'
 import { listAvatarCompositions, loadAvatarPartLibrary } from '../../lib/avatars'
 import { AVATAR_PART_CATEGORIES } from '../../lib/avatar-parts'
 import { resolveCallAction } from '../../lib/call-action'
+import { rosterModelCell } from '../../lib/model-assignment'
 import { OrganizationTabs } from '../../components/organization-tabs'
 import { RosterAvatar } from '../../components/roster-avatar'
 import { AGENT_COLUMNS, RosterList, type RosterRow } from '../../components/roster-list'
@@ -53,7 +54,7 @@ export default async function AgentsPage({
       ),
       title: person.title,
       email: person.email,
-      model: person.modelConfig ? `${person.modelConfig.provider} / ${person.modelConfig.model}` : 'Not assigned',
+      model: rosterModelCell(person.modelConfig),
       extension: person.extension ?? '—',
       reportsTo: person.reportsToId ? (byId.get(person.reportsToId)?.name ?? '—') : '—',
       status: STATUS_LABELS[person.status],

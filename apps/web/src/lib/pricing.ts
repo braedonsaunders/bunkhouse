@@ -125,7 +125,10 @@ export async function modelsInUse(tenantId: string): Promise<string[]> {
     const providers = (settings?.value as AiProviderEntry[] | undefined) ?? []
 
     const wanted = new Set<string>()
-    for (const agent of agents) if (agent.modelConfig?.model) wanted.add(agent.modelConfig.model)
+    for (const agent of agents) {
+      if (agent.modelConfig?.model) wanted.add(agent.modelConfig.model)
+      if (agent.modelConfig?.modelFast) wanted.add(agent.modelConfig.modelFast)
+    }
     for (const provider of providers) {
       if (provider.modelSmart) wanted.add(provider.modelSmart)
       if (provider.modelFast) wanted.add(provider.modelFast)
