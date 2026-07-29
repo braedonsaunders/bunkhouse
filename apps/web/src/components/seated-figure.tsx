@@ -136,15 +136,16 @@ export function SeatedFigure({ composition, parts, categories, size, name }: Sea
   // when it becomes visible anyway. That is close enough to cover with nothing
   // — no fade, no transition, one less moving part in a subtree that already
   // re-renders every animation frame.
-  const [foot, setFoot] = React.useState(() => footLine.get(signature) ?? 1)
+  //
+  // The module cache is the source of truth but is not reactive, so this map
+  // holds what this instance measured itself, purely to re-render when the
+  // measurement lands. Reading the cache during render means a figure whose
+  // signature changes is seated immediately, with no resync pass.
+  const [measured, setMeasured] = React.useState<Record<string, number>>({})
+  const foot = measured[signature] ?? footLine.get(signature) ?? 1
 
   React.useEffect(() => {
-    const known = footLine.get(signature)
-    if (known !== undefined) {
-      setFoot(known)
-      return
-    }
-    if (layers.length === 0) return
+    if (footLine.has(signature) || layers.length === 0) return
 
     let live = true
     let work = inFlight.get(signature)
@@ -159,7 +160,7 @@ export function SeatedFigure({ composition, parts, categories, size, name }: Sea
       inFlight.set(signature, work)
     }
     void work.then((value) => {
-      if (live) setFoot(value)
+      if (live) setMeasured((previous) => ({ ...previous, [signature]: value }))
     })
     return () => {
       live = false

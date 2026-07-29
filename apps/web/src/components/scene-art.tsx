@@ -155,7 +155,7 @@ const GROUND: Record<SceneKind, { day: string; night: string }> = {
  * The full ground config for a stage: our walk geometry with the room's own
  * day-or-night planes. Pass alongside `<BunkhouseSceneArt />`.
  */
-export function bunkhouseSceneGround(kind: SceneKind, isDark: boolean): SceneGroundConfig {
+export function bunkhouseSceneGround(kind: SceneKind): SceneGroundConfig {
   return {
     horizonY: HORIZON[kind],
     ...WALK[kind],
@@ -824,7 +824,6 @@ function Clouds({ seed, opacity = 0.75 }: { seed: number; opacity?: number }) {
 function OfficeScene({ isDark }: SceneProps) {
   const horizon = HORIZON.office
   const inset = WALL_INSET.office
-  const wall = pick('#e6e9ee', '#212934', isDark)
   const glowBlue = pick('#8fd0f5', '#4fb8f0', isDark)
 
   return (

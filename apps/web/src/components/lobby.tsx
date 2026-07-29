@@ -125,7 +125,7 @@ export function Lobby({
     <div className="isolate relative h-full min-h-0">
       <CharacterScene
         characters={characters}
-        ground={bunkhouseSceneGround(scene, isDark)}
+        ground={bunkhouseSceneGround(scene)}
         art={<BunkhouseSceneArt kind={scene} isDark={isDark} />}
         height="100%"
         baseCharacterSize={170}
