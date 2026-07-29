@@ -218,7 +218,15 @@ export async function assertPublicHost(url: URL): Promise<void> {
   if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) {
     throw new Error('That address is not reachable from here.')
   }
-  const resolved = await lookup(host, { all: true })
+  // A resolver that never answers used to hang the whole run: no result, no
+  // error, an agent saying "almost there" for five minutes. DNS gets a
+  // deadline like everything else that leaves this process.
+  const resolved = await Promise.race([
+    lookup(host, { all: true }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Looking up ${host} took too long.`)), 5_000).unref?.(),
+    ),
+  ])
   if (resolved.some((entry) => isPrivateAddress(entry.address))) {
     throw new Error('That address is not reachable from here.')
   }

@@ -159,6 +159,34 @@ export type GovernanceState = {
 }
 
 /**
+ * The longest any single tool call may take before the loop stops waiting on
+ * it. A tool that never settles does not fail — it wedges the whole run, and
+ * on a live call that reads as an agent saying "almost there" for five minutes
+ * while nothing is happening. A DNS lookup with no deadline did exactly that.
+ * Generous enough for a slow page or a real search; short enough that a caller
+ * gets an answer, even if the answer is that it did not work.
+ */
+const TOOL_DEADLINE_MS = 60_000
+
+/** Reject if the work has not settled by the deadline, without cancelling it. */
+async function withDeadline<T>(name: string, work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${name} did not finish within ${Math.round(TOOL_DEADLINE_MS / 1000)} seconds.`)),
+          TOOL_DEADLINE_MS,
+        )
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+/**
  * Wrap abilities with dial enforcement. 'forbidden' returns a refusal result
  * (the model is told, and the event is recorded); 'approval' files the request,
  * flags the loop to stop, and returns a pending marker; 'notify' and 'trusted'
@@ -217,7 +245,15 @@ export function governedToolSet(args: {
             text: `Performed under notify-level autonomy (${category}): ${description}`,
           })
         }
-        return execute(input as any, options as any)
+        // Every tool is bounded. A hung tool used to take the run with it,
+        // silently: no result, no error, nothing on the ledger to look at.
+        try {
+          return await withDeadline(ability.name, Promise.resolve(execute(input as any, options as any)))
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          await args.sink.event({ kind: 'error', message: `${ability.name}: ${message}` })
+          return { error: message, note: 'That did not come back. Say so plainly and try another way.' }
+        }
       },
     } as ToolSet[string]
   }

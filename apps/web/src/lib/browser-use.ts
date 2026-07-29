@@ -1167,7 +1167,7 @@ export function browserAbilities(args: { tenantId: string; person: PersonRow; ru
     defineAbility({
       name: 'browser_close',
       description:
-        'Close the browser when you are done with it. Do this as soon as you have what you need — it frees the machine, and everything you did stays on the record either way.',
+        'Close the browser when you are finished with it entirely — not between pages. On a call the person you are talking to is WATCHING this browser, so closing it takes the picture off their screen; leave it open while you are still working and it will be closed for you when the call ends. Everything you did stays on the record either way.',
       category: 'computer_use',
       // Continues the visit browser_open was cleared for; it cannot start one.
       approval: 'continues',

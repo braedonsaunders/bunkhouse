@@ -124,7 +124,8 @@ export function researchAbilities(args: { tenantId: string }): Ability[] {
     }),
     defineAbility({
       name: 'read_webpage',
-      description: 'Fetch a public web page and return its readable text content.',
+      description:
+        'Fetch a public web page and return its readable text content. Quick and unseen — it is a fetch, not a visit, so nothing appears on a caller\'s screen and pages that need a click, a sign-in, or JavaScript come back empty or wrong. While you are on a call, prefer browser_open for anything the caller is waiting on: it is barely slower, it copes with real sites, and they can watch you do it.',
       category: null,
       inputSchema: z.object({ url: z.string() }),
       execute: async ({ url }) => readWebpage(url),
