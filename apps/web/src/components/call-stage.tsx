@@ -41,8 +41,14 @@ const INSET_MARGIN = 12
 
 /**
  * What the far side is looking at, when it is working a screen rather than
- * only talking: one frame, already captured and served, plus where it came
- * from. The stage renders it; it never goes looking for it.
+ * only talking, plus where it came from. The stage renders it; it never goes
+ * looking for it.
+ *
+ * Two ways to be shown a screen, in that order of preference: as live video —
+ * handed in already rendered, so this file stays free of any transport — and,
+ * failing that, as the newest captured still. The still is not a lesser
+ * fallback but a different thing: it is what a replayed run has, and what a
+ * screen that has already been left leaves behind.
  */
 export type CallStageScreenView = {
   /**
@@ -51,6 +57,12 @@ export type CallStageScreenView = {
    * into an empty stage instead of out of a hole.
    */
   live: boolean
+  /**
+   * The screen as live video — a rendered node, or null when there is none.
+   * Preferred over the still whenever it is present: it is the same screen,
+   * moving, at the moment it moves.
+   */
+  video?: React.ReactNode | null
   /** The frame's URL, or null when that step's capture failed. */
   imageUrl: string | null
   /** The page: its title, or its address when the page has no title. */
@@ -157,8 +169,9 @@ function CallStageActivityLine({ activity }: { activity: CallStageActivity }) {
 }
 
 /**
- * The far side's screen, on the stage: the newest captured frame with the page
- * it belongs to named above it and the current action below.
+ * The far side's screen, on the stage: the live picture of it — moving where
+ * there is video for it, the newest captured frame where there is not — with
+ * the page it belongs to named above it and the current action below.
  */
 function CallStageScreen({
   view,
@@ -177,7 +190,14 @@ function CallStageScreen({
         view.live ? 'opacity-100' : 'pointer-events-none opacity-0',
       )}
     >
-      {view.imageUrl ? (
+      {view.video ? (
+        // The screen itself, moving. Handed in whole rather than built here:
+        // whatever is carrying it — a media track today — is the caller's
+        // business, not the stage's.
+        <div className="size-full [&>video]:size-full [&>video]:object-cover [&>video]:object-top">
+          {view.video}
+        </div>
+      ) : view.imageUrl ? (
         // A plain <img>: the frame is served straight from the files ledger at
         // the size it was captured, there is nothing to optimize, and this
         // component carries no framework beyond React by design. Swapping the
@@ -236,6 +256,11 @@ function CallStageScreen({
  * whole picture. The face is one element in one place throughout: it moves and
  * scales on the motion system rather than being re-mounted somewhere else, so
  * the avatar's own animation never restarts mid-call.
+ *
+ * The ending is the same movement run out: on `ended` the face settles back
+ * and fades where it stands — the far side stepping away from the phone — and
+ * the line under it resolves to who was called, that the call ended, and how
+ * long it lasted, frozen. Nothing vanishes and nothing is left spinning.
  */
 export function CallStage({
   name,
@@ -266,18 +291,26 @@ export function CallStage({
   const scale = inset ? INSET_AVATAR_SIZE / CALL_STAGE_AVATAR_SIZE : 1
   const centred = `calc(50% - ${CALL_STAGE_AVATAR_SIZE / 2}px)`
 
+  const ended = phase === 'ended'
+
   const statusLine =
     status ??
     (phase === 'live' ? (
       <span className="font-medium tabular-nums text-fg">{formatCallDuration(elapsedSeconds)}</span>
     ) : phase === 'ringing' ? (
       'Ringing…'
-    ) : phase === 'ended' ? (
-      elapsedSeconds > 0 ? (
-        <>Call ended · <span className="tabular-nums">{formatCallDuration(elapsedSeconds)}</span></>
-      ) : (
-        'Call ended'
-      )
+    ) : ended ? (
+      // The one line that has to survive the caller looking away and back:
+      // the call is over, and this is what it came to. A call that ended
+      // before anyone picked up has no duration to show, and says so by
+      // showing none.
+      <span className="flex items-center gap-2">
+        <PhoneOff aria-hidden className="size-4 shrink-0" />
+        <span className="font-medium text-fg">Call ended</span>
+        {elapsedSeconds > 0 ? (
+          <span className="tabular-nums">{formatCallDuration(elapsedSeconds)}</span>
+        ) : null}
+      </span>
     ) : (
       'Calling…'
     ))
@@ -288,7 +321,13 @@ export function CallStage({
       <div className="relative aspect-[64/45] min-h-80 w-full max-w-xl">
         {screen ? <CallStageScreen view={screen} name={name} activity={activity} /> : null}
         <div
-          className="bh-call-avatar absolute z-10 rounded-full bg-surface"
+          className={cn(
+            'bh-call-avatar absolute z-10 rounded-full bg-surface',
+            // The settle-out, on the same transition that carries the face
+            // between its two homes: it steps back and dims where it stands,
+            // about its own centre, and stops there.
+            ended && 'scale-90 opacity-40',
+          )}
           style={{
             width: CALL_STAGE_AVATAR_SIZE * scale,
             height: CALL_STAGE_AVATAR_SIZE * scale,
@@ -314,10 +353,7 @@ export function CallStage({
             )}
           />
           <div
-            className={cn(
-              'bh-call-avatar-scale relative origin-top-left',
-              phase === 'ended' ? 'opacity-70' : 'opacity-100',
-            )}
+            className="bh-call-avatar-scale relative origin-top-left"
             style={{
               width: CALL_STAGE_AVATAR_SIZE,
               height: CALL_STAGE_AVATAR_SIZE,
@@ -340,6 +376,19 @@ export function CallStage({
       {/* Keyed by phase so each phase's line enters on the shared transition. */}
       <div key={phase} className="bh-call-enter flex min-h-6 items-center justify-center text-sm text-fg-muted">
         {statusLine}
+      </div>
+      {/* The ending, said out loud. Mounted for the whole call and empty until
+          there is one, because a live region that arrives with its content is
+          announced unreliably — and because the live call's own line is a
+          clock, which no one should have read to them every second. The
+          control that was just pressed is on its way out, so this is all a
+          caller who is not watching the screen has to go on. */}
+      <div aria-live="polite" className="sr-only">
+        {ended
+          ? elapsedSeconds > 0
+            ? `Call with ${name} ended after ${formatCallDuration(elapsedSeconds)}.`
+            : `Call with ${name} ended.`
+          : ''}
       </div>
     </div>
   )
@@ -364,6 +413,12 @@ export type CallDeviceOption = {
  * and end-call controls — end-call visually destructive — with the connection
  * state surfaced as a quiet dot and label, never a headline.
  *
+ * Once the call is over the bar retires: it settles back and fades on the
+ * stage's shared transition, keeping its space so nothing under it jumps, and
+ * goes inert — out of the tab order and out of the accessibility tree in one
+ * move, which is the only honest way to hide something that still has focus in
+ * it. It is never removed mid-fade; the ending is what removes it.
+ *
  * Every control is a toggle whose state the caller can read without colour: the
  * icon changes with the state, `aria-pressed` carries it to assistive tech, and
  * a control that cannot be used right now stays in place, disabled, with the
@@ -387,7 +442,7 @@ export function CallControlBar({
   transcriptVisible,
   onToggleTranscript,
   onEnd,
-  ending,
+  ended,
   statusLabel,
   statusTone,
 }: {
@@ -411,8 +466,8 @@ export function CallControlBar({
   transcriptVisible: boolean
   onToggleTranscript: () => void
   onEnd: () => void
-  /** Disables the controls while the hang-up is being finalized. */
-  ending: boolean
+  /** The call is over: the bar retires and its controls stop responding. */
+  ended: boolean
   statusLabel: string
   statusTone: CallStatusTone
 }) {
@@ -432,7 +487,13 @@ export function CallControlBar({
   const transcriptLabel = transcriptVisible ? 'Hide transcript' : 'Show transcript'
 
   return (
-    <div className="flex w-full flex-col items-center gap-3">
+    <div
+      inert={ended}
+      className={cn(
+        'bh-call-enter flex w-full flex-col items-center gap-3',
+        ended && 'scale-95 opacity-0',
+      )}
+    >
       {/* Four round controls fit a 320px screen at the tighter gap; the wrap is
           the safety net for anything narrower still. */}
       <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4">
@@ -445,7 +506,7 @@ export function CallControlBar({
               className="size-14 rounded-full"
               aria-label={micLabel}
               aria-pressed={!micEnabled}
-              disabled={ending}
+              disabled={ended}
               onClick={onToggleMic}
             >
               {micEnabled ? <Mic className="size-5" /> : <MicOff className="size-5" />}
@@ -462,7 +523,7 @@ export function CallControlBar({
                   aria-label="Choose microphone"
                   aria-haspopup="menu"
                   aria-expanded={micMenu.open}
-                  disabled={ending}
+                  disabled={ended}
                   onClick={(event) => micMenu.openBelow(event.currentTarget)}
                 >
                   <ChevronDown className="size-3.5" />
@@ -481,7 +542,7 @@ export function CallControlBar({
             // in the name itself — the tooltip alone would never be heard.
             aria-label={shareBlocked ? `${shareLabel} — ${shareUnavailableReason}` : shareLabel}
             aria-pressed={sharingScreen}
-            disabled={ending || sharePending || shareBlocked}
+            disabled={ended || sharePending || shareBlocked}
             onClick={onToggleScreenShare}
           >
             {sharePending ? (
@@ -511,7 +572,7 @@ export function CallControlBar({
             variant="destructive"
             className="size-14 rounded-full"
             aria-label="End call"
-            disabled={ending}
+            disabled={ended}
             onClick={onEnd}
           >
             <PhoneOff className="size-5" />
@@ -536,7 +597,7 @@ export function CallControlBar({
               type="button"
               variant="link"
               className="h-auto p-0 text-xs font-semibold"
-              disabled={ending || sharePending}
+              disabled={ended || sharePending}
               onClick={onToggleScreenShare}
             >
               Stop sharing
@@ -548,7 +609,9 @@ export function CallControlBar({
         <span aria-hidden className={cn('inline-block size-1.5 rounded-full', STATUS_DOT[statusTone])} />
         {statusLabel}
       </p>
-      <ContextMenu open={micMenu.open} position={micMenu.position} items={micItems} onClose={micMenu.close} />
+      {/* The menu goes with the bar: a floating list of microphones outlives
+          nothing, least of all the call it belonged to. */}
+      <ContextMenu open={micMenu.open && !ended} position={micMenu.position} items={micItems} onClose={micMenu.close} />
     </div>
   )
 }

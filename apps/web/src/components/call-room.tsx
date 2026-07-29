@@ -6,13 +6,15 @@ import { Phone } from 'lucide-react'
 import {
   LiveKitRoom,
   RoomAudioRenderer,
+  VideoTrack,
   useConnectionState,
   useLocalParticipant,
   useMediaDeviceSelect,
   useRemoteParticipants,
   useSpeakingParticipants,
+  useTracks,
 } from '@livekit/components-react'
-import { ConnectionState } from 'livekit-client'
+import { ConnectionState, Track } from 'livekit-client'
 import {
   Button,
   Card,
@@ -42,6 +44,7 @@ import {
   type ToolActivityItem,
 } from '../lib/call-activity'
 import { createCallTones, type CallTones } from '../lib/call-tones'
+import { AGENT_SCREEN_TRACK_NAME } from '../lib/agent-screen'
 import { ToolActivityCard, ToolMark } from './tool-activity'
 import {
   CALL_STAGE_AVATAR_SIZE,
@@ -54,6 +57,16 @@ import {
   type CallStageScreenView,
   type CallStatusTone,
 } from './call-stage'
+
+/**
+ * How long the resolved stage is held before the caller is taken back to the
+ * agent's profile. Long enough for the hang-up tone to finish and the face to
+ * settle out — a third of a second each, running together — and then to read
+ * "Call ended" with the duration beside it; short enough that nobody is left
+ * sitting on a call that is over. The bookkeeping runs underneath it and is
+ * never allowed to lengthen it.
+ */
+const ENDED_HOLD_MS = 1100
 
 const CONNECTION_LABELS: Record<string, string> = {
   [ConnectionState.Connecting]: 'Connecting',
@@ -155,10 +168,14 @@ function useCallFeed(sessionId: string): CallFeed {
 }
 
 /**
- * What the call sounds like before anyone speaks, driven by the phase alone: a
- * ringing tone for exactly as long as the agent is being rung, and one short
+ * What the call sounds like around the talking, driven by the phase alone: a
+ * ringing tone for exactly as long as the agent is being rung, one short
  * connect blip the moment they pick up — from the ringing phase or, when they
- * are quick enough that ringing never renders, straight from dialling.
+ * are quick enough that ringing never renders, straight from dialling — and
+ * the receiver going down the instant the call ends, however it ended. The
+ * caller hanging up, the agent hanging up, and the line dropping all arrive
+ * here as the same phase change, and all three sound the same, because to the
+ * person on the call they are the same thing: the call is over.
  *
  * The player is built once for the life of the room and torn down with it, so
  * no oscillator, timer, or audio context outlives the call. A browser that
@@ -190,9 +207,13 @@ function useCallTones(phase: CallPhase): void {
       return
     }
     // Any other phase — live, ended, or a connection that fell back to
-    // dialling — silences the ring first and asks questions after.
+    // dialling — silences the ring first and asks questions after. The first
+    // phase a call is ever in is sounded by nothing: there is no arrival to
+    // mark until there is something to have arrived from.
     tones.stopRinging()
-    if (phase === 'live' && previous !== null && previous !== 'live') tones.connected()
+    if (previous === null || previous === phase) return
+    if (phase === 'live') tones.connected()
+    else if (phase === 'ended') tones.hangup()
   }, [phase])
 }
 
@@ -200,6 +221,13 @@ function useCallTones(phase: CallPhase): void {
  * The newest browser frame as the stage wants it: a picture and its labels.
  * A frame from a visit that is over is still handed over — marked not live, so
  * the stage can retire it gracefully rather than have it disappear.
+ *
+ * This is the still path, and it is not going anywhere: the screenshot ledger
+ * is the audit record, it is what the run desk replays, and it is what is left
+ * on the stage after the browser closes and its track goes away. While the
+ * browser is open on a call there is live video of the same page, and that
+ * takes the picture; everything else here — which page, what was just done —
+ * still comes from the ledger.
  */
 function screenView(frame: CallBrowserFrame, live: boolean): CallStageScreenView {
   const host = hostOf(frame.detail.url)
@@ -327,14 +355,13 @@ function LiveCallSurface({
   avatar,
   sessionId,
   closed,
-  ending,
   onEnd,
 }: {
   agent: AgentProfile
   avatar: AgentAvatar
   sessionId: string
+  /** True from the moment the call is over, whoever ended it. */
   closed: boolean
-  ending: boolean
   onEnd: () => void
 }) {
   const connection = useConnectionState()
@@ -363,7 +390,10 @@ function LiveCallSurface({
   const elapsedSeconds = useCallTimer(phase === 'live')
   useCallTones(phase)
 
-  const statusLabel = closed ? 'Call ended' : ending ? 'Hanging up…' : (CONNECTION_LABELS[connection] ?? connection)
+  // There is no "hanging up" to report: a hang-up is instant here, and the
+  // room is dropped in the same beat. The line either carries a call or says
+  // the call is over.
+  const statusLabel = closed ? 'Call ended' : (CONNECTION_LABELS[connection] ?? connection)
   const statusTone: CallStatusTone = closed
     ? 'off'
     : connection === ConnectionState.Connected
@@ -439,6 +469,23 @@ function LiveCallSurface({
 
   const [transcriptVisible, setTranscriptVisible] = React.useState(true)
 
+  // The agent's own browser, live in this room. It publishes itself as an
+  // ordinary screen-share track while it has a page open, so watching it needs
+  // no polling and no second transport — the room is already here.
+  //
+  // Source alone would not identify it: in a meeting a human guest shares a
+  // screen from another remote participant on the very same source. The track
+  // name is what says this one is the agent's, and the local filter keeps the
+  // caller's own share off the caller's own stage.
+  const screenTracks = useTracks([Track.Source.ScreenShare], { onlySubscribed: true })
+  const agentScreen = React.useMemo(
+    () =>
+      screenTracks.find(
+        (track) => !track.participant.isLocal && track.publication.trackName === AGENT_SCREEN_TRACK_NAME,
+      ) ?? null,
+    [screenTracks],
+  )
+
   const { turns, activity, browser } = useCallFeed(sessionId)
   const items = React.useMemo(() => toolActivityFromEvents(activity), [activity])
 
@@ -458,10 +505,28 @@ function LiveCallSurface({
     }
     return stageActivity
   }, [items, phase])
-  const screen = React.useMemo(
-    () => (browser ? screenView(browser, browser.live && phase !== 'ended') : null),
-    [browser, phase],
-  )
+  const screen = React.useMemo<CallStageScreenView | null>(() => {
+    const still = browser ? screenView(browser, browser.live && phase !== 'ended') : null
+    if (!agentScreen || phase === 'ended') return still
+    // The track is the present tense in a way the ledger cannot be: it exists
+    // for exactly as long as the agent's browser is open, and it carries the
+    // page as it moves rather than as it was two seconds ago. The ledger still
+    // supplies the words around it — which page, and what was just done on it.
+    const video = <VideoTrack trackRef={agentScreen} />
+    return still
+      ? { ...still, live: true, video }
+      : {
+          // The browser has opened but no step has landed on the record yet.
+          live: true,
+          video,
+          imageUrl: null,
+          title: 'Working in the browser',
+          host: null,
+          action: 'Opening the page',
+          atSeconds: elapsedSeconds,
+          frameKey: 'live',
+        }
+  }, [agentScreen, browser, elapsedSeconds, phase])
 
   return (
     <div
@@ -492,7 +557,7 @@ function LiveCallSurface({
             transcriptVisible={transcriptVisible}
             onToggleTranscript={() => setTranscriptVisible((visible) => !visible)}
             onEnd={onEnd}
-            ending={ending}
+            ended={phase === 'ended'}
             statusLabel={statusLabel}
             statusTone={statusTone}
           />
@@ -522,6 +587,10 @@ function LiveCallSurface({
  * come from startCallAction the moment the page mounts, so there is no lobby
  * to click through. The ref guard keeps a remounted effect (React strict mode)
  * from opening a second session and run for the same call.
+ *
+ * Ending is the mirror of that: instant, local, and exactly once, with the
+ * server-side bookkeeping and the trip back to the profile both happening
+ * after the caller has already seen and heard the call end.
  */
 export function CallRoom({
   serverUrl,
@@ -535,10 +604,19 @@ export function CallRoom({
   const router = useRouter()
   const [call, setCall] = React.useState<{ sessionId: string; token: string } | null>(null)
   const [placeError, setPlaceError] = React.useState<string | null>(null)
-  const [ending, setEnding] = React.useState(false)
   const [closed, setClosed] = React.useState(false)
   const endedRef = React.useRef(false)
   const placedRef = React.useRef(false)
+  const leaveRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // The one timer this component owns. It is cleared on the way out so a page
+  // the caller left themselves can never navigate out from under them later.
+  React.useEffect(
+    () => () => {
+      if (leaveRef.current !== null) clearTimeout(leaveRef.current)
+    },
+    [],
+  )
 
   // Every state change lands in a promise callback rather than in the body:
   // this runs straight out of an effect on mount, and a setState reached
@@ -562,25 +640,36 @@ export function CallRoom({
 
   React.useEffect(place, [place])
 
-  const finish = React.useCallback(async () => {
+  /**
+   * End the call, once. Everything the caller can see or hear happens in this
+   * turn: the stage lands on `ended`, the hang-up tone sounds, the face settles
+   * out, and the room is dropped on the very next render — a call is over the
+   * moment it is over, so nothing here waits on the network. Closing the
+   * session record is bookkeeping and runs alongside; the caller is taken back
+   * to the profile after a beat, whether or not that write has landed.
+   *
+   * The ref is the exactly-once guard, and it is set before anything else: our
+   * own hang-up drops the room, the room's disconnect comes back through here,
+   * and it finds the door already shut. The agent hanging up arrives the same
+   * way from the other direction, and only one of the two can ever be first.
+   */
+  const finish = React.useCallback(() => {
     if (endedRef.current || !call) return
     endedRef.current = true
-    setEnding(true)
-    try {
-      await endCallAction(call.sessionId)
-    } finally {
-      router.push(`/organization?person=${agent.id}`)
-    }
-  }, [agent.id, call, router])
-
-  // The room disconnecting is a normal end of call — the agent hangs up by
-  // deleting the room, which arrives here exactly like our own hang-up. Land
-  // on the ended phase first so the stage reads "Call ended" while the
-  // session is finalized and the caller is taken back to the profile.
-  const handleDisconnected = React.useCallback(() => {
     setClosed(true)
-    void finish()
-  }, [finish])
+    // A failed write is not something a caller on a finished call can act on,
+    // and it must never hold up their ending — the run and the call ledger
+    // both keep their own record of what happened either way.
+    void endCallAction(call.sessionId).catch(() => {})
+    const profile = `/organization?person=${agent.id}`
+    // Warmed while the ending plays, so the profile is there when we get to
+    // it rather than the caller watching a spinner replace a dead call.
+    router.prefetch(profile)
+    leaveRef.current = setTimeout(() => {
+      leaveRef.current = null
+      router.push(profile)
+    }, ENDED_HOLD_MS)
+  }, [agent.id, call, router])
 
   const header = (
     <PageHeader
@@ -632,8 +721,15 @@ export function CallRoom({
         token={call.token}
         audio
         video={false}
-        connect
-        onDisconnected={handleDisconnected}
+        // Hanging up releases the room in the same breath: the microphone
+        // stops, the agent's voice stops, and the caller is left with the
+        // resolved stage rather than a line that is somehow still open.
+        connect={!closed}
+        // The room disconnecting is a normal end of call — the agent hangs up
+        // by deleting the room, and a dropped connection arrives the same way
+        // — so it lands on the same ending, never on an error. When it is the
+        // echo of our own hang-up, the exactly-once guard swallows it.
+        onDisconnected={finish}
       >
         <RoomAudioRenderer />
         <LiveCallSurface
@@ -641,8 +737,7 @@ export function CallRoom({
           avatar={avatar}
           sessionId={call.sessionId}
           closed={closed}
-          ending={ending}
-          onEnd={() => void finish()}
+          onEnd={finish}
         />
       </LiveKitRoom>
     </div>

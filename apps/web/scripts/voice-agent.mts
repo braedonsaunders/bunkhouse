@@ -26,6 +26,8 @@ import { autonomyDial, boundProcedures, requestApproval, runMemories } from '../
 import { callTools } from '../src/lib/call-tools'
 import { createCallWorker, describeError, type CallWorker } from '../src/lib/call-worker'
 import { openAgentEyes, type AgentEyes } from '../src/lib/call-vision'
+import { agentScreenOpener } from '../src/lib/call-screen'
+import { registerBrowserCast } from '../src/lib/browser-cast'
 import { resolveAgentAiConfig } from '../src/lib/ai'
 import { OUTBOUND_ROOM_PREFIX, transferCallToExtension } from '../src/lib/outbound-call'
 import { resolveRealtimeCredential, resolveSpeechCredential } from '../src/lib/voice'
@@ -76,6 +78,11 @@ import {
 //   the rest of the call, pulls the offered pictures back out of the context,
 //   and has the agent say plainly that it cannot see. Every sampled screen
 //   frame and every browser step is stored as evidence on the run regardless.
+// - being watched: the other direction. The agent's own browser publishes
+//   itself into this room as a real video track (call-screen.ts over
+//   browser-cast.ts), so the caller watches the page live — scrolling,
+//   clicking, typing, cursor and all — instead of polling one still per step.
+//   Registered per call; a run with no room publishes nothing.
 // - recording: LiveKit Egress mixes the room (audio only) straight into the
 //   tenant's own object storage; this process never handles the bytes. The
 //   uploaded object is ledgered in `files` and stamped on the session.
@@ -1146,6 +1153,26 @@ export default defineAgent({
     // The agent's eyes open with the session, which is built below; the worker
     // is wired first, so the frame handler reaches them through this.
     let eyes: AgentEyes | null = null
+
+    // --- The agent's screen, live in the room ------------------------------
+    // The caller is meant to watch the agent work, not flip through stills of
+    // it. The agent is already a participant here, so the offer is simply
+    // registered against this call's run: if the agent opens its browser, the
+    // browser publishes itself into this room as a video track and the call
+    // page renders it like any other. If it never browses, nothing is ever
+    // published. Withdrawn on shutdown, which also takes down a track still
+    // running — a call cannot end leaving a screen behind.
+    //
+    // Every other kind of run — an email, a duty, an assignment — registers
+    // nothing, and its browser is untouched by any of this.
+    const stopScreenCast = registerBrowserCast(
+      session.runId ?? session.id,
+      agentScreenOpener({
+        room: ctx.room,
+        onError: (message) => console.error(`[voice] room ${roomName}: ${message}`),
+      }),
+    )
+    ctx.addShutdownCallback(stopScreenCast)
 
     // --- The work, beside the conversation ---------------------------------
     // The talker holds six tools and never blocks. Everything the agent

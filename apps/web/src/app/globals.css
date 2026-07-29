@@ -332,20 +332,27 @@ html, body { min-height: 100%; }
    ordinary call, and the corner it takes while the caller watches the agent
    work a screen. Box and scale ride the same duration so the two read as one
    movement, and the element itself never changes place in the tree, which is
-   what keeps the avatar's own animation from restarting on the way. */
+   what keeps the avatar's own animation from restarting on the way.
+
+   Transform and opacity are on the same list for the ending: when the call is
+   over the face settles back and dims about its own centre, which is a
+   property the box transitions above cannot carry and a utility transition
+   would clobber. The state itself stays in the component. */
 .bh-call-avatar {
   transition:
     width var(--duration-slow) var(--ease-out),
     height var(--duration-slow) var(--ease-out),
     right var(--duration-slow) var(--ease-out),
-    bottom var(--duration-slow) var(--ease-out);
-}
-.bh-call-avatar-scale {
-  transition:
+    bottom var(--duration-slow) var(--ease-out),
     transform var(--duration-slow) var(--ease-out),
     opacity var(--duration-slow) var(--ease-out);
 }
-/* A still stage still reads: the ripple simply rests as a faint ring. */
+.bh-call-avatar-scale {
+  transition: transform var(--duration-slow) var(--ease-out);
+}
+/* A still stage still reads: the ripple simply rests as a faint ring, and the
+   ending arrives already resolved — the face settled back, the control bar
+   gone, the last duration on the line under it. */
 @media (prefers-reduced-motion: reduce) {
   .bh-call-enter {
     transition: none;

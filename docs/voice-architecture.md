@@ -129,12 +129,21 @@ absorbed by narration, not by the caller's ear.
 interruption, real prosody. Weaker at tools and harder to inspect — which is
 survivable precisely because the talker barely has tools.
 
-**Cascade** (hear → think → speak) keeps the agent's own governed model in the
+**Cascade** (hear → think → speak) keeps the agent's own governed models in the
 loop and is the fallback where a realtime key is absent, or where the tenant
 needs the text model's exact behaviour. It costs a hop.
 
 Both drive the same worker. The choice of talker does not change what an agent
 can do — only how it sounds.
+
+**Both separate the two models.** Every agent's record carries two: the model
+it works with, and the model it answers with on a call. A realtime agent gets
+the split structurally — the realtime speech model does the talking, the
+assigned working model does the work. A cascade agent gets it deliberately:
+the conversation runs on the agent's fast model, the work behind `do_work` on
+its working model. An agent that names no fast model of its own answers with
+its provider's, and failing that with the model it works with — which is
+exactly the single-model behaviour every existing agent already had.
 
 ## What this fixes
 
@@ -155,6 +164,9 @@ can do — only how it sounds.
 | The worker bound to one call | `apps/web/src/lib/call-worker.ts` |
 | The engine, and its live disposition | `executeAgentRun` / `LiveRun` in `apps/web/src/lib/agent-runs.ts` |
 | The call itself | `apps/web/scripts/voice-agent.mts` |
+| The two models an agent runs on | `AgentModelConfig` in `apps/web/src/db/schema/people.ts`, resolved by `resolveAgentAiConfig` in `apps/web/src/lib/ai.ts` |
+| Where an operator picks them | the agent record's Model tab — `apps/web/src/components/assign-model-form.tsx` |
+| The agent's screen, live | `apps/web/src/lib/browser-cast.ts` (cursor + screencast), `apps/web/src/lib/call-screen.ts` (the track), `apps/web/src/lib/agent-screen.ts` (the contract they share) |
 
 `do_work` is the framework's own async tool. The first `RunContext.update()`
 answers the model with the handle, marks the call non-blocking, and returns
@@ -168,6 +180,55 @@ same `describeToolCall` the call page renders — so what the caller hears and
 what the operator watches are the same story from the same ledger. Browser
 frames go to the call's eyes, unchanged.
 
+## Watching the agent work
+
+The caller should be able to watch the agent's browser the way they would watch
+a colleague share a screen — the page scrolling, links being clicked, text
+going in a character at a time, a cursor crossing it. A still per recorded
+step, polled, cannot be that however often it is polled; it reads as a
+slideshow of results with no work between them.
+
+The agent is already a participant in the caller's room, so the answer is to
+publish its browser as an ordinary video track:
+
+```
+   puppeteer page ──Page.startScreencast──▶ JPEG per repaint
+                                              │  sharp → packed RGBA
+                                              ▼
+                      VideoSource ──▶ LocalVideoTrack ──▶ the call's room
+                                                              │
+                                                    the call page's stage
+```
+
+Four things make it honest rather than decorative:
+
+- **A real cursor.** A devtools mouse paints nothing, so one is drawn into the
+  page: a closed shadow root hung off `<html>`, `position:fixed`,
+  `pointer-events:none`, driven by the page's own mouse events. It is outside
+  the subtree the page summarizer reads, and the target finders refuse to match
+  inside it, so the agent can neither read nor click its own pointer. Because
+  the browser tools target by element and never by coordinate, nothing would
+  move that pointer on its own — so before each click or keystroke it is led to
+  the target's centre over about a fifth of a second, scrolling the page
+  smoothly underneath if the target was off-screen. That is the whole added
+  latency, and it is paid only when somebody is watching.
+- **Frames Chromium already makes.** `Page.startScreencast` emits a JPEG when
+  the page repaints and nothing at all when it does not, with an ack per frame.
+  Screenshotting in a loop — the thing this replaces — pays a full capture
+  round trip whether or not anything moved, and competes with the agent's own
+  work for the same page.
+- **Drops, never queues.** While a conversion is in flight every arriving frame
+  is acked and discarded. A slow encoder lowers the frame rate the caller sees
+  and can never slow the agent down.
+- **Calls only.** The voice agent registers an offer against its call's run
+  before any browser exists. An email run, a duty, or an assignment registers
+  nothing, so its browser opens with no cursor, no screencast, and no track.
+
+The screenshot ledger is untouched by all of it. It is the audit record —
+doctrine #9 — it is what the run desk replays, and it is what the call stage
+falls back to for a screen the agent has already left. The track is the live
+view; the ledger is the evidence.
+
 ## Migration
 
 Staged, each stage shippable and independently valuable:
@@ -175,12 +236,14 @@ Staged, each stage shippable and independently valuable:
 1. ~~**Shrink the talker's surface** to the six tools~~ — landed.
 2. ~~**Make it async** — the framework's own async tools, replacing the filler
    timer, with the worker's events narrated as they land~~ — landed.
-3. **Split the model** — talker and worker on separately configured models, so
-   the worker can be the strongest text model available and the talker the
-   fastest voice one. Structurally already true of a realtime agent: the talker
-   runs the realtime voice model and the worker runs the agent's assigned text
-   model. What is left is the operator-facing knob — a cascade agent still uses
-   one model for both, and nobody can yet pick them apart deliberately.
+3. ~~**Split the model** — talker and worker on separately configured models,
+   so the worker can be the strongest text model available and the talker the
+   fastest voice one~~ — landed. The agent's record now carries both: the model
+   it works with and the model it answers with on a call, chosen separately on
+   the Model tab from one provider. The cascade talker is built from the fast
+   one; every governed run still uses the working one. Measured on this
+   deployment, a small model answers in ~570ms where a large reasoning model
+   takes seconds — on a call that difference is the whole experience.
 4. **Speculative preparation** — the worker starts fetching likely context
    while the caller is still speaking, so the answer is often ready before the
    question finishes.
