@@ -16,7 +16,6 @@ import {
   Label,
   SearchSelect,
   Select,
-  Switch,
 } from '@appkit/ui'
 import type { BunkhouseVoiceConfig } from '../db/schema'
 import { listVoicesForTenantAction } from '../app/admin/settings/actions'
@@ -85,7 +84,6 @@ export function VoiceConfigForm({
   )
   const [realtimeModel, setRealtimeModel] = React.useState(current?.realtime?.model ?? '')
   const [realtimeVoice, setRealtimeVoice] = React.useState(current?.realtime?.voice ?? '')
-  const [cascadeVision, setCascadeVision] = React.useState(current?.cascadeVision === true)
   const [language, setLanguage] = React.useState(current?.language ?? 'en')
   const [style, setStyle] = React.useState(current?.style ?? '')
   const [error, setError] = React.useState<string | null>(null)
@@ -228,7 +226,6 @@ export function VoiceConfigForm({
               mode,
               language: language.trim() || 'en',
               ...(style.trim() ? { style: style.trim() } : {}),
-              ...(cascadeVision ? { cascadeVision: true } : {}),
               cascade: {
                 sttProvider: 'deepgram',
                 sttModel,
@@ -374,29 +371,6 @@ export function VoiceConfigForm({
                 )}
               </div>
 
-              <div className="space-y-2 rounded-md border border-border p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="voice-cascade-vision">See a shared screen in meetings</Label>
-                    <p className="text-xs text-fg-muted">
-                      In a video meeting, a still picture of the guest&apos;s shared screen is put in front of{' '}
-                      {name.split(' ')[0]}&apos;s own model every twenty seconds, so they can talk about what is
-                      actually on it.
-                    </p>
-                  </div>
-                  <Switch
-                    id="voice-cascade-vision"
-                    checked={cascadeVision}
-                    onChange={(e) => setCascadeVision(e.target.checked)}
-                  />
-                </div>
-                <p className="text-xs text-fg-muted">
-                  Turn this on only if the model assigned on the Overview tab accepts images — many text models do not,
-                  and there is no way to know without trying. If the model refuses a picture, vision switches off for
-                  the rest of that meeting and {name.split(' ')[0]} says plainly that they cannot see the screen. Every
-                  still is saved to the meeting record either way, so nothing shared is lost.
-                </p>
-              </div>
             </div>
           ) : (
             <div className="space-y-4">

@@ -132,10 +132,14 @@ export const meetingLinks = pgTable(
  */
 export type BunkhouseVoiceConfig = AgentVoiceConfig & {
   /**
-   * Cascade agents only: put stills of a shared screen in front of the agent's
-   * own text model during a video meeting. Off by default — a text model may
-   * have no vision at all, and the runtime cannot tell in advance, so this is
-   * an explicit choice the operator makes for the agent.
+   * Retired: seeing a screen was once an operator's switch, on the theory that
+   * only they could know whether the agent's model takes images. They cannot —
+   * nobody can, without offering one — and the runtime already handles the
+   * answer, switching vision off for the session and saying so out loud when a
+   * model refuses. Stored values are ignored; the field remains only so an
+   * older row still parses.
+   *
+   * @deprecated Vision is attempted on every call and meeting.
    */
   cascadeVision?: boolean
 }
