@@ -67,6 +67,13 @@ export function openAgentEyes(args: {
   sees: boolean
   /** Record the moment vision went off — this belongs on the run. */
   onBlind: (message: string) => void
+  /**
+   * About to make the agent speak. The eyes are the one place besides the
+   * mailbox and the greeting that starts a turn of its own, and an utterance
+   * whose cause is unrecorded reads on the record exactly like the agent
+   * answering from stale context — the thing the trace exists to detect.
+   */
+  onSpeaking?: () => void
   /** Operator-facing log line for anything that goes wrong along the way. */
   onError: (message: string) => void
 }): AgentEyes {
@@ -90,6 +97,7 @@ export function openAgentEyes(args: {
     void agent
       .updateChatCtx(chatCtx)
       .then(() => {
+        args.onSpeaking?.()
         session.generateReply({ instructions })
       })
       .catch((error) => onError((error as Error).message))

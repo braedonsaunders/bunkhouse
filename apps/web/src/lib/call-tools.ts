@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Ability, ActionCategory, AutonomyLevel } from '@bunkhouse/runtime'
 import { describeToolCall } from './call-activity'
 import type { CallMailbox } from './call-mailbox'
+import type { CallTrace } from './call-trace'
 import { describeError, type CallWorker, type WorkReport } from './call-worker'
 
 /**
@@ -51,7 +52,34 @@ const HANDED_OVER =
   'It is running now, beside this call. You have ALREADY told the caller you are on it, so do not announce it again — repeating yourself the moment you have handed something over is what makes an agent sound like it is stammering. Say nothing about this handover. Just carry on the conversation you were having: answer what they asked, ask what you still need to know to make the result useful, or make ordinary conversation. You will be told where it has got to as it goes, and the result comes back to you when it is ready.'
 
 /** One line per piece of work, for `check_work` and for the model to read. */
-function readable(report: WorkReport): Record<string, unknown> {
+function readable(report: WorkReport, extra?: { alreadyHeard?: boolean }): Record<string, unknown> {
+  // Collected rather than overwritten: "this is parked on a sign-off" and "you
+  // have already said this" are both true at once on a parked piece of work,
+  // and dropping either one loses something the caller is owed.
+  const notes: string[] = []
+  if (report.status === 'stopped') {
+    // A model handed a report with no answer in it will produce an answer
+    // anyway, from whatever it happens to be holding — a list it saw two
+    // minutes ago, a search snippet from the first attempt. That is exactly how
+    // a caller was read a stale list of restaurants while the real answer sat
+    // finished in the record. So a report with no answer says so in words.
+    notes.push(
+      'No answer came back for this. Do NOT answer from memory, from anything you saw earlier in the call, or from a guess: say plainly that you did not get it, and offer to finish it and send it on.',
+    )
+  }
+  if (report.status === 'needs_approval') {
+    notes.push(
+      'This is parked on a human decision. Tell the caller it needs their sign-off and will happen once it is signed off — never that it is done.',
+    )
+  }
+  if (extra?.alreadyHeard) {
+    // The caller has already heard these exact words, because the mailbox said
+    // them at a quiet moment while this was still running. Saying them again as
+    // the answer is the byte-identical repeat, seconds apart, in the ledger.
+    notes.push(
+      'You have ALREADY said this to the caller, in these words. Do not say it again: reply with nothing at all unless you have something genuinely new to add.',
+    )
+  }
   return {
     handle: report.id,
     askedFor: report.intent,
@@ -67,6 +95,8 @@ function readable(report: WorkReport): Record<string, unknown> {
               : 'could not be done',
     latest: report.detail,
     runningForSeconds: report.runningForSeconds,
+    ...(extra?.alreadyHeard ? { alreadyToldTheCaller: true } : {}),
+    ...(notes.length > 0 ? { note: notes.join(' ') } : {}),
   }
 }
 
@@ -90,6 +120,14 @@ function surfacedAbility(args: {
   ability: Ability
   governance: CallGovernance
   record: (kind: 'tool_call' | 'tool_result' | 'approval_request', payload: Record<string, unknown>) => Promise<void>
+  /**
+   * Where a parked approval is announced from. A tool result telling the model
+   * to mention the sign-off is not enough on its own — a model reading a JSON
+   * result decides for itself whether it is worth saying, and on the call this
+   * was found on it decided not to, three times. The mailbox is the one route
+   * that carries interrupt priority and cannot be talked out of it.
+   */
+  needsApproval: (post: { workId: string; text: string }) => void
 }): AnyTalkerTool {
   const { ability, governance } = args
   const base = ability.tool
@@ -141,6 +179,13 @@ function surfacedAbility(args: {
                 ? 'Still waiting on the same sign-off you already asked for — do not ask again. Tell the caller it is with their manager, and move on.'
                 : 'This needs human sign-off and has been queued. Tell the caller it is awaiting approval and will happen once signed off — then carry on with the call.',
             }
+            // Both routes, deliberately. The approval is keyed on the approval
+            // id rather than on a piece of work, so the same park announced from
+            // the loop and from here is one line, not two.
+            args.needsApproval({
+              workId: `approval-${approvalId}`,
+              text: `${description} — it needs a manager's sign-off before it can happen.`,
+            })
             await args.record('tool_result', { toolName: ability.name, output }).catch(() => {})
             return output
           }
@@ -175,6 +220,11 @@ export function callTools(args: {
   governance: CallGovernance
   /** Append a run event — the call's audit trail matches an email run's. */
   record: (kind: 'tool_call' | 'tool_result' | 'approval_request', payload: Record<string, unknown>) => Promise<void>
+  /**
+   * The call's operational record. `do_work` uses it for the one fact neither
+   * ledger holds: whether the answer it just got was ever spoken to the caller.
+   */
+  trace: CallTrace
   /**
    * Put the receiver down. Returns at once so the agent can finish its last
    * words; the hangup itself drains that speech before closing the room.
@@ -229,8 +279,18 @@ export function callTools(args: {
         }),
       ])
       // Nothing to deliver: the line is gone, and returning nothing is how the
-      // framework is told there is no deferred reply to make.
+      // framework is told there is no deferred reply to make. The work itself
+      // is not abandoned — the call's teardown refiles anything still running
+      // through the deferred disposition, so the answer arrives by email — and
+      // the trace records that this caller never heard it.
       if (!settled) return null
+      // Has the caller heard these exact words already? Asked BEFORE the
+      // mailbox is told, because telling it is what stamps them as said. An
+      // approval line is the case that bites: the mailbox says it at a quiet
+      // boundary the moment the loop parks, and a few seconds later this
+      // report says it again at the turn tail — two byte-identical rows in
+      // `call_turns`, which is what a caller hears as a stuck line.
+      const alreadyHeard = mailbox.said({ workId: work.id, text: settled.detail })
       // The answer travels back as this tool's return value — the framework's
       // deferred-reply path, which already waits for the turn to end and gives
       // the agent its own words for it. Telling the mailbox it has been said
@@ -238,7 +298,22 @@ export function callTools(args: {
       // so "still looking at the site" can never land behind the answer, and
       // the same words can never go out twice by two routes.
       mailbox.delivered({ kind: 'result', workId: work.id, text: settled.detail })
-      return readable(settled)
+      if (alreadyHeard) {
+        // Nothing more is expected to be said, so nothing is waiting for a turn
+        // that will not come: the caller has heard these words already and the
+        // record says by which route.
+        args.trace.answerAlreadySpoken({
+          workId: work.id,
+          route: 'the mailbox said these words at a quiet boundary while it was still running',
+        })
+      } else {
+        // The framework makes a reply for this return value once the turn ends,
+        // so the next thing the agent says IS this answer being read out. That
+        // is what marks the answer delivered; if no such turn ever happens, the
+        // trace says the answer was produced and never spoken.
+        args.trace.expectTurn({ cause: 'work_result', workId: work.id })
+      }
+      return readable(settled, { alreadyHeard })
     },
   })
 
@@ -258,7 +333,7 @@ export function callTools(args: {
         return { work: [], note: 'Nothing is running. If the caller has asked for something, hand it over with do_work.' }
       }
       return {
-        work: work.map(readable),
+        work: work.map((report) => readable(report)),
         ...(waiting.length > 0 ? { sinceYouLastHeard: waiting.map((item) => item.text) } : {}),
       }
     },
@@ -269,6 +344,15 @@ export function callTools(args: {
   // model can finish its last words; the hangup waits for that speech to play
   // out, settles the ledger, and then takes the room down, which is what
   // actually ends the call for the caller.
+  //
+  // Hanging up while the caller's own answer is still coming is how a call ends
+  // two seconds before the result lands — and the model, with nothing back, fills
+  // the goodbye with something it half-remembers. So the first attempt to hang up
+  // on live work is refused and the agent is told to wait for it. Once, and once
+  // only: a caller who wants to go must always be able to go, so a second attempt
+  // ends the call and the unfinished work is refiled to arrive by email.
+  let refusedHangupOnce = false
+
   tools.end_call = llm.tool({
     description:
       'Hang up the call. Use only when the conversation has reached its natural end — the work is agreed or done and goodbyes have been said. Never to cut someone off.',
@@ -278,6 +362,15 @@ export function callTools(args: {
     flags: llm.ToolFlag.NONE,
     execute: async ({ reason }) => {
       await args.record('tool_call', { toolName: 'end_call', category: 'phone_call', input: { reason } }).catch(() => {})
+      if (!refusedHangupOnce && worker.working()) {
+        refusedHangupOnce = true
+        const output = {
+          ended: false,
+          note: 'Not yet — something the caller asked for is still running and the answer is close. Stay on the line: tell them you are just waiting on the last of it, keep them company for a moment, and read the answer out when it lands. If they genuinely need to go, offer to finish it and send it on, then hang up.',
+        }
+        await args.record('tool_result', { toolName: 'end_call', output }).catch(() => {})
+        return output
+      }
       // Result lands with the call, not after it: the activity feed pairs calls
       // with results, and this one's outcome is the hangup itself.
       await args.record('tool_result', { toolName: 'end_call', output: { ended: true, reason } }).catch(() => {})
@@ -329,7 +422,12 @@ export function callTools(args: {
       args.onError(`the ${abilityName} ability is missing — ${toolName} is not on this call`)
       continue
     }
-    tools[toolName] = surfacedAbility({ ability, governance: args.governance, record: args.record })
+    tools[toolName] = surfacedAbility({
+      ability,
+      governance: args.governance,
+      record: args.record,
+      needsApproval: (post) => mailbox.post({ kind: 'needs_approval', ...post }),
+    })
   }
 
   return tools

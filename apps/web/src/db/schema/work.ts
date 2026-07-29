@@ -111,6 +111,16 @@ export const runEventKind = pgEnum('run_event_kind', [
   'approval_request',
   'delegation',
   'error',
+  /**
+   * Why something happened, rather than what happened: what caused an agent
+   * utterance, what became of a piece of work handed over on a call, what the
+   * delivery mailbox decided about a line and why. Its own kind rather than
+   * another `message`, because a message is the agent's own prose and mixing
+   * the two would leave one column meaning two things — and because the whole
+   * point of the record is being able to read the operational story on its own,
+   * or exclude it from the narrative surfaces that show an agent's work.
+   */
+  'trace',
 ])
 
 export const runEvents = pgTable(

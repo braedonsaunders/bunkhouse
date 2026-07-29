@@ -24,7 +24,8 @@ import {
 import { assembleAbilities } from '../src/lib/agent-abilities'
 import { autonomyDial, boundProcedures, requestApproval, runMemories } from '../src/lib/agent-runs'
 import { callTools } from '../src/lib/call-tools'
-import { createCallMailbox, type CallMailbox } from '../src/lib/call-mailbox'
+import { createCallMailbox, type CallMailbox, type MailboxItem } from '../src/lib/call-mailbox'
+import { createCallTrace, type CallTrace } from '../src/lib/call-trace'
 import { createCallWorker, describeError, type CallWorker } from '../src/lib/call-worker'
 import { openAgentEyes, type AgentEyes } from '../src/lib/call-vision'
 import { agentScreenOpener } from '../src/lib/call-screen'
@@ -274,8 +275,13 @@ type CallPosture = {
    * the moment it happens, by the eyes that offered the picture.
    */
   seesScreen: boolean
-  /** True when this agent has its browser on the call. */
+  /** True when this agent's browser is genuinely usable on this call. */
   browser: boolean
+  /**
+   * What the agent should know about reading pages here, when that is not
+   * simply "you have your browser". Empty on a call where the browser works.
+   */
+  pageAccess?: string
 }
 
 /** The agent's whole working identity, plus how to behave on a live call. */
@@ -355,6 +361,10 @@ async function buildInstructions(
             : 'Your browser gives you the page as text on this call; the pictures of it cannot reach you here. Work from the text and from what each step reports, never claim to have looked at something, and if a page will not do what you expect, say so plainly and offer to finish it after the call rather than guessing.',
         ]
       : []),
+    // Said out loud on the line as well as in the work's own brief: the talker
+    // is what promises the caller a capability, and it must not promise one the
+    // worker has had withdrawn under it.
+    ...(posture.pageAccess ? [posture.pageAccess] : []),
     ...(session.direction === 'outbound_phone' && session.purpose
       ? [
           `You placed this call. What it is for: ${session.purpose}. Whoever answers has no idea who is on the line, so say who you are and why you are calling before anything else, and let them go once you have what you called for.`,
@@ -388,13 +398,23 @@ async function buildInstructions(
     'Every so often you will be told where your own work has got to. That is for you, not a script: mention it only if it is genuinely worth a few words to them ("still going through their site", "found two so far"), in your own words, in one short clause, and then carry on the conversation. Most of the time the right answer is to say nothing at all and keep talking about what you were talking about. Never read those notes out one after another — a running commentary of pages being opened is not company.',
     'Be relentless. One source refusing you is not a dead end, it is the first thing you tried: a 403, a bot check, a dead domain, a page that will not load — go straight to the next route without being asked. Try the official site, then the search result you have not opened yet, then a directory or aggregator, then the cached or printable version, then a different search phrasing, then the browser instead of a plain fetch. Three or four genuine attempts down different paths before you even mention difficulty. Never answer a request with a question when you could answer it with an attempt, and never hand the work back ("would you like me to try another site?") — try it, then tell them what you found. Only when you have honestly exhausted the routes do you say so, and then say exactly what you tried and what stopped you.',
     'If the caller speaks while work is running, just talk with them — it keeps going and you share the result when it lands. Never hand the same thing over twice because you were interrupted.',
+    // Answering from stale context. A caller was once read a list of
+    // restaurants the agent had seen in a search snippet minutes earlier, while
+    // the real answer — a different list, off a page the agent had actually
+    // read — sat finished in the record and was never spoken. Every fact a
+    // caller acts on has to come from something that came back on this call.
+    'Every fact you state must come from what came back to you on THIS call — a result you were handed, a note you were given, a page you actually read. Something you saw earlier in the conversation, a half-remembered list, an assumption about a place you know: none of that is a result, and none of it may be presented as one. If what came back has no answer in it, say plainly that you did not get it and offer to finish it and send it on. Never fill a gap with something you remember.',
+    // Perishable facts. The worker verifies them against the primary source;
+    // this is the half the caller hears — the sentence that makes the
+    // difference between a fact and a fact with a date on it.
+    'Anything perishable — whether a place is open or has closed, hours, prices, availability, whether something is still in stock or still trading — is only worth saying if it came from the source itself. When what came back tells you it could not be verified, say that in the same breath as the fact: "their site is down, so this is from a listing that might be out of date". Never present an unverified perishable fact as a checked one.',
     // The line between the two dispositions of one capability: same kit, same
     // rules, different timing. do_work is what they are waiting on; an
     // assignment is what outlives the call and arrives by email.
     `take_assignment is the same work with different timing: it outlives this call and the outcome arrives by email. Use it when the work genuinely cannot be finished while you talk — hours of research, a document or spreadsheet to produce, waiting on someone else to reply — or when the caller asks you to take it away, get back to them, or send it on. Then confirm the brief out loud first: what a good outcome looks like, any file format they want (PDF, Word, Excel — many assignments need no file at all), who receives it, and any deadline. Never take something as an assignment that you could simply do on the line — if in doubt, hand it to do_work now and offer to finish it as an assignment when it turns out to be bigger than the call.`,
     'Use remember when the caller tells you something worth keeping — a preference, a correction, a fact about them or their business you would want on the next call.',
-    'Some actions need human sign-off first. When something comes back queued for approval, tell the caller it is with their manager and will happen once signed off — never claim it is done, and never ask for the same sign-off twice.',
-    'When the conversation is genuinely over — the work is agreed or done, they are wrapping up, goodbyes are being said — say your own goodbye and then call end_call to hang up, the way a person puts the receiver down. Never hang up mid-request or to dodge a question, and if you are unsure whether they are done, ask.',
+    'Some actions need human sign-off first. When something comes back queued for approval, tell the caller it is with their manager and will happen once signed off — never claim it is done, and never ask for the same sign-off twice. Telling them is not optional: an action that quietly went nowhere while they thought it was in hand is worse than one they know is waiting.',
+    'When the conversation is genuinely over — the work is agreed or done, they are wrapping up, goodbyes are being said — say your own goodbye and then call end_call to hang up, the way a person puts the receiver down. Never hang up mid-request or to dodge a question, and if you are unsure whether they are done, ask. Never hang up while something they asked for is still running: wait for it and read it out, or, if they have to go, say you will finish it and send it on.',
   ].join('\n')
 
   return `${base}\n\n${voiceAddendum}`
@@ -454,12 +474,24 @@ const ASYNC_TOOL_VOICE = {
  * and saying nothing is a valid response — a model asked to reply will
  * otherwise invent something to reply with.
  */
-const deliveryBriefing = (text: string): string =>
-  [
-    'Where your own background work has got to. The caller did not say this and is not waiting for an answer to it:',
+const deliveryBriefing = (text: string, items: readonly MailboxItem[]): string => {
+  // An approval or a failure is not progress, and briefing it as though it were
+  // is how a caller ends up never hearing that something is waiting on their
+  // sign-off: told "say nothing if it adds nothing", a model reads a queued
+  // approval as housekeeping and stays quiet. It is the one thing on this call
+  // the caller can act on while they are still holding the phone, so the
+  // instruction for it is the opposite of the one for progress.
+  const mustSay = items.some((item) => item.kind === 'needs_approval' || item.kind === 'failed')
+  return [
+    mustSay
+      ? 'Something the caller needs to know about your own work — they did not say this, and it is NOT optional to mention:'
+      : 'Where your own background work has got to. The caller did not say this and is not waiting for an answer to it:',
     text,
-    'Say where you are up to in one short clause, in your own words, and then stop. If it adds nothing to what they already know, say nothing at all. Never treat this as something the caller said, never thank them for it, never invent a result, and never call the work finished unless the note above says it is.',
+    mustSay
+      ? 'Tell them this now, in one short sentence, in your own words: what is waiting and what happens next. If it needs their sign-off, say that it does and that it will happen once it is signed off — never that it is done, and never ask for the same sign-off twice. Then carry on with the call.'
+      : 'Say where you are up to in one short clause, in your own words, and then stop. If it adds nothing to what they already know, say nothing at all. Never treat this as something the caller said, never thank them for it, never invent a result, and never call the work finished unless the note above says it is.',
   ].join('\n')
+}
 
 /**
  * How long a delivery may hold the mailbox before it is given up on.
@@ -822,10 +854,28 @@ export default defineAgent({
         })
       })
     }
-    const ledgerTurn = (speaker: 'agent' | 'human', text: string) =>
+    /**
+     * Chat items already in the transcript.
+     *
+     * The ledger is append-only, and one utterance must appear in it once. The
+     * identity of an utterance is the chat item's id — never its text: two
+     * identical lines from two different items are the agent genuinely saying
+     * the same thing twice, which is a real event a caller heard twice and
+     * which the record must keep, while the same id arriving twice is this
+     * process double-recording one utterance. Deduplicating on text would hide
+     * the first and is why "the agent repeated itself" and "the ledger repeated
+     * itself" were confused for each other in the first place.
+     */
+    const recordedItems = new Set<string>()
+    const ledgerTurn = (speaker: 'agent' | 'human', text: string, itemId?: string) => {
+      if (itemId !== undefined) {
+        if (recordedItems.has(itemId)) return
+        recordedItems.add(itemId)
+      }
       void appendTurn(speaker, text).catch((error) =>
         console.error(`[voice] turn append failed for ${session.id}:`, describeError(error)),
       )
+    }
     // --- Where a slow turn spends its time -------------------------------
     // One compact line per pipeline leg, so a "ten seconds to answer" report
     // against any deployment can be split into turn detection, model, and
@@ -856,6 +906,10 @@ export default defineAgent({
     agentSession.on(voice.AgentSessionEventTypes.AgentStateChanged, (event) => {
       if (event.newState === 'speaking') agentSpoke = true
     })
+    // Built once the run's event numbering is known, below — the transcript
+    // handler is registered before that and reads it when it fires, which is
+    // why it is named here and nullable.
+    let trace: CallTrace | null = null
     agentSession.on(voice.AgentSessionEventTypes.ConversationItemAdded, (event) => {
       const item = event.item
       if (item.type !== 'message') return
@@ -863,7 +917,12 @@ export default defineAgent({
       if (!text) return
       const speaker = item.role === 'assistant' ? 'agent' : item.role === 'user' ? 'human' : null
       if (!speaker) return
-      ledgerTurn(speaker, text)
+      // Why the agent said this, recorded with the item's own id, before the
+      // transcript insert — so a duplicate is provable from the record rather
+      // than argued about from the words.
+      if (speaker === 'agent') trace?.agentTurn({ itemId: item.id, text })
+      else trace?.callerTurn(item.id)
+      ledgerTurn(speaker, text, item.id)
     })
     if (answeringMachine) {
       // With no model in the session the framework has nowhere to put a user
@@ -900,11 +959,24 @@ export default defineAgent({
           tenantId: session.tenantId,
           runId: session.runId!,
           seq: mySeq,
-          kind: kind as 'tool_call',
+          kind: kind as (typeof runEvents.$inferInsert)['kind'],
           payload,
         })
       })
     }
+
+    // --- Why: the call's operational record ---------------------------------
+    // The transcript says what was said and the tool events say what was done.
+    // Neither says why the agent spoke, or what became of a piece of work, and
+    // three defects on live calls were misdiagnosed twice each for want of it.
+    // Deliberately fire-and-forget: an instrumentation write must never be able
+    // to hold up a conversation, and must never be able to fail one either.
+    trace = createCallTrace((kind, payload) => {
+      void recordEvent(kind, payload).catch((error: unknown) =>
+        console.error(`[voice] room ${roomName}: a trace event was not recorded — ${describeError(error)}`),
+      )
+    })
+    const callTrace = trace
 
     // The call's audio, once it is running. Started below, after the finalizer
     // is registered — nothing may be left recording with no one to stop it.
@@ -931,6 +1003,10 @@ export default defineAgent({
       finalized = true
       mailbox?.close()
       await worker?.stop('the call ended')
+      // After the worker has stopped, because stopping is what refiles work
+      // that outlived the call: the accounting has to know which answers have
+      // somewhere to go before it declares one undelivered.
+      callTrace.close()
       const endedAt = new Date()
       const durationSeconds = Math.max(0, Math.round((endedAt.getTime() - startedAtMs) / 1000))
       const minutes = Math.max(1, Math.round(durationSeconds / 60))
@@ -1160,6 +1236,9 @@ export default defineAgent({
           // Nothing is thinking: the greeting is a fixed line, spoken once.
           agentSession.say(voicemailGreeting({ agentName: person.name, reason: voicemail }))
         } else {
+          // Named even here, so that 'spontaneous' keeps meaning "nothing asked
+          // for this" on every kind of call rather than only on working ones.
+          callTrace.expectTurn({ cause: 'greeting' })
           agentSession.generateReply({
             instructions:
               'Answer the call: say who you are, that you cannot take it right now, and ask them to leave their message.',
@@ -1256,9 +1335,18 @@ export default defineAgent({
     }
     mailbox = createCallMailbox({
       isQuiet: lineIsQuiet,
-      deliver: async ({ text }) => {
+      deliver: async ({ text, items }) => {
+        // What this delivery is for, recorded before it is asked for. The model
+        // is allowed to say nothing, so the expectation is released at the end
+        // of the playout: an approval delivery that produced no words at all is
+        // the caller never being told, and it leaves a line saying so.
+        const expected = callTrace.expectTurn({
+          cause: 'mailbox_delivery',
+          workIds: [...new Set(items.map((item) => item.workId))],
+          deliveryKinds: [...new Set(items.map((item) => item.kind))],
+        })
         const handle = agentSession.generateReply({
-          instructions: deliveryBriefing(text),
+          instructions: deliveryBriefing(text, items),
           // A status note is not an instruction to do more work. Without this
           // the model answers its own progress line by handing the same thing
           // over again.
@@ -1277,8 +1365,10 @@ export default defineAgent({
           // per delivery, and a pile of pending timers holds the job process
           // open past the end of the call it belonged to.
           clearTimeout(giveUp)
+          expected.release()
         }
       },
+      onDecision: (decision) => callTrace.mailbox(decision),
       onError: (message) => console.error(`[voice] room ${roomName}: ${message}`),
     })
     const deliveryMailbox = mailbox
@@ -1298,8 +1388,67 @@ export default defineAgent({
       runId: session.runId ?? session.id,
       trigger: { type: 'chat', conversationId: session.id },
       abilities: assembled.abilities,
+      // Read once, before the first intent: whether this agent's browser is
+      // genuinely usable on this call, or whether every page it opens would
+      // park on a sign-off. An agent left with no way to read a page at all
+      // answers from search snippets and says nothing about it.
+      autonomy: dial,
       caller: session.counterparty.name ?? 'the caller',
       record: (kind, payload) => recordEvent(kind, payload),
+      trace: callTrace,
+      // The call ending must not take an answer with it. Work still running is
+      // refiled as an assignment — the deferred disposition of the same engine,
+      // run by the background worker and delivered by email — so the caller
+      // gets it late rather than never. The scope lives here because the
+      // ability writes to the tenant's own tables.
+      defer: async ({ intent, latest }) => {
+        const ability = assembled.abilities.find(
+          (candidate) => candidate.name === 'take_assignment' && candidate.tool.execute,
+        )
+        if (!ability?.tool.execute) {
+          return { refiled: false, reason: 'this agent cannot take assignments, so there was no way to finish it later' }
+        }
+        // An assignment is delivered by email, so a caller with no address can
+        // never receive one. Said in those words here rather than as the
+        // ability's own model-facing refusal ("ask who should receive it"),
+        // because nobody is left to ask — the line is already down.
+        if (!session.counterparty.email) {
+          return {
+            refiled: false,
+            reason:
+              'this caller left no email address, so there was nowhere to send the finished answer — an anonymous phone call cannot be followed up',
+          }
+        }
+        const execute = ability.tool.execute.bind(ability.tool)
+        const spec = [
+          `On a call with ${session.counterparty.name ?? 'the caller'} this was asked for, and the call ended before it was finished:`,
+          '',
+          intent,
+          '',
+          `Where it had got to when the line went down: ${latest}`,
+          '',
+          'Finish it now and email the outcome. Start again from a primary source rather than trusting anything above — the caller never heard an answer, so nothing here has been confirmed to them.',
+        ].join('\n')
+        const output = (await app.withTenantContext(session.tenantId, () =>
+          execute(
+            { title: `Unfinished call work: ${intent.slice(0, 60)}`, spec } as never,
+            { toolCallId: randomUUID(), messages: [] } as never,
+          ),
+        )) as { taken?: boolean; assignmentId?: string; reason?: string }
+        if (!output?.taken) {
+          return {
+            refiled: false,
+            reason:
+              output?.reason ??
+              'the work could not be refiled as an assignment, so nobody will finish it after the call',
+          }
+        }
+        return {
+          refiled: true,
+          reason: 'refiled as an assignment — it finishes in the background and the outcome is emailed',
+          ...(output.assignmentId ? { assignmentId: output.assignmentId } : {}),
+        }
+      },
       // A step that took a picture of what it did — the browser, today. A
       // function tool's result is text, so the picture goes into the context
       // as image content instead.
@@ -1315,9 +1464,11 @@ export default defineAgent({
       onError: (message) => console.error(`[voice] room ${roomName}: ${message}`),
     })
 
+    const callWorker = worker
     const tools = callTools({
       worker,
       mailbox: deliveryMailbox,
+      trace: callTrace,
       abilities: assembled.abilities,
       governance: {
         autonomy: dial,
@@ -1347,8 +1498,9 @@ export default defineAgent({
           deliveryMailbox.close()
           // Stop the work first. Closing the session drains its tools, and a
           // request still running would hold the hangup open for as long as it
-          // took — the caller said goodbye, so nothing is waiting on it now.
-          await worker.stop('the call ended')
+          // took — the caller said goodbye, so anything unfinished is refiled by
+          // the stop itself and finishes after the call rather than on it.
+          await callWorker.stop('the call ended')
           try {
             await agentSession.close()
           } catch {
@@ -1409,7 +1561,12 @@ export default defineAgent({
       const instructions = await buildInstructions(session, person, liveConfig, ai, {
         meeting: isMeeting,
         seesScreen,
-        browser: assembled.abilities.some((ability) => ability.name.startsWith('browser_')),
+        // Holding a browser ability and being able to use it are different
+        // things: on an 'approval' dial every page parks, so the agent must not
+        // be told it will be watching pages load. The worker resolved which
+        // route it actually has before any of this.
+        browser: callWorker.pageAccess.route === 'browser',
+        pageAccess: callWorker.pageAccess.instruction,
       })
       // The async-tool templates are the words the framework puts in front of
       // the model when work reports in or finishes. The stock ones name the
@@ -1429,6 +1586,7 @@ export default defineAgent({
             message: `Live vision was switched off for this call: the agent's model would not accept the picture (${message}).`,
           }).catch(() => undefined)
         },
+        onSpeaking: () => callTrace.expectTurn({ cause: 'vision_lost' }),
         onError: (message) => console.error(`[voice] room ${roomName}: ${message}`),
       })
       // Every error the session raises is written down, whichever leg it came
@@ -1464,6 +1622,9 @@ export default defineAgent({
       // caller has a Share screen button on the call page too, and a screen
       // nobody is looking at is worse than no button at all.
       watchMeetingScreen({ ctx, session, person, eyes, recordEvent })
+      // The one utterance on the call that nothing caused but answering the
+      // phone. Named, so every OTHER turn with no cause is a real finding.
+      callTrace.expectTurn({ cause: 'greeting' })
       agentSession.generateReply({
         instructions: isMeeting
           ? session.purpose

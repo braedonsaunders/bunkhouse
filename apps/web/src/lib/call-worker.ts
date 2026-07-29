@@ -1,9 +1,17 @@
-import { takeAbilityFrame, type Ability, type AbilityFrame, type RunEvent } from '@bunkhouse/runtime'
+import {
+  takeAbilityFrame,
+  type Ability,
+  type AbilityFrame,
+  type AutonomyResolver,
+  type RunEvent,
+} from '@bunkhouse/runtime'
 import type { people, RunTrigger } from '../db/schema'
 import { executeAgentRun } from './agent-runs'
 import { describeToolCall } from './call-activity'
 import type { DeliveryKind } from './call-mailbox'
-import { closeBrowserSession } from './browser-use'
+import { resolvePageAccess, type PageAccess } from './call-reading'
+import type { CallTrace } from './call-trace'
+import { browserSupported, closeBrowserSession } from './browser-use'
 
 /**
  * The worker on a call.
@@ -96,6 +104,14 @@ export type CallWorker = {
   startWork: (intent: string, hooks?: WorkHooks) => StartedWork
   /** Every piece of work this call has handed over, in the order it was. */
   checkWork: () => WorkReport[]
+  /** True while a piece of work the caller is waiting on is still running. */
+  working: () => boolean
+  /**
+   * How this call reads a web page, and why. Resolved once, before the first
+   * intent is handed over, so the talker's own instructions can say the same
+   * thing the worker will actually be able to do.
+   */
+  pageAccess: PageAccess
   /** The call is over: stop everything still running and close the browser. */
   stop: (reason: string) => Promise<void>
 }
@@ -120,6 +136,20 @@ export function describeError(error: unknown): string {
   return String(error)
 }
 
+/**
+ * Whether a tool came back parked on a human decision.
+ *
+ * The governed loop files the approval and emits an `approval_request` event
+ * for a first park, but a repeat of the same call is deduplicated against the
+ * record and emits no event at all — so the tool's own result is the only
+ * remaining sign that nothing happened. Reading it here is what stops the
+ * second and third attempt at a gated action from passing in silence.
+ */
+function parkedOnApproval(output: unknown): boolean {
+  if (output === null || typeof output !== 'object') return false
+  return (output as Record<string, unknown>).status === 'pending_approval'
+}
+
 /** What a settled tool call amounts to, in words. */
 function describeToolResult(label: string, output: unknown): string {
   if (output !== null && typeof output === 'object') {
@@ -134,7 +164,7 @@ function describeToolResult(label: string, output: unknown): string {
 }
 
 /** The brief the work runs on: the caller's ask, framed as live work. */
-function workInstruction(args: { intent: string; caller: string; agentName: string }): string {
+function workInstruction(args: { intent: string; caller: string; agentName: string; pageAccess: PageAccess }): string {
   return [
     `You are on a live call with ${args.caller} right now, and they are waiting on this:`,
     '',
@@ -142,6 +172,16 @@ function workInstruction(args: { intent: string; caller: string; agentName: stri
     '',
     'Do it now, end to end, with the tools you have — this is live work, not a plan and not a promise to do it later.',
     'Be relentless. A 403, a bot check, a dead domain, an empty search: that is the first thing you tried, not a verdict. Go straight to the next route — the official site, a result you have not opened, a directory or aggregator, the cached or printable version, a different phrasing, the browser instead of a plain fetch — and make three or four genuine attempts down different paths before you report any difficulty.',
+    // Stale recommendations, and the call that earned this paragraph: the agent
+    // recommended a restaurant that had closed, off a search snippet whose own
+    // text showed the address now advertising a different business. A search
+    // index is a memory of a page, not the page — and everything a caller acts
+    // on today (open or closed, hours, price, availability, in stock, still
+    // trading) is exactly the part of a page that goes out of date first.
+    'A search result is a MEMORY of a page, not the page. Anything perishable — whether a place is open or has closed, opening hours, prices, availability, whether something is in stock, whether a business still exists — must be read off the primary source itself: the business\'s own site, its own booking or ordering page, its own listing on the platform that takes its bookings. Never state a perishable fact on the strength of a search snippet, a cached description, or a directory entry alone.',
+    'Read the source you land on for signs it has moved on: a different business name on the same address, a "permanently closed" notice, a parked or for-sale domain, a site whose latest news is years old, hours that contradict the snippet that sent you there. When the snippet and the source disagree, the source is right and the disagreement is itself worth reporting.',
+    'If you could not verify a perishable fact against a primary source, say so in your answer, in plain words, and say what you did see — "their own site is down, so this is from a listing that may be out of date". An unverified fact presented as a verified one is the worst outcome available here; saying you could not check is never the worst outcome.',
+    ...(args.pageAccess.instruction ? [args.pageAccess.instruction] : []),
     `Finish by answering with what ${args.agentName} should say out loud: one or two plain sentences with the actual facts in them, no markdown, no lists, no headings. If you genuinely could not get there, say exactly what you tried and what stopped you.`,
   ].join('\n')
 }
@@ -175,16 +215,33 @@ export function createCallWorker(args: {
   trigger: RunTrigger
   /** The agent's whole ability set, assembled once for this call. */
   abilities: Ability[]
+  /**
+   * The autonomy dial. The worker's own governed loop applies it per tool call;
+   * this copy answers one question before the work starts — whether the browser
+   * is genuinely usable on this call, or whether every page would park on a
+   * sign-off nobody is going to give mid-conversation.
+   */
+  autonomy: AutonomyResolver
   /** Who is on the line, for the work's own sense of what it is doing. */
   caller: string
   /** Append to the call's run ledger. The voice agent owns the numbering. */
   record: (kind: string, payload: Record<string, unknown>) => Promise<void>
+  /** The call's operational record: what was handed over, and what became of it. */
+  trace: CallTrace
+  /**
+   * Hand a piece of work to the deferred disposition — an assignment, run by
+   * the background worker and delivered by email. Used when the call ends
+   * underneath work somebody was waiting on: the answer then arrives late
+   * rather than never. Owned by the caller because filing one needs a tenant
+   * scope and a recipient, neither of which belongs in here.
+   */
+  defer: (work: { intent: string; latest: string }) => Promise<{ refiled: boolean; reason: string; assignmentId?: string }>
   /** A picture a step produced — the call's eyes put it in front of the talker. */
   onFrame: (frame: AbilityFrame) => Promise<void>
   /** Operator-facing log line for anything that goes wrong along the way. */
   onError: (message: string) => void
 }): CallWorker {
-  const { person, runId } = args
+  const { person, runId, trace } = args
 
   type Item = {
     id: string
@@ -203,11 +260,37 @@ export function createCallWorker(args: {
   // and a site whose menu is images or needs a click comes back empty — which
   // is exactly what happened when a caller could see the menu on their screen
   // while the agent said it was still looking. Asking nicely in the tool's
-  // description did not move the model off it, so on a call it is simply not
-  // there and the browser is the only way to read a page. Every other
-  // disposition keeps it: an email run has nobody watching and wants the fast
-  // path.
-  const visible = args.abilities.filter((ability) => ability.name !== 'read_webpage')
+  // description did not move the model off it, so where the browser is usable
+  // it is simply not there. Every other disposition keeps it: an email run has
+  // nobody watching and wants the fast path.
+  //
+  // "Where the browser is usable" is the whole of it, and withdrawing the fetch
+  // path without checking that was a regression of its own: an agent whose
+  // computer_use dial sits on 'approval' parks every browser_open awaiting a
+  // sign-off that will not arrive mid-call, so it had NO way to read a page and
+  // silently answered from search snippets instead. The rule now lives in
+  // call-reading.ts, and it is never allowed to leave the worker with neither
+  // route. `browserSupported()` is consulted directly as well as through the
+  // assembled set, so a platform with no Chromium reads as one reason rather
+  // than as an ability that mysteriously is not there.
+  const pageAccess = resolvePageAccess({
+    abilityNames: browserSupported()
+      ? args.abilities.map((ability) => ability.name)
+      : args.abilities.map((ability) => ability.name).filter((name) => !name.startsWith('browser_')),
+    computerUse: args.autonomy('computer_use'),
+    ...(() => {
+      const opener = args.abilities.find((ability) => ability.name === 'browser_open')
+      return opener?.approval ? { browserApproval: opener.approval } : {}
+    })(),
+  })
+  trace.pageAccess({
+    route: pageAccess.route,
+    fetchAvailable: pageAccess.fetchAvailable,
+    reason: pageAccess.reason,
+  })
+  const visible = args.abilities.filter(
+    (ability) => ability.name !== 'read_webpage' || pageAccess.fetchAvailable,
+  )
   const abilities = watchedForFrames(visible, async (frame) => {
     try {
       await args.onFrame(frame)
@@ -277,11 +360,23 @@ export function createCallWorker(args: {
         }
         case 'tool_result': {
           const label = openLabels.get(raw.toolName)?.shift() ?? describeToolCall(raw.toolName, undefined)
-          // Noted, never posted: "read the page" the moment after "reading the
-          // page" is the agent narrating its own hands, and a step that failed
-          // is not the work failing — the loop is expected to try the next
-          // route without announcing the last one. The call page shows every
-          // one of these; the caller does not need them read out.
+          // A step parked on a human decision is the one result that IS worth
+          // saying out loud: the caller can act on it while they are still on
+          // the phone, and an agent that stays quiet about it just goes and
+          // does something worse — which is precisely what happened when three
+          // browser_open calls in one call were queued for sign-off and the
+          // caller was told nothing. Deliberately the same words the
+          // approval_request post uses, so when both fire for one park the
+          // mailbox's deduplication keeps it to one line rather than two.
+          if (parkedOnApproval(raw.output)) {
+            post('needs_approval', `${label} — it needs a manager's sign-off before it can happen.`)
+            return
+          }
+          // Otherwise noted, never posted: "read the page" the moment after
+          // "reading the page" is the agent narrating its own hands, and a step
+          // that failed is not the work failing — the loop is expected to try
+          // the next route without announcing the last one. The call page shows
+          // every one of these; the caller does not need them read out.
           note(describeToolResult(label, raw.output))
           return
         }
@@ -315,18 +410,27 @@ export function createCallWorker(args: {
       trigger: args.trigger,
       input: {
         type: 'manual',
-        instruction: workInstruction({ intent: item.intent, caller: args.caller, agentName: person.name }),
+        instruction: workInstruction({
+          intent: item.intent,
+          caller: args.caller,
+          agentName: person.name,
+          pageAccess,
+        }),
       },
       live: { runId, event, abilities, abortSignal: stopping.signal },
     })
 
-    if (stopped) {
-      item.status = 'stopped'
-      item.detail = 'The call ended before this finished.'
-      return report(item)
-    }
     switch (outcome.status) {
       case 'completed':
+        // Never overwritten by the call ending, and this is the whole of
+        // defect 4: the old code checked `stopped` FIRST and replaced a real,
+        // finished answer with "The call ended before this finished." An answer
+        // the agent had reached — read off a browser screenshot, in the run
+        // that produced it — was thrown away, `do_work` returned a bare
+        // 'stopped' report, and the model filled the silence from the stale
+        // list it had seen minutes earlier. The answer exists; it goes in the
+        // record whatever else has happened, and whether anyone got to hear it
+        // is a separate fact the trace keeps separately.
         item.status = 'done'
         item.detail = outcome.summary.trim() || 'It is done.'
         break
@@ -346,14 +450,30 @@ export function createCallWorker(args: {
         item.detail = 'This could not run: the monthly budget for this agent is used up.'
         break
       case 'failed':
+        // A run the call aborted underneath comes back failed with the abort's
+        // own message, which is not a fault worth naming to anybody: the caller
+        // hung up, that is all. Say what actually happened instead.
+        if (stopped) {
+          item.status = 'stopped'
+          item.detail = 'The call ended before this finished.'
+          break
+        }
         item.status = 'failed'
         item.detail = outcome.error
         break
     }
-    return report(item)
+    const settled = report(item)
+    trace.settled({
+      workId: item.id,
+      status: settled.status,
+      answer: settled.detail,
+      seconds: settled.runningForSeconds,
+    })
+    return settled
   }
 
   return {
+    pageAccess,
     startWork: (intent, hooks) => {
       counter += 1
       const item: Item = {
@@ -364,21 +484,52 @@ export function createCallWorker(args: {
         startedAt: Date.now(),
       }
       items.push(item)
+      trace.handedOver({ workId: item.id, intent })
       const settled = run(item, hooks).catch((error: unknown) => {
         const message = describeError(error)
         args.onError(`work "${intent}" fell over: ${message}`)
         item.status = 'failed'
         item.detail = message
         void args.record('error', { message: `Work started on the call failed: ${message}` }).catch(() => {})
-        return report(item)
+        const failed = report(item)
+        trace.settled({
+          workId: item.id,
+          status: failed.status,
+          answer: failed.detail,
+          seconds: failed.runningForSeconds,
+        })
+        return failed
       })
       return { id: item.id, settled }
     },
     checkWork: () => items.map(report),
+    working: () => items.some((item) => item.status === 'working'),
     stop: async (reason) => {
       if (stopped) return
       stopped = true
       const live = items.filter((item) => item.status === 'working')
+      // Refile before aborting, not after: work the caller was waiting on
+      // must not simply evaporate when the line goes down. The deferred
+      // disposition already exists for work that outlives a call — the same
+      // engine, queued, delivered by email — so the answer arrives late
+      // instead of never. Where it cannot be refiled (nobody to send it to on
+      // an anonymous phone call) the trace says so as an error, because "the
+      // caller never got their answer" is not something to discover later.
+      for (const item of live) {
+        try {
+          const outcome = await args.defer({ intent: item.intent, latest: item.detail })
+          trace.deferred({
+            workId: item.id,
+            refiled: outcome.refiled,
+            reason: outcome.reason,
+            ...(outcome.assignmentId ? { assignmentId: outcome.assignmentId } : {}),
+          })
+        } catch (error) {
+          const message = describeError(error)
+          args.onError(`work "${item.intent}" could not be refiled to finish after the call: ${message}`)
+          trace.deferred({ workId: item.id, refiled: false, reason: message })
+        }
+      }
       stopping.abort(new Error(reason))
       if (live.length > 0) {
         await args

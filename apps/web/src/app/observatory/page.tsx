@@ -1,4 +1,4 @@
-import { desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { PageContainer, PageHeader } from '@appkit/ui'
 import { callSessions, people, runs, runEvents, tokenSpend } from '../../db/schema'
 import { db } from '../../db/client'
@@ -129,6 +129,10 @@ export default async function ObservatoryPage({
           .groupBy(tokenSpend.runId)
       : []
     // Each live card shows the newest ledger entry — what's on the screen now.
+    // Trace events are excluded on purpose: they are the operational record of
+    // why the agent did something, not something it did, and being the newest
+    // row far more often than any tool call they would replace "Reading
+    // example.com" with instrumentation on every card.
     const latestEvents = activeRuns.length
       ? await app.db
           .selectDistinctOn([runEvents.runId], {
@@ -138,9 +142,12 @@ export default async function ObservatoryPage({
           })
           .from(runEvents)
           .where(
-            inArray(
-              runEvents.runId,
-              activeRuns.map((r) => r.id),
+            and(
+              inArray(
+                runEvents.runId,
+                activeRuns.map((r) => r.id),
+              ),
+              ne(runEvents.kind, 'trace'),
             ),
           )
           .orderBy(runEvents.runId, desc(runEvents.seq))

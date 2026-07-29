@@ -1,0 +1,13 @@
+-- The call trace: why an agent spoke, and what became of every piece of work it
+-- was handed. It extends the existing run_events ledger rather than opening a
+-- store of its own — one append-only record per run, queried and replayed by
+-- everything that already reads it.
+--
+-- Its own kind, not another 'message': a message is the agent's own prose, and
+-- one column meaning two things is how the run desk, the observatory and the
+-- nightly journal all end up reading instrumentation as narrative.
+--
+-- Kept in its own migration file: the migrate runner wraps each file in one
+-- transaction, and ALTER TYPE ... ADD VALUE must not share a transaction with
+-- statements that use the new value.
+ALTER TYPE "public"."run_event_kind" ADD VALUE IF NOT EXISTS 'trace';

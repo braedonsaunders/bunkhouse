@@ -62,6 +62,7 @@ const KIND_LABELS: Record<string, string> = {
   approval_request: 'Approval requested',
   delegation: 'Delegation',
   error: 'Error',
+  trace: 'Record',
 }
 
 const KIND_VARIANT: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
@@ -71,6 +72,39 @@ const KIND_VARIANT: Record<string, 'default' | 'secondary' | 'outline' | 'destru
   procedure_citation: 'outline',
   delegation: 'outline',
   error: 'destructive',
+  trace: 'outline',
+}
+
+/**
+ * One line for a trace row: what it records, and the fact it turns on. The
+ * whole payload is on the screen beside it — this is the part that has to be
+ * readable at a glance while scrolling a call, because these rows are how you
+ * find the utterance nothing caused or the answer nobody heard.
+ */
+function traceLine(p: Record<string, unknown>): string {
+  const fact = String(p.trace ?? 'record')
+  switch (fact) {
+    case 'turn':
+      return `Agent turn — ${String(p.cause ?? 'unknown cause')}${p.sameWordsAs ? ' · same words as an earlier turn' : ''}`
+    case 'mailbox':
+      return `Mailbox ${String(p.decision ?? '')} — ${String(p.kind ?? '')}${p.reason ? ` · ${String(p.reason)}` : ''}`
+    case 'work_handed_over':
+      return `Work handed over (${String(p.workId ?? '')}) — ${String(p.intent ?? '')}`
+    case 'work_settled':
+      return `Work settled (${String(p.workId ?? '')}) — ${String(p.status ?? '')}`
+    case 'work_answer_spoken':
+      return `Answer spoken to the caller (${String(p.workId ?? '')})`
+    case 'work_answer_undelivered':
+      return `Answer NEVER reached the caller (${String(p.workId ?? '')})`
+    case 'work_deferred':
+      return `Work refiled to finish after the call (${String(p.workId ?? '')}) — ${p.refiled ? 'refiled' : 'could not be'}`
+    case 'delivery_unspoken':
+      return `A delivery was made and the agent said nothing — ${String((p.deliveryKinds as string[] | undefined)?.join(', ') ?? '')}`
+    case 'page_access':
+      return `Page reading on this call — ${String(p.route ?? '')}`
+    default:
+      return fact.replace(/_/g, ' ')
+  }
 }
 
 const APPROVAL_VARIANT: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
@@ -97,6 +131,8 @@ function preview(event: DeskEvent): string {
       return `${p.toolName}(…)`
     case 'tool_result':
       return `${p.toolName} → done`
+    case 'trace':
+      return traceLine(p)
     default:
       return JSON.stringify(p)
   }
@@ -233,6 +269,13 @@ function Screen({
       return (
         <div className="rounded-md border border-danger bg-danger-subtle p-3 text-sm text-danger">
           {String(p.message ?? '')}
+        </div>
+      )
+    case 'trace':
+      return (
+        <div className="space-y-3">
+          <p className="text-sm font-semibold text-fg">{traceLine(p)}</p>
+          <KeyValueBlock value={p} />
         </div>
       )
     default:

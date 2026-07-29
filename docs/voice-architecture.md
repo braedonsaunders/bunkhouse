@@ -71,6 +71,11 @@ already an append-only ledger both sides read and write. It is what the call
 page renders, what the run desk replays, and what the talker narrates from. No
 new transport.
 
+**The record also says why.** See [Why: the call's own
+record](#why-the-calls-own-record) — the turns say what was said and the tool
+events say what was done, and for three separate defects neither was enough to
+say which of two mechanisms had produced them.
+
 ## The talker's tools
 
 Six, not twenty-nine:
@@ -164,6 +169,8 @@ exactly the single-model behaviour every existing agent already had.
 | The talker's six tools | `apps/web/src/lib/call-tools.ts` |
 | The worker bound to one call | `apps/web/src/lib/call-worker.ts` |
 | The delivery mailbox | `apps/web/src/lib/call-mailbox.ts` (tested by `apps/web/scripts/mailbox.test.mts`) |
+| Why the agent spoke, and what became of the work | `apps/web/src/lib/call-trace.ts` (same test) |
+| Which route reads a page, and why | `apps/web/src/lib/call-reading.ts` (same test) |
 | The engine, and its live disposition | `executeAgentRun` / `LiveRun` in `apps/web/src/lib/agent-runs.ts` |
 | The call itself | `apps/web/scripts/voice-agent.mts` |
 | The two models an agent runs on | `AgentModelConfig` in `apps/web/src/db/schema/people.ts`, resolved by `resolveAgentAiConfig` in `apps/web/src/lib/ai.ts` |
@@ -199,7 +206,7 @@ architecture: the agent went silent while it worked. The fix is the shape a
 coding agent already uses to receive a finished subagent — queue it, coalesce
 it, deliver it at a turn boundary — and it is one framework-free module.
 
-**Four rules on the queue.** *Coalescing:* everything pending at one boundary
+**Four rules on the queue, and every decision on the record.** *Coalescing:* everything pending at one boundary
 goes out as one message, and progress about the same piece of work supersedes
 itself, because only where it is up to now matters. *Priority:* an approval or
 a failure outranks the answer itself — those are the two things a caller can
@@ -209,7 +216,20 @@ progress opens a delivery of its own at most once every twenty seconds, which
 is about how often a colleague looking something up says where they are up to;
 answers, approvals and failures are never rate limited, and progress waiting
 behind one rides along free. *Deduplication:* the same words about the same
-work are never said twice, by any route.
+work are never said twice, by any route — including the words already *waiting*
+when another route takes them over, which is retired rather than left to be said
+again two seconds later. Every one of those four rules exists to not say
+something, so each decision is reported as it is made and lands on the run's
+ledger; a line the caller needed and a line they were spared must not leave the
+same trace behind.
+
+**An approval is not progress.** The briefing that goes with a delivery is
+chosen from what is in it: progress may be left unsaid ("if it adds nothing, say
+nothing"), and a queued approval or a failure may not. Briefed as progress, a
+model reads a sign-off as housekeeping and stays quiet, and the caller never
+learns that the thing they asked for is parked. Both paths post one —
+the worker's governed loop and the talker's own surfaced abilities — in the same
+words, so the deduplication above keeps it to one line.
 
 **One boundary, defined by events.** `AgentSession` publishes `agentState` and
 `userState` and emits `AgentStateChanged` / `UserStateChanged`; the mailbox
@@ -227,6 +247,94 @@ between the check and the call costs a wait, never an interruption.
 The answer itself does not go through the mailbox: it is `do_work`'s return
 value, which the framework already speaks at the turn tail in the agent's own
 words. The mailbox is told it was said, which is what retires the work.
+
+## Reading a page, and never having no way to
+
+A page the caller is waiting on gets *visited*, not fetched: the browser copes
+with a menu that is an image or a page that needs a click, and the caller
+watches it happen. So `read_webpage` — quick, invisible, and wrong for a real
+site — is withdrawn from a call where the browser works.
+
+"Where the browser works" is the whole rule, and withdrawing the fetch path
+without it was a regression of its own. An agent whose `computer_use` dial sits
+on `approval` parks every `browser_open` on a sign-off that will not arrive
+mid-call; with no fetch path left it had no way to read any page at all, and
+silently answered out of search snippets. Three things can make the browser
+unusable — the dial forbids computer use, the dial would park every open, or the
+platform has no Chromium — and each is checked before anything is withdrawn.
+The answer goes on the record as `page_access`, and the agent is told which
+route it has rather than discovering it one dead end at a time.
+
+Perishable facts are the other half of reading a page. A search result is a
+memory of a page, and open-or-closed, hours, prices and availability are exactly
+what goes stale first — an agent once recommended a restaurant whose snippet's
+own text showed the address advertising a different business. Anything perishable
+is read off the primary source, and where it could not be, the answer says so in
+the same breath as the fact.
+
+## When the call ends mid-work
+
+`do_work` is the live disposition: the caller is waiting, so the answer is spoken
+on the call. When the line goes down before the work settles, the work is refiled
+through the disposition that already exists for work outliving a call —
+`take_assignment` — so the answer arrives by email instead of vanishing. Where it
+cannot be refiled (an anonymous phone call has no address to send it to) the
+record says that plainly, as an error.
+
+Two rules follow from the same defect. A completed answer is never overwritten by
+the call ending: the answer exists, it goes in the record whatever else happened,
+and whether anybody heard it is a separate fact the trace keeps separately. And a
+report with no answer in it says so in words, because a model handed an empty
+report will otherwise fill the gap from stale context — which is exactly how a
+caller was read a list of restaurants from a search snippet while the real
+answer, off a page the agent had actually read, sat finished in the record. The
+agent also declines to hang up the first time while work the caller asked for is
+still running.
+
+## Why: the call's own record
+
+Three defects on live calls were each misdiagnosed twice, and all three for the
+same reason: the ledger recorded *what* happened and nothing recorded *why*.
+
+- An answer the agent had reached and never spoke is indistinguishable, in a
+  transcript, from an answer it never got.
+- Two byte-identical rows in `call_turns` are indistinguishable from one
+  utterance recorded twice.
+- An approval the caller was never told about leaves nothing behind at all —
+  the mailbox's whole job is deciding what *not* to say, and a line it dropped
+  and a line nobody ever posted look the same afterwards.
+
+So every utterance and every piece of work leaves one more row on the run's own
+event ledger, kind `trace` (`apps/web/src/lib/call-trace.ts`). Not a parallel
+store, not telemetry: flat, greppable facts on the ledger that already exists.
+
+| Fact | What it settles |
+|---|---|
+| `turn` | Why the agent spoke: a caller turn, a mailbox delivery, a tool's deferred return, the greeting, or `spontaneous` — plus the chat item id, so a duplicate is provable and never argued from the words |
+| `work_handed_over` · `work_settled` | What was asked for, what came back, and whether there is an answer at all |
+| `work_answer_spoken` · `work_answer_undelivered` | Whether the caller ever heard it. The second one is also written as an `error`, because that is what the caller experienced |
+| `work_deferred` | Work the call ended underneath, refiled to finish afterwards — or plainly why it could not be |
+| `mailbox` | Every decision the queue made: posted, coalesced, dropped with its reason, delivered by which route |
+| `delivery_unspoken` | A delivery was made at a quiet boundary and the agent said nothing. For an approval, that is the caller not being told |
+| `page_access` | Which route this call has for reading a page, and why it has that one |
+
+Was this work's answer ever spoken?
+
+```sql
+select seq, payload->>'trace' as fact, payload->>'workId' as work, payload->>'answer'
+  from run_events
+ where run_id = :runId and kind = 'trace' and payload->>'trace' like 'work_%'
+ order by seq;
+```
+
+`work_settled` with `hasAnswer` true and no `work_answer_spoken` for the same
+handle is an answer the caller never heard; `work_answer_undelivered` says so
+outright, and the `error` beside it is what an operator sees without looking.
+
+Trace rows are excluded from the surfaces that tell the story of an agent's
+work — the observatory's "what's on their screen now" and the nightly journal —
+because instrumentation that crowds out the work it describes is worse than
+none. They are on the run desk's activity table, which is the audit surface.
 
 ## Watching the agent work
 

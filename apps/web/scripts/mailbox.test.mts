@@ -1,11 +1,24 @@
 import assert from 'node:assert/strict'
-import { createCallMailbox, type MailboxDelivery, type MailboxTiming } from '../src/lib/call-mailbox'
+import {
+  createCallMailbox,
+  type MailboxDecision,
+  type MailboxDelivery,
+  type MailboxTiming,
+} from '../src/lib/call-mailbox'
+import { resolvePageAccess } from '../src/lib/call-reading'
+import { createCallTrace } from '../src/lib/call-trace'
 
 /**
- * The delivery mailbox, which exists because of one bug: anything the worker
- * said reached the caller as a fresh reply and cut off the speech already in
- * their ear. Every rule below is one half of that fix — hold until the line is
- * quiet, then say everything waiting once.
+ * What a call says, and why — the three framework-free modules the talker
+ * stands on.
+ *
+ * The delivery mailbox exists because of one bug: anything the worker said
+ * reached the caller as a fresh reply and cut off the speech already in their
+ * ear. Every rule here is one half of that fix — hold until the line is quiet,
+ * then say everything waiting once. Beside it, the trace (why the agent spoke,
+ * and what became of each piece of work) and the page-reading rule (never leave
+ * the worker with no way to read a page), both of which exist because a defect
+ * could not be diagnosed from the transcript alone.
  *
  * The mailbox takes its delays as a parameter precisely so this file can run
  * in milliseconds instead of the twenty seconds a real call's rate limit
@@ -26,20 +39,28 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 /** A line the mailbox is watching, and what it has been told to say. */
 function harness(timing: Partial<MailboxTiming> = {}) {
   const delivered: MailboxDelivery[] = []
+  const decisions: MailboxDecision[] = []
   let quiet = true
   const mailbox = createCallMailbox({
     isQuiet: () => quiet,
     deliver: async (delivery) => {
       delivered.push(delivery)
     },
+    onDecision: (decision) => decisions.push(decision),
     timing: { ...FAST, ...timing },
     onError: (message) => assert.fail(`the mailbox reported an error: ${message}`),
   })
   return {
     mailbox,
     delivered,
+    decisions,
     /** What the caller has actually heard, in order. */
     heard: () => delivered.map((delivery) => delivery.text),
+    /** Every decision about one line, as `decision:reason`. */
+    about: (text: string) =>
+      decisions
+        .filter((decision) => decision.text === text)
+        .map((decision) => `${decision.decision}${decision.reason ? `:${decision.reason}` : ''}`),
     setQuiet: (value: boolean) => {
       quiet = value
       mailbox.notifyStateChanged()
@@ -285,6 +306,290 @@ function harness(timing: Partial<MailboxTiming> = {}) {
   await sleep(80)
   assert.deepEqual(line.heard(), [])
   assert.equal(line.mailbox.pending().length, 0)
+  // What was still waiting when the line went down was owed to the caller and
+  // never said. The record is the only place that survives.
+  assert.deepEqual(line.about('That ran into trouble.'), [
+    'posted',
+    'dropped:the call ended before this could be said',
+  ])
+  assert.deepEqual(line.about('They open at nine.'), ['dropped:the call had already ended'])
 }
 
-console.log('mailbox: coalesced, prioritized, rate limited, deduplicated, and never over the agent')
+// --- the decisions, on the record -------------------------------------------
+// Every rule above exists to NOT say something, so each one has to say why.
+// Without this, an approval the caller needed and an approval they were spared
+// leave the same trace behind — none.
+{
+  const line = harness()
+  line.mailbox.post({ kind: 'progress', workId: 'work-1', text: 'Opening example.com in the browser' })
+  line.mailbox.post({ kind: 'progress', workId: 'work-1', text: 'Reading the page' })
+  line.mailbox.post({ kind: 'progress', workId: 'work-1', text: 'Reading the page' })
+  assert.deepEqual(line.about('Opening example.com in the browser'), [
+    'posted',
+    'coalesced:superseded by a newer note about the same work: Reading the page',
+  ])
+  assert.deepEqual(line.about('Reading the page'), [
+    'posted',
+    'dropped:the same words are already waiting to be said',
+  ])
+
+  await sleep(60)
+  assert.deepEqual(line.about('Reading the page'), [
+    'posted',
+    'dropped:the same words are already waiting to be said',
+    'delivered:said at a quiet boundary',
+  ])
+
+  // And the one that matters most: an approval coalescing progress away is a
+  // deliberate decision, recorded as one.
+  line.mailbox.post({ kind: 'progress', workId: 'work-2', text: 'Sending the email' })
+  line.mailbox.post({ kind: 'needs_approval', workId: 'work-2', text: 'Sending email to dana@example.com — sign-off needed.' })
+  assert.deepEqual(line.about('Sending the email'), [
+    'posted',
+    'coalesced:superseded by the needs_approval for the same work',
+  ])
+  line.mailbox.close()
+}
+
+// The model asking where things stand is a delivery of its own, and says so.
+{
+  const line = harness()
+  line.setQuiet(false)
+  line.mailbox.post({ kind: 'progress', workId: 'work-1', text: 'Searching the web' })
+  line.mailbox.acknowledge()
+  assert.deepEqual(line.about('Searching the web'), [
+    'posted',
+    'delivered:handed to the model when it asked where things stood',
+  ])
+  line.mailbox.close()
+}
+
+// --- one thing said once, whichever route says it ---------------------------
+// The duplicate-utterance defect, in the mailbox's half of it: the approval
+// line goes out at a quiet boundary, and seconds later `do_work`'s own return
+// value says the identical words at the turn tail. Two byte-identical rows in
+// call_turns, which a caller hears as a stuck line.
+{
+  const line = harness()
+  const parked = 'Opening example.com in the browser — it needs a manager’s sign-off before it can happen.'
+  line.mailbox.post({ kind: 'needs_approval', workId: 'work-1', text: parked })
+  assert.equal(line.mailbox.pending().length, 1)
+  assert.equal(line.mailbox.said({ workId: 'work-1', text: parked }), false, 'queued is not said')
+
+  // The tool is about to say exactly this. The queued copy is retired instead
+  // of being said a second time a moment later.
+  line.mailbox.delivered({ kind: 'result', workId: 'work-1', text: parked })
+  assert.equal(line.mailbox.pending().length, 0, 'the queued copy is retired, not left to go out again')
+  assert.equal(line.mailbox.said({ workId: 'work-1', text: parked }), true)
+  assert.deepEqual(line.about(parked), ['posted', "delivered:said by the tool's own reply"])
+
+  await sleep(80)
+  assert.deepEqual(line.heard(), [], 'the mailbox says nothing the tool has already said')
+
+  // `said` is per work AND per wording — the same words about a different piece
+  // of work are a different fact, and a different piece of work is why.
+  assert.equal(line.mailbox.said({ workId: 'work-2', text: parked }), false)
+  // Whitespace is not a difference: the query has to answer the same way the
+  // queue does, or the check silently stops matching.
+  assert.equal(line.mailbox.said({ workId: 'work-1', text: `  ${parked}  ` }), true)
+  line.mailbox.close()
+}
+
+// --- the trace: why the agent spoke ----------------------------------------
+// The transcript says what was said; nothing said why, and that is how "the
+// model spoke twice" and "the ledger recorded one utterance twice" came to be
+// confused for each other. The rule: dedupe on the chat item's id, never on
+// text — identical words under two ids are two real utterances a caller heard
+// twice, and hiding one of them destroys the evidence.
+{
+  const written: { kind: string; payload: Record<string, unknown> }[] = []
+  const trace = createCallTrace((kind, payload) => written.push({ kind, payload }))
+  const turns = () => written.filter((row) => row.payload.trace === 'turn').map((row) => row.payload)
+
+  trace.callerTurn('item-caller-1')
+  const first = trace.agentTurn({ itemId: 'item-1', text: 'They open at nine on the Monday holiday.' })
+  assert.equal(first.alreadyRecorded, false)
+  assert.equal(turns()[0]!.cause, 'caller_turn')
+  assert.equal(turns()[0]!.callerItemId, 'item-caller-1')
+
+  // The SAME chat item again: this is the ledger double-recording one
+  // utterance. It must not reach the transcript twice.
+  const repeat = trace.agentTurn({ itemId: 'item-1', text: 'They open at nine on the Monday holiday.' })
+  assert.equal(repeat.alreadyRecorded, true, 'one chat item is one transcript row, for ever')
+  assert.equal(turns()[1]!.cause, 'repeat_of_recorded_item')
+
+  // The same WORDS under a new id: the agent genuinely said it twice. It is
+  // recorded, it is flagged, and it is not suppressed.
+  const again = trace.agentTurn({ itemId: 'item-2', text: 'They open at nine on the Monday holiday.' })
+  assert.equal(again.alreadyRecorded, false, 'a second real utterance is never hidden by its words')
+  assert.equal(turns()[2]!.sameWordsAs, 'item-1', 'and the pair is provable from the record')
+  assert.equal(turns()[2]!.cause, 'spontaneous', 'nothing asked for it — which is itself the finding')
+}
+
+// An answer that came back and was never spoken is the loudest thing in the
+// record, and an answer that was spoken is retired quietly.
+{
+  const written: { kind: string; payload: Record<string, unknown> }[] = []
+  const trace = createCallTrace((kind, payload) => written.push({ kind, payload }))
+
+  trace.handedOver({ workId: 'work-1', intent: 'find the three nearest suppliers' })
+  trace.settled({ workId: 'work-1', status: 'done', answer: 'Three of them, all within ten miles.', seconds: 12 })
+  trace.handedOver({ workId: 'work-2', intent: 'check whether they are open Monday' })
+  trace.settled({ workId: 'work-2', status: 'done', answer: 'They open at nine.', seconds: 9 })
+
+  // work-2's answer is read out; work-1's never is.
+  trace.expectTurn({ cause: 'work_result', workId: 'work-2' })
+  trace.agentTurn({ itemId: 'item-9', text: 'They open at nine, so you are fine.' })
+  assert.ok(
+    written.some((row) => row.payload.trace === 'work_answer_spoken' && row.payload.workId === 'work-2'),
+    'the answer the caller heard is recorded as heard',
+  )
+
+  trace.close()
+  const undelivered = written.filter((row) => row.payload.trace === 'work_answer_undelivered')
+  assert.deepEqual(
+    undelivered.map((row) => row.payload.workId),
+    ['work-1'],
+    'exactly the answer nobody heard',
+  )
+  assert.equal(
+    undelivered[0]!.payload.answer,
+    'Three of them, all within ten miles.',
+    'with the answer itself, so it is not lost',
+  )
+  assert.ok(
+    written.some((row) => row.kind === 'error' && String(row.payload.message).includes('never heard')),
+    'and it is an error, because that is what the caller experienced',
+  )
+}
+
+// An answer the mailbox already said is not an answer nobody heard. An
+// accounting that cries wolf on a working call is one nobody reads.
+{
+  const written: { kind: string; payload: Record<string, unknown> }[] = []
+  const trace = createCallTrace((kind, payload) => written.push({ kind, payload }))
+  trace.handedOver({ workId: 'work-1', intent: 'send the quote to dana' })
+  trace.settled({ workId: 'work-1', status: 'done', answer: 'It needs a sign-off first.', seconds: 4 })
+  trace.answerAlreadySpoken({ workId: 'work-1', route: 'the mailbox said these words at a quiet boundary' })
+  trace.close()
+  assert.ok(written.some((row) => row.payload.trace === 'work_answer_spoken' && row.payload.route))
+  assert.equal(written.filter((row) => row.payload.trace === 'work_answer_undelivered').length, 0)
+  assert.equal(written.filter((row) => row.kind === 'error').length, 0)
+}
+
+// Work the call ended underneath, refiled to finish afterwards: the answer is
+// late rather than missing, and the record says which.
+{
+  const written: { kind: string; payload: Record<string, unknown> }[] = []
+  const trace = createCallTrace((kind, payload) => written.push({ kind, payload }))
+  trace.handedOver({ workId: 'work-1', intent: 'compare their prices' })
+  trace.deferred({ workId: 'work-1', refiled: true, reason: 'refiled as an assignment', assignmentId: 'a-1' })
+  trace.close()
+  assert.equal(
+    written.filter((row) => row.kind === 'error').length,
+    0,
+    'work with somewhere to go is not a failure',
+  )
+
+  const stranded: { kind: string; payload: Record<string, unknown> }[] = []
+  const second = createCallTrace((kind, payload) => stranded.push({ kind, payload }))
+  second.handedOver({ workId: 'work-1', intent: 'compare their prices' })
+  second.deferred({ workId: 'work-1', refiled: false, reason: 'no address to send it to' })
+  assert.ok(
+    stranded.some((row) => row.kind === 'error' && String(row.payload.message).includes('could not be refiled')),
+    'work with nowhere to go is',
+  )
+}
+
+// A delivery the agent answered with silence. This is how a caller ends up
+// never hearing that something needs their sign-off.
+{
+  const written: { kind: string; payload: Record<string, unknown> }[] = []
+  const trace = createCallTrace((kind, payload) => written.push({ kind, payload }))
+  const expected = trace.expectTurn({
+    cause: 'mailbox_delivery',
+    workIds: ['work-1'],
+    deliveryKinds: ['needs_approval'],
+  })
+  expected.release()
+  assert.ok(written.some((row) => row.payload.trace === 'delivery_unspoken'))
+  assert.ok(
+    written.some((row) => row.kind === 'error' && String(row.payload.message).includes('sign-off')),
+    'an unspoken approval is an error, not a footnote',
+  )
+  // And a released expectation can never be attributed to a later utterance.
+  trace.agentTurn({ itemId: 'item-1', text: 'Anyway, where were we?' })
+  const turn = written.find((row) => row.payload.trace === 'turn')!
+  assert.equal(turn.payload.cause, 'spontaneous')
+}
+
+// No picture ever reaches the ledger: one base-64 frame in a payload makes the
+// whole table unqueryable, which is why takeAbilityFrame exists everywhere else.
+{
+  const written: Record<string, unknown>[] = []
+  const trace = createCallTrace((_kind, payload) => written.push(payload))
+  trace.settled({
+    workId: 'work-1',
+    status: 'done',
+    answer: `Here is the page: data:image/jpeg;base64,${'A'.repeat(5_000)} — they open at nine.`,
+    seconds: 3,
+  })
+  const answer = String(written.find((row) => row.trace === 'work_settled')!.answer)
+  assert.ok(!answer.includes('AAAA'), 'the frame is gone')
+  assert.ok(answer.includes('[image]') && answer.includes('they open at nine'), 'the words around it are not')
+  assert.ok(answer.length < 500, 'and every line is bounded')
+}
+
+// --- reading a page: never no route at all ---------------------------------
+// The regression this rule exists for: read_webpage was taken off every call so
+// pages would be visited, and an agent whose computer_use dial sits on
+// 'approval' then parked every browser_open awaiting sign-off — three for three
+// on one call — with no fetch path left and nothing saying so.
+{
+  const full = resolvePageAccess({
+    abilityNames: ['web_search', 'read_webpage', 'browser_open', 'browser_click'],
+    computerUse: 'trusted',
+  })
+  assert.equal(full.route, 'browser', 'with a usable browser the page gets visited')
+  assert.equal(full.fetchAvailable, false, 'and the invisible fetch path is withdrawn')
+  assert.equal(full.instruction, '', 'nothing needs saying about it')
+
+  // The dial parks every open: the browser is held but not usable.
+  const parked = resolvePageAccess({
+    abilityNames: ['web_search', 'read_webpage', 'browser_open', 'browser_click'],
+    computerUse: 'approval',
+  })
+  assert.equal(parked.route, 'fetch')
+  assert.equal(parked.fetchAvailable, true, 'the fetch path MUST remain — this is the whole defect')
+  assert.match(parked.reason, /sign-off/)
+  assert.match(parked.instruction, /read_webpage/)
+
+  // An ability that continues an approved step files no request of its own, so
+  // an 'approval' dial does not park it and the browser is usable after all.
+  assert.equal(
+    resolvePageAccess({
+      abilityNames: ['read_webpage', 'browser_open'],
+      computerUse: 'approval',
+      browserApproval: 'continues',
+    }).route,
+    'browser',
+  )
+
+  // Forbidden, and no Chromium on the box: both leave the fetch path in place.
+  assert.equal(
+    resolvePageAccess({ abilityNames: ['read_webpage', 'browser_open'], computerUse: 'forbidden' }).fetchAvailable,
+    true,
+  )
+  const headless = resolvePageAccess({ abilityNames: ['web_search', 'read_webpage'], computerUse: 'trusted' })
+  assert.equal(headless.fetchAvailable, true)
+  assert.match(headless.reason, /no browser/)
+
+  // Neither route: nothing can conjure one, but the agent is told plainly
+  // rather than discovering it one dead end at a time.
+  const blind = resolvePageAccess({ abilityNames: ['web_search'], computerUse: 'forbidden' })
+  assert.equal(blind.fetchAvailable, false)
+  assert.match(blind.reason, /cannot read a web page/)
+  assert.match(blind.instruction, /cannot read a web page/)
+}
+
+console.log('call: coalesced, prioritized, rate limited, deduplicated, never over the agent — and every decision on the record')

@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, asc, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { generateText } from 'ai'
 import { getModel } from '@appkit/ai'
@@ -215,10 +215,15 @@ export async function journalPass(tenantId: string): Promise<void> {
         const fresh = completed.filter((r) => !done.has(r.id))
         if (fresh.length === 0) return
 
+        // The journal is what the agent did, so the trace is left out of it:
+        // those rows are the operational record of why it spoke and what became
+        // of each piece of work, and there are enough of them per call to spend
+        // the whole per-run event budget below on instrumentation instead of on
+        // the work the note is supposed to be about.
         const events = await app.db
           .select()
           .from(runEvents)
-          .where(inArray(runEvents.runId, fresh.map((r) => r.id)))
+          .where(and(inArray(runEvents.runId, fresh.map((r) => r.id)), ne(runEvents.kind, 'trace')))
           .orderBy(asc(runEvents.seq))
         const eventsByRun = new Map<string, string[]>()
         for (const event of events) {
