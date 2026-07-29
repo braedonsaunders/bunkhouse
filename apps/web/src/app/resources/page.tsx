@@ -5,6 +5,7 @@ import { memories, memoryProposals, people, procedureRevisions, procedures } fro
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
 import { listMcpIntegrations } from '../../lib/mcp-integrations'
+import { mcpOauthRedirectUri } from '../../lib/mcp-oauth'
 import { listCurrentRevisions, listSkillFiles, listSkills } from '../../lib/skills'
 import { shellSupported } from '../../lib/workspace'
 import { ResourcesView } from '../../components/resources-view'
@@ -222,6 +223,7 @@ export default async function ResourcesPage({
           isOauth: Boolean(entry.oauth),
         }))}
         mcpOauthOutcome={mcpOauthOutcome}
+        mcpOauthRedirectUri={await mcpOauthRedirectUri()}
         rolePackOptions={ROLE_PACKS.map((p) => ({ value: p.slug, label: p.title }))}
         agentOptions={data.agents.map((h) => ({ value: h.id, label: h.name }))}
         {...(tab ? { initialTab: tab } : {})}

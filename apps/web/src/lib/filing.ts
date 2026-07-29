@@ -19,6 +19,7 @@ import {
 import { fileFilings } from '../db/schema/filing'
 import { db } from '../db/client'
 import { getFileBytes, type FileRecord } from './files'
+import { appUrl } from './app-origin'
 
 /**
  * Filing — a copy of every agent-produced file written into the company's own
@@ -106,10 +107,12 @@ const GRAPH_SIMPLE_UPLOAD_LIMIT = 4 * 1024 * 1024
 /** Upload-session chunk size; Graph requires a multiple of 320 KiB. */
 const GRAPH_CHUNK_BYTES = 5 * 320 * 1024
 
-/** The one redirect URI both providers call back to; shown in Settings for copy-paste. */
-export function filingOauthRedirectUri(): string {
-  const base = process.env.APP_URL ?? 'http://localhost:4810'
-  return `${base.replace(/\/+$/, '')}/api/filing-oauth/callback`
+/**
+ * The one redirect URI both providers call back to; shown in Settings for
+ * copy-paste. Derived from the request being served — see `appOrigin`.
+ */
+export async function filingOauthRedirectUri(): Promise<string> {
+  return appUrl('/api/filing-oauth/callback')
 }
 
 // --- Outbound requests ------------------------------------------------------
@@ -307,7 +310,7 @@ export async function getFilingSettingsView(tenantId: string): Promise<FilingSet
     layout: settings.layout,
     target: settings.target ? { ...describeTarget(settings.target), provider: settings.target.provider } : null,
     apps,
-    redirectUri: filingOauthRedirectUri(),
+    redirectUri: await filingOauthRedirectUri(),
   }
 }
 
@@ -553,7 +556,7 @@ export async function beginFilingOauth(input: {
   for (const [key, value] of Object.entries({
     client_id: resolved.clientId,
     response_type: 'code',
-    redirect_uri: filingOauthRedirectUri(),
+    redirect_uri: await filingOauthRedirectUri(),
     scope: resolved.spec.scopes,
     state,
     code_challenge: challenge,

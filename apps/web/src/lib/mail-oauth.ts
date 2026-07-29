@@ -13,6 +13,7 @@ import {
   type MailOauthAppSettings,
 } from '../db/schema'
 import { db } from '../db/client'
+import { appUrl } from './app-origin'
 
 /**
  * Signing an agent's mailbox in with the company's own Google Workspace or
@@ -87,10 +88,12 @@ const STATE_MAX_AGE_MS = 10 * 60 * 1000
 
 const OUTBOUND_TIMEOUT_MS = 15_000
 
-/** The one redirect URI both providers call back to; shown in Settings for copy-paste. */
-export function mailOauthRedirectUri(): string {
-  const base = process.env.APP_URL ?? 'http://localhost:4810'
-  return `${base.replace(/\/+$/, '')}/api/mail-oauth/callback`
+/**
+ * The one redirect URI both providers call back to; shown in Settings for
+ * copy-paste. Derived from the request being served — see `appOrigin`.
+ */
+export async function mailOauthRedirectUri(): Promise<string> {
+  return appUrl('/api/mail-oauth/callback')
 }
 
 // --- Hardened egress --------------------------------------------------------
@@ -394,7 +397,7 @@ export async function beginMailOauth(input: {
   for (const [key, value] of Object.entries({
     client_id: resolved.clientId,
     response_type: 'code',
-    redirect_uri: mailOauthRedirectUri(),
+    redirect_uri: await mailOauthRedirectUri(),
     scope: resolved.spec.scopes,
     state,
     code_challenge: challenge,

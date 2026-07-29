@@ -208,7 +208,7 @@ export default async function SettingsPage({
       }))}
       agentsWithoutMailbox={mailboxData.unconnected}
       mailOauthApps={mailOauthApps}
-      mailOauthRedirectUri={mailOauthRedirectUri()}
+      mailOauthRedirectUri={await mailOauthRedirectUri()}
       mailSignature={{
         enabled: mailSignature.enabled,
         sourceHtml: mailSignature.sourceHtml,
@@ -288,7 +288,7 @@ export default async function SettingsPage({
         connections: chatConnections,
         routes: chatRoutes,
         agents: activeAgents,
-        webhookUrls: chatWebhookUrls(),
+        webhookUrls: await chatWebhookUrls(),
       }}
       sms={{ provider: smsSettings.provider, fromNumber: smsSettings.fromNumber }}
       phoneSystem={{

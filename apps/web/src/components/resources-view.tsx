@@ -21,6 +21,7 @@ export function ResourcesView({
   shellAvailable,
   systems,
   mcpOauthOutcome,
+  mcpOauthRedirectUri,
   rolePackOptions,
   agentOptions,
   initialTab,
@@ -34,6 +35,8 @@ export function ResourcesView({
   systems: SystemRowView[]
   /** How the last MCP OAuth sign-in ended, when the operator just came back. */
   mcpOauthOutcome?: McpOauthOutcome | null
+  /** The exact address providers must be told to call back to. */
+  mcpOauthRedirectUri: string
   rolePackOptions: AssignOption[]
   agentOptions: AssignOption[]
   /** Which subtab to open on arrival — the OAuth callback and links deep-link here. */
@@ -71,7 +74,11 @@ export function ResourcesView({
           shellAvailable={shellAvailable}
         />
       ) : null}
-      {active === 'systems' ? <SystemsView systems={systems} oauthOutcome={mcpOauthOutcome ?? null} /> : null}
+      {active === 'systems' ? <SystemsView
+          systems={systems}
+          oauthOutcome={mcpOauthOutcome ?? null}
+          oauthRedirectUri={mcpOauthRedirectUri}
+        /> : null}
       {active === 'proposals' ? <ProposalsView rows={proposals} /> : null}
     </div>
   )

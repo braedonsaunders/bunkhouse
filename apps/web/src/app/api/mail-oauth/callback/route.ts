@@ -30,7 +30,7 @@ export async function GET(request: Request): Promise<Response> {
     return backToAgent(request, mailOauthStatePerson(state), 'The provider did not return an authorization code.')
   }
 
-  const result = await completeMailOauth({ state, code, redirectUri: mailOauthRedirectUri() })
+  const result = await completeMailOauth({ state, code, redirectUri: await mailOauthRedirectUri() })
   if (!result.ok) return backToAgent(request, result.personId, result.message)
 
   revalidatePath('/organization')

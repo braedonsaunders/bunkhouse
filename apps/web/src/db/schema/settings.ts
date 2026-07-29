@@ -111,6 +111,14 @@ export type McpOauthPending = {
   label: string
   url: string
   category: string
+  /**
+   * The exact redirect URI this authorization was started with. Providers
+   * compare it byte-for-byte against the one sent at the token exchange, so it
+   * is replayed from here rather than derived a second time — the callback may
+   * well arrive on a different hostname than the request that began the flow.
+   * Optional: authorizations already in flight when this was added have none.
+   */
+  redirectUri?: string
   /** Discovery + registration results the callback finishes with. */
   tokenEndpoint: string
   resource: string

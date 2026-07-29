@@ -29,7 +29,7 @@ export async function GET(request: Request): Promise<Response> {
   if (denied) return backToFiling(request, { error: `The connection was not completed: ${denied}` })
   if (!code) return backToFiling(request, { error: 'The provider did not return an authorization code.' })
 
-  const result = await completeFilingOauth({ state, code, redirectUri: filingOauthRedirectUri() })
+  const result = await completeFilingOauth({ state, code, redirectUri: await filingOauthRedirectUri() })
   if (!result.ok) return backToFiling(request, { error: result.message })
 
   revalidatePath('/admin/settings/filing')

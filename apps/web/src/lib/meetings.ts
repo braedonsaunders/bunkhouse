@@ -6,6 +6,7 @@ import { defineAbility, type Ability } from '@bunkhouse/runtime'
 import { callSessions, meetingLinks, people } from '../db/schema'
 import { db } from '../db/client'
 import { sendNewMail } from './mailbox'
+import { appUrl } from './app-origin'
 
 /**
  * Video meetings: the agent sets one up, mails the link, and joins the room
@@ -28,13 +29,16 @@ export function meetingRoomName(sessionId: string): string {
 /** How long an invitation stays good for. Long enough for tomorrow morning. */
 export const MEETING_LINK_TTL_HOURS = 48
 
-/** Where the guest page lives. Same origin the app is served on. */
-function appUrl(): string {
-  return (process.env.APP_URL ?? 'http://localhost:4810').replace(/\/+$/, '')
-}
-
-export function meetingUrlFor(token: string): string {
-  return `${appUrl()}/meet/${token}`
+/**
+ * Where the guest page lives — the same origin the app is served on, resolved
+ * per `appOrigin`. A meeting link is emailed to someone outside the company, so
+ * getting this wrong is not a broken page but a customer who cannot join. When
+ * a meeting is created outside a request (an agent acting on a duty), there is
+ * no Host header to read and APP_URL must be set; that throws rather than
+ * quietly minting a localhost link nobody can open.
+ */
+export async function meetingUrlFor(token: string): Promise<string> {
+  return appUrl(`/meet/${token}`)
 }
 
 export type MeetingInvitee = { name?: string; address?: string }
@@ -89,7 +93,7 @@ export async function createMeeting(args: {
     })
   })
 
-  return { sessionId, token, meetingUrl: meetingUrlFor(token), expiresAt }
+  return { sessionId, token, meetingUrl: await meetingUrlFor(token), expiresAt }
 }
 
 export type MeetingLookup =

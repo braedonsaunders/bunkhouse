@@ -21,6 +21,7 @@ import {
 } from '../db/schema'
 import { db } from '../db/client'
 import { listMcpIntegrations, saveMcpIntegrations } from './mcp-integrations'
+import { appUrl } from './app-origin'
 
 /**
  * Signing an MCP connection in with OAuth, for the servers that refuse plain
@@ -41,9 +42,17 @@ const STATE_MAX_AGE_MS = 10 * 60 * 1000
 /** Refresh when the access token has less life left than a slow MCP dial. */
 const EXPIRY_SLACK_MS = 60 * 1000
 
-export function mcpOauthRedirectUri(): string {
-  const base = process.env.APP_URL ?? 'http://localhost:4810'
-  return `${base.replace(/\/+$/, '')}/api/mcp-oauth/callback`
+/**
+ * Where providers send the operator back. Derived from the request being
+ * served, so a deployment needs no configuration to sign in correctly — see
+ * `appOrigin` for the resolution order and why there is no localhost fallback.
+ *
+ * The value used to start an authorization is stored with the pending record
+ * and replayed at the token exchange, so the two always match even if the
+ * second request arrives on a different hostname.
+ */
+export async function mcpOauthRedirectUri(): Promise<string> {
+  return appUrl('/api/mcp-oauth/callback')
 }
 
 // --- Pending authorizations ---------------------------------------------------
@@ -115,7 +124,7 @@ export async function beginMcpOauth(input: {
   clientId?: string
   clientSecret?: string
 }): Promise<{ url: string }> {
-  const redirectUri = mcpOauthRedirectUri()
+  const redirectUri = await mcpOauthRedirectUri()
   const authorization = await discoverAuthorization(input.url)
   const client = input.clientId
     ? { clientId: input.clientId, ...(input.clientSecret ? { clientSecret: input.clientSecret } : {}) }
@@ -129,6 +138,7 @@ export async function beginMcpOauth(input: {
     label: input.label,
     url: input.url,
     category: input.category,
+    redirectUri,
     tokenEndpoint: authorization.tokenEndpoint,
     resource: authorization.resource,
     clientId: client.clientId,
@@ -203,7 +213,7 @@ export async function completeMcpOauth(input: { state: string; code: string }): 
       client: { clientId: pending.clientId, ...(clientSecret ? { clientSecret } : {}) },
       code: input.code,
       codeVerifier: verifier,
-      redirectUri: mcpOauthRedirectUri(),
+      redirectUri: pending.redirectUri ?? (await mcpOauthRedirectUri()),
     })
 
     // Prove the grant opens the server before anything is stored.

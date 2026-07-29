@@ -56,11 +56,6 @@ const CATEGORY_OPTIONS = [
   { value: 'phone_call', label: 'Phone calls' },
 ]
 
-/** The path providers redirect back to; the origin is whatever domain the
- *  operator reaches us on. Shown when a provider needs the app registered by
- *  hand. */
-const MCP_OAUTH_REDIRECT_PATH = '/api/mcp-oauth/callback'
-
 const categoryLabel = (value: string) => CATEGORY_OPTIONS.find((c) => c.value === value)?.label ?? value
 
 const COLUMNS: RecordColumn<SystemRowView>[] = [
@@ -132,9 +127,12 @@ function useClearedOauthParams(present: boolean): void {
 export function SystemsView({
   systems,
   oauthOutcome,
+  oauthRedirectUri,
 }: {
   systems: SystemRowView[]
   oauthOutcome?: McpOauthOutcome | null
+  /** The exact address providers must be told to call back to. */
+  oauthRedirectUri: string
 }) {
   const [panel, setPanel] = React.useState<SystemsPanel | null>(null)
   const [query, setQuery] = React.useState('')
@@ -194,6 +192,7 @@ export function SystemsView({
           key={panel.kind === 'edit' ? panel.entry.slug : (panel.prefill?.slug ?? 'new')}
           entry={panel.kind === 'edit' ? panel.entry : null}
           prefill={panel.kind === 'new' ? (panel.prefill ?? null) : null}
+          oauthRedirectUri={oauthRedirectUri}
           onClose={() => setPanel(null)}
         />
       ) : null}
@@ -280,10 +279,12 @@ function LibraryDrawer({
 function SystemDrawer({
   entry,
   prefill,
+  oauthRedirectUri,
   onClose,
 }: {
   entry: SystemRowView | null
   prefill?: IntegrationLibraryEntry | null
+  oauthRedirectUri: string
   onClose: () => void
 }) {
   const [label, setLabel] = React.useState(entry?.label ?? prefill?.label ?? '')
@@ -384,11 +385,15 @@ function SystemDrawer({
                   placeholder="Only if the provider issued one"
                 />
               </div>
-              <p className="text-xs text-fg-muted sm:col-span-2">
-                Most servers register this company automatically. Fill these in only when the provider asks you to
-                create an application first — then use{' '}
-                <span className="font-mono">{MCP_OAUTH_REDIRECT_PATH}</span> on your own domain as its redirect URI.
-              </p>
+              <div className="space-y-1 sm:col-span-2">
+                <Label htmlFor="mcp-redirect">Redirect URI for the provider</Label>
+                <Input id="mcp-redirect" value={oauthRedirectUri} readOnly onFocus={(e) => e.currentTarget.select()} />
+                <p className="text-xs text-fg-muted">
+                  Most servers register this company automatically. Fill the fields above in only when the provider asks
+                  you to create an application first — and give it this exact address as its redirect URI. Providers
+                  match it character for character, so copy it rather than retyping it.
+                </p>
+              </div>
               {entry?.isOauth ? (
                 <p className="text-xs text-fg-muted sm:col-span-2">
                   This system is already signed in. Signing in again replaces the stored grant.

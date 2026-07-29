@@ -9,6 +9,7 @@ import { chatChannelRoutes, chatInboundEvents } from '../db/schema/chat'
 import { db } from '../db/client'
 import { executeAgentRun } from './agent-runs'
 import { assertPublicHost } from './research'
+import { appOrigin } from './app-origin'
 
 /**
  * The Slack / Microsoft Teams bridge. Product doctrine #1: mail is the
@@ -103,10 +104,14 @@ export async function listChatConnections(tenantId: string): Promise<ChatConnect
   }
 }
 
-/** The two webhook URLs an operator pastes into Slack's / Teams' own app config. */
-export function chatWebhookUrls(): { slack: string; teams: string } {
-  const base = (process.env.APP_URL ?? 'http://localhost:4810').replace(/\/+$/, '')
-  return { slack: `${base}/api/chat/slack`, teams: `${base}/api/chat/teams` }
+/**
+ * The two webhook URLs an operator pastes into Slack's / Teams' own app config.
+ * Derived from the request being served — see `appOrigin` — so what is on
+ * screen is genuinely the address those services will reach.
+ */
+export async function chatWebhookUrls(): Promise<{ slack: string; teams: string }> {
+  const origin = await appOrigin()
+  return { slack: `${origin}/api/chat/slack`, teams: `${origin}/api/chat/teams` }
 }
 
 const OUTBOUND_TIMEOUT_MS = 15_000
