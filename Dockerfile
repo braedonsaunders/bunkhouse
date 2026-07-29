@@ -16,6 +16,11 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.30.0 --activate
 
 # Native tools the agents' work depends on:
+# - ca-certificates: the system trust store. Node carries its own CA bundle, so
+#   its absence is invisible until a native dependency needs TLS: LiveKit's
+#   media client (@livekit/rtc-node) is Rust and reads the OS store, so without
+#   this the voice agent registers happily and then fails every call it is
+#   handed with "no native root CA certificates found".
 # - libreoffice-writer + fonts: HTML → .docx/.pdf rendering (@appkit/office)
 # - poppler-utils: PDF concatenation (pdfunite) + pdftoppm for OCR rasterizing
 # - bubblewrap: the process sandbox agents run shell work in
@@ -23,6 +28,7 @@ RUN corepack enable && corepack prepare pnpm@10.30.0 --activate
 # - chromium: the recorded browser agents drive (puppeteer-core connects to it)
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
+    ca-certificates \
     libreoffice-writer \
     poppler-utils \
     bubblewrap \
