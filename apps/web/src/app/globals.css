@@ -294,6 +294,51 @@ html, body { min-height: 100%; }
   }
 }
 
+/* The call stage (components/call-stage.tsx). Phase changes enter on the same
+   @starting-style mechanism as .appkit-row — visible by default, no JS frame
+   loop, hydration- and StrictMode-safe — using the shared motion tokens. The
+   ringing ripple is the one continuous loop a transition cannot express: a
+   ring that swells from the avatar's edge and fades, compositor-owned. Its
+   colour comes from the utility classes on the element (token channels only);
+   the keyframe carries motion alone. */
+.bh-call-enter {
+  transition:
+    opacity var(--duration-slow) var(--ease-out),
+    transform var(--duration-slow) var(--ease-out);
+}
+@starting-style {
+  .bh-call-enter {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes bh-call-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  70% {
+    opacity: 0.15;
+  }
+  100% {
+    transform: scale(1.16);
+    opacity: 0;
+  }
+}
+.bh-call-ripple {
+  animation: bh-call-ripple 2.2s var(--ease-out) infinite;
+}
+/* A still stage still reads: the ripple simply rests as a faint ring. */
+@media (prefers-reduced-motion: reduce) {
+  .bh-call-enter {
+    transition: none;
+  }
+  .bh-call-ripple {
+    animation: none;
+    opacity: 0.3;
+  }
+}
+
 /* Brand logo animation (components/brand-logo.tsx). Roof strokes carry a
    normalized pathLength of 1 so one dasharray rule draws any segment. Draw
    mode builds the lockup once: the word fades in first, the roof draws from
