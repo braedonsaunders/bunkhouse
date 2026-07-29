@@ -21,6 +21,8 @@ RUN corepack enable && corepack prepare pnpm@10.30.0 --activate
 #   media client (@livekit/rtc-node) is Rust and reads the OS store, so without
 #   this the voice agent registers happily and then fails every call it is
 #   handed with "no native root CA certificates found".
+# - git: agents fetch and work on repositories in their sandboxed workspace,
+#   which the sandbox permits (it isolates the filesystem, not the network)
 # - libreoffice-writer + fonts: HTML → .docx/.pdf rendering (@appkit/office)
 # - poppler-utils: PDF concatenation (pdfunite) + pdftoppm for OCR rasterizing
 # - bubblewrap: the process sandbox agents run shell work in
@@ -29,6 +31,7 @@ RUN corepack enable && corepack prepare pnpm@10.30.0 --activate
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
+    git \
     libreoffice-writer \
     poppler-utils \
     bubblewrap \
