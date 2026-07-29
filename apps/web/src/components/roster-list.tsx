@@ -4,6 +4,8 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { RecordList, type RecordColumn } from '@appkit/ui'
+import type { CallAction } from '../lib/call-action'
+import { CallActionButton } from './call-action-button'
 
 /**
  * One row shape for both halves of the organization. People and agents get
@@ -23,6 +25,8 @@ export type RosterRow = {
   phone?: string
   model?: string
   extension?: string
+  /** Agents only: the row's Call action, resolved by `resolveCallAction`. */
+  call?: CallAction | null
 }
 
 const NAME_COLUMN: RecordColumn<RosterRow> = {
@@ -45,6 +49,14 @@ const STATUS_COLUMN: RecordColumn<RosterRow> = {
   statusVariant: (value) => (value === 'Active' ? 'default' : value === 'Onboarding' ? 'secondary' : 'outline'),
 }
 
+/** Reach the agent straight from the row, without opening the record first. */
+const CALL_COLUMN: RecordColumn<RosterRow> = {
+  key: 'call',
+  label: '',
+  kind: 'actions',
+  render: (row) => (row.call ? <CallActionButton action={row.call} name={row.name} compact /> : null),
+}
+
 export const PEOPLE_COLUMNS: RecordColumn<RosterRow>[] = [
   NAME_COLUMN,
   { key: 'title', label: 'Job title', sortable: true },
@@ -62,6 +74,7 @@ export const AGENT_COLUMNS: RecordColumn<RosterRow>[] = [
   { key: 'extension', label: 'Ext.' },
   { key: 'reportsTo', label: 'Reports to', sortable: true },
   STATUS_COLUMN,
+  CALL_COLUMN,
 ]
 
 export function RosterList({

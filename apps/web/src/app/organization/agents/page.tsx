@@ -6,6 +6,7 @@ import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
 import { listAvatarCompositions, loadAvatarPartLibrary } from '../../../lib/avatars'
 import { AVATAR_PART_CATEGORIES } from '../../../lib/avatar-parts'
+import { resolveCallAction } from '../../../lib/call-action'
 import { OrganizationTabs } from '../../../components/organization-tabs'
 import { RosterAvatar } from '../../../components/roster-avatar'
 import { AGENT_COLUMNS, RosterList, type RosterRow } from '../../../components/roster-list'
@@ -56,6 +57,7 @@ export default async function AgentsPage({
       extension: person.extension ?? '—',
       reportsTo: person.reportsToId ? (byId.get(person.reportsToId)?.name ?? '—') : '—',
       status: STATUS_LABELS[person.status],
+      call: resolveCallAction(person),
     }))
 
   return (

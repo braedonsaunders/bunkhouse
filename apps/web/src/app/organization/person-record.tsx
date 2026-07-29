@@ -16,7 +16,9 @@ import { getVoiceProviders, listRealtimeCapableProviders } from '../../lib/voice
 import { createEmptyComposition, getAvatarComposition, loadAvatarPartLibrary } from '../../lib/avatars'
 import { AVATAR_PART_CATEGORIES } from '../../lib/avatar-parts'
 import { scheduleToHuman } from '../../lib/schedule'
+import { resolveCallAction } from '../../lib/call-action'
 import { PersonDrawer, type PersonDrawerTab } from '../../components/person-drawer'
+import { CallActionButton } from '../../components/call-action-button'
 import { AvatarPortrait, AvatarStudio } from '../../components/avatar-studio'
 import { VoiceConfigForm } from '../../components/voice-config-form'
 import { DutiesCard } from '../../components/duties-card'
@@ -234,7 +236,6 @@ export async function personDrawer({
               <VoiceConfigForm
                 personId={selected.id}
                 name={selected.name}
-                status={selected.status}
                 current={selected.voiceConfig ?? null}
                 realtimeProviders={realtimeProviders}
                 speechConfigured={{
@@ -281,6 +282,10 @@ export async function personDrawer({
     ? roster.find((person) => person.id === selected.reportsToId)
     : undefined
 
+  // Reaching an agent is a property of the record, not of one of its tabs, so
+  // the action sits in the drawer header wherever the record is opened from.
+  const callAction = resolveCallAction(selected)
+
   return (
     <PersonDrawer
       key={selected.id}
@@ -301,6 +306,7 @@ export async function personDrawer({
         />
       }
       avatarTabKey="avatar"
+      contactAction={callAction ? <CallActionButton action={callAction} name={selected.name} /> : undefined}
       tabs={tabs}
     />
   )

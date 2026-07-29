@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Loader2, Phone, Play, Square } from 'lucide-react'
+import { Loader2, Play, Square } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -39,7 +39,6 @@ export type RealtimeProviderOption = { slug: string; label: string; kind: 'opena
 export function VoiceConfigForm({
   personId,
   name,
-  status,
   current,
   realtimeProviders,
   speechConfigured,
@@ -49,7 +48,6 @@ export function VoiceConfigForm({
 }: {
   personId: string
   name: string
-  status: string
   current: BunkhouseVoiceConfig | null
   realtimeProviders: RealtimeProviderOption[]
   speechConfigured: { deepgram: boolean; elevenlabs: boolean }
@@ -206,7 +204,6 @@ export function VoiceConfigForm({
   const realtimeModels = realtimeKind === 'openai' ? catalogs.openaiRealtimeModels : catalogs.geminiLiveModels
   const realtimeVoices = realtimeKind === 'openai' ? catalogs.openaiRealtimeVoices : catalogs.geminiLiveVoices
 
-  const callable = current !== null && status === 'active'
   const summary =
     current === null
       ? null
@@ -256,26 +253,13 @@ export function VoiceConfigForm({
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center justify-between gap-2">
-            <span className="flex items-center gap-2">
-              Voice
-              {current ? <Badge variant="default">configured</Badge> : <Badge variant="outline">not configured</Badge>}
-            </span>
-            {callable ? (
-              <Button asChild>
-                <Link href={`/call/${personId}`} prefetch={false}>
-                  <Phone className="mr-1.5 size-4" /> Call {name.split(' ')[0]}
-                </Link>
-              </Button>
-            ) : (
-              <Button disabled title={current === null ? 'Configure a voice first.' : 'Only active agents take calls.'}>
-                <Phone className="mr-1.5 size-4" /> Call {name.split(' ')[0]}
-              </Button>
-            )}
+          <CardTitle className="flex items-center gap-2">
+            Voice
+            {current ? <Badge variant="default">configured</Badge> : <Badge variant="outline">not configured</Badge>}
           </CardTitle>
           <CardDescription>
             {summary ??
-              'Voice not configured — pick how this agent hears and speaks, then the Call button lights up.'}
+              'Voice not configured — pick how this agent hears and speaks, then the Call button at the top of this record lights up.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

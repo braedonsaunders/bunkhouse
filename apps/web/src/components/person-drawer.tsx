@@ -30,6 +30,7 @@ export function PersonDrawer({
   status,
   avatar,
   avatarTabKey,
+  contactAction,
   initialTabKey,
   tabs,
 }: {
@@ -43,6 +44,8 @@ export function PersonDrawer({
   avatar: React.ReactNode
   /** Tab the header portrait opens, so the face is a way into its own editor. */
   avatarTabKey?: string
+  /** Reach-them action pinned into the header, next to the portrait. */
+  contactAction?: React.ReactNode
   /** Tab to land on, when the record was opened to show something specific. */
   initialTabKey?: string | undefined
   tabs: PersonDrawerTab[]
@@ -68,18 +71,21 @@ export function PersonDrawer({
       }
       description={subtitle}
       headerActions={
-        avatarTabKey && tabs.some((tab) => tab.key === avatarTabKey) ? (
-          <button
-            type="button"
-            onClick={() => setActive(avatarTabKey)}
-            title={`Compose ${name}'s avatar`}
-            className="rounded-full transition-opacity hover:opacity-80"
-          >
-            {avatar}
-          </button>
-        ) : (
-          avatar
-        )
+        <span className="flex items-center gap-2">
+          {contactAction}
+          {avatarTabKey && tabs.some((tab) => tab.key === avatarTabKey) ? (
+            <button
+              type="button"
+              onClick={() => setActive(avatarTabKey)}
+              title={`Compose ${name}'s avatar`}
+              className="rounded-full transition-opacity hover:opacity-80"
+            >
+              {avatar}
+            </button>
+          ) : (
+            avatar
+          )}
+        </span>
       }
       size="2xl"
       bodyClassName={fills ? 'flex min-h-0 flex-1 flex-col overflow-hidden px-6 py-5' : undefined}
