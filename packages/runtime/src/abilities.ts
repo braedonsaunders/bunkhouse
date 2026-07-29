@@ -13,6 +13,20 @@ import type { ActionCategory, ApprovalGate, AutonomyResolver, RunSink } from './
 export type Ability = {
   name: string
   category: ActionCategory | null
+  /**
+   * How an 'approval' dial applies to this ability.
+   *
+   * - `'each-call'` (default) — every call files its own request. Right for
+   *   discrete acts: sending mail, moving money, writing to a record.
+   * - `'continues'` — the dial still decides whether the ability may run at
+   *   all, but it files no request of its own: it continues work an approved
+   *   step already began, and cannot begin that work itself. A person who
+   *   approves an errand approves the steps it takes; asking again for every
+   *   click is not more oversight, it is noise that buries the decisions that
+   *   matter. Abilities marked this way MUST be inert without the approved
+   *   step that opens their session, and are recorded like any other.
+   */
+  approval?: 'each-call' | 'continues'
   tool: Tool<any, any>
 }
 
@@ -20,12 +34,14 @@ export function defineAbility<INPUT, OUTPUT>(args: {
   name: string
   description: string
   category: ActionCategory | null
+  approval?: 'each-call' | 'continues'
   inputSchema: z.ZodType<INPUT>
   execute: (input: INPUT) => Promise<OUTPUT>
 }): Ability {
   return {
     name: args.name,
     category: args.category,
+    ...(args.approval ? { approval: args.approval } : {}),
     tool: tool({
       description: args.description,
       inputSchema: args.inputSchema as z.ZodType<INPUT>,
@@ -92,7 +108,7 @@ export function governedToolSet(args: {
             note: `The ${category} ability is disabled for you. Route this to a colleague who owns it or tell the requester it needs a human.`,
           }
         }
-        if (level === 'approval') {
+        if (level === 'approval' && ability.approval !== 'continues') {
           const description =
             args.describeAction?.(ability.name, input) ?? `${ability.name} with ${JSON.stringify(input)}`
           const { approvalId } = await args.approvals.request({

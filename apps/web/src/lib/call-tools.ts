@@ -39,6 +39,10 @@ export function governedCallTools(args: {
   onSettled?: (info: { toolName: string }) => void
 }): Record<string, llm.FunctionTool> {
   const tools: Record<string, llm.FunctionTool> = {}
+  // One request per distinct action, however many times the agent tries it.
+  // A model told "queued for approval" often retries the identical call, and
+  // a manager should find one decision to make, not a column of the same one.
+  const filed = new Map<string, string>()
   for (const ability of args.abilities) {
     const base = ability.tool
     if (!base.execute) continue
@@ -80,21 +84,27 @@ export function governedCallTools(args: {
               settle()
               return output
             }
-            if (level === 'approval') {
+            if (level === 'approval' && ability.approval !== 'continues') {
               const description = `${ability.name} with ${JSON.stringify(input)}`
-              const { approvalId } = await args.fileApproval({
+              const already = filed.get(description)
+              const approvalId = already ?? (await args.fileApproval({
                 category: ability.category,
                 description,
                 action: { toolName: ability.name, input: input as Record<string, unknown> },
-              })
-              await args
-                .record('approval_request', { approvalId, toolName: ability.name, category: ability.category, description })
-                .catch(() => {})
+              })).approvalId
+              if (!already) {
+                filed.set(description, approvalId)
+                await args
+                  .record('approval_request', { approvalId, toolName: ability.name, category: ability.category, description })
+                  .catch(() => {})
+              }
               settle()
               return {
                 status: 'pending_approval',
                 approvalId,
-                note: 'This action needs human sign-off and has been queued. Tell the caller it is awaiting approval and will happen once signed off — then carry on with the call.',
+                note: already
+                  ? 'Still waiting on the same sign-off you already asked for — do not ask again. Tell the caller it is with their manager, and move on to something you can do.'
+                  : 'This action needs human sign-off and has been queued. Tell the caller it is awaiting approval and will happen once signed off — then carry on with the call.',
               }
             }
           }
