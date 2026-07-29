@@ -62,12 +62,13 @@
       "@appkit/telephony": "file:./vendor/appkit/appkit-telephony-0.1.0.tgz",
       "@appkit/tenant": "file:./vendor/appkit/appkit-tenant-0.1.1.tgz",
       "@appkit/tokens": "file:./vendor/appkit/appkit-tokens-0.1.1.tgz",
-      "@appkit/ui": "file:./vendor/appkit/appkit-ui-0.1.7.tgz",
+      "@appkit/ui": "file:./vendor/appkit/appkit-ui-0.1.9.tgz",
       "@appkit/workflows": "file:./vendor/appkit/appkit-workflows-1.0.0.tgz",
       "@appkit/mailbox": "file:./vendor/appkit/appkit-mailbox-0.4.0.tgz",
       "@appkit/avatars": "file:./vendor/appkit/appkit-avatars-0.5.2.tgz",
       "@appkit/voice": "file:./vendor/appkit/appkit-voice-0.1.0.tgz",
-      "@appkit/scene": "file:./vendor/appkit/appkit-scene-0.3.3.tgz"
+      "@appkit/scene": "file:./vendor/appkit/appkit-scene-0.3.3.tgz",
+      "@appkit/oauth": "file:./vendor/appkit/appkit-oauth-0.1.0.tgz"
     }
   }
 }
