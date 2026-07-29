@@ -7,12 +7,18 @@ import {
   runAgent,
   type Ability,
   type ActionCategory,
+  type AgentProfile,
   type AutonomyLevel,
+  type AutonomyResolver,
   type BoundProcedure,
+  type BudgetMeter,
+  type CompanyProfile,
   type GovernanceState,
+  type MemoryNote,
   type RunInput,
   type RunInputImage,
   type RunOutcome,
+  type RunSink,
 } from '@bunkhouse/runtime'
 import {
   autonomySettings,
@@ -53,6 +59,179 @@ async function monthSpendUsd(tenantId: string, personId: string): Promise<number
     .from(tokenSpend)
     .where(and(eq(tokenSpend.personId, personId), gte(tokenSpend.createdAt, monthStart)))
   return Number(row?.total ?? 0)
+}
+
+/**
+ * The Logbook, recalled for one piece of work: the pinned tier always rides
+ * into the prompt, the rest is scored against what the agent is about to do.
+ * Assumes an active tenant scope — every caller already has one.
+ */
+export async function runMemories(args: {
+  tenantId: string
+  personId: string
+  /** What the work is about, in the agent's own terms. */
+  query: string
+}): Promise<MemoryNote[]> {
+  const pinned = await pinnedNotes({ tenantId: args.tenantId, personId: args.personId })
+  const retrieved = await retrieveNotes({ tenantId: args.tenantId, personId: args.personId, query: args.query })
+  return [...pinned, ...retrieved.filter((r) => !pinned.some((p) => p.id === r.id))].map((n) => ({
+    scope: n.scope,
+    slug: n.slug,
+    title: n.title,
+    body: n.body,
+  }))
+}
+
+/**
+ * Everything a governed run stands on that the work itself does not decide:
+ * who the agent is, the company it speaks for, the procedures bound to it, the
+ * autonomy dial, the salary meter, and where token spend is filed. Email runs,
+ * duty runs and work handed over on a live call all assemble it here, so an
+ * agent is the same colleague wherever you reach it.
+ */
+export type RunFoundation = {
+  agent: AgentProfile
+  company: CompanyProfile
+  procedures: BoundProcedure[]
+  autonomy: AutonomyResolver
+  budget: BudgetMeter
+  spend: RunSink['spend']
+}
+
+/**
+ * The autonomy dial for one agent, resolved. Missing categories are
+ * 'approval' — the safe posture for anything nobody configured, and the only
+ * place that default is written down. Assumes an active tenant scope.
+ */
+export async function autonomyDial(args: { tenantId: string; personId: string }): Promise<AutonomyResolver> {
+  const app = db()
+  const rows = await app.db.select().from(autonomySettings).where(eq(autonomySettings.personId, args.personId))
+  const dial = new Map(rows.map((r) => [r.category, r.level]))
+  return (category: ActionCategory): AutonomyLevel => dial.get(category) ?? 'approval'
+}
+
+/**
+ * File an approval request against a run — once per distinct action, however
+ * many times the agent tries it. A model told "queued for approval" retries
+ * the identical call, and a manager should find one decision to make, not a
+ * column of the same one. The check is on the record, not on an in-memory map,
+ * so it holds across resumed runs and across processes. Assumes an active
+ * tenant scope.
+ */
+export async function requestApproval(args: {
+  tenantId: string
+  runId: string
+  personId: string
+  category: ActionCategory
+  description: string
+  action: Record<string, unknown>
+}): Promise<{ approvalId: string; alreadyRequested: boolean }> {
+  const app = db()
+  const [existing] = await app.db
+    .select({ id: approvals.id })
+    .from(approvals)
+    .where(
+      and(
+        eq(approvals.runId, args.runId),
+        eq(approvals.status, 'pending'),
+        sql`${approvals.payload}->>'description' = ${args.description}`,
+      ),
+    )
+    .limit(1)
+  if (existing) return { approvalId: existing.id, alreadyRequested: true }
+  const [row] = await app.db
+    .insert(approvals)
+    .values({
+      tenantId: args.tenantId,
+      runId: args.runId,
+      personId: args.personId,
+      category: args.category,
+      payload: { description: args.description, action: args.action },
+    })
+    .returning({ id: approvals.id })
+  return { approvalId: row!.id, alreadyRequested: false }
+}
+
+/**
+ * Assemble that foundation. Assumes an active tenant scope. Returns a reason
+ * rather than throwing when the agent cannot run at all — the caller decides
+ * whether that is a failed run row or a sentence said out loud on a call.
+ */
+export async function assembleRunFoundation(args: {
+  tenantId: string
+  person: typeof people.$inferSelect
+  /** The run token spend is filed against. */
+  runId: string
+}): Promise<{ ok: true; foundation: RunFoundation } | { ok: false; reason: string }> {
+  const app = db()
+  const { tenantId, person, runId } = args
+
+  const ai = await resolveAgentAiConfig(tenantId, person.id)
+  if (!ai) return { ok: false, reason: 'No model assigned — set a provider and model on the profile.' }
+
+  const autonomy = await autonomyDial({ tenantId, personId: person.id })
+  const directory = await app.db.select().from(people).where(eq(people.status, 'active'))
+  const identity = await getCompanyIdentity(tenantId)
+  const signature = await getMailSignature(tenantId)
+  const signatureAppended = signature.enabled && signature.compiledHtml.trim().length > 0
+
+  return {
+    ok: true,
+    foundation: {
+      agent: {
+        id: person.id,
+        name: person.name,
+        title: person.title,
+        email: person.email,
+        personality: person.personality ?? {
+          bio: person.responsibilities ?? `I am the ${person.title}.`,
+          tone: ['professional'],
+          signoff: `Best,\n${person.name.split(' ')[0]}`,
+        },
+        ai,
+        ...(person.responsibilities ? { responsibilities: person.responsibilities } : {}),
+        ...(person.reportsToId ? { reportsToId: person.reportsToId } : {}),
+        proactivity: person.proactivity ?? 'duties',
+        ...(signatureAppended ? { signatureAppended: true } : {}),
+      },
+      company: {
+        ...companyPromptProfile(identity),
+        directory: directory.map((p) => ({
+          id: p.id,
+          kind: p.kind,
+          name: p.name,
+          title: p.title,
+          email: p.email,
+          ...(p.responsibilities ? { responsibilities: p.responsibilities } : {}),
+          ...(p.reportsToId ? { reportsToId: p.reportsToId } : {}),
+        })),
+      },
+      procedures: await boundProcedures(tenantId, person),
+      autonomy,
+      budget: {
+        remainingUsd: async () => (person.salary?.monthlyUsd ?? 50) - (await monthSpendUsd(tenantId, person.id)),
+        overagePolicy: person.salary?.overagePolicy ?? 'ask',
+      },
+      spend: async (usage) => {
+        const price = await resolvePrice(tenantId, usage.model)
+        const cost =
+          (usage.inputTokens * price.inputUsdPerMtok + usage.outputTokens * price.outputUsdPerMtok) / 1_000_000
+        await app.db.insert(tokenSpend).values({
+          tenantId,
+          personId: person.id,
+          runId,
+          provider: usage.provider,
+          model: usage.model,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          costUsd: cost.toFixed(6),
+          inputUsdPerMtok: price.inputUsdPerMtok.toFixed(4),
+          outputUsdPerMtok: price.outputUsdPerMtok.toFixed(4),
+          priceSource: price.source,
+        })
+      },
+    },
+  }
 }
 
 /** Active procedure revisions bound to a person — shared with the voice agent. */
@@ -105,32 +284,76 @@ export function replyToThreadAbility(args: { tenantId: string; threadId: string;
 }
 
 /**
+ * The live disposition: work somebody is waiting on right now, inside a record
+ * the caller already owns.
+ *
+ * There is one engine. What changes between an assignment and a request made
+ * on the phone is not how the work runs — same governed loop, same dial, same
+ * approvals, same metering, same ledger — but when the answer is wanted and
+ * where it goes. Deferred work is an assignment: queued, run by the worker
+ * process, delivered by email. Live work runs here and now, in the process
+ * holding the conversation, and its progress is narrated as it happens.
+ *
+ * So a live run does not open a run of its own: it joins the call's, appending
+ * through the caller's own sink (which numbers the events and narrates them),
+ * drawing on the ability set the call assembled once, and stopping when the
+ * caller's signal fires. The run row's lifecycle stays with the call.
+ */
+export type LiveRun = {
+  /** The run this work belongs to — the call's. */
+  runId: string
+  /** The caller's ledger. It owns the sequence numbers, and it narrates. */
+  event: RunSink['event']
+  /**
+   * The abilities the call assembled once and shares with its talker.
+   * Reassembling them per request would reconnect every MCP integration
+   * mid-conversation, which is latency a caller can hear.
+   */
+  abilities: Ability[]
+  /** Fires when the call ends: work in flight stops rather than outliving it. */
+  abortSignal: AbortSignal
+}
+
+/**
  * Execute one unit of work for an agent, end to end: run row, governed loop,
  * event/spend ledger, approval suspension, outcome. Runs inside the caller's
- * process (web action or worker) — all state is in the database.
+ * process (web action, background worker, or the voice agent) — all state is
+ * in the database.
  *
  * With `resumeRunId`, no new run row is created: the suspended run's stored
  * transcript becomes the prior context, the event sequence continues, and the
  * input (normally an approval decision) is appended as the next turn.
+ *
+ * With `live`, no run row is created or closed at all — see {@link LiveRun}.
  */
 export async function executeAgentRun(args: {
   tenantId: string
   personId: string
+  /** How the work arrived. Not persisted under `live`: the call's run owns it. */
   trigger: RunTrigger
   input: RunInput
   resumeRunId?: string
   maxSteps?: number
   counterparty?: { name?: string; address?: string }
+  live?: LiveRun
 }): Promise<{ runId: string; outcome: RunOutcome }> {
   const app = db()
-  return app.withTenant(args.tenantId, async () => {
+  const live = args.live ?? null
+  // A live run must not sit inside one long transaction: nothing it writes
+  // would be visible until it committed, so the call page would show a blank
+  // activity feed until the work finished, and a browser session held open for
+  // minutes would pin a connection for the length of the call.
+  const scope = live ? app.withTenantContext : app.withTenant
+  return scope(args.tenantId, async () => {
     const [person] = await app.db.select().from(people).where(eq(people.id, args.personId))
     if (!person || person.kind !== 'agent') throw new Error('Run target is not an agent.')
 
     let runId: string
     let seq = 0
     let priorMessages: unknown[] = []
-    if (args.resumeRunId) {
+    if (live) {
+      runId = live.runId
+    } else if (args.resumeRunId) {
       const [existing] = await app.db.select().from(runs).where(eq(runs.id, args.resumeRunId))
       if (!existing || existing.personId !== person.id) throw new Error('Run to resume not found.')
       runId = existing.id
@@ -151,8 +374,9 @@ export async function executeAgentRun(args: {
         .returning({ id: runs.id })
       runId = run!.id
     }
-    const sink = {
-      event: async (event: Record<string, unknown> & { kind: string }) => {
+    const recordEvent: RunSink['event'] =
+      live?.event ??
+      (async (event) => {
         const { kind, ...payload } = event
         await app.db.insert(runEvents).values({
           tenantId: args.tenantId,
@@ -161,56 +385,31 @@ export async function executeAgentRun(args: {
           kind: kind as (typeof runEvents.$inferInsert)['kind'],
           payload,
         })
-      },
-      spend: async (usage: { provider: string; model: string; inputTokens: number; outputTokens: number }) => {
-        const price = await resolvePrice(args.tenantId, usage.model)
-        const cost =
-          (usage.inputTokens * price.inputUsdPerMtok + usage.outputTokens * price.outputUsdPerMtok) / 1_000_000
-        await app.db.insert(tokenSpend).values({
-          tenantId: args.tenantId,
-          personId: person.id,
-          runId,
-          provider: usage.provider,
-          model: usage.model,
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          costUsd: cost.toFixed(6),
-          inputUsdPerMtok: price.inputUsdPerMtok.toFixed(4),
-          outputUsdPerMtok: price.outputUsdPerMtok.toFixed(4),
-          priceSource: price.source,
-        })
-      },
-    }
+      })
 
-    const ai = await resolveAgentAiConfig(args.tenantId, person.id)
-    if (!ai) {
-      await sink.event({ kind: 'error', message: 'No model assigned — set a provider and model on the profile.' })
-      await app.db
-        .update(runs)
-        .set({ status: 'failed', finishedAt: new Date(), summary: 'No model assigned.' })
-        .where(eq(runs.id, runId))
+    const built = await assembleRunFoundation({ tenantId: args.tenantId, person, runId })
+    if (!built.ok) {
+      await recordEvent({ kind: 'error', message: built.reason })
+      if (!live) {
+        await app.db
+          .update(runs)
+          .set({ status: 'failed', finishedAt: new Date(), summary: built.reason.slice(0, 500) })
+          .where(eq(runs.id, runId))
+      }
       return {
         runId,
         outcome: {
           status: 'failed',
-          error: 'No model assigned.',
+          error: built.reason,
           usage: { inputTokens: 0, outputTokens: 0 },
           messages: [],
         },
       }
     }
+    const foundation = built.foundation
+    const sink: RunSink = { event: recordEvent, spend: foundation.spend }
 
-    const dialRows = await app.db
-      .select()
-      .from(autonomySettings)
-      .where(eq(autonomySettings.personId, person.id))
-    const dial = new Map(dialRows.map((r) => [r.category, r.level]))
-
-    const directory = await app.db.select().from(people).where(eq(people.status, 'active'))
-    const identity = await getCompanyIdentity(args.tenantId)
-    const signature = await getMailSignature(args.tenantId)
-    const signatureAppended = signature.enabled && signature.compiledHtml.trim().length > 0
-    // The Logbook: pinned tier always in prompt; the rest scored per task.
+    // What this task is about — what the Logbook is recalled against.
     const retrievalQuery =
       args.input.type === 'email'
         ? `${args.input.threadSubject} ${args.input.conversation.slice(-400)}`
@@ -227,26 +426,27 @@ export async function executeAgentRun(args: {
                   : args.input.type === 'reply_received'
                     ? args.input.question
                     : args.input.instruction
-    const pinned = await pinnedNotes({ tenantId: args.tenantId, personId: person.id })
-    const retrieved = await retrieveNotes({ tenantId: args.tenantId, personId: person.id, query: retrievalQuery })
-    const notes = [...pinned, ...retrieved.filter((r) => !pinned.some((p) => p.id === r.id))]
+    const memories = await runMemories({ tenantId: args.tenantId, personId: person.id, query: retrievalQuery })
 
-    // The shared capability set — the same abilities voice calls carry, plus
-    // ask_and_wait: async runs can genuinely pause on a person's answer.
+    // The shared capability set. A live run is handed the one its call already
+    // assembled; everything else assembles its own, plus ask_and_wait — an
+    // async run can genuinely pause on a person's answer, a live one cannot.
     const waitState: GovernanceState = { pendingApprovalId: null, pendingWait: null }
-    const assembled = await assembleAbilities({
-      tenantId: args.tenantId,
-      person,
-      runId,
-      assignmentSource:
-        args.trigger.type === 'email' ? { kind: 'mail', threadId: args.trigger.threadId } : { kind: 'manual' },
-      ...(args.counterparty ? { counterparty: args.counterparty } : {}),
-      waitState,
-    })
-    for (const failure of assembled.integrationFailures) {
+    const assembled = live
+      ? null
+      : await assembleAbilities({
+          tenantId: args.tenantId,
+          person,
+          runId,
+          assignmentSource:
+            args.trigger.type === 'email' ? { kind: 'mail', threadId: args.trigger.threadId } : { kind: 'manual' },
+          ...(args.counterparty ? { counterparty: args.counterparty } : {}),
+          waitState,
+        })
+    for (const failure of assembled?.integrationFailures ?? []) {
       await sink.event({ kind: 'message', text: `Integration unavailable — ${failure}` })
     }
-    const abilities: Ability[] = [...assembled.abilities]
+    const abilities: Ability[] = [...(assembled?.abilities ?? live!.abilities)]
     if (args.trigger.type === 'email') {
       abilities.push(replyToThreadAbility({ tenantId: args.tenantId, threadId: args.trigger.threadId, runId }))
     }
@@ -256,61 +456,35 @@ export async function executeAgentRun(args: {
       ...(args.maxSteps ? { maxSteps: args.maxSteps } : {}),
       state: waitState,
       describeAction: describeToolCall,
-      agent: {
-        id: person.id,
-        name: person.name,
-        title: person.title,
-        email: person.email,
-        personality: person.personality ?? {
-          bio: person.responsibilities ?? `I am the ${person.title}.`,
-          tone: ['professional'],
-          signoff: `Best,\n${person.name.split(' ')[0]}`,
-        },
-        ai,
-        ...(person.responsibilities ? { responsibilities: person.responsibilities } : {}),
-        ...(person.reportsToId ? { reportsToId: person.reportsToId } : {}),
-        proactivity: person.proactivity ?? 'duties',
-        ...(signatureAppended ? { signatureAppended: true } : {}),
-      },
-      company: {
-        ...companyPromptProfile(identity),
-        directory: directory.map((p) => ({
-          id: p.id,
-          kind: p.kind,
-          name: p.name,
-          title: p.title,
-          email: p.email,
-          ...(p.responsibilities ? { responsibilities: p.responsibilities } : {}),
-          ...(p.reportsToId ? { reportsToId: p.reportsToId } : {}),
-        })),
-      },
-      procedures: await boundProcedures(args.tenantId, person),
-      memories: notes.map((n) => ({ scope: n.scope, slug: n.slug, title: n.title, body: n.body })),
+      agent: foundation.agent,
+      company: foundation.company,
+      procedures: foundation.procedures,
+      memories,
       abilities,
       input: args.input,
-      autonomy: (category: ActionCategory): AutonomyLevel => dial.get(category) ?? 'approval',
+      autonomy: foundation.autonomy,
       approvals: {
         request: async (input) => {
-          const [row] = await app.db
-            .insert(approvals)
-            .values({
-              tenantId: args.tenantId,
-              runId,
-              personId: person.id,
-              category: input.category,
-              payload: { description: input.description, action: input.action },
-            })
-            .returning({ id: approvals.id })
-          return { approvalId: row!.id }
+          const { approvalId } = await requestApproval({
+            tenantId: args.tenantId,
+            runId,
+            personId: person.id,
+            category: input.category,
+            description: input.description,
+            action: input.action,
+          })
+          return { approvalId }
         },
       },
-      budget: {
-        remainingUsd: async () => (person.salary?.monthlyUsd ?? 50) - (await monthSpendUsd(args.tenantId, person.id)),
-        overagePolicy: person.salary?.overagePolicy ?? 'ask',
-      },
+      budget: foundation.budget,
       sink,
+      ...(live ? { abortSignal: live.abortSignal } : {}),
     }).finally(async () => {
-      await assembled.close()
+      // A live run borrows both: the integrations and the browser belong to the
+      // call, which closes them once, when the call ends. Closing them here
+      // would tear them out from under whatever else the caller has running.
+      if (live) return
+      await assembled!.close()
       // A browser left open by the model is closed with the run, not leaked.
       await closeBrowserSession(runId)
     })
@@ -345,6 +519,10 @@ export async function executeAgentRun(args: {
         }
       }
     }
+
+    // A live run does not own the record it wrote into: the call opened it and
+    // the call closes it, with the whole conversation's summary.
+    if (live) return { runId, outcome }
 
     const parked = status === 'waiting_approval' || status === 'waiting_reply'
     await app.db

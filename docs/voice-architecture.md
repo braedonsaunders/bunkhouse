@@ -56,6 +56,16 @@ runs use, with the whole ability set, autonomy dial, approvals, procedures, and
 memory. It runs *outside* the voice session, asynchronously, and reports
 progress back.
 
+**One engine, two dispositions.** The worker is not a second execution engine.
+It is `executeAgentRun` — the same function an assignment, a duty, and an
+inbound email all go through — in its *live* disposition: the caller is waiting,
+so the work runs now, in the process holding the conversation, inside the run
+the call already owns, narrating as it goes. The *deferred* disposition is
+`take_assignment`, unchanged: queued, run by the background worker process,
+delivered by email. Same loop, same dial, same approvals, same metering, same
+ledger. What differs is only when the answer is wanted and where it goes. Two
+loops to keep in step would drift; there is one.
+
 **The record is the bus.** Call turns, run events, and browser frames are
 already an append-only ledger both sides read and write. It is what the call
 page renders, what the run desk replays, and what the talker narrates from. No
@@ -77,6 +87,10 @@ Six, not twenty-nine:
 Everything else — search, browser, documents, email, integrations, shell —
 belongs to the worker. The talker never sees them, so it never chooses badly
 among them, and its context stays small enough to be fast.
+
+`take_assignment` and `remember` are not reimplementations: they are the
+agent's own abilities, lifted out of the assembled set by name and governed by
+the same dial and the same approval gate as everything else.
 
 ## Never blocking
 
@@ -133,17 +147,40 @@ can do — only how it sounds.
   the talker can be a small fast model without paying for it in intelligence.
 - One failing leg is visible, because the legs are separate.
 
+## How it is wired
+
+| Piece | Where |
+|---|---|
+| The talker's six tools | `apps/web/src/lib/call-tools.ts` |
+| The worker bound to one call | `apps/web/src/lib/call-worker.ts` |
+| The engine, and its live disposition | `executeAgentRun` / `LiveRun` in `apps/web/src/lib/agent-runs.ts` |
+| The call itself | `apps/web/scripts/voice-agent.mts` |
+
+`do_work` is the framework's own async tool. The first `RunContext.update()`
+answers the model with the handle, marks the call non-blocking, and returns
+control to the session; every later update is inserted into the chat context
+and spoken only once the session is idle, so progress never lands on top of the
+caller or of the agent itself. The tool's eventual return value arrives the same
+way, as the result the agent reads out. Nothing is on a timer.
+
+The worker's progress lines are the run's own events, put into words with the
+same `describeToolCall` the call page renders — so what the caller hears and
+what the operator watches are the same story from the same ledger. Browser
+frames go to the call's eyes, unchanged.
+
 ## Migration
 
 Staged, each stage shippable and independently valuable:
 
-1. **Shrink the talker's surface** to the six tools, with `do_work` dispatching
-   to the existing runtime in-process. Immediate win on tool choice.
-2. **Make it async** — the framework's own async tools, replacing the filler
-   timer, with the worker's events narrated as they land.
+1. ~~**Shrink the talker's surface** to the six tools~~ — landed.
+2. ~~**Make it async** — the framework's own async tools, replacing the filler
+   timer, with the worker's events narrated as they land~~ — landed.
 3. **Split the model** — talker and worker on separately configured models, so
    the worker can be the strongest text model available and the talker the
-   fastest voice one.
+   fastest voice one. Structurally already true of a realtime agent: the talker
+   runs the realtime voice model and the worker runs the agent's assigned text
+   model. What is left is the operator-facing knob — a cascade agent still uses
+   one model for both, and nobody can yet pick them apart deliberately.
 4. **Speculative preparation** — the worker starts fetching likely context
    while the caller is still speaking, so the answer is often ready before the
    question finishes.

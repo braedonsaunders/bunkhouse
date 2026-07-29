@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { and, desc, eq, ne } from 'drizzle-orm'
-import { z } from 'zod'
-import { cli, defineAgent, llm, voice, ServerOptions, type JobContext, type JobProcess } from '@livekit/agents'
+import { cli, defineAgent, voice, ServerOptions, type JobContext, type JobProcess } from '@livekit/agents'
+import { RoomEvent } from '@livekit/rtc-node'
 import * as deepgram from '@livekit/agents-plugin-deepgram'
 import * as elevenlabs from '@livekit/agents-plugin-elevenlabs'
 import * as google from '@livekit/agents-plugin-google'
@@ -12,8 +12,6 @@ import { isAiProvider, providerSpec, type AiConfig } from '@appkit/ai'
 import { buildSystemPrompt } from '@bunkhouse/runtime'
 import { db } from '../src/db/client'
 import {
-  approvals,
-  autonomySettings,
   callSessions,
   callTurns,
   people,
@@ -24,8 +22,9 @@ import {
   type BunkhouseVoiceConfig,
 } from '../src/db/schema'
 import { assembleAbilities } from '../src/lib/agent-abilities'
-import { boundProcedures } from '../src/lib/agent-runs'
-import { governedCallTools } from '../src/lib/call-tools'
+import { autonomyDial, boundProcedures, requestApproval, runMemories } from '../src/lib/agent-runs'
+import { callTools } from '../src/lib/call-tools'
+import { createCallWorker, describeError, type CallWorker } from '../src/lib/call-worker'
 import { openAgentEyes, type AgentEyes } from '../src/lib/call-vision'
 import { resolveAgentAiConfig } from '../src/lib/ai'
 import { OUTBOUND_ROOM_PREFIX, transferCallToExtension } from '../src/lib/outbound-call'
@@ -34,7 +33,6 @@ import { MEETING_ROOM_PREFIX } from '../src/lib/meetings'
 import { watchScreenShare } from '../src/lib/screen-share'
 import { saveFile } from '../src/lib/files'
 import { companyPromptProfile, getCompanyIdentity } from '../src/lib/company-identity'
-import { pinnedNotes, retrieveNotes } from '../src/lib/memory'
 import { resolvePrice } from '../src/lib/pricing'
 import { isWithinWorkingHours } from '../src/lib/working-hours'
 import { callMinutesBudget } from '../src/lib/call-budget'
@@ -285,9 +283,9 @@ async function buildInstructions(
   )
   const identity = await getCompanyIdentity(session.tenantId)
   const procedures = await app.withTenantContext(session.tenantId, () => boundProcedures(session.tenantId, person))
-  const pinned = await pinnedNotes({ tenantId: session.tenantId, personId: person.id })
-  const retrieved = await retrieveNotes({ tenantId: session.tenantId, personId: person.id, query: 'phone call' })
-  const notes = [...pinned, ...retrieved.filter((r) => !pinned.some((p) => p.id === r.id))]
+  const notes = await app.withTenantContext(session.tenantId, () =>
+    runMemories({ tenantId: session.tenantId, personId: person.id, query: 'phone call' }),
+  )
 
   const base = buildSystemPrompt({
     agent: {
@@ -320,7 +318,7 @@ async function buildInstructions(
       })),
     },
     procedures,
-    memories: notes.map((n) => ({ scope: n.scope, slug: n.slug, title: n.title, body: n.body })),
+    memories: notes,
   })
 
   const caller = session.counterparty.name ?? 'the caller'
@@ -361,14 +359,23 @@ async function buildInstructions(
     // search and email — so agents told callers they could not drive a browser
     // or run a command they had the tools for the whole time. Never describe
     // the toolset as narrower than it is.
-    'You have your whole working kit on this call, not a reduced one: search the web and read pages; drive a real browser (open, click, type, read, screenshot) for anything a plain fetch cannot do; a persistent workspace of your own with a shell in it, where you can fetch, run, build and organize real files; write documents and spreadsheets; send email and messages; search and save your logbook; schedule follow-ups; and every company integration connected to you. If you are unsure whether you can do something, TRY THE TOOL — the answer comes back from the tool, never from your assumptions about yourself. Never tell a caller you cannot do something you have not attempted.',
-    'The default is to do the work RIGHT NOW, on the call, together — search while you talk, read the results, and share what you are finding as you find it, like a colleague at the next desk with a laptop open. Say what you are doing in a few words ("give me a second, I am pulling that up"), keep the conversation going, and let them steer while the work is live in front of you both.',
+    'You have your whole working kit on this call, not a reduced one: search the web and read pages; drive a real browser (open, click, type, read, screenshot) for anything a plain fetch cannot do; a persistent workspace of your own with a shell in it, where you can fetch, run, build and organize real files; write documents and spreadsheets; send email and messages; search and save your logbook; schedule follow-ups; and every company integration connected to you.',
+    // The talker holds six tools; the kit above is reached through one of them.
+    // Say so plainly, or the model reasons from the short tool list in front of
+    // it and tells the caller it cannot do things it can.
+    'You reach all of that one way while you are on the phone: do_work. Hand it what needs doing in plain language, exactly as you would ask a capable colleague — "find the three nearest suppliers of galvanised pipe and what they charge", "look up their last invoice and tell me what is outstanding". It comes back to you instantly, the work runs while you keep talking, and what is actually happening reaches you as it happens. Say what you have been told and nothing more: never invent a result, and never announce something is done before it comes back. If you are unsure whether something is possible, HAND IT OVER — the answer comes back from the attempt, never from your assumptions about yourself. Never tell a caller you cannot do something you have not attempted. Use check_work when you want to know where things stand before you speak.',
+    'This is you working, not a machine you are operating. Never say "my worker", "the system", "the tool", "the task", or a reference number to a caller. You say "let me pull that up", "I am looking now", "just found it" — the ordinary words of someone with a laptop open at the next desk.',
+    'The default is to do the work RIGHT NOW, on the call, together — hand it over while you talk, and share what you are finding as you find it. Say what you are doing in a few words ("give me a second, I am pulling that up"), keep the conversation going, and let them steer while the work is live in front of you both.',
     // Relentlessness. Models treat the first failure as a verdict and hand the
     // problem back to the person who asked; a colleague does not.
     'Be relentless. One source refusing you is not a dead end, it is the first thing you tried: a 403, a bot check, a dead domain, a page that will not load — go straight to the next route without being asked. Try the official site, then the search result you have not opened yet, then a directory or aggregator, then the cached or printable version, then a different search phrasing, then the browser instead of a plain fetch. Three or four genuine attempts down different paths before you even mention difficulty. Never answer a request with a question when you could answer it with an attempt, and never hand the work back ("would you like me to try another site?") — try it, then tell them what you found. Only when you have honestly exhausted the routes do you say so, and then say exactly what you tried and what stopped you.',
-    'If the caller speaks while you are mid-task, just talk with them — the work keeps running in the background and you can share the result when it lands. Never restart a task because you were interrupted.',
-    `Work becomes an assignment (take_assignment) only when it genuinely cannot be finished while you talk — hours of research, a document or spreadsheet to produce, waiting on someone else to reply — or when the caller asks you to take it away, get back to them, or send it on. Then confirm the brief out loud first: what a good outcome looks like, any file format they want (PDF, Word, Excel — many assignments need no file at all), who receives it, and any deadline; the outcome arrives by email and the work continues after the call. Never take something as an assignment that you could simply start doing on the line — if in doubt, start live and offer to finish it as an assignment when it turns out to be bigger than the call.`,
-    'Some actions need human sign-off first. When a tool answers pending_approval, tell the caller it is queued for approval and will happen once signed off — never claim it is done.',
+    'If the caller speaks while work is running, just talk with them — it keeps going and you share the result when it lands. Never hand the same thing over twice because you were interrupted.',
+    // The line between the two dispositions of one capability: same kit, same
+    // rules, different timing. do_work is what they are waiting on; an
+    // assignment is what outlives the call and arrives by email.
+    `take_assignment is the same work with different timing: it outlives this call and the outcome arrives by email. Use it when the work genuinely cannot be finished while you talk — hours of research, a document or spreadsheet to produce, waiting on someone else to reply — or when the caller asks you to take it away, get back to them, or send it on. Then confirm the brief out loud first: what a good outcome looks like, any file format they want (PDF, Word, Excel — many assignments need no file at all), who receives it, and any deadline. Never take something as an assignment that you could simply do on the line — if in doubt, hand it to do_work now and offer to finish it as an assignment when it turns out to be bigger than the call.`,
+    'Use remember when the caller tells you something worth keeping — a preference, a correction, a fact about them or their business you would want on the next call.',
+    'Some actions need human sign-off first. When something comes back queued for approval, tell the caller it is with their manager and will happen once signed off — never claim it is done, and never ask for the same sign-off twice.',
     'When the conversation is genuinely over — the work is agreed or done, they are wrapping up, goodbyes are being said — say your own goodbye and then call end_call to hang up, the way a person puts the receiver down. Never hang up mid-request or to dodge a question, and if you are unsure whether they are done, ask.',
   ].join('\n')
 
@@ -380,6 +387,24 @@ const SCREEN_VISION_INTERVAL_MS = 20_000
 
 /** How long a greeting may take before silence is treated as a fault. */
 const GREETING_GRACE_MS = 12_000
+
+/**
+ * How the framework talks to the agent about work running beside the call.
+ *
+ * Progress and results reach the model through the async-tool machinery, which
+ * renders them with a template before inserting them into the conversation.
+ * The stock templates say things like "The tool `do_work` has updated" and
+ * quote call ids — mechanical language a caller must never hear the agent
+ * repeat. These say the same things the way a person would.
+ */
+const ASYNC_TOOL_VOICE = {
+  updateTemplate: ({ message }: { message: string }) =>
+    `${message}\n(That is where the work you have running has got to — it is still going. Say only what is in that line, in your own words, in a sentence. Never invent a result, and never call it finished.)`,
+  replyAtTailTemplate: () =>
+    'The work you had running has come back. Tell them what came of it, briefly and naturally, in your own words — the actual facts, no mechanics, no reference numbers.',
+  replyMaybeCoveredTemplate: () =>
+    'The work you had running has come back, and you may already have said some of it. If they have heard it all, reply with nothing at all. Otherwise say only the part they have not heard, with a natural transition, in your own words.',
+} as const
 
 /** What the agent is told to say if a screen still is the picture that bounces. */
 const SCREEN_REFUSED_LINE =
@@ -698,7 +723,7 @@ export default defineAgent({
         seesScreen = pipeline.seesScreen
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = describeError(error)
       console.error(`[voice] room ${roomName}: ${message}`)
       await markFailed(session, `Call failed to start: ${message}`)
       ctx.shutdown('setup failed')
@@ -730,7 +755,7 @@ export default defineAgent({
     }
     const ledgerTurn = (speaker: 'agent' | 'human', text: string) =>
       void appendTurn(speaker, text).catch((error) =>
-        console.error(`[voice] turn append failed for ${session.id}:`, (error as Error).message),
+        console.error(`[voice] turn append failed for ${session.id}:`, describeError(error)),
       )
     // --- Where a slow turn spends its time -------------------------------
     // One compact line per pipeline leg, so a "ten seconds to answer" report
@@ -753,6 +778,14 @@ export default defineAgent({
         const who = [m.metadata?.modelProvider, m.metadata?.modelName].filter(Boolean).join(' ') || m.label
         console.log(`[voice] ${session.id} realtime (${who}): first audio ${ms(m.ttftMs)}, total ${ms(m.durationMs)}`)
       }
+    })
+    // Whether the agent has genuinely made a sound. The session enters
+    // 'speaking' when audio starts playing out — on the cascade path and the
+    // realtime one alike — which is the only honest answer to "did the caller
+    // hear anything", and the one the silence watchdog below stands on.
+    let agentSpoke = false
+    agentSession.on(voice.AgentSessionEventTypes.AgentStateChanged, (event) => {
+      if (event.newState === 'speaking') agentSpoke = true
     })
     agentSession.on(voice.AgentSessionEventTypes.ConversationItemAdded, (event) => {
       const item = event.item
@@ -817,9 +850,14 @@ export default defineAgent({
     // outcome belongs in the run summary, since no session status says it.
     let transferredTo: string | null = null
     let finalized = false
+    // Built below, once the abilities are assembled. Named here because the
+    // finalizer is the one place every ending passes through, and work with
+    // nobody left to tell must not outlive the call on any of them.
+    let worker: CallWorker | null = null
     const finalize = async () => {
       if (finalized) return
       finalized = true
+      await worker?.stop('the call ended')
       const endedAt = new Date()
       const durationSeconds = Math.max(0, Math.round((endedAt.getTime() - startedAtMs) / 1000))
       const minutes = Math.max(1, Math.round(durationSeconds / 60))
@@ -884,7 +922,7 @@ export default defineAgent({
           })
         }
       } catch (error) {
-        console.error(`[voice] usage metering failed for ${session.id}:`, (error as Error).message)
+        console.error(`[voice] usage metering failed for ${session.id}:`, describeError(error))
       }
 
       // Speech is billed by the minute, not by the token: price the call's
@@ -907,7 +945,7 @@ export default defineAgent({
         })
         if (speech.usd > 0) totalCost = (totalCost ?? 0) + speech.usd
       } catch (error) {
-        console.error(`[voice] speech metering failed for ${session.id}:`, (error as Error).message)
+        console.error(`[voice] speech metering failed for ${session.id}:`, describeError(error))
       }
 
       // A message taken becomes work the ordinary way: mailed to the agent's
@@ -1018,7 +1056,7 @@ export default defineAgent({
         }).catch(() => undefined)
       })
       .catch((error: unknown) => {
-        console.error(`[voice] room ${roomName}: recording could not be started — ${(error as Error).message}`)
+        console.error(`[voice] room ${roomName}: recording could not be started — ${describeError(error)}`)
       })
 
     // --- Taking a message ---------------------------------------------------
@@ -1052,7 +1090,7 @@ export default defineAgent({
           `[voice] ${person.name} is taking a voicemail in room ${roomName} (${voicemail}${answeringMachine ? '' : ', own voice'})`,
         )
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
+        const message = describeError(error)
         console.error(`[voice] room ${roomName} voicemail error: ${message}`)
         await markFailed(session, `Call failed: ${message}`)
         ctx.shutdown('voicemail error')
@@ -1083,92 +1121,30 @@ export default defineAgent({
     for (const failure of assembled.integrationFailures) {
       console.error(`[voice] room ${roomName}: integration unavailable — ${failure}`)
     }
-    const dialRows = await app.withTenantContext(session.tenantId, () =>
-      app.db.select().from(autonomySettings).where(eq(autonomySettings.personId, person.id)),
+    const dial = await app.withTenantContext(session.tenantId, () =>
+      autonomyDial({ tenantId: session.tenantId, personId: person.id }),
     )
-    const dial = new Map(dialRows.map((r) => [r.category, r.level]))
 
-    // --- Human pacing around slow tools ------------------------------------
-    // When a tool runs past the slow threshold, the agent says one short
-    // filler line — never stacked (one filler at a time), and never over the
-    // caller's or its own speech. The model's tool-result continuation is
-    // native; the only quiet failure mode is the filler having consumed the
-    // turn, so a settle after a filler watches briefly and nudges the agent
-    // to share the result only if nobody resumed on their own.
-    let fillerToolName: string | null = null
-    const speakFiller = (toolName: string) => {
-      if (finalized || fillerToolName !== null) return
-      if (agentSession.userState === 'speaking' || agentSession.agentState === 'speaking') return
-      fillerToolName = toolName
-      try {
-        agentSession.generateReply({
-          instructions:
-            'The lookup is still running. Say one very short natural filler line to keep the caller company. Do not repeat yourself.',
-        })
-      } catch {
-        // The session is draining or closed — skip the nicety, keep the call.
-        fillerToolName = null
-      }
-    }
-    const resumeAfterSettle = (toolName: string) => {
-      if (fillerToolName !== toolName) return
-      fillerToolName = null
-      let resumed = false
-      const onState = (event: { newState: string }) => {
-        if (event.newState === 'thinking' || event.newState === 'speaking') resumed = true
-      }
-      agentSession.on(voice.AgentSessionEventTypes.AgentStateChanged, onState)
-      setTimeout(() => {
-        agentSession.off(voice.AgentSessionEventTypes.AgentStateChanged, onState)
-        if (finalized || resumed) return
-        if (agentSession.agentState === 'thinking' || agentSession.agentState === 'speaking') return
-        if (agentSession.userState === 'speaking') return
-        try {
-          agentSession.generateReply({ instructions: 'Share what you found, naturally.' })
-        } catch {
-          // The session closed while we waited — nothing to resume.
-        }
-      }, 2000)
-    }
-
-    // The agent's eyes open with the session, which is built below; the tools
-    // are wired first, so the frame handler reaches them through this.
+    // The agent's eyes open with the session, which is built below; the worker
+    // is wired first, so the frame handler reaches them through this.
     let eyes: AgentEyes | null = null
-    const tools = governedCallTools({
+
+    // --- The work, beside the conversation ---------------------------------
+    // The talker holds six tools and never blocks. Everything the agent
+    // actually does runs here, on the same engine an assignment or an email
+    // runs on — the difference is only disposition: this caller is waiting.
+    worker = createCallWorker({
+      tenantId: session.tenantId,
+      person,
+      runId: session.runId ?? session.id,
+      trigger: { type: 'chat', conversationId: session.id },
       abilities: assembled.abilities,
-      // Missing categories default to 'approval' — the safe posture for
-      // anything nobody configured, same as email runs.
-      autonomy: (category) => dial.get(category) ?? 'approval',
-      fileApproval: async (input) => {
-        // approvals.run_id is NOT NULL: an approval with no run to hang off
-        // cannot be filed, and silently dropping the column would fail the
-        // insert mid-call. Say so instead — the caller is told it is queued
-        // only when it genuinely is.
-        if (!session.runId) {
-          throw new Error('This call has no run to record an approval against.')
-        }
-        const runId = session.runId
-        return app.withTenant(session.tenantId, async () => {
-          const [row] = await app.db
-            .insert(approvals)
-            .values({
-              tenantId: session.tenantId,
-              runId,
-              personId: person.id,
-              category: input.category,
-              payload: { description: input.description, action: input.action },
-            })
-            .returning({ id: approvals.id })
-          return { approvalId: row!.id }
-        })
-      },
+      caller: session.counterparty.name ?? 'the caller',
       record: (kind, payload) => recordEvent(kind, payload),
-      onSlow: ({ toolName }) => speakFiller(toolName),
-      onSettled: ({ toolName }) => resumeAfterSettle(toolName),
-      // A tool that took a picture of what it did — the browser, today. The
-      // result itself carries only text, so the picture goes into the context
-      // as image content, and it has to land before the tool answers.
-      onFrame: async ({ frame }) => {
+      // A step that took a picture of what it did — the browser, today. A
+      // function tool's result is text, so the picture goes into the context
+      // as image content instead.
+      onFrame: async (frame) => {
         if (!eyes?.active()) return
         await eyes.show({
           dataUrl: `data:${frame.mediaType};base64,${frame.data}`,
@@ -1177,73 +1153,38 @@ export default defineAgent({
             'The pictures from your browser are not reaching you after all. Tell them plainly, in one sentence, that you cannot see the page and are working from its text, and carry on.',
         })
       },
+      onError: (message) => console.error(`[voice] room ${roomName}: ${message}`),
     })
-    // Handing the caller to a human is not a shared ability: it acts on this
-    // room's SIP leg, so it exists only where there is one. A completed REFER
-    // is cold — the phone leg goes to the PBX and the agent is out — so the
-    // ledger closes here rather than waiting for a hangup that never comes.
-    if (session.direction === 'inbound_phone' || session.direction === 'outbound_phone') {
-      tools.transfer_call = llm.tool({
-        description:
-          'Transfer the person on the line to a human colleague at their extension. Tell them who you are putting them through to first — the transfer is final and takes you off the call.',
-        parameters: z.object({
-          extension: z.string().describe("The colleague's extension, or a full number with country code."),
-          reason: z.string().describe('Why the call is being transferred — recorded on the run.'),
-        }),
-        execute: async ({ extension, reason }) => {
-          await recordEvent('tool_call', {
-            toolName: 'transfer_call',
-            category: 'phone_call',
-            input: { extension, reason },
-          })
-          const phoneLeg = Array.from(ctx.room.remoteParticipants.values()).find((participant) =>
-            Object.keys(participant.attributes).some((key) => key.startsWith('sip.')),
+
+    const tools = callTools({
+      worker,
+      abilities: assembled.abilities,
+      governance: {
+        autonomy: dial,
+        fileApproval: async (input) => {
+          // approvals.run_id is NOT NULL: an approval with no run to hang off
+          // cannot be filed, and silently dropping the column would fail the
+          // insert mid-call. Say so instead — the caller is told it is queued
+          // only when it genuinely is.
+          if (!session.runId) {
+            throw new Error('This call has no run to record an approval against.')
+          }
+          const runId = session.runId
+          return app.withTenantContext(session.tenantId, () =>
+            requestApproval({ tenantId: session.tenantId, runId, personId: person.id, ...input }),
           )
-          if (!phoneLeg) {
-            const output = { transferred: false, reason: 'There is no phone line on this call to transfer.' }
-            await recordEvent('tool_result', { toolName: 'transfer_call', output })
-            return { ...output, note: 'Say plainly that you cannot transfer this call, and offer to pass the message on instead.' }
-          }
-          const result = await transferCallToExtension({
-            tenantId: session.tenantId,
-            room: roomName,
-            participantIdentity: phoneLeg.identity,
-            extension,
-          })
-          await recordEvent('tool_result', { toolName: 'transfer_call', output: result })
-          if (!result.transferred) {
-            return {
-              ...result,
-              note: 'Tell them the transfer did not go through, apologize, and carry on with the call yourself.',
-            }
-          }
-          const destination = extension.trim()
-          transferredTo = destination
-          await finalize()
-          return {
-            transferred: true,
-            note: `The line is on its way to ${destination}. Say nothing further — you are off this call.`,
-          }
         },
-      }) as unknown as llm.FunctionTool
-    }
-    // Hanging up is the agent's to do when the goodbye is genuinely said —
-    // the receiver going down, not a timeout. The tool returns immediately so
-    // the model can finish its last words; the hangup itself waits for that
-    // speech to play out (close() drains), settles the ledger, and then takes
-    // the room down, which is what actually ends the call for the caller.
-    tools.end_call = llm.tool({
-      description:
-        'Hang up the call. Use only when the conversation has reached its natural end — the work is agreed or done and goodbyes have been said. Never to cut someone off.',
-      parameters: z.object({
-        reason: z.string().describe('One line on how the call concluded — recorded on the run.'),
-      }),
-      execute: async ({ reason }) => {
-        await recordEvent('tool_call', { toolName: 'end_call', category: 'phone_call', input: { reason } })
-        // Result lands with the call, not after it: the activity feed pairs
-        // calls with results, and this one's outcome is the hangup itself.
-        await recordEvent('tool_result', { toolName: 'end_call', output: { ended: true, reason } }).catch(() => {})
+      },
+      record: (kind, payload) => recordEvent(kind, payload),
+      // The hangup waits for the agent's last words to play out (close()
+      // drains), settles the ledger, and then takes the room down, which is
+      // what actually ends the call for the caller.
+      hangUp: () => {
         void (async () => {
+          // Stop the work first. Closing the session drains its tools, and a
+          // request still running would hold the hangup open for as long as it
+          // took — the caller said goodbye, so nothing is waiting on it now.
+          await worker.stop('the call ended')
           try {
             await agentSession.close()
           } catch {
@@ -1253,13 +1194,50 @@ export default defineAgent({
             await finalize()
             await ctx.deleteRoom()
           } catch (error) {
-            console.error(`[voice] room ${roomName}: hangup failed — ${(error as Error).message}`)
+            console.error(`[voice] room ${roomName}: hangup failed — ${describeError(error)}`)
           }
         })()
-        return { ended: true, note: 'The line is closing — finish your goodbye if any words are left, nothing more.' }
       },
-    }) as unknown as llm.FunctionTool
-    ctx.addShutdownCallback(() => assembled.close())
+      // Handing the caller to a human acts on this room's SIP leg, so it is
+      // offered only where there is one. A completed REFER is cold — the phone
+      // leg goes to the PBX and the agent is out — so the ledger closes here
+      // rather than waiting for a hangup that never comes.
+      transfer:
+        session.direction === 'inbound_phone' || session.direction === 'outbound_phone'
+          ? async ({ extension }) => {
+              const phoneLeg = Array.from(ctx.room.remoteParticipants.values()).find((participant) =>
+                Object.keys(participant.attributes).some((key) => key.startsWith('sip.')),
+              )
+              if (!phoneLeg) {
+                return { transferred: false, reason: 'There is no phone line on this call to transfer.' }
+              }
+              const result = await transferCallToExtension({
+                tenantId: session.tenantId,
+                room: roomName,
+                participantIdentity: phoneLeg.identity,
+                extension,
+              })
+              if (!result.transferred) return result
+              transferredTo = extension.trim()
+              await finalize()
+              return result
+            }
+          : null,
+      onError: (message) => console.error(`[voice] room ${roomName}: ${message}`),
+    })
+    // Work in flight belongs to the call: when the line goes down it stops,
+    // rather than running on with nobody to tell. The room event is the first
+    // honest sign the call is over, and it matters that it is first: closing
+    // the session drains its tools, so a request still running would hold the
+    // whole teardown open long after there was anyone to tell.
+    ctx.room.on(RoomEvent.ParticipantDisconnected, () => {
+      if (ctx.room.remoteParticipants.size > 0) return
+      void worker?.stop('the caller hung up')
+    })
+    ctx.addShutdownCallback(async () => {
+      await worker?.stop('the call ended')
+      await assembled.close()
+    })
 
     try {
       const instructions = await buildInstructions(session, person, liveConfig, ai, {
@@ -1267,7 +1245,11 @@ export default defineAgent({
         seesScreen,
         browser: assembled.abilities.some((ability) => ability.name.startsWith('browser_')),
       })
-      const agent = new voice.Agent({ instructions, tools })
+      // The async-tool templates are the words the framework puts in front of
+      // the model when work reports in or finishes. The stock ones name the
+      // tool and its call id, which is precisely what a caller must never
+      // hear, so they are replaced with the sentences a colleague would use.
+      const agent = new voice.Agent({ instructions, tools, toolHandling: { asyncOptions: ASYNC_TOOL_VOICE } })
       await agentSession.start({ agent, room: ctx.room })
       // One pair of eyes for the whole call: the guest's shared screen in a
       // meeting, and the agent's own browser on any call at all.
@@ -1290,7 +1272,6 @@ export default defineAgent({
       // leg is named, because "the model refused" and "the voice would not
       // synthesize" are different problems with different fixes.
       agentSession.on(voice.AgentSessionEventTypes.Error, (event) => {
-        const error = event.error as { message?: string } | undefined
         const leg =
           event.source === cascadeLlm
             ? 'model'
@@ -1299,7 +1280,10 @@ export default defineAgent({
               : event.source === agentSession.tts
                 ? 'voice'
                 : 'session'
-        const message = error?.message ?? String(event.error ?? 'no detail given')
+        // Serialized properly: a plain `String(error)` on a provider's error
+        // object writes "[object Object]" into the log and the run ledger, and
+        // costs a whole diagnostic round trip to get back what it already knew.
+        const message = event.error === undefined || event.error === null ? 'no detail given' : describeError(event.error)
         console.error(`[voice] ${session.id} ${leg} error: ${message}`)
         void recordEvent('error', { message: `The ${leg} leg of this call failed: ${message}` }).catch(() => undefined)
         // A cascade agent's text model may simply be refusing the picture; that
@@ -1329,12 +1313,18 @@ export default defineAgent({
       // because every part of it reports success: the session starts, the
       // model answers, and the caller hears silence. It happens when a leg
       // produces nothing — a text model that returns no content has nothing
-      // for the voice to say — and nothing throws. So watch the ledger: if the
-      // agent has not said one word by the time a greeting should long since
-      // have landed, say so on the run and in the log, where it can be acted
-      // on, instead of leaving an operator to guess from a silent recording.
+      // for the voice to say — and nothing throws. So watch for real speech:
+      // if the agent has not said one word by the time a greeting should long
+      // since have landed, say so on the run and in the log, where it can be
+      // acted on, instead of leaving an operator to guess from a silent
+      // recording.
+      //
+      // The signal is the session's own playout state, not the transcript
+      // ledger. A cascade turn reaches the ledger differently from a realtime
+      // one, and this watchdog used to cry wolf on perfectly healthy calls
+      // because of it — a false alarm on a working call is worse than none.
       const spokeCheck = setTimeout(() => {
-        if (finalized || transcript.some((turn) => turn.speaker === 'agent')) return
+        if (finalized || agentSpoke) return
         const detail = `${liveConfig.mode === 'cascade' ? `the ${ai?.modelSmart ?? 'assigned'} model` : 'the realtime model'} produced no speech`
         console.error(`[voice] room ${roomName}: SILENT — ${detail}, ${GREETING_GRACE_MS}ms after answering`)
         void recordEvent('error', {
@@ -1343,7 +1333,7 @@ export default defineAgent({
       }, GREETING_GRACE_MS)
       ctx.addShutdownCallback(async () => clearTimeout(spokeCheck))
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = describeError(error)
       console.error(`[voice] room ${roomName} session error: ${message}`)
       await markFailed(session, `Call failed: ${message}`)
       ctx.shutdown('session error')

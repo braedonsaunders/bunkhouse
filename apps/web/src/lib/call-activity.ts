@@ -226,6 +226,11 @@ export function toolActivityFromEvents(events: CallActivityEvent[]): ToolActivit
     if (output && typeof output.error === 'string') {
       item.status = 'failed'
       item.detail = output.error.slice(0, 200)
+    } else if (output && output.status === 'pending_approval') {
+      // The governed loop files the request before the step it interrupted is
+      // ledgered, so the tool's own result is what says the action is parked.
+      item.status = 'queued'
+      item.detail = 'Queued for approval — it runs once signed off.'
     } else if (output && output.status === 'forbidden') {
       item.status = 'failed'
       item.detail = 'This action is not enabled for this agent.'
