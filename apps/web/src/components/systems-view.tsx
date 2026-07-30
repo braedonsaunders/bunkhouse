@@ -543,16 +543,24 @@ function SystemTools({ slug, category }: { slug: string; category: string }) {
     { kind: 'loading' } | { kind: 'ready'; tools: SystemTool[] } | { kind: 'failed'; message: string }
   >({ kind: 'loading' })
 
-  const load = React.useCallback(() => {
-    setState({ kind: 'loading' })
-    listSystemToolsAction(slug).then((result) =>
-      setState(result.ok ? { kind: 'ready', tools: result.tools } : { kind: 'failed', message: result.message }),
-    )
-  }, [slug])
+  const fetchTools = React.useCallback(
+    () =>
+      listSystemToolsAction(slug).then((result) =>
+        setState(result.ok ? { kind: 'ready', tools: result.tools } : { kind: 'failed', message: result.message }),
+      ),
+    [slug],
+  )
 
+  // The effect only fetches; state already starts as loading, so there is
+  // nothing to set synchronously on the way in.
   React.useEffect(() => {
-    load()
-  }, [load])
+    void fetchTools()
+  }, [fetchTools])
+
+  const reload = () => {
+    setState({ kind: 'loading' })
+    void fetchTools()
+  }
 
   if (state.kind === 'loading') {
     return <p className="text-sm text-fg-muted">Asking {slug} what it offers…</p>
@@ -566,7 +574,7 @@ function SystemTools({ slug, category }: { slug: string; category: string }) {
           Your agents would hit the same failure. Until it answers, this system contributes nothing to their toolbox —
           the rest of their work carries on unaffected.
         </p>
-        <Button variant="outline" size="sm" onClick={load}>
+        <Button variant="outline" size="sm" onClick={reload}>
           Try again
         </Button>
       </div>
@@ -591,7 +599,7 @@ function SystemTools({ slug, category }: { slug: string; category: string }) {
           </li>
         ))}
       </ul>
-      <Button variant="outline" size="sm" onClick={load}>
+      <Button variant="outline" size="sm" onClick={reload}>
         Refresh
       </Button>
     </div>
