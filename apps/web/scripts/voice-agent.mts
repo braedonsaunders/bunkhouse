@@ -1382,6 +1382,7 @@ export default defineAgent({
           toolChoice: 'none',
         })
         let giveUp: ReturnType<typeof setTimeout> | undefined
+        let outcome: { spoke: boolean } = { spoke: false }
         try {
           await Promise.race([
             handle.waitForPlayout(),
@@ -1394,8 +1395,15 @@ export default defineAgent({
           // per delivery, and a pile of pending timers holds the job process
           // open past the end of the call it belonged to.
           clearTimeout(giveUp)
-          expected.release()
+          // Released here rather than after the await so a throw cannot leak
+          // the expectation — and what it reports is whether words actually
+          // reached the caller. The model leg can fail mid-delivery (it did,
+          // twice, on one call) and from here that looks exactly like a
+          // delivery that finished, so the mailbox is told which it was and
+          // puts an unsaid line back in the queue.
+          outcome = expected.release()
         }
+        return outcome
       },
       onDecision: (decision) => callTrace.mailbox(decision),
       onError: (message) => console.error(`[voice] room ${roomName}: ${message}`),
@@ -1608,7 +1616,15 @@ export default defineAgent({
       // consequences of; a tool named in them that is not in `tools` is the
       // agent being told to do something it has no way to do. It named
       // read_webpage for weeks after that ability was folded away.
-      const promised = toolsPromisedButAbsent(instructions, Object.keys(tools))
+      // Against BOTH sets, because the talker's six tools are not the whole of
+      // what it may truthfully promise: the kit it reaches through do_work is
+      // the worker's, and naming `send_email` or `search_memory` in the
+      // instructions is describing something the agent genuinely has. Checking
+      // only the talker's own tools called every one of those a broken promise
+      // and wrote an error on every single call — a false alarm loud enough to
+      // bury the real thing this exists to catch.
+      const reachable = [...Object.keys(tools), ...callWorker.abilityNames]
+      const promised = toolsPromisedButAbsent(instructions, reachable)
       if (promised.length > 0) {
         console.warn(`[voice] instructions name absent tools: ${promised.join(', ')}`)
         await recordEvent('error', {

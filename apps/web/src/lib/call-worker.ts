@@ -113,6 +113,12 @@ export type CallWorker = {
    * thing the worker will actually be able to do.
    */
   pageAccess: PageAccess
+  /**
+   * Every ability the work can actually reach. The talker's instructions
+   * describe this kit as well as its own six tools, so the check that no
+   * instruction promises an absent tool has to know about both.
+   */
+  abilityNames: string[]
   /** The call is over: stop everything still running and close the browser. */
   stop: (reason: string) => Promise<void>
 }
@@ -522,6 +528,7 @@ export function createCallWorker(args: {
 
   return {
     pageAccess,
+    abilityNames: visible.map((ability) => ability.name),
     startWork: (intent, hooks) => {
       counter += 1
       const item: Item = {

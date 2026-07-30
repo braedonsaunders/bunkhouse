@@ -73,8 +73,13 @@ export type TurnExpectation = {
    * without producing an utterance — a model told it may say nothing sometimes
    * says nothing — so the expectation cannot be mis-attributed to whatever the
    * agent says next.
+   *
+   * Returns whether anything was in fact said. A caller does not distinguish
+   * between "the agent chose not to speak" and "the model errored and no words
+   * came out"; both are silence on the line, and whoever asked for the speech
+   * needs to know which it got.
    */
-  release: () => void
+  release: () => { spoke: boolean }
 }
 
 export type CallTrace = {
@@ -192,14 +197,18 @@ export function createCallTrace(sink: TraceSink): CallTrace {
       const entry = { cause, live: true }
       expectations.push(entry)
       return {
-        release: () => {
-          if (!entry.live) return
+        // Whether the agent actually said anything for this expectation. An
+        // agent turn consumes the expectation (`takeCause` clears `live`), so
+        // one still live at release is one that produced silence — which the
+        // caller in a real call experienced as the agent ignoring them.
+        release: (): { spoke: boolean } => {
+          if (!entry.live) return { spoke: true }
           entry.live = false
           expectations = expectations.filter((held) => held.live)
           // A delivery that produced no words at all is worth a line of its
           // own: it is exactly how a caller ends up never hearing that
           // something needs their sign-off, and there is no other trace of it.
-          if (entry.cause.cause !== 'mailbox_delivery') return
+          if (entry.cause.cause !== 'mailbox_delivery') return { spoke: false }
           const { workIds, deliveryKinds } = entry.cause
           write({ trace: 'delivery_unspoken', workIds, deliveryKinds })
           if (deliveryKinds.includes('needs_approval')) {
@@ -207,6 +216,7 @@ export function createCallTrace(sink: TraceSink): CallTrace {
               message: `The caller was not told that something needs their sign-off: the delivery was made at a quiet moment and the agent said nothing (${workIds.join(', ')}).`,
             })
           }
+          return { spoke: false }
         },
       }
     },

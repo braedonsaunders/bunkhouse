@@ -82,6 +82,13 @@ export type MailboxItem = {
   priority: number
   /** When it was posted — the queue keeps the order the story happened in. */
   postedAt: number
+  /**
+   * How many times a delivery carrying this produced no words. Nonzero only
+   * for something that has already been handed to the mouth and come back
+   * unsaid; it bounds the retrying so a model leg that is simply down cannot
+   * hold the line open re-asking for ever.
+   */
+  attempts?: number
 }
 
 /** One boundary's worth of mail, as a single message. */
@@ -177,7 +184,12 @@ export type CallMailboxOptions = {
    * their playout has finished), because the mailbox holds every other
    * delivery until it does.
    */
-  deliver: (delivery: MailboxDelivery) => Promise<void>
+  /**
+   * Say it. Resolves with whether words actually reached the caller — a model
+   * leg that errors mid-delivery resolves like any other, and the difference
+   * between "said" and "nothing came out" is not observable from here.
+   */
+  deliver: (delivery: MailboxDelivery) => Promise<{ spoke: boolean } | void>
   /** Operator-facing log line for anything that goes wrong along the way. */
   onError?: (message: string) => void
   /**
@@ -225,6 +237,9 @@ export type CallMailbox = {
 }
 
 /** One work's one line — the identity deduplication is done on. */
+/** How many silent deliveries a single line is given before it is given up on. */
+const MAX_DELIVERY_ATTEMPTS = 3
+
 const identity = (item: { workId: string; text: string }): string => `${item.workId} ${item.text}`
 
 export function createCallMailbox(options: CallMailboxOptions): CallMailbox {
@@ -356,10 +371,6 @@ export function createCallMailbox(options: CallMailboxOptions): CallMailbox {
     // earned the interruption, and everything else may as well be said in the
     // same breath rather than earning one of its own.
     const going = queue.splice(0, queue.length)
-    for (const item of going) {
-      said.add(identity(item))
-      decide('delivered', item, 'said at a quiet boundary')
-    }
     if (going.some((item) => item.kind === 'progress')) lastProgressAt = now
     delivering = true
     // One message, not a burst — the point of coalescing. One line each,
@@ -368,7 +379,29 @@ export function createCallMailbox(options: CallMailboxOptions): CallMailbox {
     const delivery: MailboxDelivery = { text: going.map((item) => item.text).join('\n'), items: going }
     void (async () => {
       try {
-        await options.deliver(delivery)
+        // Marked as said only once it HAS been said. Marking first was how a
+        // caller ended up waiting 46 seconds for an answer that was already
+        // finished: the model leg errored, the delivery produced no words, and
+        // the queue had already thrown the item away — so nothing tried again,
+        // and the caller sat in silence until they asked "did you find it?".
+        const outcome = await options.deliver(delivery)
+        const spoke = outcome ? outcome.spoke : true
+        for (const item of going) {
+          if (spoke) {
+            said.add(identity(item))
+            decide('delivered', item, 'said at a quiet boundary')
+            continue
+          }
+          const attempts = (item.attempts ?? 0) + 1
+          if (attempts >= MAX_DELIVERY_ATTEMPTS) {
+            decide('dropped', item, `nothing was said on ${attempts} attempts — the model leg is not answering`)
+            continue
+          }
+          // Back on the queue, in front: it was next before, and being unlucky
+          // with the model does not put it behind newer news.
+          queue.unshift({ ...item, attempts })
+          decide('posted', item, `nothing was said, so it waits for the next quiet moment (attempt ${attempts})`)
+        }
       } catch (error) {
         fail(`a delivery was not made: ${String(error)}`)
       } finally {
