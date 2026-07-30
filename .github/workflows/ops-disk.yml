@@ -94,7 +94,7 @@ jobs:
             echo "::endgroup::"
             echo "::group::$svc — resources"
             docker service inspect "$svc" \
-              --format 'image={{.Spec.TaskTemplate.ContainerSpec.Image}}{{"\n"}}memLimit={{.Spec.TaskTemplate.Resources.Limits.MemoryBytes}}{{"\n"}}command={{.Spec.TaskTemplate.ContainerSpec.Args}}' 2>&1
+              --format 'image={{.Spec.TaskTemplate.ContainerSpec.Image}}{{"\n"}}memLimit={{with .Spec.TaskTemplate.Resources.Limits}}{{.MemoryBytes}}{{else}}none{{end}}{{"\n"}}command={{.Spec.TaskTemplate.ContainerSpec.Args}}' 2>&1 || echo 'resources: unavailable'
             echo "::endgroup::"
             echo "::group::$svc — last 1200 log lines"
             docker service logs --tail 1200 --timestamps "$svc" 2>&1 | tail -1200
