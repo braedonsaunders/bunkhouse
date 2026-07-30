@@ -95,6 +95,17 @@ export const runs = pgTable(
      * pass never also starts a fresh run for the same message.
      */
     consumedMessageIds: uuid('consumed_message_ids').array().notNull().default([]),
+    /**
+     * The human ask this run descends from, or null when it IS the ask.
+     *
+     * A call, an inbound email, an operator pressing go: those are roots. Work
+     * derived from one — an assignment it commits to, a colleague it delegates
+     * to, that colleague's reply — carries the same root however far it
+     * spreads. Without it there was no way to say what one request had cost,
+     * and no way to stop it: four test phone calls produced nine hundred
+     * assignments and the only thing that noticed was the invoice.
+     */
+    rootRunId: uuid('root_run_id'),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     ...auditColumns,
@@ -166,6 +177,8 @@ export type AssignmentSource =
        * forever, so the chain carries its own length and stops itself.
        */
       hops?: number
+      /** The human ask the whole chain descends from. */
+      rootRunId?: string
     }
 
 export const assignments = pgTable(

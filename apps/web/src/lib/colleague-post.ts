@@ -1,8 +1,7 @@
 import 'server-only'
 import { and, eq, inArray, sql } from 'drizzle-orm'
-import { assignments, people, type AssignmentSource } from '../db/schema'
+import { assignments, colleagueMessages, people, type AssignmentSource } from '../db/schema'
 import { db } from '../db/client'
-import { createNote } from './memory'
 
 /**
  * Handing something to a colleague inside the company, without email.
@@ -99,8 +98,8 @@ export async function postToColleague(args: {
    * something and a colleague being given a job.
    */
   kind: 'message' | 'work'
-  /** When it was sent, for the note. Passed in rather than read from a clock. */
-  sentAt: string
+  /** The human ask this descends from, carried so its cost can be totalled. */
+  rootRunId?: string
   /** File formats the work should produce, when it needs to produce files. */
   formats?: ('pdf' | 'docx' | 'xlsx')[]
   dueAt?: Date
@@ -132,16 +131,14 @@ export async function postToColleague(args: {
   // was broken, addressed "FOR: Bill McDonald, FROM: Jimmy Chonga". They were
   // right. Only `delegate_to_colleague` hands over work that runs.
   if (args.kind === 'message') {
-    await createNote({
+    await app.db.insert(colleagueMessages).values({
       tenantId: args.tenantId,
-      scope: 'agent',
-      personId: colleague.id,
-      kind: 'episode',
-      title: `From ${args.from.name}: ${args.title}`.slice(0, 120),
-      body: `${args.body}\n\n(Sent by ${args.from.name}, ${args.from.title}, on ${args.sentAt}. This is a message, not a job — act on it if it needs acting on, and reply only if there is something to say.)`,
-      author: 'agent',
-      importance: 4,
-      sourceRunId: args.runId,
+      fromPersonId: args.from.id,
+      toPersonId: colleague.id,
+      subject: args.title.slice(0, 200),
+      body: args.body,
+      runId: args.runId,
+      ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}),
     })
     return { posted: true, assignmentId: null, to: colleague.name }
   }
@@ -169,6 +166,7 @@ export async function postToColleague(args: {
     fromPersonId: args.from.id,
     runId: args.runId,
     hops,
+    ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}),
   }
   const [row] = await app.db
     .insert(assignments)

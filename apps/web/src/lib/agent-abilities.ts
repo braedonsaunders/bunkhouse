@@ -164,6 +164,11 @@ export function emailAbilities(args: {
   person: PersonRow
   runId: string
   /**
+   * The human ask this run descends from, so anything handed to a colleague
+   * carries it too and the cost of one request stays totalled in one place.
+   */
+  rootRunId?: string
+  /**
    * Every address on staff, lowercased. Loaded once when the abilities are
    * assembled, because the dial has to be resolved BEFORE the tool runs — an
    * approval is filed ahead of `execute` — so the answer cannot be a database
@@ -173,6 +178,7 @@ export function emailAbilities(args: {
   staffAddresses: ReadonlySet<string>
 }): Ability[] {
   const { tenantId, person, runId } = args
+  const rootRunId = args.rootRunId
 
   const send = async (to: string, subject: string, body: string, attachFileIds?: string[]) => {
     await sendNewMail({
@@ -223,8 +229,8 @@ export function emailAbilities(args: {
             title: subject,
             body,
             runId,
+            ...(rootRunId ? { rootRunId } : {}),
             kind: 'message',
-            sentAt: new Date().toISOString(),
           })
           if (!posted.posted) return { sent: false, reason: posted.reason }
           return {
@@ -269,8 +275,8 @@ export function emailAbilities(args: {
             title: subject,
             body,
             runId,
+            ...(rootRunId ? { rootRunId } : {}),
             kind: 'message',
-            sentAt: new Date().toISOString(),
           })
           if (!posted.posted) return { sent: false, reason: posted.reason }
           return {
@@ -297,9 +303,15 @@ export function askAbilities(args: {
   tenantId: string
   person: PersonRow
   runId: string
+  /**
+   * The human ask this run descends from, so anything handed to a colleague
+   * carries it too and the cost of one request stays totalled in one place.
+   */
+  rootRunId?: string
   waitState: GovernanceState
 }): Ability[] {
   const { tenantId, person, runId, waitState } = args
+  const rootRunId = args.rootRunId
   return [
     defineAbility({
       name: 'ask_and_wait',
@@ -333,9 +345,9 @@ export function askAbilities(args: {
             title: subject,
             body: question,
             runId,
+            ...(rootRunId ? { rootRunId } : {}),
             // A question is a small job: somebody has to go and answer it.
             kind: 'work',
-            sentAt: new Date().toISOString(),
           })
           if (!posted.posted) return { sent: false, reason: posted.reason }
           return {
@@ -469,8 +481,15 @@ export async function smsAbilities(args: { tenantId: string }): Promise<Ability[
  * ordinary inbound run, so review-then-forward is natural. Governed as
  * internal_email: it creates work and mail inside the company.
  */
-export function delegationAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {
+export function delegationAbilities(args: {
+  tenantId: string
+  person: PersonRow
+  runId: string
+  /** The human ask this descends from — carried onto the work handed over. */
+  rootRunId?: string
+}): Ability[] {
   const { tenantId, person, runId } = args
+  const rootRunId = args.rootRunId
   return [
     defineAbility({
       name: 'delegate_to_colleague',
@@ -498,8 +517,8 @@ export function delegationAbilities(args: { tenantId: string; person: PersonRow;
           title,
           body: brief,
           runId,
+          ...(rootRunId ? { rootRunId } : {}),
           kind: 'work',
-          sentAt: new Date().toISOString(),
           ...(formats?.length ? { formats } : {}),
           ...(due ? { dueAt: due } : {}),
         })
@@ -751,6 +770,12 @@ export async function assembleAbilities(args: {
    * ask_and_wait; live calls omit it (a call cannot pause on an email).
    */
   waitState?: GovernanceState
+  /**
+   * The human ask this run descends from. Carried onto everything handed to a
+   * colleague, so what one request cost stays totalled in one place however
+   * far the work spreads.
+   */
+  rootRunId?: string
 }): Promise<{ abilities: Ability[]; integrationFailures: string[]; close: () => Promise<void> }> {
   const { tenantId, person, runId } = args
   const integrations = await connectIntegrationAbilities(tenantId)
@@ -764,13 +789,15 @@ export async function assembleAbilities(args: {
   const abilities: Ability[] = [
     ...memoryAbilities({ tenantId, person, runId }),
     ...researchAbilities({ tenantId }),
-    ...emailAbilities({ tenantId, person, runId, staffAddresses }),
-    ...(args.waitState ? askAbilities({ tenantId, person, runId, waitState: args.waitState }) : []),
+    ...emailAbilities({ tenantId, person, runId, staffAddresses, ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}) }),
+    ...(args.waitState
+      ? askAbilities({ tenantId, person, runId, waitState: args.waitState, ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}) })
+      : []),
     ...(await smsAbilities({ tenantId })),
     ...(await chatAbilities({ tenantId, person, runId })),
     ...outboundCallAbilities({ tenantId, person, runId }),
     ...meetingAbilities({ tenantId, person, runId }),
-    ...delegationAbilities({ tenantId, person, runId }),
+    ...delegationAbilities({ tenantId, person, runId, ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}) }),
     ...documentAbilities({ tenantId, person, runId }),
     ...templateAbilities({ tenantId, person, runId }),
     ...workspaceAbilities({ tenantId, person, runId }),

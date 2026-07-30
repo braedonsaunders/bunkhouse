@@ -23,6 +23,7 @@ import {
   type BoundSkill,
 } from '@bunkhouse/runtime'
 import {
+  assignments,
   autonomySettings,
   approvals,
   duties,
@@ -37,6 +38,7 @@ import {
   type RunTrigger,
 } from '../db/schema'
 import { db } from '../db/client'
+import { takeInbox } from './colleague-inbox'
 import { resolveAgentAiConfig } from './ai'
 import { companyPromptProfile, getCompanyIdentity } from './company-identity'
 import { getMailSignature } from './mail-signature'
@@ -432,6 +434,54 @@ export type LiveRun = {
   abortSignal: AbortSignal
 }
 
+
+
+/**
+ * Put what colleagues have said in front of the run, without pretending it is
+ * the instruction. It is context the agent should act on if it needs acting
+ * on — the same way a person reads their messages before getting on with the
+ * day, not instead of it.
+ */
+function withInbox(input: RunInput, messages: string): RunInput {
+  const preamble = `While you were away, colleagues left you these. Read them, act on anything that genuinely needs it, and do not reply merely to acknowledge — an acknowledgement is not worth anybody's time.\n\n${messages}\n\n---\n\n`
+  if (input.type === 'manual') return { ...input, instruction: `${preamble}${input.instruction}` }
+  return input
+}
+
+/**
+ * Which human ask this run descends from, if any.
+ *
+ * Derived work says so in its own trigger: an assignment names the assignment
+ * (whose source carries the root), a follow-up names the run whose approval it
+ * continues, a delegation names the run that delegated. Everything else — a
+ * call, an inbound email, a duty a person configured — is the ask itself, and
+ * roots the tree.
+ *
+ * Assumes an active tenant scope.
+ */
+async function resolveRootRun(trigger: RunTrigger): Promise<string | null> {
+  const app = db()
+  const rootOf = async (runId: string): Promise<string> => {
+    const [row] = await app.db.select({ root: runs.rootRunId }).from(runs).where(eq(runs.id, runId))
+    // The parent's root, or the parent itself when the parent was the ask.
+    return row?.root ?? runId
+  }
+  if (trigger.type === 'approval_followup') return rootOf(trigger.originRunId)
+  if (trigger.type === 'delegation') return rootOf(trigger.runId)
+  if (trigger.type === 'assignment') {
+    const [row] = await app.db
+      .select({ source: assignments.source })
+      .from(assignments)
+      .where(eq(assignments.id, trigger.assignmentId))
+    const source = row?.source
+    if (source?.kind === 'delegation') {
+      return source.rootRunId ?? (source.runId ? rootOf(source.runId) : null)
+    }
+    return null
+  }
+  return null
+}
+
 /**
  * Execute one unit of work for an agent, end to end: run row, governed loop,
  * event/spend ledger, approval suspension, outcome. Runs inside the caller's
@@ -486,9 +536,21 @@ export async function executeAgentRun(args: {
         .set({ status: 'running', finishedAt: null, waiting: null })
         .where(eq(runs.id, runId))
     } else {
+      // The human ask this descends from. A call, an inbound email, a duty
+      // somebody configured: those ARE the ask, and root stays null so the run
+      // is its own root. Anything derived — an assignment, a delegation, the
+      // reply to one — inherits it, so what a single request cost can be
+      // totalled however far the work spread, and bounded before it spreads
+      // further.
+      const rootRunId = await resolveRootRun(args.trigger)
       const [run] = await app.db
         .insert(runs)
-        .values({ tenantId: args.tenantId, personId: person.id, trigger: args.trigger })
+        .values({
+          tenantId: args.tenantId,
+          personId: person.id,
+          trigger: args.trigger,
+          ...(rootRunId ? { rootRunId } : {}),
+        })
         .returning({ id: runs.id })
       runId = run!.id
     }
@@ -546,6 +608,15 @@ export async function executeAgentRun(args: {
                     : args.input.instruction
     const memories = await runMemories({ tenantId: args.tenantId, personId: person.id, query: retrievalQuery })
 
+    // Anything a colleague has said since this agent last worked. Read here,
+    // once, and marked read in the same breath — a message delivered twice is
+    // how an agent answers the same thing over and over. Deliberately NOT in
+    // the logbook: that is where an agent keeps what it has learned, and a
+    // message is not a lesson.
+    const inbox = live ? [] : await takeInbox({ personId: person.id })
+    const [thisRun] = await app.db.select({ root: runs.rootRunId }).from(runs).where(eq(runs.id, runId))
+    const rootOfThisRun = thisRun?.root ?? null
+
     // The shared capability set. A live run is handed the one its call already
     // assembled; everything else assembles its own, plus ask_and_wait — an
     // async run can genuinely pause on a person's answer, a live one cannot.
@@ -558,6 +629,9 @@ export async function executeAgentRun(args: {
           runId,
           assignmentSource:
             args.trigger.type === 'email' ? { kind: 'mail', threadId: args.trigger.threadId } : { kind: 'manual' },
+          // A run that is itself the ask roots the tree; one derived from an
+          // ask passes the same root on.
+          rootRunId: rootOfThisRun ?? runId,
           ...(args.counterparty ? { counterparty: args.counterparty } : {}),
           waitState,
         })
@@ -581,7 +655,18 @@ export async function executeAgentRun(args: {
       skills: foundation.skills,
       materializeSkill: foundation.materializeSkill,
       abilities,
-      input: args.input,
+      input:
+        inbox.length === 0
+          ? args.input
+          : withInbox(
+              args.input,
+              inbox
+                .map(
+                  (message) =>
+                    `From ${message.from} — ${message.subject}\n${message.body.trim()}`,
+                )
+                .join('\n\n'),
+            ),
       autonomy: foundation.autonomy,
       approvals: {
         request: async (input) => {

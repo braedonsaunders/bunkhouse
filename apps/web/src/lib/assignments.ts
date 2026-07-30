@@ -5,6 +5,7 @@ import { assignments, files, mailMessages, people, type AssignmentSource } from 
 import { hopsOf, postToColleague } from './colleague-post'
 import { db } from '../db/client'
 import { ASSIGNMENT_MAX_STEPS, executeAgentRun } from './agent-runs'
+import { rootBudget } from './colleague-inbox'
 
 /**
  * Assignments: committed deliverables executed as background runs. The worker
@@ -99,7 +100,6 @@ export async function finalizeAssignmentRun(
         // job. Making it a job is half of why one delegation used to cost two
         // runs and could start a third.
         kind: 'message',
-        sentAt: new Date().toISOString(),
       })
       await app.db
         .update(assignments)
@@ -155,6 +155,27 @@ export async function runAssignment(tenantId: string, assignmentId: string): Pro
     return row ?? null
   })
   if (!claimed) return
+
+  // What the whole request has cost so far. A ceiling on ONE ASK is a different
+  // question from the salary meter's ceiling on one agent's month: the meter
+  // would have let four test phone calls run to the monthly limit and only
+  // then stopped the agent entirely, days later, with the money gone. This
+  // stops the request instead, while everything else carries on.
+  const root =
+    claimed.source.kind === 'delegation' ? (claimed.source.rootRunId ?? claimed.source.runId ?? null) : null
+  if (root) {
+    const budget = await app.withTenant(tenantId, () => rootBudget(root))
+    if (budget.exhausted) {
+      await app.withTenant(tenantId, async () => {
+        await app.db
+          .update(assignments)
+          .set({ status: 'failed', lastError: budget.reason!.slice(0, 500), updatedAt: new Date() })
+          .where(eq(assignments.id, assignmentId))
+      })
+      console.warn(`[assignments] ${assignmentId} stopped: ${budget.reason}`)
+      return
+    }
+  }
 
   const { runId, outcome } = await executeAgentRun({
     tenantId,

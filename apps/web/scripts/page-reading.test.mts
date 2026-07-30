@@ -308,3 +308,17 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
   assert.equal(outsider.status, 'pending_approval', 'and still waits for a person')
   console.log('governance: the dial follows what is being asked for, not the tool that asks')
 }
+
+// --- what one ask is allowed to cost ----------------------------------------
+// Four test phone calls — four runs, twenty cents — became 913 assignments and
+// fifty-three dollars, and nothing noticed but the invoice. The salary meter
+// would not have caught it: it bounds an agent's month, not a request.
+{
+  const { MAX_SPEND_PER_ROOT_USD, MAX_DERIVED_RUNS_PER_ROOT } = await import('../src/lib/colleague-inbox')
+  assert.ok(MAX_SPEND_PER_ROOT_USD > 0 && MAX_SPEND_PER_ROOT_USD <= 10, 'a single ask has a small, real ceiling')
+  assert.ok(
+    MAX_DERIVED_RUNS_PER_ROOT < 913,
+    'and a count low enough that the afternoon which caused this would have been stopped',
+  )
+  console.log(`provenance: one ask may spend $${MAX_SPEND_PER_ROOT_USD} across ${MAX_DERIVED_RUNS_PER_ROOT} runs`)
+}

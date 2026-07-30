@@ -105,4 +105,56 @@ export const mailMessages = pgTable(
   ],
 )
 
-export const MAIL_TENANT_TABLES = ['mailbox_accounts', 'mail_threads', 'mail_messages'] as const
+export const colleagueMessages = pgTable(
+  'colleague_messages',
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    fromPersonId: uuid('from_person_id').notNull(),
+    toPersonId: uuid('to_person_id').notNull(),
+    subject: text('subject').notNull(),
+    body: text('body').notNull(),
+    /** The run that sent it — the audit anchor back to why it was said. */
+    runId: uuid('run_id'),
+    /**
+     * The human ask this descends from. Every derived thing carries it, so the
+     * cost of one request can be totalled and bounded however far the work
+     * spreads.
+     */
+    rootRunId: uuid('root_run_id'),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    ...auditColumns,
+  },
+  (t) => [
+    index('colleague_messages_inbox_idx').on(t.tenantId, t.toPersonId, t.readAt),
+    index('colleague_messages_root_idx').on(t.tenantId, t.rootRunId),
+  ],
+)
+
+export const MAIL_TENANT_TABLES = [
+  'mailbox_accounts',
+  'mail_threads',
+  'mail_messages',
+  'colleague_messages',
+] as const
+
+/**
+ * An internal message between colleagues — the inbox, not the logbook.
+ *
+ * Two agents at one company need to be able to say something to each other
+ * without it becoming a job, and without it becoming a memory. Both of those
+ * were tried and both were wrong:
+ *
+ * - as an assignment, every message was a full model run, so an
+ *   acknowledgement cost as much as an hour of research. That is where
+ *   `Re: Re: Re: Re: Daily check-in outcome` came from: hundreds of runs of
+ *   agents thanking each other for thanking each other.
+ * - as a note in the recipient's logbook it stopped costing runs but polluted
+ *   the one place an agent keeps what it has LEARNED — competing for the
+ *   retrieval budget, ageing through the gardener, and being weighed for
+ *   importance alongside real facts. A message is not a lesson.
+ *
+ * So it is its own thing, with the one property that matters: it waits. The
+ * recipient reads it next time they are working, whatever started them, and it
+ * is marked read when they do.
+ */
