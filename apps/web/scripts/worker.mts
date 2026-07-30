@@ -3,6 +3,8 @@ import { and, eq, sql } from 'drizzle-orm'
 import { schema as identity } from '@appkit/db'
 import { db } from '../src/db/client'
 import { ASSIGNMENT_MAX_STEPS } from '../src/lib/agent-runs'
+import { retireContradictedBeliefs } from '../src/lib/stale-beliefs'
+import { MAX_SELF_SCHEDULED_REPEATS } from '../src/lib/agent-abilities'
 import { approvals, assignments, mailboxAccounts, mailMessages, people, runs, tokenSpend } from '../src/db/schema'
 import { sendNewMail, sendReplyInThread, syncPersonMailbox } from '../src/lib/mailbox'
 import { dueDuties, executeAgentRun, markDutyRun, startRunsForNewInbound } from '../src/lib/agent-runs'
@@ -441,6 +443,54 @@ async function callSweepPass(): Promise<void> {
 }
 
 /**
+ * Beliefs the ledger has since disproved.
+ *
+ * An agent's own logbook has never been gardened — the gardener only ever
+ * looked at company-scoped notes — so a note saying a tool is broken lives for
+ * ever and is re-read into the top of every run. It shapes the work long after
+ * the thing it describes is fixed, and it is self-confirming: an agent that
+ * believes it cannot do something does not try, so nothing ever contradicts
+ * the note. This is what contradicts it.
+ */
+async function staleBeliefsPass(): Promise<void> {
+  // A repeat an agent booked for itself has to be bounded, and the bound has to
+  // apply to the ones already out there — not only to the next one written.
+  // Two hourly duties whose titles were "check whether Dana's note has arrived"
+  // and "re-check whether Dana's note has arrived" went on firing after the
+  // ceiling was added, because the ceiling was only applied at creation and
+  // they had already been created. `maxRuns` was always honoured by the
+  // scheduler; it was simply never set. Standing enforcement rather than a
+  // one-off backfill, so a duty that reaches production without a cap cannot
+  // outlive this pass either. Role-pack duties belong to the role and are left
+  // alone; this is only what an agent booked for itself.
+  const capped = await app.withSuperAdmin((superDb) =>
+    superDb.execute(sql`
+      update duties set max_runs = ${MAX_SELF_SCHEDULED_REPEATS}, updated_at = now()
+      where max_runs is null
+        and schedule_kind = 'cron'
+        and created_by = person_id
+        and from_role_pack_duty is null
+      returning id, title, run_count
+    `),
+  )
+  for (const row of capped.rows) {
+    console.log(
+      `[duties] capped "${row.title}" at ${MAX_SELF_SCHEDULED_REPEATS} runs (it had already fired ${row.run_count})`,
+    )
+  }
+
+  for (const tenantId of await activeTenantIds()) {
+    const retired = await retireContradictedBeliefs(tenantId).catch((error: unknown) => {
+      console.error(`[beliefs] ${tenantId}: ${error instanceof Error ? error.message : String(error)}`)
+      return []
+    })
+    for (const belief of retired) {
+      console.log(`[beliefs] retired "${belief.note}" for ${belief.agent} — ${belief.tool} has worked since`)
+    }
+  }
+}
+
+/**
  * Work the worker died holding.
  *
  * A run used to be a couple of dozen steps — a few minutes — so a deploy or a
@@ -591,7 +641,10 @@ const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
     else if (job.data.pass === 'reports') await weeklyReportPass()
     else if (job.data.pass === 'workspace') await workspacePass()
     else if (job.data.pass === 'tools') await toolsPass()
-    else if (job.data.pass === 'gardener') await gardenerPassAll()
+    else if (job.data.pass === 'gardener') {
+      await gardenerPassAll()
+      await staleBeliefsPass()
+    }
     else if (job.data.pass === 'trunks') await trunkHealthPass()
     else if (job.data.pass === 'journal') await journalPass()
     else if (job.data.pass === 'reflection') await reflectionPass()

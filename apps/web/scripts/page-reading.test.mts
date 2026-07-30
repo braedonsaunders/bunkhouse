@@ -140,3 +140,41 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
   assert.equal(hopsOf({ kind: 'delegation', fromPersonId: 'a', runId: 'r', hops: 3 }), 3)
   console.log('handoff: a chain between colleagues knows how long it is')
 }
+
+// --- a belief the ledger disagrees with -------------------------------------
+// Real notes, verbatim from the logbooks that produced the overnight bill.
+{
+  const { toolsClaimedBroken, ledgeredSuccess } = await import('../src/lib/stale-beliefs')
+  const known = new Set(['run_shell', 'run_script', 'email_colleague', 'ask_and_wait', 'web_search'])
+
+  assert.deepEqual(
+    toolsClaimedBroken('`run_shell` fails with "bwrap: No permissions to create new namespace" — use run_script', known),
+    ['run_shell', 'run_script'],
+    'every tool the claim touches is checked, because either working disproves it',
+  )
+  assert.deepEqual(
+    toolsClaimedBroken('Both `ask_and_wait` and `email_colleague` return "No mailbox connected".', known),
+    ['ask_and_wait', 'email_colleague'],
+  )
+  // The line this guard exists for: a note that MENTIONS a tool is a record of
+  // work, and retiring it would throw away real history.
+  assert.deepEqual(
+    toolsClaimedBroken('Used run_shell to tidy the export folder; took two minutes.', known),
+    [],
+    'mentioning a tool is not claiming it is broken',
+  )
+  assert.deepEqual(toolsClaimedBroken('The customer cannot be reached by phone.', known), [], 'no tool, no claim')
+  assert.deepEqual(
+    toolsClaimedBroken('deploy_widget fails every time', known),
+    [],
+    'a name that is not one of our tools is not a claim about our tools',
+  )
+
+  assert.equal(ledgeredSuccess({ ok: true }), true)
+  assert.equal(ledgeredSuccess({ error: 'No mailbox connected for this agent.' }), false)
+  assert.equal(ledgeredSuccess({ status: 'pending_approval' }), false, 'parked is not proof it works')
+  assert.equal(ledgeredSuccess({ status: 'forbidden' }), false)
+  assert.equal(ledgeredSuccess({ sent: false, reason: 'not in the directory' }), false, 'a tool that says no in prose')
+  assert.equal(ledgeredSuccess(null), false)
+  console.log('beliefs: a note claiming a tool is broken is checked against the ledger, not re-read')
+}
