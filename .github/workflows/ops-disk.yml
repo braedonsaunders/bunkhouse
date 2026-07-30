@@ -152,19 +152,13 @@ jobs:
           probe='bwrap --unshare-user --unshare-pid --unshare-net --ro-bind /usr /usr --dev /dev --chdir / -- /bin/true'
           echo "apparmor profile in the service container: $(docker exec "$cid" cat /proc/self/attr/current 2>&1 || echo unknown)"
           echo "apparmor enabled on host: $(docker exec "$cid" cat /sys/module/apparmor/parameters/enabled 2>&1 || echo unknown)"
-          for opt in "apparmor=unconfined" "seccomp=unconfined"; do
-            if docker run --rm --cap-add SYS_ADMIN --security-opt "$opt" "$img" sh -c "$probe" >/dev/null 2>&1; then
-              echo "with --security-opt $opt (plus CAP_SYS_ADMIN): WORKS — this is the one the swarm is dropping"
-            else
-              echo "with --security-opt $opt (plus CAP_SYS_ADMIN): still refused"
-            fi
-          done
-          if docker run --rm --cap-add SYS_ADMIN --security-opt apparmor=unconfined --security-opt seccomp=unconfined \
-              "$img" sh -c "$probe" >/dev/null 2>&1; then
-            echo "with both: WORKS"
-          else
-            echo "with both: still refused — the blocker is not confinement"
-          fi
+          echo "> fully unconfined, with the error it actually gives:"
+          docker run --rm --cap-add SYS_ADMIN --security-opt apparmor=unconfined --security-opt seccomp=unconfined \
+            "$img" sh -c "$probe" 2>&1 | head -5 || true
+          echo "> privileged, which grants everything there is:"
+          docker run --rm --privileged "$img" sh -c "$probe" 2>&1 | head -5 || true
+          echo "> and whether the binary runs at all here:"
+          docker run --rm "$img" sh -c 'bwrap --version; ls -l /bin/true' 2>&1 | head -3 || true
           echo "--- the full set the workspace sandbox asks for ---"
           if docker exec "$cid" bwrap \
             --unshare-user --unshare-pid --unshare-ipc --unshare-uts --unshare-net \
