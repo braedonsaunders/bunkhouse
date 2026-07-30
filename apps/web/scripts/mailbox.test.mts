@@ -364,34 +364,33 @@ function harness(timing: Partial<MailboxTiming> = {}) {
   line.mailbox.close()
 }
 
-// --- one thing said once, whichever route says it ---------------------------
-// The duplicate-utterance defect, in the mailbox's half of it: the approval
-// line goes out at a quiet boundary, and seconds later `do_work`'s own return
-// value says the identical words at the turn tail. Two byte-identical rows in
-// call_turns, which a caller hears as a stuck line.
+// --- one mouth: the answer goes out once, by the only route there is -------
+// The duplicate-utterance defect, at its root. There used to be two routes to
+// the caller — the mailbox at a quiet boundary, and `do_work`'s return value
+// at the turn tail — and two routes that each believed they were the only one
+// is how the identical sentence landed twice, seconds apart, in call_turns.
+// The referee that used to arbitrate between them is gone because there is
+// nothing left to arbitrate: an answer is posted like every other fact.
 {
   const line = harness()
   const parked = 'Opening example.com in the browser — it needs a manager’s sign-off before it can happen.'
+  const answer = 'The Travelodge has rooms tomorrow night at 189 dollars.'
+
+  // A parked line and, later, the answer to the same work. Both are posts;
+  // neither is spoken by anything but the mailbox.
   line.mailbox.post({ kind: 'needs_approval', workId: 'work-1', text: parked })
-  assert.equal(line.mailbox.pending().length, 1)
-  assert.equal(line.mailbox.said({ workId: 'work-1', text: parked }), false, 'queued is not said')
-
-  // The tool is about to say exactly this. The queued copy is retired instead
-  // of being said a second time a moment later.
-  line.mailbox.delivered({ kind: 'result', workId: 'work-1', text: parked })
-  assert.equal(line.mailbox.pending().length, 0, 'the queued copy is retired, not left to go out again')
-  assert.equal(line.mailbox.said({ workId: 'work-1', text: parked }), true)
-  assert.deepEqual(line.about(parked), ['posted', "delivered:said by the tool's own reply"])
-
+  line.mailbox.post({ kind: 'result', workId: 'work-1', text: answer })
   await sleep(80)
-  assert.deepEqual(line.heard(), [], 'the mailbox says nothing the tool has already said')
 
-  // `said` is per work AND per wording — the same words about a different piece
-  // of work are a different fact, and a different piece of work is why.
-  assert.equal(line.mailbox.said({ workId: 'work-2', text: parked }), false)
-  // Whitespace is not a difference: the query has to answer the same way the
-  // queue does, or the check silently stops matching.
-  assert.equal(line.mailbox.said({ workId: 'work-1', text: `  ${parked}  ` }), true)
+  const heard = line.heard()
+  assert.equal(heard.length, 1, 'everything waiting at one boundary is said once, together')
+  assert.ok(heard[0]!.includes(answer), 'the answer is said')
+
+  // Posting the same answer again — a retry, a second settle, any route at all
+  // — cannot produce a second utterance.
+  line.mailbox.post({ kind: 'result', workId: 'work-1', text: answer })
+  await sleep(80)
+  assert.equal(line.heard().length, 1, 'the same words about the same work are never said twice')
   line.mailbox.close()
 }
 

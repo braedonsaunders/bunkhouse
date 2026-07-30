@@ -206,13 +206,6 @@ export type CallMailbox = {
    * apart, from two routes that each believed they were the only one.
    */
   delivered: (item: MailboxPost) => void
-  /**
-   * Has the caller already heard these exact words about this exact work? For
-   * the route that is about to say something and would rather say nothing than
-   * repeat the mailbox — `do_work`, whose return value the framework speaks at
-   * the turn tail, asks this before handing the words to the model.
-   */
-  said: (item: { workId: string; text: string }) => boolean
   /** What is waiting, oldest first. For `check_work`, and for the tests. */
   pending: () => readonly MailboxItem[]
   /**
@@ -477,7 +470,6 @@ export function createCallMailbox(options: CallMailboxOptions): CallMailbox {
   return {
     post: (item) => enqueue(item, false),
     delivered: (item) => enqueue(item, true, "said by the tool's own reply"),
-    said: (item) => said.has(identity({ workId: item.workId, text: item.text.trim() })),
     // A copy: the queue is spliced under the caller's feet by every flush, and
     // an inspector holding the live array would report a queue that emptied
     // itself while it was being read.

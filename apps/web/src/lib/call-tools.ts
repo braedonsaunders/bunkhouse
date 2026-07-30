@@ -275,39 +275,20 @@ export function callTools(args: {
       // through the deferred disposition, so the answer arrives by email — and
       // the trace records that this caller never heard it.
       if (!settled) return null
-      // Has the caller heard these exact words already? Asked BEFORE the
-      // mailbox is told, because telling it is what stamps them as said. An
-      // approval line is the case that bites: the mailbox says it at a quiet
-      // boundary the moment the loop parks, and a few seconds later this
-      // report says it again at the turn tail — two byte-identical rows in
-      // `call_turns`, which is what a caller hears as a stuck line.
-      const alreadyHeard = mailbox.said({ workId: work.id, text: settled.detail })
-      // The answer travels back as this tool's return value — the framework's
-      // deferred-reply path, which already waits for the turn to end and gives
-      // the agent its own words for it. Telling the mailbox it has been said
-      // is what retires the work: progress still queued about it is dropped,
-      // so "still looking at the site" can never land behind the answer, and
-      // the same words can never go out twice by two routes.
-      mailbox.delivered({ kind: 'result', workId: work.id, text: settled.detail })
-      if (alreadyHeard) {
-        // Returning nothing is the framework's "no deferred reply", the same
-        // answer given when the line is already gone. It is deliberately not a
-        // note asking the model to keep quiet: a note leaves the decision with
-        // the model, and a model holding an answer says it. One piece of
-        // content, one route — the mailbox owns these words, so this route has
-        // nothing to hand over and cannot repeat them.
-        args.trace.answerAlreadySpoken({
-          workId: work.id,
-          route: 'the mailbox said these words at a quiet boundary while it was still running',
-        })
-        return null
-      }
-      // The framework makes a reply for this return value once the turn ends,
-      // so the next thing the agent says IS this answer being read out. That
-      // is what marks the answer delivered; if no such turn ever happens, the
-      // trace says the answer was produced and never spoken.
-      args.trace.expectTurn({ cause: 'work_result', workId: work.id })
-      return readable(settled)
+      // ONE MOUTH. The answer is posted like every other fact and said by
+      // the mailbox at a quiet boundary, and this route hands the model
+      // nothing to speak. It used to be the other way round — the answer
+      // travelled back as this return value while progress travelled by the
+      // mailbox — and two routes that each believed they were the only one is
+      // how a caller heard the same sentence twice, seconds apart. Everything
+      // written to referee that race (asking whether the words had already
+      // been said, retiring a queued copy, deciding which route won) existed
+      // only because there were two. There is one.
+      //
+      // Returning null is the framework's "no deferred reply". Deliberately
+      // not a note asking the model to keep quiet: a note leaves the decision
+      // with the model, and a model holding an answer says it.
+      mailbox.post({ kind: 'result', workId: work.id, text: settled.detail })
     },
   })
 
