@@ -1,6 +1,8 @@
 export {
   defineAbility,
   governedToolSet,
+  LIVE_TOOL_DEADLINE_MS,
+  DEFAULT_TOOL_DEADLINE_MS,
   citeProcedureAbility,
   takeAbilityFrame,
   ABILITY_FRAME_KEY,

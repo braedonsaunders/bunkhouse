@@ -42,6 +42,12 @@ export type RunAgentArgs = {
   /** Resume context: prior messages from a suspended run being continued. */
   priorMessages?: ModelMessage[]
   maxSteps?: number
+  /**
+   * How long any one tool call may take. A live call passes a short one — the
+   * caller is holding a phone; offline work gets the generous default, because
+   * a build, a document, or a slow integration is not a wedged run.
+   */
+  toolDeadlineMs?: number
   abortSignal?: AbortSignal
   describeAction?: (toolName: string, input: unknown) => string
   /**
@@ -103,6 +109,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
     sink: args.sink,
     state,
     describeAction: args.describeAction,
+    ...(args.toolDeadlineMs ? { deadlineMs: args.toolDeadlineMs } : {}),
   })
 
   const system = buildSystemPrompt({

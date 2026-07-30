@@ -3,6 +3,7 @@ import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { ModelMessage } from 'ai'
 import {
+  LIVE_TOOL_DEADLINE_MS,
   defineAbility,
   runAgent,
   type Ability,
@@ -553,7 +554,7 @@ export async function executeAgentRun(args: {
       },
       budget: foundation.budget,
       sink,
-      ...(live ? { abortSignal: live.abortSignal } : {}),
+      ...(live ? { abortSignal: live.abortSignal, toolDeadlineMs: LIVE_TOOL_DEADLINE_MS } : {}),
     }).finally(async () => {
       // A live run borrows both: the integrations and the browser belong to the
       // call, which closes them once, when the call ends. Closing them here

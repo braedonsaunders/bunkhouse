@@ -163,21 +163,30 @@ export type GovernanceState = {
  * it. A tool that never settles does not fail — it wedges the whole run, and
  * on a live call that reads as an agent saying "almost there" for five minutes
  * while nothing is happening. A DNS lookup with no deadline did exactly that.
- * Generous enough for a slow page or a real search; short enough that a caller
- * gets an answer, even if the answer is that it did not work.
+ *
+ * How long is generous depends entirely on who is waiting, which is why this
+ * is a property of the DISPOSITION and not of the ability. One minute is right
+ * when someone is holding a phone; it is wrong for an assignment building a
+ * spreadsheet, running a real command in the workspace, or waiting on a slow
+ * integration — capping those at a minute quietly took a whole class of work
+ * away from the offline pipeline, which shares every one of these abilities.
+ * So the call passes the short one, and everything else gets the long one.
  */
-const TOOL_DEADLINE_MS = 60_000
+export const LIVE_TOOL_DEADLINE_MS = 60_000
+
+/** The offline ceiling: bounded so nothing wedges, long enough for real work. */
+export const DEFAULT_TOOL_DEADLINE_MS = 15 * 60_000
 
 /** Reject if the work has not settled by the deadline, without cancelling it. */
-async function withDeadline<T>(name: string, work: Promise<T>): Promise<T> {
+async function withDeadline<T>(name: string, work: Promise<T>, deadlineMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
       work,
       new Promise<never>((_, reject) => {
         timer = setTimeout(
-          () => reject(new Error(`${name} did not finish within ${Math.round(TOOL_DEADLINE_MS / 1000)} seconds.`)),
-          TOOL_DEADLINE_MS,
+          () => reject(new Error(`${name} did not finish within ${Math.round(deadlineMs / 1000)} seconds.`)),
+          deadlineMs,
         )
       }),
     ])
@@ -200,7 +209,10 @@ export function governedToolSet(args: {
   state: GovernanceState
   /** Render the human-readable "what will happen" line for an approval. */
   describeAction?: (toolName: string, input: unknown) => string
+  /** How long one tool call may take. Short on a live call, generous offline. */
+  deadlineMs?: number
 }): ToolSet {
+  const deadlineMs = args.deadlineMs ?? DEFAULT_TOOL_DEADLINE_MS
   const set: ToolSet = {}
   for (const ability of args.abilities) {
     const base = ability.tool
@@ -259,7 +271,7 @@ export function governedToolSet(args: {
         // was told "almost there" indefinitely, and nothing anywhere said what
         // had happened. Failing is fine; failing invisibly is not.
         try {
-          return await withDeadline(ability.name, Promise.resolve(execute(input as any, options as any)))
+          return await withDeadline(ability.name, Promise.resolve(execute(input as any, options as any)), deadlineMs)
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           const output = { error: message, note: 'That did not work. Say so plainly and try another way.' }
