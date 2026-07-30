@@ -120,7 +120,22 @@ jobs:
             docker service logs --tail 1200 --timestamps "$svc" 2>&1 | tail -1200
             echo "::endgroup::"
           done
-          [ "$found" = 1 ] || echo "::warning::No swarm service matches '$match'"
+          # Not everything here is a swarm service any more. The agent shell
+          # sandbox is deployed as a plain Compose application on purpose —
+          # swarm silently drops the security options bubblewrap needs — so
+          # `docker service ls` cannot see it and this looked, wrongly, like a
+          # deployment that had not happened.
+          for ctr in $(docker ps --format '{{.Names}}' | grep -i -- "$match" || true); do
+            found=1
+            echo "::group::$ctr — container (not a swarm service)"
+            docker ps --filter "name=$ctr" --format 'image={{.Image}}  status={{.Status}}'
+            docker inspect "$ctr" --format 'capAdd={{.HostConfig.CapAdd}} securityOpt={{.HostConfig.SecurityOpt}}' 2>&1 || true
+            echo "::endgroup::"
+            echo "::group::$ctr — last 400 log lines"
+            docker logs --tail 400 --timestamps "$ctr" 2>&1 | tail -400
+            echo "::endgroup::"
+          done
+          [ "$found" = 1 ] || echo "::warning::Nothing here matches '$match'"
 
       # Answering "what were the agents doing all night, and what did it cost"
       # needs the whole night at once, which the observatory cannot show. The
