@@ -88,7 +88,7 @@ export const INTEGRATION_LIBRARY: IntegrationLibraryEntry[] = [
     urlHint:
       'NetSuite’s endpoint is per-account, from the AI Connector Service. Install the MCP Standard Tools SuiteApp, enable OAuth 2.0, then paste your account’s URL.',
     authHint:
-      'NetSuite needs the application made first — it will not register one on its own. Under Setup → Integration → Manage Integrations, create an integration with Authorization Code Grant, Public Client, and the AI Connector Service scope, and put the redirect URI shown below in the OAuth 2.0 section’s own Redirect URI field. Leave Token-Based Authentication off: its Callback URL is a different scheme and stays greyed out. Copy the Client ID shown on save — NetSuite displays it once — and paste it above.',
+      'NetSuite needs the application made first — it will not register one on its own. Under Setup → Integration → Manage Integrations, create an integration with Authorization Code Grant, Public Client, and the AI Connector Service scope, and put the redirect URI shown below in the OAuth 2.0 section’s own Redirect URI field. Leave Token-Based Authentication off: its Callback URL is a different scheme and stays greyed out. Copy the Client ID shown on save — NetSuite displays it once — and paste it above. Then sign in as a role that carries the “Log in using OAuth 2.0 Access Tokens” permission: Administrator is locked and can never hold it, so this needs a custom role — which is the right shape anyway, since it scopes exactly what the agent may reach.',
     defaultCategory: 'money_adjacent',
   },
   {
