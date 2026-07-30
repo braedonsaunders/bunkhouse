@@ -156,7 +156,17 @@ export type AssignmentSource =
   | { kind: 'call'; sessionId: string }
   | { kind: 'mail'; threadId: string }
   | { kind: 'manual'; requestedBy?: string }
-  | { kind: 'delegation'; fromPersonId: string; runId: string }
+  | {
+      kind: 'delegation'
+      fromPersonId: string
+      runId: string
+      /**
+       * How many colleagues this has already been passed between. A handoff a
+       * colleague can return is a handoff two agents can bounce at each other
+       * forever, so the chain carries its own length and stops itself.
+       */
+      hops?: number
+    }
 
 export const assignments = pgTable(
   'assignments',

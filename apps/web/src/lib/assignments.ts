@@ -1,7 +1,8 @@
 import 'server-only'
 import { and, eq } from 'drizzle-orm'
 import type { RunOutcome } from '@bunkhouse/runtime'
-import { assignments, files, mailMessages, type AssignmentSource } from '../db/schema'
+import { assignments, files, mailMessages, people, type AssignmentSource } from '../db/schema'
+import { hopsOf, postToColleague } from './colleague-post'
 import { db } from '../db/client'
 import { ASSIGNMENT_MAX_STEPS, executeAgentRun } from './agent-runs'
 
@@ -68,13 +69,50 @@ export async function finalizeAssignmentRun(
         .where(eq(assignments.id, assignmentId))
       return
     }
-    // Proof of delivery is the mail ledger, not the model's summary.
+    const [assignment] = await app.db.select().from(assignments).where(eq(assignments.id, assignmentId))
+    const produced = await app.db.select({ id: files.id }).from(files).where(eq(files.runId, runId))
+
+    // Proof of delivery is the ledger, not the model's summary — but WHICH
+    // ledger depends on who was waiting. Work a colleague handed over comes
+    // back to that colleague inside the company: there is no mail in it, so
+    // requiring an outbound email marked every delegated assignment 'failed'
+    // however well it had gone, and an agent with no mailbox could never
+    // finish one at all.
+    const delegated = assignment?.source.kind === 'delegation' ? assignment.source : null
+    if (delegated) {
+      const [worker] = await app.db.select().from(people).where(eq(people.id, assignment!.personId))
+      const back = await postToColleague({
+        tenantId,
+        from: {
+          id: assignment!.personId,
+          name: worker?.name ?? 'your colleague',
+          title: worker?.title ?? '',
+          email: worker?.email ?? '',
+        },
+        toEmail: assignment!.deliverTo.address,
+        title: `Re: ${assignment!.title}`,
+        body: outcome.summary.trim() || 'Finished, with nothing further to report.',
+        runId,
+        hops: hopsOf(assignment!.source),
+        returning: true,
+      })
+      await app.db
+        .update(assignments)
+        .set({
+          status: back.posted ? 'delivered' : 'failed',
+          ...(back.posted ? { deliveredAt: new Date() } : { lastError: back.reason.slice(0, 500) }),
+          resultFileIds: produced.map((f) => f.id),
+          updatedAt: new Date(),
+        })
+        .where(eq(assignments.id, assignmentId))
+      return
+    }
+
     const [sent] = await app.db
       .select({ id: mailMessages.id })
       .from(mailMessages)
       .where(and(eq(mailMessages.runId, runId), eq(mailMessages.direction, 'outbound')))
       .limit(1)
-    const produced = await app.db.select({ id: files.id }).from(files).where(eq(files.runId, runId))
     if (sent) {
       await app.db
         .update(assignments)

@@ -123,3 +123,20 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
   assert.equal(echoOfAgent('anything at all', null), false, 'nothing said yet cannot be echoed')
   console.log('echo: the agent hearing itself is not a caller turn')
 }
+
+// --- a handoff that has gone round too many times ---------------------------
+// Two agents being helpful at each other is a loop that spends real money, and
+// the chain has to carry its own length or nothing can see it. Pure, so it is
+// tested without a database.
+{
+  const { hopsOf } = await import('../src/lib/colleague-post')
+  assert.equal(hopsOf(null), 0, 'nothing has been handed over yet')
+  assert.equal(hopsOf({ kind: 'call', sessionId: 'x' }), 0, 'work that came off a call starts no chain')
+  assert.equal(
+    hopsOf({ kind: 'delegation', fromPersonId: 'a', runId: 'r' }),
+    1,
+    'a delegation from before the count existed is one hop, not zero — it must not restart the chain',
+  )
+  assert.equal(hopsOf({ kind: 'delegation', fromPersonId: 'a', runId: 'r', hops: 3 }), 3)
+  console.log('handoff: a chain between colleagues knows how long it is')
+}
