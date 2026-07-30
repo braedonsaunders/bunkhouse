@@ -358,6 +358,14 @@ export function replyToThreadAbility(args: { tenantId: string; threadId: string;
 }
 
 /**
+ * A deliverable is a day's work, not an errand: research, draft, render,
+ * revise, deliver. Sixty steps was an errand — the run was cut off with the
+ * document half written. This is the runaway backstop only; what actually
+ * governs the length of the work is the salary budget, checked every step.
+ */
+export const ASSIGNMENT_MAX_STEPS = 600
+
+/**
  * The live disposition: work somebody is waiting on right now, inside a record
  * the caller already owns.
  *
@@ -774,7 +782,7 @@ export async function startRunsForNewInbound(tenantId: string): Promise<number> 
         personId: item.personId,
         trigger: waitingRun.trigger,
         resumeRunId: waitingRun.id,
-        ...(waitingRun.trigger.type === 'assignment' ? { maxSteps: 60 } : {}),
+        ...(waitingRun.trigger.type === 'assignment' ? { maxSteps: ASSIGNMENT_MAX_STEPS } : {}),
         input: {
           type: 'reply_received',
           question: waitingRun.waiting.question,

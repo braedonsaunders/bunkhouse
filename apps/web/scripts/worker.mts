@@ -2,6 +2,7 @@ import { createJobs } from '@appkit/jobs'
 import { and, eq, sql } from 'drizzle-orm'
 import { schema as identity } from '@appkit/db'
 import { db } from '../src/db/client'
+import { ASSIGNMENT_MAX_STEPS } from '../src/lib/agent-runs'
 import { approvals, assignments, mailboxAccounts, mailMessages, people, runs, tokenSpend } from '../src/db/schema'
 import { sendNewMail, sendReplyInThread, syncPersonMailbox } from '../src/lib/mailbox'
 import { dueDuties, executeAgentRun, markDutyRun, startRunsForNewInbound } from '../src/lib/agent-runs'
@@ -207,7 +208,7 @@ async function waitsPass(): Promise<void> {
             personId: run.personId,
             trigger: run.trigger,
             resumeRunId: run.id,
-            ...(run.trigger.type === 'assignment' ? { maxSteps: 60 } : {}),
+            ...(run.trigger.type === 'assignment' ? { maxSteps: ASSIGNMENT_MAX_STEPS } : {}),
             input: {
               type: 'reply_received',
               question: wait.question,
@@ -440,6 +441,56 @@ async function callSweepPass(): Promise<void> {
 }
 
 /**
+ * Work the worker died holding.
+ *
+ * A run used to be a couple of dozen steps — a few minutes — so a deploy or a
+ * crash landing inside one was a narrow window and the loss was small. Runs
+ * are now allowed to go on for hours, which is the point, and that turns the
+ * same window into the most likely way an assignment quietly disappears: the
+ * process goes away mid-run, the run row stays 'running' and the assignment
+ * stays 'working', nothing is watching either, and the person who was promised
+ * a deliverable never hears another word.
+ *
+ * The heartbeat is the run's own event stream — every tool call and result
+ * appends one. A single tool call is capped well below this, so half an hour
+ * of total silence from a 'running' assignment means nobody is at the keyboard.
+ * It goes back on the queue to be finished, once. If it dies a second time it
+ * is left failed with the reason on it, because something about that work is
+ * killing the worker and quietly retrying it forever is how a loop hides.
+ */
+const CRASH_MARKER = 'The worker stopped mid-run'
+
+async function abandonedWorkPass(): Promise<void> {
+  const reclaimed = await app.withSuperAdmin((superDb) =>
+    superDb.execute(sql`
+      with dead as (
+        update runs r set status = 'failed', finished_at = now(),
+          summary = 'The worker stopped while this run was working.'
+        where r.status = 'running'
+          and r.trigger->>'type' = 'assignment'
+          and coalesce(
+                (select max(e.created_at) from run_events e where e.run_id = r.id),
+                r.started_at
+              ) < now() - interval '30 minutes'
+        returning r.id
+      )
+      update assignments a
+        set status = case when a.last_error like ${`${CRASH_MARKER}%`} then 'failed' else 'pending' end,
+            last_error = ${`${CRASH_MARKER}; picked up again.`},
+            updated_at = now()
+      where a.run_id in (select id from dead) and a.status = 'working'
+      returning a.id, a.status
+    `),
+  )
+  if (reclaimed.rows.length > 0) {
+    const failed = reclaimed.rows.filter((row: { status?: unknown }) => row.status === 'failed').length
+    console.log(
+      `[work] reclaimed ${reclaimed.rows.length - failed} abandoned assignment(s), gave up on ${failed}`,
+    )
+  }
+}
+
+/**
  * Nightly money pass: keep the fallback price table current, re-measure what
  * speech actually costs, and check both against the invoices the providers are
  * willing to show.
@@ -532,7 +583,10 @@ const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
     if (job.data.pass === 'mailbox') await mailboxPass()
     else if (job.data.pass === 'duties') await dutiesPass()
     else if (job.data.pass === 'assignments') await assignmentsPass()
-    else if (job.data.pass === 'calls') await callSweepPass()
+    else if (job.data.pass === 'calls') {
+      await callSweepPass()
+      await abandonedWorkPass()
+    }
     else if (job.data.pass === 'waits') await waitsPass()
     else if (job.data.pass === 'reports') await weeklyReportPass()
     else if (job.data.pass === 'workspace') await workspacePass()

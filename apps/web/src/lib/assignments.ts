@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import type { RunOutcome } from '@bunkhouse/runtime'
 import { assignments, files, mailMessages, type AssignmentSource } from '../db/schema'
 import { db } from '../db/client'
-import { executeAgentRun } from './agent-runs'
+import { ASSIGNMENT_MAX_STEPS, executeAgentRun } from './agent-runs'
 
 /**
  * Assignments: committed deliverables executed as background runs. The worker
@@ -13,9 +13,6 @@ import { executeAgentRun } from './agent-runs'
  * the mail ledger — an assignment is 'delivered' only when the run actually
  * sent mail, never because the model said so.
  */
-
-/** Deliverable runs get room to research, draft, render, and deliver. */
-export const ASSIGNMENT_MAX_STEPS = 60
 
 function describeSource(source: AssignmentSource): string {
   if (source.kind === 'call') return 'on a call'

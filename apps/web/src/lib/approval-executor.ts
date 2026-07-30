@@ -4,8 +4,8 @@ import type { Ability } from '@bunkhouse/runtime'
 import { approvals, people, runEvents, runs } from '../db/schema'
 import { db } from '../db/client'
 import { assembleAbilities } from './agent-abilities'
-import { executeAgentRun, replyToThreadAbility } from './agent-runs'
-import { finalizeAssignmentRun, ASSIGNMENT_MAX_STEPS } from './assignments'
+import { ASSIGNMENT_MAX_STEPS, executeAgentRun, replyToThreadAbility } from './agent-runs'
+import { finalizeAssignmentRun } from './assignments'
 
 /**
  * The generic approval executor. Every decided approval is acted on exactly

@@ -57,7 +57,31 @@ export type RunAgentArgs = {
   state?: GovernanceState
 }
 
-const DEFAULT_MAX_STEPS = 24
+/**
+ * The runaway backstop — NOT a limit on how much work an agent may do.
+ *
+ * It used to be both, and at 24 steps (60 for an assignment) that made every
+ * agent a sprinter: a person who researches for an afternoon, drafts, revises
+ * and sends takes hundreds of steps, and the run was cut off long before with
+ * the work half done and nothing saying why. An employee is not stopped after
+ * sixty actions; they are stopped by the day ending or the money running out.
+ *
+ * So the real governors are the two below — the salary budget, now consulted
+ * every step instead of once at the door, and no-progress detection — and this
+ * is only what catches a loop neither of them would.
+ */
+const DEFAULT_MAX_STEPS = 200
+
+/**
+ * The same tool, called with the same input, this many times in a row.
+ *
+ * The honest replacement for a low step cap. A cap stops a runaway loop by
+ * stopping everything, including the run that was working; this stops only the
+ * run that has genuinely stopped getting anywhere. Repeating a call is not by
+ * itself wrong — retrying a flaky fetch is exactly right — so the threshold is
+ * where retrying stops being retrying.
+ */
+const NO_PROGRESS_REPEATS = 6
 
 /**
  * One complete unit of an agent's work, headless. The loop enforces what prompts
@@ -145,6 +169,13 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
   // costs nothing and makes the ledger authoritative rather than estimated.
   const providerOptions = usageAccountingOptions(args.agent.ai)
 
+  // What lets a run go long: something watching the money, and something that
+  // can tell work from a loop. Both are read by `stopWhen` after every step.
+  let budgetExhausted = false
+  let stuck = false
+  let lastCall: string | null = null
+  let repeats = 0
+
   try {
     const result = await generateText({
       model,
@@ -156,12 +187,28 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
       stopWhen: [
         stepCountIs(args.maxSteps ?? DEFAULT_MAX_STEPS),
         () => state.pendingApprovalId !== null || state.pendingWait !== null,
+        // The two governors that let a run go long safely.
+        () => budgetExhausted || stuck,
       ],
       abortSignal: args.abortSignal,
       onStepFinish: async (step) => {
         usage.inputTokens += step.usage.inputTokens ?? 0
         usage.outputTokens += step.usage.outputTokens ?? 0
         for (const call of step.toolCalls) {
+          // Going round in circles: the same call, with the same input, over
+          // and over. A run allowed to work for hours needs something that can
+          // tell working from spinning, because a step ceiling low enough to
+          // catch the spinning also cut off the working.
+          const signature = `${call.toolName}:${JSON.stringify(call.input)}`
+          repeats = signature === lastCall ? repeats + 1 : 1
+          lastCall = signature
+          if (repeats >= NO_PROGRESS_REPEATS && !stuck) {
+            stuck = true
+            await args.sink.event({
+              kind: 'error',
+              message: `Stopped: ${call.toolName} was called ${repeats} times with the same input and nothing changed. Whatever this run was trying is not going to work this way.`,
+            })
+          }
           const ability = abilities.find((a) => a.name === call.toolName)
           await args.sink.event({
             kind: 'tool_call',
@@ -192,10 +239,27 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
           outputTokens: step.usage.outputTokens ?? 0,
           ...(reported === null ? {} : { costUsd: reported }),
         })
+        // The budget, every step — not once at the door. Checking it only at
+        // the start was survivable while a run was two dozen steps long; it is
+        // not what governs a run that may legitimately work for hours, and it
+        // is the whole reason a long run can be allowed at all.
+        if (!budgetExhausted && args.budget.overagePolicy === 'pause') {
+          const left = await args.budget.remainingUsd().catch(() => 1)
+          if (left <= 0) {
+            budgetExhausted = true
+            await args.sink.event({
+              kind: 'message',
+              text: 'Stopping here: the salary budget for this agent is spent.',
+            })
+          }
+        }
       },
     })
 
     const transcript: ModelMessage[] = [...messages, ...result.response.messages]
+    // Out of money is not a failure and not a success: the work that was done
+    // is kept, and the outcome says plainly why it stopped where it did.
+    if (budgetExhausted) return { status: 'budget_paused', usage, messages: transcript }
     if (state.pendingApprovalId) {
       return { status: 'waiting_approval', approvalId: state.pendingApprovalId, usage, messages: transcript }
     }
