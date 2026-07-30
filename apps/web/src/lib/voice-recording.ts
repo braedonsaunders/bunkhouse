@@ -1,4 +1,5 @@
 import 'server-only'
+import { lookup } from 'node:dns/promises'
 import { and, eq, isNotNull, lt } from 'drizzle-orm'
 import {
   EgressClient,
@@ -47,6 +48,59 @@ type StorageEnv = {
   forcePathStyle: boolean
 }
 
+/**
+ * Is this something a server will accept in a Host header?
+ *
+ * RFC 1123 labels, letters digits and hyphens. An IP address passes too, which
+ * is the point below.
+ */
+export function legalHostname(host: string): boolean {
+  return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i.test(host)
+}
+
+/**
+ * The same object store, addressed by something a strict server will accept.
+ *
+ * Every recording failed to upload with MinIO answering `InvalidRequest:
+ * Invalid Request (invalid hostname)`, which is not about credentials or the
+ * bucket — it is about the Host header. The endpoint is a container service
+ * name, and container service names contain an underscore, which is illegal in
+ * a hostname. The app's own uploads go through a client that does not care;
+ * egress uploads through one that does, and MinIO agrees with it.
+ *
+ * Nothing about the deployment needs to change for this: the name resolves,
+ * it is simply not spellable in a Host header. So it is resolved here and the
+ * address is used instead, which every server accepts. Left alone when the
+ * hostname is already legal, so a deployment addressing storage by a real
+ * domain is untouched.
+ */
+export async function addressableEndpoint(
+  endpoint: string,
+  /** How a name becomes an address. Injected so the substitution is testable. */
+  resolve: (host: string) => Promise<string> = async (host) => (await lookup(host)).address,
+): Promise<{ endpoint: string; note?: string }> {
+  let url: URL
+  try {
+    url = new URL(endpoint)
+  } catch {
+    return { endpoint }
+  }
+  if (legalHostname(url.hostname)) return { endpoint }
+  try {
+    const address = await resolve(url.hostname)
+    const rewritten = new URL(url.toString())
+    rewritten.hostname = address
+    return {
+      endpoint: rewritten.toString().replace(/\/$/, ''),
+      note: `storage is addressed by a name that is not legal in a Host header, so its address was used instead`,
+    }
+  } catch {
+    // Nothing better to offer than the name we were given; the upload will
+    // fail the same way it did before, and say so on the record.
+    return { endpoint }
+  }
+}
+
 /** The object store egress uploads to — the app's own, read from env. */
 function storageEnv(): StorageEnv | null {
   const endpoint = process.env.APPKIT_STORAGE_ENDPOINT
@@ -84,7 +138,7 @@ export type CallRecordingHandle = {
 }
 
 export type StartCallRecordingResult =
-  | { started: true; recording: CallRecordingHandle }
+  | { started: true; recording: CallRecordingHandle; note?: string }
   | { started: false; reason: string }
 
 /**
@@ -104,6 +158,9 @@ export async function startCallRecording(args: {
 
   const filename = `call-${args.sessionId}.ogg`
   const storageKey = newAttachmentKey({ tenantId: args.tenantId, kind: 'audio', filename })
+  // Addressed by something a strict server will accept — see above.
+  const addressable = await addressableEndpoint(storage.endpoint)
+
   const output = new EncodedFileOutput({
     fileType: EncodedFileType.OGG,
     filepath: storageKey,
@@ -113,7 +170,7 @@ export async function startCallRecording(args: {
     output: {
       case: 's3',
       value: new S3Upload({
-        endpoint: storage.endpoint,
+        endpoint: addressable.endpoint,
         accessKey: storage.accessKeyId,
         secret: storage.secretAccessKey,
         bucket: storage.bucket,
@@ -129,6 +186,7 @@ export async function startCallRecording(args: {
     return {
       started: true,
       recording: { egressId: info.egressId, storageKey, filename, contentType: 'audio/ogg' },
+      ...(addressable.note ? { note: addressable.note } : {}),
     }
   } catch (error) {
     return { started: false, reason: error instanceof Error ? error.message : String(error) }

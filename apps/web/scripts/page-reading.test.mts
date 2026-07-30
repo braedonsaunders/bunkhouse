@@ -203,3 +203,47 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
   assert.equal(soundsLikeGoodbye(null), false, 'having said nothing at all is not a goodbye')
   console.log('goodbye: the line does not just go dead')
 }
+
+// --- an endpoint a strict server will accept --------------------------------
+// Every call recording failed to upload with MinIO answering "invalid
+// hostname". Not credentials, not the bucket — the Host header. Container
+// service names carry an underscore, which is illegal in a hostname.
+{
+  const { legalHostname, addressableEndpoint } = await import('../src/lib/voice-recording')
+  assert.equal(legalHostname('minio.example.com'), true)
+  assert.equal(legalHostname('10.0.0.101'), true, 'an address is always spellable')
+  assert.equal(legalHostname('minio'), true, 'a single label is fine on its own')
+  assert.equal(
+    legalHostname('compose-compress-haptic-transmitter-po6zer_minio'),
+    false,
+    'the underscore is the whole bug',
+  )
+
+  // A legal endpoint is never touched — a deployment on a real domain must not
+  // have its address quietly swapped for an IP.
+  assert.deepEqual(await addressableEndpoint('https://storage.example.com'), {
+    endpoint: 'https://storage.example.com',
+  })
+  // The failure itself: an unspellable name that DOES resolve is swapped for
+  // its address, port and scheme and path intact.
+  const rewritten = await addressableEndpoint('http://stack_minio:9000', async () => '10.0.0.7')
+  assert.equal(rewritten.endpoint, 'http://10.0.0.7:9000', 'the address replaces the name it could not spell')
+  assert.match(rewritten.note ?? '', /Host header/)
+  // A legal name is never resolved at all — no lookup, no substitution.
+  let looked = 0
+  await addressableEndpoint('https://storage.example.com', async () => {
+    looked += 1
+    return '1.2.3.4'
+  })
+  assert.equal(looked, 0, 'a legal endpoint is left completely alone')
+  // Unresolvable and illegal: nothing better to offer, so it is handed back
+  // unchanged rather than mangled into something that fails differently.
+  assert.deepEqual(
+    await addressableEndpoint('http://not_a_host.invalid:9000', async () => {
+      throw new Error('NXDOMAIN')
+    }),
+    { endpoint: 'http://not_a_host.invalid:9000' },
+  )
+  assert.deepEqual(await addressableEndpoint('not a url at all'), { endpoint: 'not a url at all' })
+  console.log('recording: the store is addressed by something a strict server accepts')
+}
