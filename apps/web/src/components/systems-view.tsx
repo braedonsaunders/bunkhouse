@@ -366,6 +366,13 @@ function SystemDrawer({
             </div>
           ) : (
             <>
+              {/* Providers that will not self-register say so here, before the
+                  operator spends a round trip finding out from an error. */}
+              {prefill?.authHint ? (
+                <p className="rounded-md border border-border bg-surface p-3 text-xs text-fg-muted sm:col-span-2">
+                  {prefill.authHint}
+                </p>
+              ) : null}
               <div className="space-y-1">
                 <Label htmlFor="mcp-client-id">Client ID (optional)</Label>
                 <Input

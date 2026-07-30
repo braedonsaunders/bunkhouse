@@ -87,6 +87,8 @@ export const INTEGRATION_LIBRARY: IntegrationLibraryEntry[] = [
     auth: 'oauth',
     urlHint:
       'NetSuite’s endpoint is per-account, from the AI Connector Service. Install the MCP Standard Tools SuiteApp, enable OAuth 2.0, then paste your account’s URL.',
+    authHint:
+      'NetSuite needs the application made first: under Setup → Integration → Manage Integrations, create one with Authorization Code Grant, Public Client, and the AI Connector Service scope, and set its Callback URL to the redirect URI shown below. Copy the Client ID it shows on save — NetSuite displays it once — and paste it above. It will not register an application on its own.',
     defaultCategory: 'money_adjacent',
   },
   {

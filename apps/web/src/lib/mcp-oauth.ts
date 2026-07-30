@@ -110,6 +110,46 @@ function openState(encoded: string): McpOauthState {
 // --- Begin -------------------------------------------------------------------
 
 /**
+ * Register this company as an application with the provider, or explain what
+ * to do instead when it will not.
+ *
+ * Automatic registration is a courtesy, not a guarantee. Plenty of enterprise
+ * servers advertise a registration endpoint and still refuse every callback
+ * that an administrator has not allowlisted in their own console first —
+ * NetSuite is one. Left raw, the provider's answer to that is
+ * `invalid_redirect_uri`, which reads exactly like a wrong address and sends an
+ * operator off checking a URI that was never the problem.
+ *
+ * So a registration failure says what it actually means: this server wants the
+ * application made by hand, and here is the one field to bring back.
+ */
+async function registerApplication(args: {
+  authorization: Awaited<ReturnType<typeof discoverAuthorization>>
+  redirectUri: string
+  host: string
+}): Promise<{ clientId: string; clientSecret?: string }> {
+  try {
+    return await registerClient({
+      authorization: args.authorization,
+      redirectUri: args.redirectUri,
+      clientName: 'Bunkhouse',
+    })
+  } catch (error) {
+    const detail = messageOf(error)
+    // A refused callback is the provider saying "allowlist it first", not that
+    // the address is malformed — say so, and name the two things to do.
+    if (/invalid_redirect_uri|redirect/i.test(detail)) {
+      throw new Error(
+        `${args.host} would not register an application automatically: it only accepts callback addresses an administrator has already approved. Create an application in ${args.host}, give it exactly this redirect URI — ${args.redirectUri} — then paste its Client ID above and connect again.`,
+      )
+    }
+    throw new Error(
+      `${args.host} would not register an application automatically (${detail}). Create one in ${args.host} with ${args.redirectUri} as its redirect URI, then paste its Client ID above and connect again.`,
+    )
+  }
+}
+
+/**
  * Discover how the server signs in, register (or accept) a client, park the
  * round-trip context, and hand back the consent URL for the browser. Throws
  * readable messages — the drawer shows them verbatim.
@@ -128,7 +168,7 @@ export async function beginMcpOauth(input: {
   const authorization = await discoverAuthorization(input.url)
   const client = input.clientId
     ? { clientId: input.clientId, ...(input.clientSecret ? { clientSecret: input.clientSecret } : {}) }
-    : await registerClient({ authorization, redirectUri, clientName: 'Bunkhouse' })
+    : await registerApplication({ authorization, redirectUri, host: new URL(input.url).hostname })
 
   const pkce = createPkce()
   const nonce = randomBytes(16).toString('base64url')
