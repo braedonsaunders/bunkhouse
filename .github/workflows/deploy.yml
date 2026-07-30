@@ -124,7 +124,6 @@ jobs:
       # whatever tag it was created with, it would quietly drift a version
       # behind the app it serves and stay there.
       - name: Point the shell sandbox at the same image
-        if: ${{ secrets.DOKPLOY_SHELL_COMPOSE_ID != '' }}
         env:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
           DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
@@ -134,6 +133,13 @@ jobs:
           NFS_EXPORT: ${{ vars.BUNKHOUSE_NFS_EXPORT }}
         run: |
           set -euo pipefail
+          # Checked here rather than in an `if:` — the secrets context is not
+          # available to step conditions, and using it there does not warn, it
+          # makes the whole workflow invalid so no job runs at all.
+          if [ -z "${SHELL_COMPOSE_ID:-}" ]; then
+            echo "No shell sandbox configured (DOKPLOY_SHELL_COMPOSE_ID unset) — nothing to update."
+            exit 0
+          fi
           : "${NFS_ADDR:?repository variable BUNKHOUSE_NFS_ADDR is not set}"
           : "${NFS_EXPORT:?repository variable BUNKHOUSE_NFS_EXPORT is not set}"
           base="${DOKPLOY_URL%/}"
