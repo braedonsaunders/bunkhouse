@@ -70,6 +70,13 @@ async function monthSpendUsd(tenantId: string, personId: string): Promise<number
  * into the prompt, the rest is scored against what the agent is about to do.
  * Assumes an active tenant scope — every caller already has one.
  */
+/**
+ * How many characters of logbook may ride along in a run's context. Roughly
+ * 15k tokens — generous for what an agent genuinely needs to remember, and a
+ * hard stop on a back catalogue that would otherwise grow without limit.
+ */
+const MEMORY_CONTEXT_BUDGET = 60_000
+
 export async function runMemories(args: {
   tenantId: string
   personId: string
@@ -78,12 +85,41 @@ export async function runMemories(args: {
 }): Promise<MemoryNote[]> {
   const pinned = await pinnedNotes({ tenantId: args.tenantId, personId: args.personId })
   const retrieved = await retrieveNotes({ tenantId: args.tenantId, personId: args.personId, query: args.query })
-  return [...pinned, ...retrieved.filter((r) => !pinned.some((p) => p.id === r.id))].map((n) => ({
-    scope: n.scope,
-    slug: n.slug,
-    title: n.title,
-    body: n.body,
-  }))
+  const candidates = [...pinned, ...retrieved.filter((r) => !pinned.some((p) => p.id === r.id))]
+
+  // Bounded, because a logbook only ever grows and this goes into EVERY step's
+  // context. One agent reached an average of 128,000 input tokens per model
+  // call — one call touched a million — against 10,000 for a colleague doing
+  // comparable work, and the difference was its own back catalogue of notes
+  // about what was broken, retrieved in full, every step, and re-read at the
+  // full price of the window. Worse, it compounds: each failure writes another
+  // note, which makes the next run more expensive than the last.
+  //
+  // Pinned notes come first and are never dropped — that is what pinning is —
+  // and retrieval fills what is left, best match first. A note that does not
+  // fit is not lost; it is in the logbook, and search_memory will find it.
+  const kept: MemoryNote[] = []
+  let budget = MEMORY_CONTEXT_BUDGET
+  for (const note of candidates) {
+    const cost = note.title.length + note.body.length
+    if (cost > budget) {
+      if (kept.length === 0) {
+        // A single note larger than the whole budget still has to be readable,
+        // so it goes in cut rather than dropped, and says that it was cut.
+        kept.push({
+          scope: note.scope,
+          slug: note.slug,
+          title: note.title,
+          body: `${note.body.slice(0, budget)}\n\n[…this note is longer than the space there is for it; search_memory has the rest.]`,
+        })
+        budget = 0
+      }
+      continue
+    }
+    budget -= cost
+    kept.push({ scope: note.scope, slug: note.slug, title: note.title, body: note.body })
+  }
+  return kept
 }
 
 /**

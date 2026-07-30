@@ -84,6 +84,20 @@ const DEFAULT_MAX_STEPS = 200
 const NO_PROGRESS_REPEATS = 6
 
 /**
+ * Input tokens in a single step, past which something has gone wrong rather
+ * than gone long.
+ *
+ * A run was measured at 128,000 input tokens per model call on average, with
+ * one call at 1,025,158, while a colleague doing comparable work sat at 10,000
+ * — the difference being a transcript, screenshots and a back catalogue of
+ * notes all being re-read at full price every step. The budget stops that
+ * eventually, but only after paying for it; a step this size is worth stopping
+ * on its own, because whatever comes after it will be larger still and no
+ * larger context was ever the thing that was missing.
+ */
+const MAX_STEP_INPUT_TOKENS = 500_000
+
+/**
  * One complete unit of an agent's work, headless. The loop enforces what prompts
  * cannot: the autonomy dial (via governed tools), the salary budget (checked
  * before starting and per step), and the append-only event record. A gated
@@ -173,6 +187,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
   // can tell work from a loop. Both are read by `stopWhen` after every step.
   let budgetExhausted = false
   let stuck = false
+  let bloated = false
   let lastCall: string | null = null
   let repeats = 0
 
@@ -188,7 +203,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
         stepCountIs(args.maxSteps ?? DEFAULT_MAX_STEPS),
         () => state.pendingApprovalId !== null || state.pendingWait !== null,
         // The two governors that let a run go long safely.
-        () => budgetExhausted || stuck,
+        () => budgetExhausted || stuck || bloated,
       ],
       abortSignal: args.abortSignal,
       onStepFinish: async (step) => {
@@ -243,6 +258,14 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
         // the start was survivable while a run was two dozen steps long; it is
         // not what governs a run that may legitimately work for hours, and it
         // is the whole reason a long run can be allowed at all.
+        const stepInput = step.usage.inputTokens ?? 0
+        if (stepInput > MAX_STEP_INPUT_TOKENS && !bloated) {
+          bloated = true
+          await args.sink.event({
+            kind: 'error',
+            message: `Stopped: one step sent ${stepInput.toLocaleString()} input tokens, past the ${MAX_STEP_INPUT_TOKENS.toLocaleString()} ceiling. The context is carrying far more than this work needs, and every further step would cost more than the last.`,
+          })
+        }
         if (!budgetExhausted && args.budget.overagePolicy === 'pause') {
           const left = await args.budget.remainingUsd().catch(() => 1)
           if (left <= 0) {
