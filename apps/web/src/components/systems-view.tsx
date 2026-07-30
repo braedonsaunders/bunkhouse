@@ -550,6 +550,7 @@ function SystemTools({ slug, category }: { slug: string; category: string }) {
   const [state, setState] = React.useState<
     { kind: 'loading' } | { kind: 'ready'; tools: SystemTool[] } | { kind: 'failed'; message: string }
   >({ kind: 'loading' })
+  const [query, setQuery] = React.useState('')
 
   const fetchTools = React.useCallback(
     () =>
@@ -593,20 +594,51 @@ function SystemTools({ slug, category }: { slug: string; category: string }) {
     return <p className="text-sm text-fg-muted">This system connected but offers no tools.</p>
   }
 
+  const needle = query.trim().toLowerCase()
+  const shown = needle
+    ? state.tools.filter((tool) => `${tool.name} ${tool.description}`.toLowerCase().includes(needle))
+    : state.tools
+
+  // One string rather than text interleaved with expressions: JSX drops
+  // whitespace that sits next to an expression across a line break, and a
+  // sentence should not depend on where a formatter decided to wrap.
+  const summary = needle
+    ? `${shown.length} of ${state.tools.length} tools match.`
+    : `${state.tools.length} ${state.tools.length === 1 ? 'tool' : 'tools'} in every agent's toolbox, each governed as`
+
   return (
     <div className="space-y-3">
       <p className="text-sm text-fg-muted">
-        {state.tools.length} {state.tools.length === 1 ? 'tool' : 'tools'} in every agent&apos;s toolbox, each governed
-        as <Badge variant="secondary">{categoryLabel(category)}</Badge> by the autonomy dial.
+        {summary}
+        {needle ? null : (
+          <>
+            {' '}
+            <Badge variant="secondary">{categoryLabel(category)}</Badge> by the autonomy dial.
+          </>
+        )}
       </p>
-      <ul className="divide-y divide-border rounded-lg border border-border">
-        {state.tools.map((tool) => (
-          <li key={tool.name} className="px-3 py-2">
-            <p className="font-mono text-xs text-primary">{tool.name}</p>
-            {tool.description ? <p className="mt-0.5 text-sm text-fg-muted">{tool.description}</p> : null}
-          </li>
-        ))}
-      </ul>
+
+      <Input
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Search tools…"
+        aria-label="Search tools"
+        {...NO_AUTOFILL}
+      />
+
+      {shown.length === 0 ? (
+        <p className="text-sm text-fg-muted">No tool matches “{query.trim()}”.</p>
+      ) : (
+        <ul className="divide-y divide-border rounded-lg border border-border">
+          {shown.map((tool) => (
+            <li key={tool.name} className="px-3 py-2">
+              <p className="font-mono text-xs text-primary">{tool.name}</p>
+              {tool.description ? <p className="mt-0.5 text-sm text-fg-muted">{tool.description}</p> : null}
+            </li>
+          ))}
+        </ul>
+      )}
+
       <Button variant="outline" size="sm" onClick={reload}>
         Refresh
       </Button>
