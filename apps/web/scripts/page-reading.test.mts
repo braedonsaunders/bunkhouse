@@ -267,3 +267,44 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
   assert.equal(insideRoot(root, '/data/agent-homes/a/../b'), true, 'traversal that stays inside is still inside')
   console.log('shell: the privileged runner refuses to make anything but a home writable')
 }
+
+// --- which dial governs an email --------------------------------------------
+// Ten runs sat parked for hours awaiting sign-off to send mail to
+// dana@bunkhouse.local — a colleague — because send_email carried
+// 'external_email' whatever the address was, while the identical message
+// through email_colleague went straight out on the internal dial. Same action,
+// two answers, decided by which tool the model reached for.
+{
+  const { governedToolSet } = await import('@bunkhouse/runtime')
+  const { defineAbility } = await import('@bunkhouse/runtime')
+  const { z } = await import('zod')
+
+  const asked: string[] = []
+  const ability = defineAbility({
+    name: 'send_email',
+    description: 'send',
+    category: (input: { to: string }) => (input.to.endsWith('@bunkhouse.local') ? 'internal_email' : 'external_email'),
+    inputSchema: z.object({ to: z.string() }),
+    execute: async () => ({ sent: true }),
+  })
+  const tools = governedToolSet({
+    abilities: [ability],
+    autonomy: (category) => {
+      asked.push(category)
+      return category === 'internal_email' ? 'trusted' : 'approval'
+    },
+    approvals: { request: async () => ({ approvalId: 'ap-1' }) },
+    sink: { event: async () => {}, spend: async () => {} },
+    state: { pendingApprovalId: null, pendingWait: null },
+  })
+  const run = (to: string) => tools.send_email!.execute!({ to }, { toolCallId: 't', messages: [] })
+
+  const colleague = (await run('dana@bunkhouse.local')) as Record<string, unknown>
+  assert.equal(asked.at(-1), 'internal_email', 'a colleague is governed by the internal dial')
+  assert.equal(colleague.sent, true, 'and goes straight through')
+
+  const outsider = (await run('someone@example.com')) as Record<string, unknown>
+  assert.equal(asked.at(-1), 'external_email', 'an outside address is still external')
+  assert.equal(outsider.status, 'pending_approval', 'and still waits for a person')
+  console.log('governance: the dial follows what is being asked for, not the tool that asks')
+}

@@ -12,7 +12,24 @@ import type { ActionCategory, ApprovalGate, AutonomyResolver, RunSink } from './
  */
 export type Ability = {
   name: string
-  category: ActionCategory | null
+  /**
+   * Which dial governs this, and — where the answer depends on what is being
+   * asked for — a function of the input rather than a fixed label.
+   *
+   * Fixed was wrong in a way that cost real money. `send_email` carried
+   * 'external_email' whatever the address was, so mail to `dana@bunkhouse.local`
+   * — a colleague in the directory — was governed by the external dial and
+   * parked awaiting a human, while the identical message through
+   * `email_colleague` was 'internal_email' and went straight through. Same
+   * action, same recipient, two different answers decided by which tool the
+   * model happened to reach for. Runs sat parked for hours having already paid
+   * for every step it took to get there, and nobody was told, because the
+   * notice goes by the mail that was not working.
+   *
+   * The governed loop resolves this before it decides anything, so what is
+   * asked for is what is governed.
+   */
+  category: ActionCategory | null | ((input: unknown) => ActionCategory | null)
   /**
    * How an 'approval' dial applies to this ability.
    *
@@ -114,14 +131,23 @@ function abilityModelOutput(output: unknown): ModelToolOutput {
 export function defineAbility<INPUT, OUTPUT>(args: {
   name: string
   description: string
-  category: ActionCategory | null
+  /**
+   * The dial that governs this — or, where it depends on what is being asked
+   * for, a function of the input. Resolved before anything is decided, so what
+   * is asked for is what is governed. Synchronous by necessity: an approval is
+   * filed before `execute` ever runs.
+   */
+  category: ActionCategory | null | ((input: INPUT) => ActionCategory | null)
   approval?: 'each-call' | 'continues'
   inputSchema: z.ZodType<INPUT>
   execute: (input: INPUT) => Promise<OUTPUT>
 }): Ability {
   return {
     name: args.name,
-    category: args.category,
+    category:
+      typeof args.category === 'function'
+        ? (input: unknown) => (args.category as (i: INPUT) => ActionCategory | null)(input as INPUT)
+        : args.category,
     ...(args.approval ? { approval: args.approval } : {}),
     tool: tool({
       description: args.description,
@@ -220,7 +246,6 @@ export function governedToolSet(args: {
       set[ability.name] = base as ToolSet[string]
       continue
     }
-    const category = ability.category
     const execute = base.execute.bind(base)
     set[ability.name] = {
       ...base,
@@ -232,6 +257,9 @@ export function governedToolSet(args: {
         // ever, the caller was told "almost there" indefinitely, and the fault
         // was invisible to everyone. Governance is what the category decides;
         // finishing is not optional for anything.
+        // Resolved per call, from the input, because for some abilities the
+        // dial that applies depends on what is being asked for.
+        const category = typeof ability.category === 'function' ? ability.category(input) : ability.category
         const level = category === null ? 'trusted' : args.autonomy(category)
         if (category !== null && level === 'forbidden') {
           return {

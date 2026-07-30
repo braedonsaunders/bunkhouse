@@ -37,6 +37,7 @@ import { meetingAbilities } from './meetings'
 
 type PersonRow = typeof people.$inferSelect
 
+
 /** Ceilings on what an agent may book for itself — see `schedule_task`. */
 const MAX_SELF_SCHEDULED_DUTIES = 25
 const MIN_SELF_SCHEDULE_GAP_MINUTES = 15
@@ -158,7 +159,19 @@ export function researchAbilities(args: { tenantId: string }): Ability[] {
  * dial governs them separately: writing to a colleague is internal_email;
  * writing to anyone else is external_email.
  */
-export function emailAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {
+export function emailAbilities(args: {
+  tenantId: string
+  person: PersonRow
+  runId: string
+  /**
+   * Every address on staff, lowercased. Loaded once when the abilities are
+   * assembled, because the dial has to be resolved BEFORE the tool runs — an
+   * approval is filed ahead of `execute` — so the answer cannot be a database
+   * round trip at call time. The directory is small and it is already being
+   * read; an env var guessing at a domain would only be a worse copy of it.
+   */
+  staffAddresses: ReadonlySet<string>
+}): Ability[] {
   const { tenantId, person, runId } = args
 
   const send = async (to: string, subject: string, body: string, attachFileIds?: string[]) => {
@@ -223,15 +236,43 @@ export function emailAbilities(args: { tenantId: string; person: PersonRow; runI
     }),
     defineAbility({
       name: 'send_email',
-      description: 'Send an email from your mailbox to any outside address. Attach files you have produced by id.',
-      category: 'external_email',
+      description:
+        'Send an email from your mailbox to any outside address. Attach files you have produced by id. If you address it to someone on staff it is treated as reaching a colleague, exactly as email_colleague would — you do not need to pick the right tool for that.',
+      // Not a fixed label. An address in the company directory is a colleague
+      // whichever tool reaches them, and calling that 'external_email' is how
+      // ten runs ended up parked for hours awaiting sign-off to send mail to
+      // dana@bunkhouse.local — while the identical message through
+      // email_colleague went straight out on the internal dial. The dial that
+      // applies depends on who is being written to, so it is resolved from who
+      // is being written to.
+      category: (input: { to: string }) =>
+        args.staffAddresses.has((input.to ?? '').trim().toLowerCase()) ? 'internal_email' : 'external_email',
       inputSchema: z.object({
         to: z.string().describe('The recipient email address'),
         subject: z.string(),
         body: z.string().describe('Plain text; sign it as yourself.'),
         attachFileIds: attachFileIdsSchema,
       }),
-      execute: async ({ to, subject, body, attachFileIds }) => send(to, subject, body, attachFileIds),
+      execute: async ({ to, subject, body, attachFileIds }) => {
+        // Addressed to staff: the same internal handoff email_colleague makes,
+        // so which tool the model reached for stops mattering. It also means
+        // reaching a colleague never needs a mailbox — the thing that had
+        // agents concluding their mail was broken and working around it.
+        const colleague = await findColleague(to)
+        if (colleague?.kind === 'agent') {
+          const posted = await postToColleague({
+            tenantId,
+            from: { id: person.id, name: person.name, title: person.title, email: person.email },
+            toEmail: to,
+            title: subject,
+            body,
+            runId,
+          })
+          if (!posted.posted) return { sent: false, reason: posted.reason }
+          return { sent: true, to: posted.to, note: `${posted.to} has it directly — no email needed, nothing to chase.` }
+        }
+        return send(to, subject, body, attachFileIds)
+      },
     }),
   ]
 }
@@ -700,10 +741,17 @@ export async function assembleAbilities(args: {
 }): Promise<{ abilities: Ability[]; integrationFailures: string[]; close: () => Promise<void> }> {
   const { tenantId, person, runId } = args
   const integrations = await connectIntegrationAbilities(tenantId)
+  // Who counts as a colleague, read once. Mail to one of these is internal
+  // whichever tool sends it — see the category resolver in emailAbilities.
+  const staffAddresses = new Set(
+    (await db().db.select({ email: people.email }).from(people).where(eq(people.status, 'active')))
+      .map((row) => row.email.trim().toLowerCase())
+      .filter(Boolean),
+  )
   const abilities: Ability[] = [
     ...memoryAbilities({ tenantId, person, runId }),
     ...researchAbilities({ tenantId }),
-    ...emailAbilities({ tenantId, person, runId }),
+    ...emailAbilities({ tenantId, person, runId, staffAddresses }),
     ...(args.waitState ? askAbilities({ tenantId, person, runId, waitState: args.waitState }) : []),
     ...(await smsAbilities({ tenantId })),
     ...(await chatAbilities({ tenantId, person, runId })),

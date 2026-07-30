@@ -135,14 +135,19 @@ function surfacedAbility(args: {
     // own task-listing and cancel tools on the line beside them.
     flags: llm.ToolFlag.NONE,
     execute: async (input: unknown) => {
-      await args.record('tool_call', { toolName: ability.name, category: ability.category, input }).catch(() => {})
+      // Resolved from what is being asked for, not from the ability's label:
+      // mail to a colleague is internal whichever tool sends it. Same
+      // resolution the background loop does, so a call governs a thing exactly
+      // as an email run would.
+      const category = typeof ability.category === 'function' ? ability.category(input) : ability.category
+      await args.record('tool_call', { toolName: ability.name, category, input }).catch(() => {})
       try {
-        if (ability.category !== null) {
-          const level = governance.autonomy(ability.category)
+        if (category !== null) {
+          const level = governance.autonomy(category)
           if (level === 'forbidden') {
             const output = {
               status: 'forbidden',
-              note: `The ${ability.category} ability is disabled for you. Tell the caller a colleague or a human has to do this, and offer to pass it on.`,
+              note: `The ${category} ability is disabled for you. Tell the caller a colleague or a human has to do this, and offer to pass it on.`,
             }
             await args.record('tool_result', { toolName: ability.name, output }).catch(() => {})
             return output
@@ -150,7 +155,7 @@ function surfacedAbility(args: {
           if (level === 'approval' && ability.approval !== 'continues') {
             const description = describeToolCall(ability.name, input)
             const { approvalId, alreadyRequested } = await governance.fileApproval({
-              category: ability.category,
+              category,
               description,
               action: { toolName: ability.name, input: input as Record<string, unknown> },
             })

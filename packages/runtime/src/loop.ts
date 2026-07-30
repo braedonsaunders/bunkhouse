@@ -228,7 +228,10 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
           await args.sink.event({
             kind: 'tool_call',
             toolName: call.toolName,
-            category: ability?.category ?? null,
+            // Same resolution the governed wrapper used, so the ledger records
+            // the dial that actually applied rather than the ability's label.
+            category:
+              typeof ability?.category === 'function' ? ability.category(call.input) : (ability?.category ?? null),
             input: call.input,
           })
         }
