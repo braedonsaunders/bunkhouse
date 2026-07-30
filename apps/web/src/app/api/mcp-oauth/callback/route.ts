@@ -1,10 +1,19 @@
 import { revalidatePath } from 'next/cache'
 import { completeMcpOauth } from '../../../../lib/mcp-oauth'
+import { appUrl } from '../../../../lib/app-origin'
 
 export const dynamic = 'force-dynamic'
 
-function backToSystems(request: Request, params: Record<string, string>): Response {
-  const target = new URL('/resources', request.url)
+/**
+ * Send the operator back to the Systems tab.
+ *
+ * Deliberately NOT built from `request.url`: inside a container that is the
+ * address the server bound to — 0.0.0.0:3000 — not the address the browser
+ * came from, so a redirect built on it lands nowhere. The public origin is
+ * resolved the same way every other outward-facing URL here is.
+ */
+async function backToSystems(params: Record<string, string>): Promise<Response> {
+  const target = new URL(await appUrl('/resources'))
   target.searchParams.set('tab', 'systems')
   for (const [key, value] of Object.entries(params)) target.searchParams.set(key, value)
   return Response.redirect(target, 302)
@@ -23,16 +32,16 @@ export async function GET(request: Request): Promise<Response> {
   const code = params.get('code') ?? ''
   const denied = params.get('error_description') ?? params.get('error')
 
-  if (denied) return backToSystems(request, { mcpOauthError: `Sign-in was not completed: ${denied}` })
+  if (denied) return backToSystems({ mcpOauthError: `Sign-in was not completed: ${denied}` })
   if (!state || !code) {
-    return backToSystems(request, {
+    return backToSystems({
       mcpOauthError: 'The provider did not return a sign-in code. Start the connection again.',
     })
   }
 
   const result = await completeMcpOauth({ state, code })
-  if (!result.ok) return backToSystems(request, { mcpOauthError: result.message })
+  if (!result.ok) return backToSystems({ mcpOauthError: result.message })
 
   revalidatePath('/resources')
-  return backToSystems(request, { mcpOauthConnected: result.label, mcpOauthTools: String(result.toolCount) })
+  return backToSystems({ mcpOauthConnected: result.label, mcpOauthTools: String(result.toolCount) })
 }

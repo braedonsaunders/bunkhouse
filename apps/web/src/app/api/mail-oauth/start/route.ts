@@ -1,12 +1,18 @@
 import { requireUser } from '../../../../lib/auth'
 import { resolveTenantId } from '../../../../lib/tenant'
 import { beginMailOauth, isMailOauthProvider } from '../../../../lib/mail-oauth'
+import { appUrl } from '../../../../lib/app-origin'
 
 export const dynamic = 'force-dynamic'
 
 /** Where the operator is sent back to, with an explanation when something fails. */
-function backToAgent(request: Request, personId: string, error?: string): Response {
-  const target = new URL('/organization', request.url)
+/**
+ * Deliberately NOT built from `request.url`: inside a container that is the
+ * address the server bound to, not the address the browser came from, so a
+ * redirect built on it lands nowhere.
+ */
+async function backToAgent(personId: string, error?: string): Promise<Response> {
+  const target = new URL(await appUrl('/organization'))
   if (personId) target.searchParams.set('person', personId)
   if (error) target.searchParams.set('mailboxError', error)
   return Response.redirect(target, 302)
@@ -26,14 +32,14 @@ export async function GET(request: Request): Promise<Response> {
   await requireUser()
   const tenantId = await resolveTenantId()
 
-  if (!personId) return backToAgent(request, '', 'Choose an agent before connecting a mailbox.')
+  if (!personId) return await backToAgent('', 'Choose an agent before connecting a mailbox.')
   if (!isMailOauthProvider(provider)) {
-    return backToAgent(request, personId, 'That mail provider is not available.')
+    return await backToAgent(personId, 'That mail provider is not available.')
   }
   try {
     const { url } = await beginMailOauth({ tenantId, personId, provider })
     return Response.redirect(url, 302)
   } catch (error) {
-    return backToAgent(request, personId, error instanceof Error ? error.message : String(error))
+    return await backToAgent(personId, error instanceof Error ? error.message : String(error))
   }
 }

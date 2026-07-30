@@ -1,12 +1,18 @@
 import { requireUser } from '../../../../lib/auth'
 import { resolveTenantId } from '../../../../lib/tenant'
 import { beginFilingOauth, isFilingOauthProvider } from '../../../../lib/filing'
+import { appUrl } from '../../../../lib/app-origin'
 
 export const dynamic = 'force-dynamic'
 
 /** Back to Settings → Filing, carrying an explanation when something fails. */
-function backToFiling(request: Request, error?: string): Response {
-  const target = new URL('/admin/settings/filing', request.url)
+/**
+ * Deliberately NOT built from `request.url`: inside a container that is the
+ * address the server bound to, not the address the browser came from, so a
+ * redirect built on it lands nowhere.
+ */
+async function backToFiling(error?: string): Promise<Response> {
+  const target = new URL(await appUrl('/admin/settings/filing'))
   if (error) target.searchParams.set('filingError', error)
   return Response.redirect(target, 302)
 }
@@ -26,7 +32,7 @@ export async function GET(request: Request): Promise<Response> {
   const tenantId = await resolveTenantId()
 
   if (!isFilingOauthProvider(provider)) {
-    return backToFiling(request, 'That storage provider is not available.')
+    return await backToFiling('That storage provider is not available.')
   }
   try {
     const { url } = await beginFilingOauth({
@@ -37,6 +43,6 @@ export async function GET(request: Request): Promise<Response> {
     })
     return Response.redirect(url, 302)
   } catch (error) {
-    return backToFiling(request, error instanceof Error ? error.message : String(error))
+    return await backToFiling(error instanceof Error ? error.message : String(error))
   }
 }

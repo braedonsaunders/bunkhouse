@@ -1,10 +1,16 @@
 import { revalidatePath } from 'next/cache'
 import { completeFilingOauth, filingOauthRedirectUri } from '../../../../lib/filing'
+import { appUrl } from '../../../../lib/app-origin'
 
 export const dynamic = 'force-dynamic'
 
-function backToFiling(request: Request, params: { error?: string; notice?: string }): Response {
-  const target = new URL('/admin/settings/filing', request.url)
+/**
+ * Deliberately NOT built from `request.url`: inside a container that is the
+ * address the server bound to, not the address the browser came from, so a
+ * redirect built on it lands nowhere.
+ */
+async function backToFiling(params: { error?: string; notice?: string }): Promise<Response> {
+  const target = new URL(await appUrl('/admin/settings/filing'))
   if (params.error) target.searchParams.set('filingError', params.error)
   if (params.notice) target.searchParams.set('filingNotice', params.notice)
   return Response.redirect(target, 302)
@@ -24,14 +30,14 @@ export async function GET(request: Request): Promise<Response> {
   const denied = params.get('error_description') ?? params.get('error')
 
   if (!state) {
-    return backToFiling(request, { error: 'That connection could not be verified. Start again from Settings → Filing.' })
+    return await backToFiling({ error: 'That connection could not be verified. Start again from Settings → Filing.' })
   }
-  if (denied) return backToFiling(request, { error: `The connection was not completed: ${denied}` })
-  if (!code) return backToFiling(request, { error: 'The provider did not return an authorization code.' })
+  if (denied) return await backToFiling({ error: `The connection was not completed: ${denied}` })
+  if (!code) return await backToFiling({ error: 'The provider did not return an authorization code.' })
 
   const result = await completeFilingOauth({ state, code, redirectUri: await filingOauthRedirectUri() })
-  if (!result.ok) return backToFiling(request, { error: result.message })
+  if (!result.ok) return await backToFiling({ error: result.message })
 
   revalidatePath('/admin/settings/filing')
-  return backToFiling(request, { notice: `Connected. New files are filed to ${result.detail}.` })
+  return await backToFiling({ notice: `Connected. New files are filed to ${result.detail}.` })
 }
