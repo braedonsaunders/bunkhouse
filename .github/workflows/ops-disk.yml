@@ -164,13 +164,24 @@ jobs:
           probe='bwrap --unshare-user --unshare-pid --unshare-net --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --dev /dev --chdir / -- /bin/true'
           echo "apparmor profile in the service container: $(docker exec "$cid" cat /proc/self/attr/current 2>&1 || echo unknown)"
           echo "apparmor enabled on host: $(docker exec "$cid" cat /sys/module/apparmor/parameters/enabled 2>&1 || echo unknown)"
-          echo "> fully unconfined, with the error it actually gives:"
-          docker run --rm --cap-add SYS_ADMIN --security-opt apparmor=unconfined --security-opt seccomp=unconfined \
-            "$img" sh -c "$probe" 2>&1 | head -5 || true
-          echo "> privileged, which grants everything there is:"
-          docker run --rm --privileged "$img" sh -c "$probe" 2>&1 | head -5 || true
-          echo "> and whether the binary runs at all here:"
-          docker run --rm "$img" sh -c 'bwrap --version; ls -l /bin/true' 2>&1 | head -3 || true
+          echo "> which single option is enough (probe now matches the real sandbox):"
+          for opt in "apparmor=unconfined" "seccomp=unconfined"; do
+            if docker run --rm --cap-add SYS_ADMIN --security-opt "$opt" "$img" sh -c "$probe" >/dev/null 2>&1; then
+              echo "   CAP_SYS_ADMIN + $opt  -> WORKS"
+            else
+              echo "   CAP_SYS_ADMIN + $opt  -> refused"
+            fi
+          done
+          if docker run --rm --security-opt apparmor=unconfined --security-opt seccomp=unconfined "$img" sh -c "$probe" >/dev/null 2>&1; then
+            echo "   both, no CAP_SYS_ADMIN -> WORKS"
+          else
+            echo "   both, no CAP_SYS_ADMIN -> refused"
+          fi
+          if docker run --rm --cap-add SYS_ADMIN --security-opt apparmor=unconfined --security-opt seccomp=unconfined "$img" sh -c "$probe" >/dev/null 2>&1; then
+            echo "   CAP_SYS_ADMIN + both   -> WORKS"
+          else
+            echo "   CAP_SYS_ADMIN + both   -> refused"
+          fi
           echo "--- the full set the workspace sandbox asks for ---"
           if docker exec "$cid" bwrap \
             --unshare-user --unshare-pid --unshare-ipc --unshare-uts --unshare-net \
