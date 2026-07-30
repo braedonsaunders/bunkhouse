@@ -15,12 +15,21 @@ export const dynamic = 'force-dynamic'
 
 const BASE_PATH = '/observatory'
 
+/**
+ * Every trigger there is. Two were missing — `assignment` and
+ * `approval_followup` — and the fallback below said "Manual", so a screen full
+ * of colleagues handing each other work read as a screen full of things
+ * somebody had started by hand. Nothing in the system files a manual run at
+ * all, which is what made it confusing rather than merely wrong.
+ */
 const TRIGGER_LABELS: Record<string, string> = {
   email: 'Inbound email',
   duty: 'Scheduled duty',
   chat: 'Chat',
   delegation: 'Delegated task',
-  manual: 'Manual',
+  assignment: 'Assignment',
+  approval_followup: 'After an approval',
+  manual: 'Started by hand',
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -171,7 +180,7 @@ export default async function ObservatoryPage({
   const nowByRun = new Map(data.latestEvents.map((e) => [e.runId, describeLatestEvent(e.kind, e.payload)]))
   const inboundCallRuns = new Set(data.inboundCallRows.map((s) => s.runId))
   const triggerOf = (run: (typeof data.activeRuns)[number]) =>
-    inboundCallRuns.has(run.id) ? 'Inbound call' : (TRIGGER_LABELS[String(run.trigger.type)] ?? 'Manual')
+    inboundCallRuns.has(run.id) ? 'Inbound call' : (TRIGGER_LABELS[String(run.trigger.type)] ?? String(run.trigger.type))
   const avatarOf = (run: (typeof data.activeRuns)[number], size: number) => (
     <RosterAvatar
       name={run.personName}

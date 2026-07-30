@@ -248,6 +248,52 @@ table(
   ['agent', 'model', 'calls', 'avg_input_per_call', 'biggest_single_call', 'cost_usd'],
 )
 
+// --- what everything is parked on -------------------------------------------
+// A run waiting on approval is not spending, but it already spent everything it
+// took to get there — and it stays waiting until a person acts. A screenful of
+// them is either a dial set too tight or nobody being told.
+table(
+  'Waiting on an approval',
+  await rows(sql`
+    select p.name as agent, r.trigger->>'type' as trigger,
+           a.category, left(coalesce(a.payload->>'description', ''), 60) as awaiting,
+           round(extract(epoch from (now() - a.created_at))/60) as minutes,
+           round(coalesce((select sum(cost_usd) from token_spend s where s.run_id = r.id), 0)::numeric, 4) as cost_usd
+    from approvals a
+    join runs r on r.id = a.run_id
+    join people p on p.id = a.person_id
+    where a.status = 'pending'
+    order by a.created_at limit 40
+  `),
+  ['agent', 'trigger', 'category', 'awaiting', 'minutes', 'cost_usd'],
+)
+
+// --- which dial is doing the parking ----------------------------------------
+table(
+  'Autonomy dial, per agent',
+  await rows(sql`
+    select p.name as agent, a.category, a.level
+    from autonomy_settings a join people p on p.id = a.person_id
+    order by p.name, a.category
+  `),
+  ['agent', 'category', 'level'],
+)
+
+// --- can anyone even be told ------------------------------------------------
+// "Could not email the approval request (ECONNREFUSED 127.0.0.1:1025)" — a
+// mailbox pointed at a development mail catcher that does not exist here.
+table(
+  'Mailboxes, as configured',
+  await rows(sql`
+    select p.name as agent, m.address,
+           m.provider, m.imap->>'smtpHost' as smtp_host, m.imap->>'smtpPort' as smtp_port,
+           m.imap->>'imapHost' as imap_host, m.status, left(coalesce(m.last_error, ''), 50) as last_error
+    from mailbox_accounts m join people p on p.id = m.person_id
+    order by p.name
+  `),
+  ['agent', 'address', 'provider', 'smtp_host', 'smtp_port', 'imap_host', 'status', 'last_error'],
+)
+
 const [total] = await rows(sql`
   select round(coalesce(sum(cost_usd), 0)::numeric, 4) as cost_usd, count(*) as model_calls
   from token_spend where created_at > ${since}
