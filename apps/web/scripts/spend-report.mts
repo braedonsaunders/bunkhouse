@@ -343,6 +343,34 @@ table(
   ['hops', 'assignments'],
 )
 
+// --- what each of them actually did -----------------------------------------
+// A per-agent breakdown, because a total says money moved and not what for. An
+// agent whose tools are all reading and writing notes is an agent producing
+// reports about nothing.
+table(
+  'Tools called, per agent',
+  await rows(sql`
+    select p.name as agent, e.payload->>'toolName' as tool, count(*) as calls
+    from run_events e join runs r on r.id = e.run_id join people p on p.id = r.person_id
+    where e.kind = 'tool_call' and r.started_at > ${since}
+    group by 1, 2 order by p.name, count(*) desc
+  `),
+  ['agent', 'tool', 'calls'],
+)
+
+table(
+  'What their runs concluded',
+  await rows(sql`
+    select p.name as agent, to_char(r.started_at, 'HH24:MI') as at,
+           r.trigger->>'type' as trigger,
+           left(regexp_replace(coalesce(r.summary, ''), '\\s+', ' ', 'g'), 110) as summary
+    from runs r join people p on p.id = r.person_id
+    where r.started_at > ${since} and r.summary is not null
+    order by r.started_at desc limit 25
+  `),
+  ['agent', 'at', 'trigger', 'summary'],
+)
+
 const [total] = await rows(sql`
   select round(coalesce(sum(cost_usd), 0)::numeric, 4) as cost_usd, count(*) as model_calls
   from token_spend where created_at > ${since}
