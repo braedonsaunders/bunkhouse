@@ -487,6 +487,12 @@ export function delegationAbilities(args: {
   runId: string
   /** The human ask this descends from — carried onto the work handed over. */
   rootRunId?: string
+  /**
+   * How far this work already is from the person who asked. Passing it on
+   * increments it; without it every handoff claimed to be the first and the
+   * depth guard never fired.
+   */
+  handoffDepth?: number
 }): Ability[] {
   const { tenantId, person, runId } = args
   const rootRunId = args.rootRunId
@@ -518,6 +524,7 @@ export function delegationAbilities(args: {
           body: brief,
           runId,
           ...(rootRunId ? { rootRunId } : {}),
+          ...(args.handoffDepth ? { hops: args.handoffDepth } : {}),
           kind: 'work',
           ...(formats?.length ? { formats } : {}),
           ...(due ? { dueAt: due } : {}),
@@ -776,6 +783,8 @@ export async function assembleAbilities(args: {
    * far the work spreads.
    */
   rootRunId?: string
+  /** How many colleagues this work has already passed between before now. */
+  handoffDepth?: number
 }): Promise<{ abilities: Ability[]; integrationFailures: string[]; close: () => Promise<void> }> {
   const { tenantId, person, runId } = args
   const integrations = await connectIntegrationAbilities(tenantId)
@@ -797,7 +806,13 @@ export async function assembleAbilities(args: {
     ...(await chatAbilities({ tenantId, person, runId })),
     ...outboundCallAbilities({ tenantId, person, runId }),
     ...meetingAbilities({ tenantId, person, runId }),
-    ...delegationAbilities({ tenantId, person, runId, ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}) }),
+    ...delegationAbilities({
+      tenantId,
+      person,
+      runId,
+      ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}),
+      ...(args.handoffDepth ? { handoffDepth: args.handoffDepth } : {}),
+    }),
     ...documentAbilities({ tenantId, person, runId }),
     ...templateAbilities({ tenantId, person, runId }),
     ...workspaceAbilities({ tenantId, person, runId }),

@@ -39,6 +39,7 @@ import {
 } from '../db/schema'
 import { db } from '../db/client'
 import { takeInbox } from './colleague-inbox'
+import { hopsOf } from './colleague-post'
 import { resolveAgentAiConfig } from './ai'
 import { companyPromptProfile, getCompanyIdentity } from './company-identity'
 import { getMailSignature } from './mail-signature'
@@ -616,6 +617,16 @@ export async function executeAgentRun(args: {
     const inbox = live ? [] : await takeInbox({ personId: person.id })
     const [thisRun] = await app.db.select({ root: runs.rootRunId }).from(runs).where(eq(runs.id, runId))
     const rootOfThisRun = thisRun?.root ?? null
+    const handoffDepth =
+      args.trigger.type === 'assignment'
+        ? await (async () => {
+            const [row] = await app.db
+              .select({ source: assignments.source })
+              .from(assignments)
+              .where(eq(assignments.id, args.trigger.type === 'assignment' ? args.trigger.assignmentId : ''))
+            return hopsOf(row?.source ?? null)
+          })()
+        : 0
 
     // The shared capability set. A live run is handed the one its call already
     // assembled; everything else assembles its own, plus ask_and_wait — an
@@ -632,6 +643,10 @@ export async function executeAgentRun(args: {
           // A run that is itself the ask roots the tree; one derived from an
           // ask passes the same root on.
           rootRunId: rootOfThisRun ?? runId,
+          // How far this run already is from the person who asked. Without it
+          // every handoff reported itself as the first, so the depth guard
+          // only ever saw "1" and never stopped anything.
+          handoffDepth,
           ...(args.counterparty ? { counterparty: args.counterparty } : {}),
           waitState,
         })
