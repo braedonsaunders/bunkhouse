@@ -139,10 +139,18 @@ jobs:
           cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
           if [ -z "$cid" ]; then echo "::error::No running web container on this node"; exit 1; fi
           echo "bwrap: $(docker exec "$cid" bwrap --version 2>&1 || echo 'not installed')"
-          # The same unshares the workspace sandbox actually asks for. An
-          # earlier version of this check used --dev-bind / /, which needs
-          # mount propagation the sandbox never requests, and reported a
-          # failure the agents would never have hit.
+          echo "--- what the swarm actually granted (it silently drops some of what compose asks for) ---"
+          svc="$(docker ps --filter "id=$cid" --format '{{.Label "com.docker.swarm.service.name"}}')"
+          [ -n "$svc" ] && docker service inspect "$svc" --format \
+            'seccomp={{with .Spec.TaskTemplate.ContainerSpec.Privileges}}{{.Seccomp}}{{else}}none{{end}}
+apparmor={{with .Spec.TaskTemplate.ContainerSpec.Privileges}}{{.AppArmor}}{{else}}none{{end}}
+capAdd={{.Spec.TaskTemplate.ContainerSpec.CapabilityAdd}}' 2>&1 || true
+          echo "--- kernel switches this needs ---"
+          docker exec "$cid" sh -c 'for f in /proc/sys/kernel/unprivileged_userns_clone /proc/sys/user/max_user_namespaces; do [ -r "$f" ] && echo "$f = $(cat $f)"; done' 2>&1 || true
+          echo "--- can a user namespace be made at all ---"
+          docker exec "$cid" bwrap --unshare-user --ro-bind /usr /usr --chdir / -- /bin/true 2>&1 \
+            && echo "userns: OK" || echo "userns: refused above"
+          echo "--- the full set the workspace sandbox asks for ---"
           if docker exec "$cid" bwrap \
             --unshare-user --unshare-pid --unshare-ipc --unshare-uts --unshare-net \
             --ro-bind /usr /usr --dev /dev --chdir / -- /bin/true 2>&1; then
