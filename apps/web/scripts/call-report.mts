@@ -78,7 +78,13 @@ const events = session.run_id
         row.kind === 'tool_call'
           ? `→ ${payload.toolName}(${JSON.stringify(payload.input ?? {}).slice(0, 90)})`
           : row.kind === 'tool_result'
-            ? `← ${payload.toolName} ${JSON.stringify(payload.output ?? {}).slice(0, 90)}`
+            ? // A failing result is the interesting one and 90 characters cut
+              // a NetSuite 403 off before it said which permission was
+              // missing. Successes stay short; failures get room to explain.
+              `← ${payload.toolName} ${JSON.stringify(payload.output ?? {}).slice(
+                0,
+                /error|403|denied|fail/i.test(JSON.stringify(payload.output ?? {}).slice(0, 200)) ? 500 : 90,
+              )}`
             : row.kind === 'message'
               ? `· ${String(payload.text ?? '').replace(/\s+/g, ' ').slice(0, 120)}`
               : `${row.kind}: ${String(payload.message ?? payload.trace ?? '')

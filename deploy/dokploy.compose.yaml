@@ -50,22 +50,27 @@ services:
     # files, scripts, real work — was unusable, and the agents fell back to
     # leaving each other notes.
     #
-    # CAP_SYS_ADMIN is granted and verified applied. It is NOT sufficient on
-    # its own, and the rest of what is needed is measured, not assumed: with
-    # the same image and the same probe on this host, `--cap-add SYS_ADMIN`
-    # plus `--security-opt apparmor=unconfined,seccomp=unconfined` builds the
-    # sandbox, and without them the container's docker-default profile refuses
-    # it with "Failed to make / slave: Permission denied".
+    # Measured on this host, with this image, one combination at a time:
     #
-    # The security_opt lines below are the ones that would lift it, and
-    # `docker stack deploy` SILENTLY DROPS THEM — the deployed service reports
-    # seccomp=<nil> apparmor=<nil> while cap_add came through. They are kept
-    # because they are correct and would apply anywhere this compose is run
-    # without swarm, but on this deployment they do nothing, and `run_shell`
-    # stays broken until either the host's docker-default profile is changed
-    # or agent shell work is isolated some other way than bubblewrap-in-a-
-    # container. Verify with the ops workflow's checkSandbox rather than
-    # assuming either way.
+    #   CAP_SYS_ADMIN + apparmor=unconfined ................ refused
+    #   CAP_SYS_ADMIN + seccomp=unconfined ................. refused
+    #   apparmor=unconfined + seccomp=unconfined ........... refused
+    #   CAP_SYS_ADMIN + apparmor + seccomp unconfined ...... WORKS
+    #
+    # All three, or nothing. Without them the container runs under
+    # docker-default (enforce) and bubblewrap is refused at
+    # "Failed to make / slave: Permission denied".
+    #
+    # `docker stack deploy` grants cap_add and SILENTLY DROPS both security_opt
+    # lines — the deployed service reports seccomp=<nil> apparmor=<nil>. They
+    # are kept here because they are correct and DO apply when this compose is
+    # run without swarm, which is also the shortest route to a working
+    # `run_shell`: the same file deployed as a plain compose application rather
+    # than a swarm stack needs no host change at all. Deployed as a stack, the
+    # only other routes are changing the daemon's default profiles on the host,
+    # or isolating agent shell work some way other than bubblewrap inside a
+    # container. Re-measure with the ops workflow's checkSandbox rather than
+    # assuming any of this still holds.
     cap_add:
       - SYS_ADMIN
     security_opt:
@@ -134,22 +139,27 @@ services:
     # files, scripts, real work — was unusable, and the agents fell back to
     # leaving each other notes.
     #
-    # CAP_SYS_ADMIN is granted and verified applied. It is NOT sufficient on
-    # its own, and the rest of what is needed is measured, not assumed: with
-    # the same image and the same probe on this host, `--cap-add SYS_ADMIN`
-    # plus `--security-opt apparmor=unconfined,seccomp=unconfined` builds the
-    # sandbox, and without them the container's docker-default profile refuses
-    # it with "Failed to make / slave: Permission denied".
+    # Measured on this host, with this image, one combination at a time:
     #
-    # The security_opt lines below are the ones that would lift it, and
-    # `docker stack deploy` SILENTLY DROPS THEM — the deployed service reports
-    # seccomp=<nil> apparmor=<nil> while cap_add came through. They are kept
-    # because they are correct and would apply anywhere this compose is run
-    # without swarm, but on this deployment they do nothing, and `run_shell`
-    # stays broken until either the host's docker-default profile is changed
-    # or agent shell work is isolated some other way than bubblewrap-in-a-
-    # container. Verify with the ops workflow's checkSandbox rather than
-    # assuming either way.
+    #   CAP_SYS_ADMIN + apparmor=unconfined ................ refused
+    #   CAP_SYS_ADMIN + seccomp=unconfined ................. refused
+    #   apparmor=unconfined + seccomp=unconfined ........... refused
+    #   CAP_SYS_ADMIN + apparmor + seccomp unconfined ...... WORKS
+    #
+    # All three, or nothing. Without them the container runs under
+    # docker-default (enforce) and bubblewrap is refused at
+    # "Failed to make / slave: Permission denied".
+    #
+    # `docker stack deploy` grants cap_add and SILENTLY DROPS both security_opt
+    # lines — the deployed service reports seccomp=<nil> apparmor=<nil>. They
+    # are kept here because they are correct and DO apply when this compose is
+    # run without swarm, which is also the shortest route to a working
+    # `run_shell`: the same file deployed as a plain compose application rather
+    # than a swarm stack needs no host change at all. Deployed as a stack, the
+    # only other routes are changing the daemon's default profiles on the host,
+    # or isolating agent shell work some way other than bubblewrap inside a
+    # container. Re-measure with the ops workflow's checkSandbox rather than
+    # assuming any of this still holds.
     cap_add:
       - SYS_ADMIN
     security_opt:
