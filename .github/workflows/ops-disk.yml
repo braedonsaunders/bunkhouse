@@ -139,7 +139,13 @@ jobs:
           cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
           if [ -z "$cid" ]; then echo "::error::No running web container on this node"; exit 1; fi
           echo "bwrap: $(docker exec "$cid" bwrap --version 2>&1 || echo 'not installed')"
-          if docker exec "$cid" bwrap --unshare-user --unshare-pid --dev-bind / / true 2>&1; then
+          # The same unshares the workspace sandbox actually asks for. An
+          # earlier version of this check used --dev-bind / /, which needs
+          # mount propagation the sandbox never requests, and reported a
+          # failure the agents would never have hit.
+          if docker exec "$cid" bwrap \
+            --unshare-user --unshare-pid --unshare-ipc --unshare-uts --unshare-net \
+            --ro-bind /usr /usr --dev /dev --chdir / -- /bin/true 2>&1; then
             echo "namespace: OK — the sandbox can be built, run_shell works"
           else
             echo "::warning::namespace: REFUSED — bubblewrap cannot build a sandbox here, so run_shell will fail"
