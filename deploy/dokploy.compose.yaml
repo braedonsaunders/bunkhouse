@@ -45,12 +45,27 @@ services:
   web:
     image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
     # The agent workspace runs every shell command inside a bubblewrap sandbox,
-    # and bubblewrap needs to create a user namespace to build one. Docker's
-    # default seccomp profile blocks that syscall, so `run_shell` failed with
-    # "bwrap: No permissions to create new namespace" on every attempt and the
-    # agents' whole workspace — files, scripts, real work — was unusable. The
-    # sandbox is what makes the shell safe to offer; this is what makes the
-    # sandbox possible, and it is strictly narrower than running unconfined.
+    # and bubblewrap has to build one before anything can run in it. Every
+    # `run_shell` an agent tried failed at that step, so the whole workspace —
+    # files, scripts, real work — was unusable, and the agents fell back to
+    # leaving each other notes.
+    #
+    # CAP_SYS_ADMIN is granted and verified applied. It is NOT sufficient on
+    # its own, and the rest of what is needed is measured, not assumed: with
+    # the same image and the same probe on this host, `--cap-add SYS_ADMIN`
+    # plus `--security-opt apparmor=unconfined,seccomp=unconfined` builds the
+    # sandbox, and without them the container's docker-default profile refuses
+    # it with "Failed to make / slave: Permission denied".
+    #
+    # The security_opt lines below are the ones that would lift it, and
+    # `docker stack deploy` SILENTLY DROPS THEM — the deployed service reports
+    # seccomp=<nil> apparmor=<nil> while cap_add came through. They are kept
+    # because they are correct and would apply anywhere this compose is run
+    # without swarm, but on this deployment they do nothing, and `run_shell`
+    # stays broken until either the host's docker-default profile is changed
+    # or agent shell work is isolated some other way than bubblewrap-in-a-
+    # container. Verify with the ops workflow's checkSandbox rather than
+    # assuming either way.
     cap_add:
       - SYS_ADMIN
     security_opt:
@@ -114,12 +129,27 @@ services:
     image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
     command: ["sh", "-c", "NODE_OPTIONS=--conditions=react-server exec apps/web/node_modules/.bin/tsx apps/web/scripts/worker.mts"]
     # The agent workspace runs every shell command inside a bubblewrap sandbox,
-    # and bubblewrap needs to create a user namespace to build one. Docker's
-    # default seccomp profile blocks that syscall, so `run_shell` failed with
-    # "bwrap: No permissions to create new namespace" on every attempt and the
-    # agents' whole workspace — files, scripts, real work — was unusable. The
-    # sandbox is what makes the shell safe to offer; this is what makes the
-    # sandbox possible, and it is strictly narrower than running unconfined.
+    # and bubblewrap has to build one before anything can run in it. Every
+    # `run_shell` an agent tried failed at that step, so the whole workspace —
+    # files, scripts, real work — was unusable, and the agents fell back to
+    # leaving each other notes.
+    #
+    # CAP_SYS_ADMIN is granted and verified applied. It is NOT sufficient on
+    # its own, and the rest of what is needed is measured, not assumed: with
+    # the same image and the same probe on this host, `--cap-add SYS_ADMIN`
+    # plus `--security-opt apparmor=unconfined,seccomp=unconfined` builds the
+    # sandbox, and without them the container's docker-default profile refuses
+    # it with "Failed to make / slave: Permission denied".
+    #
+    # The security_opt lines below are the ones that would lift it, and
+    # `docker stack deploy` SILENTLY DROPS THEM — the deployed service reports
+    # seccomp=<nil> apparmor=<nil> while cap_add came through. They are kept
+    # because they are correct and would apply anywhere this compose is run
+    # without swarm, but on this deployment they do nothing, and `run_shell`
+    # stays broken until either the host's docker-default profile is changed
+    # or agent shell work is isolated some other way than bubblewrap-in-a-
+    # container. Verify with the ops workflow's checkSandbox rather than
+    # assuming either way.
     cap_add:
       - SYS_ADMIN
     security_opt:
