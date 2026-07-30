@@ -77,7 +77,15 @@ export async function runSandboxedShell(args: {
   const limit = args.timeoutMs ?? SHELL_TIMEOUT_MS
 
   const child = spawnBubblewrappedProcess({
-    command: '/bin/sh',
+    // /usr/bin/sh, not /bin/sh, and it matters. The sandbox read-only-binds
+    // the command's own directory when that directory is not already covered,
+    // and then symlinks /bin -> usr/bin. Ask for /bin/sh and it binds /bin
+    // first, so the symlink collides: "Can't make symlink at /bin: File
+    // exists", every time, on a correctly privileged host. /usr/bin is already
+    // inside the default read-only set, so nothing extra is bound and the
+    // layout it expects is the layout it gets. Same shell either way — on a
+    // merged-/usr image /bin IS usr/bin.
+    command: '/usr/bin/sh',
     args: ['-lc', args.command],
     cwd: args.cwd,
     writablePaths: [args.home],
