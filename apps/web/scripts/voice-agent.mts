@@ -38,6 +38,7 @@ import { watchScreenShare } from '../src/lib/screen-share'
 import { saveFile } from '../src/lib/files'
 import { companyPromptProfile, getCompanyIdentity } from '../src/lib/company-identity'
 import { resolveSeeingModel } from '../src/lib/page-reading'
+import { echoOfAgent } from '../src/lib/call-echo'
 import { priceSpend } from '../src/lib/pricing'
 import { isWithinWorkingHours } from '../src/lib/working-hours'
 import { callMinutesBudget } from '../src/lib/call-budget'
@@ -435,6 +436,16 @@ const TURN_HANDLING = {
     minWords: 1,
     falseInterruptionTimeout: 2_000,
     resumeFalseInterruption: true,
+  },
+  endpointing: {
+    // The greeting storm: "Need you" / "Hey." arrived as separate turns a
+    // second apart and each one earned its own fresh greeting — three of them
+    // in the first five seconds. A person pausing for breath has not finished
+    // their sentence. Waiting longer before calling the turn over is what
+    // makes those fragments one thing said once; the ceiling stays where the
+    // framework put it, because a genuinely long pause still has to end.
+    minDelay: 900,
+    maxDelay: 3_000,
   },
 } as const
 
@@ -911,6 +922,8 @@ export default defineAgent({
     // handler is registered before that and reads it when it fires, which is
     // why it is named here and nullable.
     let trace: CallTrace | null = null
+    /** The last thing the agent said, for spotting it coming back in. */
+    let lastAgentLine: string | null = null
     agentSession.on(voice.AgentSessionEventTypes.ConversationItemAdded, (event) => {
       const item = event.item
       if (item.type !== 'message') return
@@ -921,8 +934,22 @@ export default defineAgent({
       // Why the agent said this, recorded with the item's own id, before the
       // transcript insert — so a duplicate is provable from the record rather
       // than argued about from the words.
-      if (speaker === 'agent') trace?.agentTurn({ itemId: item.id, text })
-      else trace?.callerTurn(item.id)
+      if (speaker === 'agent') {
+        lastAgentLine = text
+        trace?.agentTurn({ itemId: item.id, text })
+      } else {
+        // The agent hearing itself is not the caller taking a turn. Answering
+        // it is how the agent ends up asking the same question twice and
+        // apologising for something the caller never said.
+        if (echoOfAgent(text, lastAgentLine)) {
+          console.warn(`[voice] ${session.id}: heard itself back, ignoring — ${text.slice(0, 60)}`)
+          void recordEvent('error', {
+            message: `The microphone picked the agent's own voice back up and it was transcribed as the caller: "${text.slice(0, 120)}". Echo cancellation is not holding on this line.`,
+          }).catch(() => undefined)
+          return
+        }
+        trace?.callerTurn(item.id)
+      }
       ledgerTurn(speaker, text, item.id)
     })
     if (answeringMachine) {

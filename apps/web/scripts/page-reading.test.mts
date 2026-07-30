@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readPage, type SeeingModel } from '../src/lib/page-reading'
+import { echoOfAgent } from '../src/lib/call-echo'
 
 /**
  * The perception contract: whatever a page is made of, asking to look at it
@@ -99,3 +100,26 @@ const seeingModel = (answer: string, onCall?: () => void): SeeingModel => ({
 }
 
 console.log('page reading: fetched, visited, described, and honest when nothing could read it')
+
+// --- the agent hearing itself ----------------------------------------------
+// A caller turn once read "What dates are you needing? Tomorrow." — the first
+// half being the agent's own question, transcribed as the caller. It asked for
+// dates twice and the caller swore at it.
+{
+  const asked = 'What dates are you needing?'
+  assert.equal(echoOfAgent('What dates are you needing?', asked), true, 'its own words coming back are not a turn')
+  assert.equal(echoOfAgent('what dates are you needing', asked), true, 'punctuation and case are not a difference')
+  assert.equal(
+    echoOfAgent('Tomorrow night if you can', asked),
+    false,
+    'a real answer to the question is a real turn',
+  )
+  assert.equal(
+    echoOfAgent('You asked what dates I need and I said tomorrow', asked),
+    false,
+    'a caller quoting the agent back is still the caller speaking',
+  )
+  assert.equal(echoOfAgent('yes', 'yes'), false, 'too short to judge — a person agreeing is not an echo')
+  assert.equal(echoOfAgent('anything at all', null), false, 'nothing said yet cannot be echoed')
+  console.log('echo: the agent hearing itself is not a caller turn')
+}
