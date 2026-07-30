@@ -119,7 +119,10 @@ jobs:
           case "$hours" in ''|*[!0-9]*) echo "::error::Hours must be a whole number"; exit 1 ;; esac
           cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
           if [ -z "$cid" ]; then echo "::error::No running web container on this node"; exit 1; fi
-          docker exec "$cid" apps/web/node_modules/.bin/tsx apps/web/scripts/spend-report.mts "$hours"
+          # Same condition the worker and voice agent run under: the db client
+          # is a server module and refuses to load without it.
+          docker exec -e NODE_OPTIONS=--conditions=react-server "$cid" \
+            apps/web/node_modules/.bin/tsx apps/web/scripts/spend-report.mts "$hours"
 
       - name: Create NAS directory
         if: ${{ inputs.nasMkdir != '' }}
