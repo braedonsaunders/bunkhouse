@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { sealSecret } from '@appkit/crypto'
 import { connectMcpServers } from '@bunkhouse/runtime'
 import { listMcpIntegrations, saveMcpIntegrations } from '../../lib/mcp-integrations'
+import { resolveIntegrationHeaders } from '../../lib/agent-abilities'
 import { beginMcpOauth } from '../../lib/mcp-oauth'
 import { resolveTenantId } from '../../lib/tenant'
 import { db } from '../../db/client'
@@ -145,6 +146,52 @@ export async function beginMcpOauthAction(input: {
     return { ok: true, url: consentUrl }
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+export type SystemTool = { name: string; description: string }
+
+export type SystemToolsResult =
+  | { ok: true; tools: SystemTool[] }
+  | { ok: false; message: string }
+
+/**
+ * What a connected system exposes, read live from the server rather than from
+ * anything recorded at connect time. A vendor adds and retires tools without
+ * telling anyone, so a stored list would drift into fiction — and an operator
+ * asking what their agents can do is exactly the moment to find out that a
+ * connection has stopped answering.
+ */
+export async function listSystemToolsAction(slug: string): Promise<SystemToolsResult> {
+  const tenantId = await resolveTenantId()
+  const entry = (await listMcpIntegrations(tenantId)).find((candidate) => candidate.slug === slug)
+  if (!entry) return { ok: false, message: 'That system is no longer connected.' }
+
+  try {
+    const headers = await resolveIntegrationHeaders(tenantId, entry)
+    const connection = await connectMcpServers([
+      { slug: entry.slug, url: entry.url, ...(headers ? { headers } : {}) },
+    ])
+    try {
+      // Abilities arrive namespaced by slug so tool names cannot collide
+      // between systems; the operator is looking at one system, so show the
+      // name the vendor gave it.
+      const prefix = `${entry.slug}_`
+      const tools = connection.abilities
+        .map((ability) => ({
+          name: ability.name.startsWith(prefix) ? ability.name.slice(prefix.length) : ability.name,
+          description: (ability.tool.description ?? '').trim(),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+      return { ok: true, tools }
+    } finally {
+      await connection.close()
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message: `Could not reach ${entry.label}: ${error instanceof Error ? error.message : String(error)}`,
+    }
   }
 }
 

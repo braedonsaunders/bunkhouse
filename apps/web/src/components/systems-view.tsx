@@ -9,6 +9,7 @@ import {
   Label,
   RecordList,
   Select,
+  SubtabNav,
   Textarea,
   type RecordColumn,
 } from '@appkit/ui'
@@ -20,8 +21,10 @@ import {
 } from '../lib/integration-library'
 import {
   beginMcpOauthAction,
+  listSystemToolsAction,
   removeMcpIntegrationAction,
   saveMcpIntegrationAction,
+  type SystemTool,
 } from '../app/resources/system-actions'
 
 /**
@@ -55,6 +58,25 @@ const CATEGORY_OPTIONS = [
   { value: 'shell', label: 'Shell' },
   { value: 'phone_call', label: 'Phone calls' },
 ]
+
+/**
+ * Keep browsers and password managers out of these fields. A text input beside
+ * a password input is a sign-in form as far as Chrome is concerned, so it
+ * offers saved website credentials for a provider's Client ID — which is not a
+ * username, is not secret in the same way, and is never what the operator
+ * wants pasted there. `new-password` is what actually suppresses the offer;
+ * `off` alone is widely ignored. The data attributes ask 1Password and
+ * LastPass to stand down too.
+ */
+const NO_AUTOFILL = {
+  autoComplete: 'off',
+  autoCorrect: 'off',
+  autoCapitalize: 'off',
+  spellCheck: false,
+  'data-1p-ignore': true,
+  'data-lpignore': 'true',
+  'data-form-type': 'other',
+} as const
 
 const categoryLabel = (value: string) => CATEGORY_OPTIONS.find((c) => c.value === value)?.label ?? value
 
@@ -300,6 +322,7 @@ function SystemDrawer({
   const [notice, setNotice] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [busy, startBusy] = React.useTransition()
+  const [tab, setTab] = React.useState('connection')
 
   return (
     <Drawer
@@ -310,7 +333,23 @@ function SystemDrawer({
       size="md"
     >
       <div className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2">
+        {/* A system that is not saved yet has nothing to inspect, so the
+            subtabs appear only once there is a connection behind them. */}
+        {entry ? (
+          <SubtabNav
+            ariaLabel="System sections"
+            active={tab}
+            onSelect={setTab}
+            tabs={[
+              { key: 'connection', label: 'Connection' },
+              { key: 'tools', label: 'Tools' },
+            ]}
+          />
+        ) : null}
+
+        {entry && tab === 'tools' ? <SystemTools slug={entry.slug} category={entry.category} /> : null}
+
+        <div className={entry && tab !== 'connection' ? 'hidden' : 'grid gap-3 sm:grid-cols-2'}>
           <div className="space-y-1">
             <Label htmlFor="mcp-label">Name</Label>
             <Input id="mcp-label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="OpenBooks" />
@@ -377,19 +416,24 @@ function SystemDrawer({
                 <Label htmlFor="mcp-client-id">Client ID (optional)</Label>
                 <Input
                   id="mcp-client-id"
+                  name="mcp-client-id"
                   value={clientId}
                   onChange={(e) => setClientId(e.target.value)}
                   placeholder="Leave blank to register automatically"
+                  {...NO_AUTOFILL}
                 />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="mcp-client-secret">Client secret (optional)</Label>
                 <Input
                   id="mcp-client-secret"
+                  name="mcp-client-secret"
                   type="password"
                   value={clientSecret}
                   onChange={(e) => setClientSecret(e.target.value)}
                   placeholder="Only if the provider issued one"
+                  {...NO_AUTOFILL}
+                  autoComplete="new-password"
                 />
               </div>
               <div className="space-y-1 sm:col-span-2">
@@ -420,7 +464,7 @@ function SystemDrawer({
             <p className="text-xs text-fg-muted">The autonomy dial governs all of this server&apos;s tools under this category.</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className={entry && tab !== 'connection' ? 'hidden' : 'flex flex-wrap items-center gap-3'}>
           <Button
             disabled={busy || !label.trim() || !url.trim()}
             onClick={() =>
@@ -484,5 +528,72 @@ function SystemDrawer({
         </div>
       </div>
     </Drawer>
+  )
+}
+
+/**
+ * What this system actually exposes, read from the server when the operator
+ * asks rather than from anything cached at connect time. Two things are worth
+ * seeing here: the tools themselves — an agent's toolbox is otherwise invisible
+ * until it uses one — and whether the connection still answers at all, which is
+ * the same question and gets the same round trip.
+ */
+function SystemTools({ slug, category }: { slug: string; category: string }) {
+  const [state, setState] = React.useState<
+    { kind: 'loading' } | { kind: 'ready'; tools: SystemTool[] } | { kind: 'failed'; message: string }
+  >({ kind: 'loading' })
+
+  const load = React.useCallback(() => {
+    setState({ kind: 'loading' })
+    listSystemToolsAction(slug).then((result) =>
+      setState(result.ok ? { kind: 'ready', tools: result.tools } : { kind: 'failed', message: result.message }),
+    )
+  }, [slug])
+
+  React.useEffect(() => {
+    load()
+  }, [load])
+
+  if (state.kind === 'loading') {
+    return <p className="text-sm text-fg-muted">Asking {slug} what it offers…</p>
+  }
+
+  if (state.kind === 'failed') {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-danger">{state.message}</p>
+        <p className="text-xs text-fg-muted">
+          Your agents would hit the same failure. Until it answers, this system contributes nothing to their toolbox —
+          the rest of their work carries on unaffected.
+        </p>
+        <Button variant="outline" size="sm" onClick={load}>
+          Try again
+        </Button>
+      </div>
+    )
+  }
+
+  if (state.tools.length === 0) {
+    return <p className="text-sm text-fg-muted">This system connected but offers no tools.</p>
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-fg-muted">
+        {state.tools.length} {state.tools.length === 1 ? 'tool' : 'tools'} in every agent&apos;s toolbox, each governed
+        as <Badge variant="secondary">{categoryLabel(category)}</Badge> by the autonomy dial.
+      </p>
+      <ul className="divide-y divide-border rounded-lg border border-border">
+        {state.tools.map((tool) => (
+          <li key={tool.name} className="px-3 py-2">
+            <p className="font-mono text-xs text-primary">{tool.name}</p>
+            {tool.description ? <p className="mt-0.5 text-sm text-fg-muted">{tool.description}</p> : null}
+          </li>
+        ))}
+      </ul>
+      <Button variant="outline" size="sm" onClick={load}>
+        Refresh
+      </Button>
+    </div>
   )
 }

@@ -26,6 +26,10 @@ on:
         description: 'Print the newest Dokploy deploy log for this appName (leave blank to skip)'
         type: string
         default: ''
+      spendReportHours:
+        description: 'Where the money went: run a read-only spend and activity report over the last N hours (blank to skip)'
+        type: string
+        default: ''
       serviceLogsFor:
         description: 'Print task history and recent logs for every swarm service matching this substring (leave blank to skip)'
         type: string
@@ -101,6 +105,21 @@ jobs:
             echo "::endgroup::"
           done
           [ "$found" = 1 ] || echo "::warning::No swarm service matches '$match'"
+
+      # Answering "what were the agents doing all night, and what did it cost"
+      # needs the whole night at once, which the observatory cannot show. The
+      # report runs INSIDE the running web container so the database URL stays
+      # where it already is — nothing here handles a secret, and the query is
+      # read-only aggregates with no message bodies or addresses in it.
+      - name: Spend and activity report
+        if: ${{ inputs.spendReportHours != '' }}
+        run: |
+          set -uo pipefail
+          hours="${{ inputs.spendReportHours }}"
+          case "$hours" in ''|*[!0-9]*) echo "::error::Hours must be a whole number"; exit 1 ;; esac
+          cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
+          if [ -z "$cid" ]; then echo "::error::No running web container on this node"; exit 1; fi
+          docker exec "$cid" apps/web/node_modules/.bin/tsx apps/web/scripts/spend-report.mts "$hours"
 
       - name: Create NAS directory
         if: ${{ inputs.nasMkdir != '' }}

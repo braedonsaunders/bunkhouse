@@ -9,7 +9,7 @@ import {
   type ActionCategory,
   type GovernanceState,
 } from '@bunkhouse/runtime'
-import { assignments, duties, memories, people, type AssignmentSource } from '../db/schema'
+import { assignments, duties, memories, people, type AssignmentSource, type McpIntegrationEntry } from '../db/schema'
 import { db } from '../db/client'
 import { listMcpIntegrations } from './mcp-integrations'
 import { mcpOauthHeaders } from './mcp-oauth'
@@ -565,6 +565,26 @@ export function schedulingAbilities(args: { tenantId: string; person: PersonRow 
  * that fails to connect is reported, not fatal — the agent works with what is
  * reachable and says so.
  */
+/**
+ * The credentials one saved system is reached with, whichever way it was
+ * connected. OAuth grants mint a fresh access token per connection; pasted
+ * headers are unsealed. Shared so that what an operator is shown on screen is
+ * fetched over exactly the connection an agent would use, not an approximation
+ * of it.
+ */
+export async function resolveIntegrationHeaders(
+  tenantId: string,
+  entry: McpIntegrationEntry,
+): Promise<Record<string, string> | undefined> {
+  if (entry.oauth) return mcpOauthHeaders(tenantId, entry)
+  if (entry.sealedHeaders) {
+    const raw = unsealSecret(entry.sealedHeaders)
+    if (!raw) throw new Error('its credentials could not be unsealed — reconnect it under Resources → Systems.')
+    return JSON.parse(raw) as Record<string, string>
+  }
+  return undefined
+}
+
 export async function connectIntegrationAbilities(tenantId: string): Promise<{
   abilities: Ability[]
   failures: string[]
@@ -576,15 +596,7 @@ export async function connectIntegrationAbilities(tenantId: string): Promise<{
   const closers: (() => Promise<void>)[] = []
   for (const entry of entries) {
     try {
-      let headers: Record<string, string> | undefined
-      if (entry.oauth) {
-        // Signed in with OAuth: mint a fresh access token for this connection.
-        headers = await mcpOauthHeaders(tenantId, entry)
-      } else if (entry.sealedHeaders) {
-        const raw = unsealSecret(entry.sealedHeaders)
-        if (!raw) throw new Error('its credentials could not be unsealed — re-enter them in Settings → Integrations.')
-        headers = JSON.parse(raw) as Record<string, string>
-      }
+      const headers = await resolveIntegrationHeaders(tenantId, entry)
       const connection = await connectMcpServers([
         {
           slug: entry.slug,
