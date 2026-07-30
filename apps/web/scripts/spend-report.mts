@@ -294,6 +294,55 @@ table(
   ['agent', 'address', 'provider', 'smtp_host', 'smtp_port', 'imap_host', 'status', 'last_error'],
 )
 
+// --- how work multiplied ----------------------------------------------------
+// The question a total cannot answer: four phone calls became nine hundred
+// assignments, and the only way to see how is to look at where each one came
+// from and who sent it to whom.
+table(
+  'Assignments by where they came from',
+  await rows(sql`
+    select a.source->>'kind' as source,
+           coalesce(f.name, '—') as sent_by,
+           p.name as landed_on,
+           count(*) as assignments,
+           round(coalesce(sum(s.cost_usd), 0)::numeric, 4) as cost_usd
+    from assignments a
+    join people p on p.id = a.person_id
+    left join people f on f.id = (a.source->>'fromPersonId')::uuid
+    left join token_spend s on s.run_id = a.run_id
+    where a.created_at > ${since}
+    group by 1, 2, 3 order by count(*) desc limit 20
+  `),
+  ['source', 'sent_by', 'landed_on', 'assignments', 'cost_usd'],
+)
+
+table(
+  'What they kept sending each other',
+  await rows(sql`
+    select left(a.title, 62) as title, count(*) as times,
+           coalesce(f.name, '—') as sent_by, p.name as landed_on,
+           to_char(min(a.created_at), 'HH24:MI') as first_at,
+           to_char(max(a.created_at), 'HH24:MI') as last_at
+    from assignments a
+    join people p on p.id = a.person_id
+    left join people f on f.id = (a.source->>'fromPersonId')::uuid
+    where a.created_at > ${since}
+    group by 1, 3, 4 order by count(*) desc limit 20
+  `),
+  ['title', 'times', 'sent_by', 'landed_on', 'first_at', 'last_at'],
+)
+
+// The depth a chain reached. hops rides on the assignment's own source.
+table(
+  'How deep the chains went',
+  await rows(sql`
+    select coalesce(a.source->>'hops', '(none recorded)') as hops, count(*) as assignments
+    from assignments a where a.created_at > ${since} and a.source->>'kind' = 'delegation'
+    group by 1 order by 1
+  `),
+  ['hops', 'assignments'],
+)
+
 const [total] = await rows(sql`
   select round(coalesce(sum(cost_usd), 0)::numeric, 4) as cost_usd, count(*) as model_calls
   from token_spend where created_at > ${since}
