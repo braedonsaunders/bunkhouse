@@ -1,0 +1,108 @@
+# The agent workspace shell — its own Dokploy application, on purpose.
+#
+# WHY THIS IS A SEPARATE APP, AND MUST BE DEPLOYED AS "Docker Compose" AND NOT
+# "Stack":
+#
+# Every shell command an agent runs goes inside a bubblewrap sandbox, and
+# building one needs a user namespace and the mount that follows. Measured on
+# the deployment host, one combination at a time, with this same image:
+#
+#   CAP_SYS_ADMIN + apparmor=unconfined ................ refused
+#   CAP_SYS_ADMIN + seccomp=unconfined ................. refused
+#   apparmor=unconfined + seccomp=unconfined ........... refused
+#   CAP_SYS_ADMIN + apparmor + seccomp unconfined ...... WORKS
+#
+# All three or nothing — and `docker stack deploy` has never supported
+# `security_opt` on a swarm service (moby#47545, open since 2017; cap_add was
+# added to services in 20.10 and security_opt never was). It does not error, it
+# silently drops the key: the deployed service reports seccomp=<nil>
+# apparmor=<nil>. So no swarm-deployed container can ever run an agent shell,
+# whatever the main stack's compose file asks for.
+#
+# The obvious fix — grant all three to web, worker and voice-agent — is the
+# wrong trade. Those are the containers that execute model-directed code and
+# drive a browser across the open web, on a host that also runs other
+# applications. Removing the outer confinement from the most exposed containers
+# in order to enable an inner sandbox is backwards.
+#
+# So the privileges live here instead, in a process whose entire job is to run
+# one sandboxed command in one agent's home and hand back what it printed. It
+# holds no database URL, no provider keys, no session secret, and publishes no
+# port. Two checks bound what it can be asked to do: a bearer token compared in
+# constant time, and a home directory that must resolve inside the workspace
+# root before anything is made writable.
+#
+# HOW TO DEPLOY IT
+#
+#   1. In Dokploy: new Compose application, compose type "Docker Compose"
+#      (NOT "Stack" — the whole point is that stack mode drops security_opt).
+#   2. Point it at this file.
+#   3. Set the environment below. BUNKHOUSE_SHELL_TOKEN is a secret you invent;
+#      the same value goes on the main stack so the two ends agree.
+#   4. On the main bunkhouse stack, set:
+#         BUNKHOUSE_SHELL_URL=http://bunkhouse-shell:8080
+#         BUNKHOUSE_SHELL_TOKEN=<the same secret>
+#      With those unset, agents run the shell in-process instead — which is
+#      what a developer machine does, and what the swarm stack cannot do.
+#   5. Check the logs. It probes its own sandbox at boot and prints either
+#      "sandbox builds — run_shell works here" or "SANDBOX REFUSED".
+
+networks:
+  dokploy-network:
+    external: true
+
+volumes:
+  # THE SAME workspace storage the main stack mounts. An agent's files have to
+  # be the same files whether they were written by a document tool in `worker`
+  # or by a shell command here, so this is the identical NFS export, not a copy.
+  agent-workspaces:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: "addr=${BUNKHOUSE_NFS_ADDR},nfsvers=4,rw,hard,timeo=600"
+      device: "${BUNKHOUSE_NFS_EXPORT}"
+
+services:
+  shell-runner:
+    image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
+    command:
+      - sh
+      - -c
+      - NODE_OPTIONS=--conditions=react-server exec apps/web/node_modules/.bin/tsx apps/web/scripts/shell-runner.mts
+    environment:
+      NODE_ENV: production
+      PORT: '8080'
+      # Deliberately the whole environment. No database, no Redis, no provider
+      # keys, no auth secret: this process needs a token, a path, and nothing
+      # else, and what it does not have cannot be taken from it.
+      BUNKHOUSE_SHELL_TOKEN: ${BUNKHOUSE_SHELL_TOKEN}
+      BUNKHOUSE_AGENT_HOMES: /data/agent-homes
+    volumes:
+      - agent-workspaces:/data/agent-homes
+    # The three, together, measured. In Compose mode these actually apply —
+    # that is the entire reason this is a separate application.
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+    networks:
+      dokploy-network:
+        # An alias with no underscore in it. Docker service names contain one,
+        # underscores are illegal in hostnames, and a strict server refuses the
+        # Host header — which is exactly how every call recording was silently
+        # rejected by object storage before this was understood.
+        aliases:
+          - bunkhouse-shell
+    # No ports. It is reachable on the internal network and nowhere else.
+    restart: always
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

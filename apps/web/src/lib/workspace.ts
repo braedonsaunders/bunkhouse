@@ -4,11 +4,7 @@ import { dirname, join, resolve, sep } from 'node:path'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { runSandbox } from '@appkit/sandbox'
-import {
-  DEFAULT_PROCESS_PATH,
-  isProcessSandboxSupported,
-  spawnBubblewrappedProcess,
-} from '@appkit/process-sandbox'
+import { isProcessSandboxSupported } from '@appkit/process-sandbox'
 import { defineAbility, type Ability } from '@bunkhouse/runtime'
 import {
   people,
@@ -18,6 +14,7 @@ import {
   type WorkspacePolicySettings,
 } from '../db/schema'
 import { db } from '../db/client'
+import { configuredRunner, runSandboxedShell, runShellRemotely } from './shell-sandbox'
 import { saveFile } from './files'
 
 /**
@@ -33,8 +30,6 @@ import { saveFile } from './files'
 
 type PersonRow = typeof people.$inferSelect
 
-const SHELL_TIMEOUT_MS = 120_000
-const OUTPUT_CAP_BYTES = 64 * 1024
 const READ_CAP_BYTES = 32 * 1024
 const LIST_CAP = 200
 
@@ -57,8 +52,16 @@ function insideHome(home: string, relativePath: string): string {
   return target
 }
 
+/**
+ * Whether this deployment can run a shell command at all.
+ *
+ * The local probe alone was the wrong question the moment the sandbox moved to
+ * its own container: `web` and `worker` cannot build a bubblewrap sandbox and
+ * are not meant to, so asking them would withdraw `run_shell` from every agent
+ * precisely when it had started working. A configured runner IS the support.
+ */
 export function shellSupported(): boolean {
-  return isProcessSandboxSupported()
+  return configuredRunner() !== null || isProcessSandboxSupported()
 }
 
 /** Where a loaded skill's bundle lands inside the agent's home. */
@@ -175,53 +178,17 @@ async function runShell(args: {
 }): Promise<{ status: 'completed' | 'failed' | 'timeout'; exitCode: number | null; output: string }> {
   const home = await agentHomePath(args.tenantId, args.person.id)
   const cwd = insideHome(home, args.cwd)
-  await mkdir(cwd, { recursive: true })
   const startedAt = new Date()
 
-  const child = spawnBubblewrappedProcess({
-    command: '/bin/sh',
-    args: ['-lc', args.command],
-    cwd,
-    writablePaths: [home],
-    environment: {
-      HOME: home,
-      PATH: DEFAULT_PROCESS_PATH,
-      LANG: 'C.UTF-8',
-      TMPDIR: '/tmp',
-    },
-  })
-
-  let output = ''
-  let truncated = false
-  const append = (chunk: Buffer) => {
-    if (output.length >= OUTPUT_CAP_BYTES) {
-      truncated = true
-      return
-    }
-    output += chunk.toString('utf8').slice(0, OUTPUT_CAP_BYTES - output.length)
-  }
-  child.stdout?.on('data', append)
-  child.stderr?.on('data', append)
-
-  const result = await new Promise<{ status: 'completed' | 'failed' | 'timeout'; exitCode: number | null }>(
-    (resolvePromise) => {
-      const timer = setTimeout(() => {
-        child.kill('SIGKILL')
-        resolvePromise({ status: 'timeout', exitCode: null })
-      }, SHELL_TIMEOUT_MS)
-      child.on('error', () => {
-        clearTimeout(timer)
-        resolvePromise({ status: 'failed', exitCode: null })
-      })
-      child.on('exit', (code) => {
-        clearTimeout(timer)
-        resolvePromise({ status: code === 0 ? 'completed' : 'failed', exitCode: code })
-      })
-    },
-  )
-
-  if (truncated) output += '\n[output truncated]'
-  if (result.status === 'timeout') output += `\n[killed after ${SHELL_TIMEOUT_MS / 1000}s]`
+  // Where this actually runs is a deployment question, not an agent-facing one
+  // — see shell-sandbox.ts. With a runner configured the command goes to the
+  // one container that has the privileges bubblewrap needs; without one it
+  // runs here, which is what a developer machine does. The record below is
+  // written the same way either way, so the ledger does not know or care.
+  const runner = configuredRunner()
+  const result = runner
+    ? await runShellRemotely(runner, { home, cwd, command: args.command })
+    : await runSandboxedShell({ home, cwd, command: args.command })
 
   const app = db()
   await app.withTenant(args.tenantId, async () => {
@@ -233,13 +200,13 @@ async function runShell(args: {
       cwd: args.cwd,
       status: result.status,
       exitCode: result.exitCode,
-      output,
+      output: result.output,
       durationMs: Date.now() - startedAt.getTime(),
       startedAt,
     })
   })
 
-  return { ...result, output }
+  return result
 }
 
 export function workspaceAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {

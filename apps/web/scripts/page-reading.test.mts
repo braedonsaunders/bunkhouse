@@ -247,3 +247,23 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
   assert.deepEqual(await addressableEndpoint('not a url at all'), { endpoint: 'not a url at all' })
   console.log('recording: the store is addressed by something a strict server accepts')
 }
+
+// --- what the privileged runner will and will not be talked into ------------
+// The shell sandbox runs in a container with CAP_SYS_ADMIN and both seccomp
+// and AppArmor unconfined, because bubblewrap needs all three. It is handed a
+// home directory and makes it writable, so the one thing standing between a
+// bad request and the host filesystem is this check.
+{
+  const { insideRoot } = await import('../src/lib/shell-sandbox')
+  const root = '/data/agent-homes'
+  assert.equal(insideRoot(root, '/data/agent-homes/tenant/person'), true)
+  assert.equal(insideRoot(root, root), true, 'the root itself is inside itself')
+  assert.equal(insideRoot(root, '/etc'), false)
+  assert.equal(insideRoot(root, '/'), false, 'the whole filesystem is the request to refuse')
+  // A prefix is not a parent. Without the separator check this reads as inside.
+  assert.equal(insideRoot(root, '/data/agent-homes-evil/x'), false, 'a shared prefix is not containment')
+  // Traversal, resolved before comparing rather than pattern-matched.
+  assert.equal(insideRoot(root, '/data/agent-homes/../../etc/shadow'), false, 'dot-dot does not escape')
+  assert.equal(insideRoot(root, '/data/agent-homes/a/../b'), true, 'traversal that stays inside is still inside')
+  console.log('shell: the privileged runner refuses to make anything but a home writable')
+}

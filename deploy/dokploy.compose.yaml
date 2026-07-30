@@ -44,38 +44,6 @@ volumes:
 services:
   web:
     image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
-    # The agent workspace runs every shell command inside a bubblewrap sandbox,
-    # and bubblewrap has to build one before anything can run in it. Every
-    # `run_shell` an agent tried failed at that step, so the whole workspace —
-    # files, scripts, real work — was unusable, and the agents fell back to
-    # leaving each other notes.
-    #
-    # Measured on this host, with this image, one combination at a time:
-    #
-    #   CAP_SYS_ADMIN + apparmor=unconfined ................ refused
-    #   CAP_SYS_ADMIN + seccomp=unconfined ................. refused
-    #   apparmor=unconfined + seccomp=unconfined ........... refused
-    #   CAP_SYS_ADMIN + apparmor + seccomp unconfined ...... WORKS
-    #
-    # All three, or nothing. Without them the container runs under
-    # docker-default (enforce) and bubblewrap is refused at
-    # "Failed to make / slave: Permission denied".
-    #
-    # `docker stack deploy` grants cap_add and SILENTLY DROPS both security_opt
-    # lines — the deployed service reports seccomp=<nil> apparmor=<nil>. They
-    # are kept here because they are correct and DO apply when this compose is
-    # run without swarm, which is also the shortest route to a working
-    # `run_shell`: the same file deployed as a plain compose application rather
-    # than a swarm stack needs no host change at all. Deployed as a stack, the
-    # only other routes are changing the daemon's default profiles on the host,
-    # or isolating agent shell work some way other than bubblewrap inside a
-    # container. Re-measure with the ops workflow's checkSandbox rather than
-    # assuming any of this still holds.
-    cap_add:
-      - SYS_ADMIN
-    security_opt:
-      - seccomp:unconfined
-      - apparmor:unconfined
     environment:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
@@ -101,6 +69,13 @@ services:
       APPKIT_STORAGE_SECRET_ACCESS_KEY: ${APPKIT_STORAGE_SECRET_ACCESS_KEY}
       APPKIT_STORAGE_BUCKET: ${APPKIT_STORAGE_BUCKET:-bunkhouse}
       BUNKHOUSE_AGENT_HOMES: /data/agent-homes
+      # Where a shell command actually runs. The swarm cannot give a container
+      # what bubblewrap needs (see deploy/shell-runner.compose.yaml), so the
+      # sandbox is its own Compose application and this is how to reach it.
+      # Unset, agents run the shell in-process — right on a developer machine,
+      # impossible here.
+      BUNKHOUSE_SHELL_URL: ${BUNKHOUSE_SHELL_URL:-}
+      BUNKHOUSE_SHELL_TOKEN: ${BUNKHOUSE_SHELL_TOKEN:-}
     volumes:
       - agent-workspaces:/data/agent-homes
     networks:
@@ -133,38 +108,6 @@ services:
   worker:
     image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
     command: ["sh", "-c", "NODE_OPTIONS=--conditions=react-server exec apps/web/node_modules/.bin/tsx apps/web/scripts/worker.mts"]
-    # The agent workspace runs every shell command inside a bubblewrap sandbox,
-    # and bubblewrap has to build one before anything can run in it. Every
-    # `run_shell` an agent tried failed at that step, so the whole workspace —
-    # files, scripts, real work — was unusable, and the agents fell back to
-    # leaving each other notes.
-    #
-    # Measured on this host, with this image, one combination at a time:
-    #
-    #   CAP_SYS_ADMIN + apparmor=unconfined ................ refused
-    #   CAP_SYS_ADMIN + seccomp=unconfined ................. refused
-    #   apparmor=unconfined + seccomp=unconfined ........... refused
-    #   CAP_SYS_ADMIN + apparmor + seccomp unconfined ...... WORKS
-    #
-    # All three, or nothing. Without them the container runs under
-    # docker-default (enforce) and bubblewrap is refused at
-    # "Failed to make / slave: Permission denied".
-    #
-    # `docker stack deploy` grants cap_add and SILENTLY DROPS both security_opt
-    # lines — the deployed service reports seccomp=<nil> apparmor=<nil>. They
-    # are kept here because they are correct and DO apply when this compose is
-    # run without swarm, which is also the shortest route to a working
-    # `run_shell`: the same file deployed as a plain compose application rather
-    # than a swarm stack needs no host change at all. Deployed as a stack, the
-    # only other routes are changing the daemon's default profiles on the host,
-    # or isolating agent shell work some way other than bubblewrap inside a
-    # container. Re-measure with the ops workflow's checkSandbox rather than
-    # assuming any of this still holds.
-    cap_add:
-      - SYS_ADMIN
-    security_opt:
-      - seccomp:unconfined
-      - apparmor:unconfined
     environment:
       NODE_ENV: production
       BUNKHOUSE_DB_URL: ${BUNKHOUSE_DB_URL}
@@ -181,6 +124,13 @@ services:
       APPKIT_STORAGE_SECRET_ACCESS_KEY: ${APPKIT_STORAGE_SECRET_ACCESS_KEY}
       APPKIT_STORAGE_BUCKET: ${APPKIT_STORAGE_BUCKET:-bunkhouse}
       BUNKHOUSE_AGENT_HOMES: /data/agent-homes
+      # Where a shell command actually runs. The swarm cannot give a container
+      # what bubblewrap needs (see deploy/shell-runner.compose.yaml), so the
+      # sandbox is its own Compose application and this is how to reach it.
+      # Unset, agents run the shell in-process — right on a developer machine,
+      # impossible here.
+      BUNKHOUSE_SHELL_URL: ${BUNKHOUSE_SHELL_URL:-}
+      BUNKHOUSE_SHELL_TOKEN: ${BUNKHOUSE_SHELL_TOKEN:-}
     volumes:
       - agent-workspaces:/data/agent-homes
     networks:
@@ -218,6 +168,13 @@ services:
       APPKIT_STORAGE_SECRET_ACCESS_KEY: ${APPKIT_STORAGE_SECRET_ACCESS_KEY}
       APPKIT_STORAGE_BUCKET: ${APPKIT_STORAGE_BUCKET:-bunkhouse}
       BUNKHOUSE_AGENT_HOMES: /data/agent-homes
+      # Where a shell command actually runs. The swarm cannot give a container
+      # what bubblewrap needs (see deploy/shell-runner.compose.yaml), so the
+      # sandbox is its own Compose application and this is how to reach it.
+      # Unset, agents run the shell in-process — right on a developer machine,
+      # impossible here.
+      BUNKHOUSE_SHELL_URL: ${BUNKHOUSE_SHELL_URL:-}
+      BUNKHOUSE_SHELL_TOKEN: ${BUNKHOUSE_SHELL_TOKEN:-}
     volumes:
       - agent-workspaces:/data/agent-homes
     networks:
