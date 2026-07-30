@@ -150,6 +150,11 @@ jobs:
           set -uo pipefail
           cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
           if [ -z "$cid" ]; then echo "::error::No running web container on this node"; exit 1; fi
+          # Binding the whole rootfs read-only means every path the command
+          # needs exists, so the only thing this can fail on is building the
+          # sandbox — which is the question. Two earlier versions of this probe
+          # failed on their own missing symlinks and were read as refusals.
+          probe='bwrap --unshare-user --unshare-pid --ro-bind / / --dev /dev --chdir / -- /bin/true'
           echo "bwrap: $(docker exec "$cid" bwrap --version 2>&1 || echo 'not installed')"
           echo "--- what the swarm actually granted (it silently drops some of what compose asks for) ---"
           svc="$(docker ps --filter "id=$cid" --format '{{.Label "com.docker.swarm.service.name"}}')"
@@ -161,11 +166,6 @@ jobs:
             && echo "userns: OK" || echo "userns: refused above"
           echo "--- which confinement is refusing: run the same probe outside the swarm ---"
           img="$(docker inspect "$cid" --format '{{.Config.Image}}')"
-          # Binding the whole rootfs read-only means every path the command
-          # needs exists, so the only thing this can fail on is building the
-          # sandbox — which is the question. Two earlier versions of this probe
-          # failed on their own missing symlinks and were read as refusals.
-          probe='bwrap --unshare-user --unshare-pid --ro-bind / / --dev /dev --chdir / -- /bin/true'
           echo "apparmor profile in the service container: $(docker exec "$cid" cat /proc/self/attr/current 2>&1 || echo unknown)"
           echo "apparmor enabled on host: $(docker exec "$cid" cat /sys/module/apparmor/parameters/enabled 2>&1 || echo unknown)"
           echo "> which single option is enough (probe now matches the real sandbox):"
