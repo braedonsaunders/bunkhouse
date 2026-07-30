@@ -194,6 +194,60 @@ table(
   ['agent', 'trigger', 'status', 'started', 'minutes', 'events', 'last_event'],
 )
 
+
+// --- what actually went wrong ------------------------------------------------
+// The error ledger, grouped. One agent saying a tool is broken is an anecdote;
+// the same message across twenty runs is the thing to fix.
+table(
+  'Errors recorded',
+  await rows(sql`
+    select left(e.payload->>'message', 90) as message, count(*) as times, count(distinct e.run_id) as runs,
+           string_agg(distinct p.name, ', ') as agents
+    from run_events e join runs r on r.id = e.run_id join people p on p.id = r.person_id
+    where e.kind = 'error' and r.started_at > ${since}
+    group by 1 order by count(*) desc limit 20
+  `),
+  ['message', 'times', 'runs', 'agents'],
+)
+
+// --- what an agent believes about itself -------------------------------------
+// An agent's logbook outlives the thing it describes. A note saved while a
+// capability was genuinely missing keeps being read back long after the
+// capability lands, and the agent goes on working around a wall that is no
+// longer there — rescheduling, following up, asking a person to do what it
+// could now do itself. search_memory being the most-called tool of the night
+// is what made this worth asking.
+table(
+  'Notes claiming something does not work',
+  await rows(sql`
+    select p.name as agent, left(m.title, 46) as note, m.kind,
+           to_char(m.created_at, 'Mon DD') as saved,
+           case when m.valid_until is null then 'live' else 'superseded' end as state,
+           left(regexp_replace(m.body, '\\s+', ' ', 'g'), 90) as body
+    from memories m join people p on p.id = m.person_id
+    where m.body ~* '(no automatic executor|not available to me|cannot |can.t |fails|failing|not implemented|no executor|unable to)'
+    order by m.created_at desc limit 25
+  `),
+  ['agent', 'note', 'kind', 'saved', 'state', 'body'],
+)
+
+// --- context growth ----------------------------------------------------------
+// Input tokens per model call is the tell for a run that resends an ever-larger
+// transcript — screenshots especially — every single step.
+table(
+  'Input tokens per model call, by agent and model',
+  await rows(sql`
+    select p.name as agent, s.model, count(*) as calls,
+           round(avg(s.input_tokens)) as avg_input_per_call,
+           max(s.input_tokens) as biggest_single_call,
+           round(sum(s.cost_usd)::numeric, 4) as cost_usd
+    from token_spend s join people p on p.id = s.person_id
+    where s.created_at > ${since}
+    group by p.name, s.model order by avg(s.input_tokens) desc
+  `),
+  ['agent', 'model', 'calls', 'avg_input_per_call', 'biggest_single_call', 'cost_usd'],
+)
+
 const [total] = await rows(sql`
   select round(coalesce(sum(cost_usd), 0)::numeric, 4) as cost_usd, count(*) as model_calls
   from token_spend where created_at > ${since}
