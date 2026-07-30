@@ -118,6 +118,51 @@ jobs:
                 -X POST "$base/api/compose.update" --data @- > /dev/null
           echo "Dokploy compose source is current and BUNKHOUSE_TAG=${NEW_TAG}"
 
+      # The agent shell sandbox is a second application, deployed as plain
+      # Compose because swarm silently drops the security options bubblewrap
+      # needs. It runs the same image, so it has to move with it — pinned to
+      # whatever tag it was created with, it would quietly drift a version
+      # behind the app it serves and stay there.
+      - name: Point the shell sandbox at the same image
+        if: ${{ secrets.DOKPLOY_SHELL_COMPOSE_ID != '' }}
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
+          SHELL_COMPOSE_ID: ${{ secrets.DOKPLOY_SHELL_COMPOSE_ID }}
+          NEW_TAG: ${{ needs.build.outputs.tag }}
+          NFS_ADDR: ${{ vars.BUNKHOUSE_NFS_ADDR }}
+          NFS_EXPORT: ${{ vars.BUNKHOUSE_NFS_EXPORT }}
+        run: |
+          set -euo pipefail
+          : "${NFS_ADDR:?repository variable BUNKHOUSE_NFS_ADDR is not set}"
+          : "${NFS_EXPORT:?repository variable BUNKHOUSE_NFS_EXPORT is not set}"
+          base="${DOKPLOY_URL%/}"
+          current="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+            -G "$base/api/compose.one" --data-urlencode "composeId=$SHELL_COMPOSE_ID")"
+          new_env="$(echo "$current" | jq -r '.env // ""')"
+          # BUNKHOUSE_SHELL_TOKEN is deliberately not touched: it is a shared
+          # secret set once on both ends, and rewriting it here would break the
+          # agreement every deploy.
+          upsert() {
+            if printf '%s\n' "$new_env" | grep -q "^$1="; then
+              new_env="$(printf '%s\n' "$new_env" | sed "s|^$1=.*|$1=$2|")"
+            else
+              new_env="$(printf '%s\n%s=%s\n' "$new_env" "$1" "$2")"
+            fi
+          }
+          upsert BUNKHOUSE_TAG "$NEW_TAG"
+          upsert BUNKHOUSE_NFS_ADDR "$NFS_ADDR"
+          upsert BUNKHOUSE_NFS_EXPORT "$NFS_EXPORT"
+          compose_file="$(cat deploy/shell-runner.compose.yaml)"
+          jq -n --arg id "$SHELL_COMPOSE_ID" --arg env "$new_env" --arg composeFile "$compose_file" \
+            '{composeId:$id, env:$env, composeFile:$composeFile}' \
+            | curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+                -H 'content-type: application/json' \
+                -X POST "$base/api/compose.update" --data @- > /dev/null
+          curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" -H 'content-type: application/json' \
+            -X POST "$base/api/compose.deploy" --data "{\"composeId\":\"$SHELL_COMPOSE_ID\"}"
+          echo "Shell sandbox pointed at ${NEW_TAG}"
+
       - name: Trigger deployment
         env:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
