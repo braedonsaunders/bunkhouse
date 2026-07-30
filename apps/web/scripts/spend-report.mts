@@ -371,6 +371,31 @@ table(
   ['agent', 'at', 'trigger', 'summary'],
 )
 
+// --- what they did to the outside world -------------------------------------
+// Reading and writing notes is an agent talking to itself; this is everything
+// that actually touched something real, with the input it used and the ask it
+// descended from. The question "who asked for this?" has to be answerable.
+table(
+  'Every action that touched something outside',
+  await rows(sql`
+    select p.name as agent,
+           to_char(e.created_at, 'MM-DD HH24:MI') as at,
+           e.payload->>'toolName' as tool,
+           left(regexp_replace(coalesce(e.payload->>'input', ''), '\\s+', ' ', 'g'), 95) as input,
+           r.trigger->>'type' as trigger,
+           coalesce(rt.trigger->>'type', '(is the ask)') as root_was
+    from run_events e
+    join runs r on r.id = e.run_id
+    join people p on p.id = r.person_id
+    left join runs rt on rt.id = r.root_run_id
+    where e.kind = 'tool_call'
+      and r.started_at > ${since}
+      and (e.payload->>'toolName' ~ '^(netsuite|place_call|send_email|create_|browser_open|web_search|run_shell)')
+    order by e.created_at desc limit 40
+  `),
+  ['agent', 'at', 'tool', 'input', 'trigger', 'root_was'],
+)
+
 const [total] = await rows(sql`
   select round(coalesce(sum(cost_usd), 0)::numeric, 4) as cost_usd, count(*) as model_calls
   from token_spend where created_at > ${since}
