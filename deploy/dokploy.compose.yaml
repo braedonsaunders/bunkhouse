@@ -44,6 +44,18 @@ volumes:
 services:
   web:
     image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
+    # The agent workspace runs every shell command inside a bubblewrap sandbox,
+    # and bubblewrap needs to create a user namespace to build one. Docker's
+    # default seccomp profile blocks that syscall, so `run_shell` failed with
+    # "bwrap: No permissions to create new namespace" on every attempt and the
+    # agents' whole workspace — files, scripts, real work — was unusable. The
+    # sandbox is what makes the shell safe to offer; this is what makes the
+    # sandbox possible, and it is strictly narrower than running unconfined.
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
     environment:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
@@ -101,6 +113,18 @@ services:
   worker:
     image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
     command: ["sh", "-c", "NODE_OPTIONS=--conditions=react-server exec apps/web/node_modules/.bin/tsx apps/web/scripts/worker.mts"]
+    # The agent workspace runs every shell command inside a bubblewrap sandbox,
+    # and bubblewrap needs to create a user namespace to build one. Docker's
+    # default seccomp profile blocks that syscall, so `run_shell` failed with
+    # "bwrap: No permissions to create new namespace" on every attempt and the
+    # agents' whole workspace — files, scripts, real work — was unusable. The
+    # sandbox is what makes the shell safe to offer; this is what makes the
+    # sandbox possible, and it is strictly narrower than running unconfined.
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
     environment:
       NODE_ENV: production
       BUNKHOUSE_DB_URL: ${BUNKHOUSE_DB_URL}

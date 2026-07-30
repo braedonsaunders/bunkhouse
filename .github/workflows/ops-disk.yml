@@ -30,6 +30,10 @@ on:
         description: 'Where the money went: run a read-only spend and activity report over the last N hours (blank to skip)'
         type: string
         default: ''
+      checkSandbox:
+        description: 'Check the agent shell sandbox can actually build a namespace'
+        type: boolean
+        default: false
       serviceLogsFor:
         description: 'Print task history and recent logs for every swarm service matching this substring (leave blank to skip)'
         type: string
@@ -123,6 +127,23 @@ jobs:
           # is a server module and refuses to load without it.
           docker exec -e NODE_OPTIONS=--conditions=react-server "$cid" \
             apps/web/node_modules/.bin/tsx apps/web/scripts/spend-report.mts "$hours"
+
+      # `run_shell` is only as real as the sandbox it runs in. When the
+      # container cannot create a user namespace, bubblewrap refuses and every
+      # shell command an agent tries fails with the same line — which is what
+      # sent them back to leaving each other notes instead of doing the work.
+      - name: Check the agent shell sandbox
+        if: ${{ inputs.checkSandbox }}
+        run: |
+          set -uo pipefail
+          cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
+          if [ -z "$cid" ]; then echo "::error::No running web container on this node"; exit 1; fi
+          echo "bwrap: $(docker exec "$cid" bwrap --version 2>&1 || echo 'not installed')"
+          if docker exec "$cid" bwrap --unshare-user --unshare-pid --dev-bind / / true 2>&1; then
+            echo "namespace: OK — the sandbox can be built, run_shell works"
+          else
+            echo "::warning::namespace: REFUSED — bubblewrap cannot build a sandbox here, so run_shell will fail"
+          fi
 
       - name: Create NAS directory
         if: ${{ inputs.nasMkdir != '' }}
