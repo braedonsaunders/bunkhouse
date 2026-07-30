@@ -221,6 +221,13 @@ jobs:
               }
             };
             console.log("endpoint shape :", mask(process.env.APPKIT_STORAGE_ENDPOINT));
+            try {
+              const h = new URL(process.env.APPKIT_STORAGE_ENDPOINT).hostname;
+              const legal = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i.test(h);
+              console.log("host underscores:", (h.match(/_/g) || []).length);
+              console.log("host dots      :", (h.match(/\\./g) || []).length);
+              console.log("legal hostname :", legal, legal ? "" : "<-- a Host header MinIO refuses");
+            } catch {}
             console.log("bucket         :", process.env.APPKIT_STORAGE_BUCKET ?? "(unset)");
             console.log("region         :", process.env.APPKIT_STORAGE_REGION ?? "(unset, defaults us-east-1)");
             console.log("forcePathStyle :", process.env.APPKIT_STORAGE_FORCE_PATH_STYLE ?? "(unset, defaults true)");
