@@ -670,6 +670,11 @@ await heartbeat.add('tick', { pass: 'mailbox' })
 await heartbeat.add('tick', { pass: 'duties' })
 await heartbeat.add('tick', { pass: 'approvals' })
 await heartbeat.add('tick', { pass: 'assignments' })
+// Queued at boot as well as daily: this is the pass that retires a belief the
+// ledger has disproved and caps a runaway repeat, and both of those are worth
+// correcting when a deploy lands rather than up to a day later. The gardener it
+// rides with is period-gated internally, so this costs nothing extra.
+await heartbeat.add('tick', { pass: 'gardener' })
 console.log(
   'bunkhouse worker up — mailbox 2m, duties 1m, approvals 30s, assignments 30s, call sweep 5m, journal 6h, reflection 12h, money 24h; deep-work queue ×2 (initial passes queued)',
 )
