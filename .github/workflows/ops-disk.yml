@@ -147,6 +147,24 @@ jobs:
           echo "--- can a user namespace be made at all ---"
           docker exec "$cid" bwrap --unshare-user --ro-bind /usr /usr --chdir / -- /bin/true 2>&1 \
             && echo "userns: OK" || echo "userns: refused above"
+          echo "--- which confinement is refusing: run the same probe outside the swarm ---"
+          img="$(docker inspect "$cid" --format '{{.Config.Image}}')"
+          probe='bwrap --unshare-user --unshare-pid --unshare-net --ro-bind /usr /usr --dev /dev --chdir / -- /bin/true'
+          echo "apparmor profile in the service container: $(docker exec "$cid" cat /proc/self/attr/current 2>&1 || echo unknown)"
+          echo "apparmor enabled on host: $(docker exec "$cid" cat /sys/module/apparmor/parameters/enabled 2>&1 || echo unknown)"
+          for opt in "apparmor=unconfined" "seccomp=unconfined"; do
+            if docker run --rm --cap-add SYS_ADMIN --security-opt "$opt" "$img" sh -c "$probe" >/dev/null 2>&1; then
+              echo "with --security-opt $opt (plus CAP_SYS_ADMIN): WORKS — this is the one the swarm is dropping"
+            else
+              echo "with --security-opt $opt (plus CAP_SYS_ADMIN): still refused"
+            fi
+          done
+          if docker run --rm --cap-add SYS_ADMIN --security-opt apparmor=unconfined --security-opt seccomp=unconfined \
+              "$img" sh -c "$probe" >/dev/null 2>&1; then
+            echo "with both: WORKS"
+          else
+            echo "with both: still refused — the blocker is not confinement"
+          fi
           echo "--- the full set the workspace sandbox asks for ---"
           if docker exec "$cid" bwrap \
             --unshare-user --unshare-pid --unshare-ipc --unshare-uts --unshare-net \
