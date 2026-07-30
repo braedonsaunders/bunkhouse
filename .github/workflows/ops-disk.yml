@@ -42,6 +42,10 @@ on:
         description: 'Which call to replay: 1 is the latest, 2 the one before it'
         type: string
         default: '1'
+      checkShellEndToEnd:
+        description: 'From the app container, reach the shell sandbox and run a real command through it'
+        type: boolean
+        default: false
       checkStorage:
         description: 'Show the SHAPE of the object-storage settings (masked) and test a real upload'
         type: boolean
@@ -260,6 +264,49 @@ jobs:
             console.log("forcePathStyle :", process.env.APPKIT_STORAGE_FORCE_PATH_STYLE ?? "(unset, defaults true)");
             console.log("key id set     :", Boolean(process.env.APPKIT_STORAGE_ACCESS_KEY_ID));
             console.log("secret set     :", Boolean(process.env.APPKIT_STORAGE_SECRET_ACCESS_KEY));
+          '
+
+      # The shell sandbox is a separate application on a shared network, so
+      # "it works" has three parts: the app can resolve it, the token is
+      # agreed, and a command actually runs inside the sandbox. Checked from
+      # the app container, which is the only place that matters.
+      - name: Check the agent shell end to end
+        if: ${{ inputs.checkShellEndToEnd }}
+        run: |
+          set -uo pipefail
+          cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
+          if [ -z "$cid" ]; then echo "::error::No running web container on this node"; exit 1; fi
+          docker exec "$cid" node -e '
+            const url = process.env.BUNKHOUSE_SHELL_URL;
+            const token = process.env.BUNKHOUSE_SHELL_TOKEN;
+            console.log("BUNKHOUSE_SHELL_URL :", url ?? "(unset)");
+            console.log("token configured    :", Boolean(token));
+            if (!url || !token) { console.log("not wired up yet"); process.exit(0); }
+            const home = `${process.env.BUNKHOUSE_AGENT_HOMES ?? "/data/agent-homes"}/.opscheck`;
+            (async () => {
+              const health = await fetch(`${url}/health`).then((r) => r.status).catch((e) => `unreachable: ${e.message}`);
+              console.log("health              :", health);
+              const run = await fetch(`${url}/run`, {
+                method: "POST",
+                headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+                body: JSON.stringify({ home, cwd: home, command: "echo hello from the sandbox; id -u; pwd" }),
+              }).then((r) => r.json()).catch((e) => ({ status: "failed", output: e.message }));
+              console.log("command status      :", run.status, "exit", run.exitCode);
+              console.log("command output      :", JSON.stringify(run.output));
+              // The boundary itself: a home outside the workspace root must be refused.
+              const refused = await fetch(`${url}/run`, {
+                method: "POST",
+                headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+                body: JSON.stringify({ home: "/etc", cwd: "/etc", command: "echo nope" }),
+              }).then((r) => r.status).catch(() => "error");
+              console.log("escape attempt      :", refused, refused === 403 ? "(refused, correct)" : "(SHOULD BE 403)");
+              const noToken = await fetch(`${url}/run`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ home, cwd: home, command: "echo nope" }),
+              }).then((r) => r.status).catch(() => "error");
+              console.log("no token            :", noToken, noToken === 401 ? "(refused, correct)" : "(SHOULD BE 401)");
+            })();
           '
 
       - name: Create NAS directory
