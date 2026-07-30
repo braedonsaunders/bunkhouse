@@ -249,6 +249,43 @@ services:
         condition: any
         delay: 5s
 
+  # Recording. Every call the agent holds is meant to be kept as audio, and
+  # none of them were: the application asked LiveKit for an egress on every
+  # single call and there was no egress service in this deployment to answer.
+  # LiveKit queues the request against a worker pool of zero, so it never
+  # failed either — it timed out, per call, for as long as recording has
+  # existed. Nothing needs configuring on the application side; the worker
+  # simply had to exist.
+  #
+  # It joins the same Redis the media server and SIP use — that is how LiveKit
+  # dispatches an egress to a worker — and writes straight to the company's
+  # object storage from here, so the bytes never touch the application.
+  livekit-egress:
+    image: livekit/egress:latest
+    environment:
+      EGRESS_CONFIG_BODY: |
+        redis:
+          address: media-redis:6379
+        api_key: ${LIVEKIT_API_KEY}
+        api_secret: ${LIVEKIT_API_SECRET}
+        ws_url: ws://livekit:7880
+        insecure: false
+        logging:
+          level: info
+    # Room composite drives a headless Chrome, which needs to sandbox itself.
+    cap_add:
+      - SYS_ADMIN
+    networks:
+      - dokploy-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname==dokploy-mgr
+      restart_policy:
+        condition: any
+        delay: 5s
+
   # SIP ingress — the public address a carrier trunk or PBX points at.
   livekit-sip:
     image: livekit/sip:latest
