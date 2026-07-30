@@ -164,11 +164,16 @@ export type SystemToolsResult =
  */
 export async function listSystemToolsAction(slug: string): Promise<SystemToolsResult> {
   const tenantId = await resolveTenantId()
-  const entry = (await listMcpIntegrations(tenantId)).find((candidate) => candidate.slug === slug)
+  const app = db()
+  // Inside a tenant scope: `tenant_settings` is RLS-enforced, so an unscoped
+  // read returns nothing and a perfectly healthy connection reads as deleted.
+  const entry = await app.withTenantContext(tenantId, async () =>
+    (await listMcpIntegrations(tenantId)).find((candidate) => candidate.slug === slug),
+  )
   if (!entry) return { ok: false, message: 'That system is no longer connected.' }
 
   try {
-    const headers = await resolveIntegrationHeaders(tenantId, entry)
+    const headers = await app.withTenantContext(tenantId, () => resolveIntegrationHeaders(tenantId, entry))
     const connection = await connectMcpServers([
       { slug: entry.slug, url: entry.url, ...(headers ? { headers } : {}) },
     ])

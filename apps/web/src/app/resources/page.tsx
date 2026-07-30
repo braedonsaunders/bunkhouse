@@ -221,6 +221,7 @@ export default async function ResourcesPage({
           category: entry.category,
           hasHeaders: Boolean(entry.sealedHeaders),
           isOauth: Boolean(entry.oauth),
+          ...(entry.oauth?.clientId ? { clientId: entry.oauth.clientId } : {}),
         }))}
         mcpOauthOutcome={mcpOauthOutcome}
         mcpOauthRedirectUri={await mcpOauthRedirectUri()}

@@ -46,6 +46,13 @@ export type SystemRowView = {
   hasHeaders: boolean
   /** Signed in with OAuth; tokens are minted fresh on every connection. */
   isOauth: boolean
+  /**
+   * The application this connection signed in as, when it has one. Carried
+   * back into the form so signing in again reuses the same registration —
+   * without it a reconnect looks like a first connection and tries to register
+   * a new application, which the providers that need one will refuse.
+   */
+  clientId?: string
 }
 
 const CATEGORY_OPTIONS = [
@@ -317,7 +324,7 @@ function SystemDrawer({
   const [method, setMethod] = React.useState<'headers' | 'oauth'>(
     entry?.isOauth ? 'oauth' : (prefill?.auth ?? 'headers'),
   )
-  const [clientId, setClientId] = React.useState('')
+  const [clientId, setClientId] = React.useState(entry?.clientId ?? '')
   const [clientSecret, setClientSecret] = React.useState('')
   const [notice, setNotice] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -419,7 +426,7 @@ function SystemDrawer({
                   name="mcp-client-id"
                   value={clientId}
                   onChange={(e) => setClientId(e.target.value)}
-                  placeholder="Leave blank to register automatically"
+                  placeholder={entry ? 'The application this connection uses' : 'Leave blank to register automatically'}
                   {...NO_AUTOFILL}
                 />
               </div>
@@ -447,7 +454,8 @@ function SystemDrawer({
               </div>
               {entry?.isOauth ? (
                 <p className="text-xs text-fg-muted sm:col-span-2">
-                  This system is already signed in. Signing in again replaces the stored grant.
+                  This system is already signed in; signing in again replaces the stored grant. The Client ID above is
+                  the application it uses — leave it as it is unless you are deliberately moving to another one.
                 </p>
               ) : null}
             </>
