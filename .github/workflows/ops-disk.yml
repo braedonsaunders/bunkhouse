@@ -141,10 +141,7 @@ jobs:
           echo "bwrap: $(docker exec "$cid" bwrap --version 2>&1 || echo 'not installed')"
           echo "--- what the swarm actually granted (it silently drops some of what compose asks for) ---"
           svc="$(docker ps --filter "id=$cid" --format '{{.Label "com.docker.swarm.service.name"}}')"
-          [ -n "$svc" ] && docker service inspect "$svc" --format \
-            'seccomp={{with .Spec.TaskTemplate.ContainerSpec.Privileges}}{{.Seccomp}}{{else}}none{{end}}
-apparmor={{with .Spec.TaskTemplate.ContainerSpec.Privileges}}{{.AppArmor}}{{else}}none{{end}}
-capAdd={{.Spec.TaskTemplate.ContainerSpec.CapabilityAdd}}' 2>&1 || true
+          [ -n "$svc" ] && docker service inspect "$svc" --format 'seccomp={{with .Spec.TaskTemplate.ContainerSpec.Privileges}}{{.Seccomp}}{{else}}none{{end}} apparmor={{with .Spec.TaskTemplate.ContainerSpec.Privileges}}{{.AppArmor}}{{else}}none{{end}} capAdd={{.Spec.TaskTemplate.ContainerSpec.CapabilityAdd}}' 2>&1 || true
           echo "--- kernel switches this needs ---"
           docker exec "$cid" sh -c 'for f in /proc/sys/kernel/unprivileged_userns_clone /proc/sys/user/max_user_namespaces; do [ -r "$f" ] && echo "$f = $(cat $f)"; done' 2>&1 || true
           echo "--- can a user namespace be made at all ---"
