@@ -1500,6 +1500,7 @@ export default defineAgent({
 
     const callWorker = worker
     const tools = callTools({
+      lastAgentLine: () => lastAgentLine,
       worker,
       mailbox: deliveryMailbox,
       trace: callTrace,

@@ -34,6 +34,14 @@ on:
         description: 'Check the agent shell sandbox can actually build a namespace'
         type: boolean
         default: false
+      callReportFor:
+        description: 'Replay one call second by second for this agent name (blank to skip)'
+        type: string
+        default: ''
+      callsBack:
+        description: 'Which call to replay: 1 is the latest, 2 the one before it'
+        type: string
+        default: '1'
       serviceLogsFor:
         description: 'Print task history and recent logs for every swarm service matching this substring (leave blank to skip)'
         type: string
@@ -168,6 +176,22 @@ jobs:
           else
             echo "::warning::namespace: REFUSED — bubblewrap cannot build a sandbox here, so run_shell will fail"
           fi
+
+      # A call that felt wrong cannot be diagnosed from the transcript or the
+      # ledger alone — the answer is always in the gap between them, which is
+      # why this prints both on one clock.
+      - name: Replay one call
+        if: ${{ inputs.callReportFor != '' }}
+        run: |
+          set -uo pipefail
+          who="${{ inputs.callReportFor }}"
+          back="${{ inputs.callsBack }}"
+          case "$who" in *[!a-zA-Z0-9_.\ -]*) echo "::error::Refusing suspicious name"; exit 1 ;; esac
+          case "$back" in ''|*[!0-9]*) echo "::error::callsBack must be a whole number"; exit 1 ;; esac
+          cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
+          if [ -z "$cid" ]; then echo "::error::No running web container on this node"; exit 1; fi
+          docker exec -e NODE_OPTIONS=--conditions=react-server "$cid" \
+            apps/web/node_modules/.bin/tsx apps/web/scripts/call-report.mts "$who" "$back"
 
       - name: Create NAS directory
         if: ${{ inputs.nasMkdir != '' }}

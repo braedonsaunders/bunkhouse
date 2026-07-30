@@ -3,6 +3,7 @@ import { llm } from '@livekit/agents'
 import { z } from 'zod'
 import type { Ability, ActionCategory, AutonomyLevel } from '@bunkhouse/runtime'
 import { describeToolCall } from './call-activity'
+import { soundsLikeGoodbye } from './call-echo'
 import type { CallMailbox } from './call-mailbox'
 import type { CallTrace } from './call-trace'
 import { describeError, type CallWorker, type WorkReport } from './call-worker'
@@ -217,6 +218,11 @@ export function callTools(args: {
    */
   trace: CallTrace
   /**
+   * The last thing the agent actually said out loud, or null before it has
+   * spoken. Read at hangup so a call cannot end without a goodbye.
+   */
+  lastAgentLine: () => string | null
+  /**
    * Put the receiver down. Returns at once so the agent can finish its last
    * words; the hangup itself drains that speech before closing the room.
    */
@@ -327,6 +333,7 @@ export function callTools(args: {
   // only: a caller who wants to go must always be able to go, so a second attempt
   // ends the call and the unfinished work is refiled to arrive by email.
   let refusedHangupOnce = false
+  let refusedGoodbyeOnce = false
 
   tools.end_call = llm.tool({
     description:
@@ -337,6 +344,20 @@ export function callTools(args: {
     flags: llm.ToolFlag.NONE,
     execute: async ({ reason }) => {
       await args.record('tool_call', { toolName: 'end_call', category: 'phone_call', input: { reason } }).catch(() => {})
+      // A goodbye first, always. Answering the last question and hanging up in
+      // the same breath is, from the other end, the line going dead — and the
+      // instruction to say goodbye was only ever an instruction, which a model
+      // in a hurry to be efficient skips. Refused once and once only: being
+      // asked twice would be its own way of trapping the call.
+      if (!refusedGoodbyeOnce && !soundsLikeGoodbye(args.lastAgentLine())) {
+        refusedGoodbyeOnce = true
+        const output = {
+          ended: false,
+          note: 'Not yet — you have not said goodbye. Say your own sign-off out loud first, the way anyone does before putting the phone down, and then hang up.',
+        }
+        await args.record('tool_result', { toolName: 'end_call', output }).catch(() => {})
+        return output
+      }
       if (!refusedHangupOnce && worker.working()) {
         refusedHangupOnce = true
         const output = {

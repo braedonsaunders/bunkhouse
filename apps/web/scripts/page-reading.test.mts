@@ -178,3 +178,28 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
   assert.equal(ledgeredSuccess(null), false)
   console.log('beliefs: a note claiming a tool is broken is checked against the ledger, not re-read')
 }
+
+// --- nobody hangs up without saying something -------------------------------
+{
+  const { soundsLikeGoodbye } = await import('../src/lib/call-echo')
+  for (const farewell of [
+    'Alright, take care Bill.',
+    'Thanks for calling — bye now.',
+    'Have a good one!',
+    'I will send that over. Speak soon.',
+    'Great, see you Thursday.',
+    'You too, cheers.',
+  ]) {
+    assert.equal(soundsLikeGoodbye(farewell), true, `"${farewell}" is a goodbye`)
+  }
+  // The line the caller experiences as a dropped call: a complete, helpful
+  // answer, and then silence.
+  assert.equal(
+    soundsLikeGoodbye('They open at nine tomorrow and the manager is called Rita.'),
+    false,
+    'answering the question is not signing off',
+  )
+  assert.equal(soundsLikeGoodbye('Sure, one moment.'), false)
+  assert.equal(soundsLikeGoodbye(null), false, 'having said nothing at all is not a goodbye')
+  console.log('goodbye: the line does not just go dead')
+}
