@@ -196,7 +196,7 @@ export function emailAbilities(args: {
     defineAbility({
       name: 'email_colleague',
       description:
-        'Send an email from your mailbox to someone on staff — a person or agent from the company directory. Use their directory email address.',
+        'Write to someone on staff — a person or an agent from the company directory. For an AI colleague this reaches them directly and they read it next time they are working; it does NOT start them working, and it does not need a mailbox. Use it to tell somebody something. When you need a colleague to actually do a piece of work, delegate it instead.',
       category: 'internal_email',
       inputSchema: z.object({
         to: z.string().describe('A staff email address from the directory'),
@@ -223,12 +223,14 @@ export function emailAbilities(args: {
             title: subject,
             body,
             runId,
+            kind: 'message',
+            sentAt: new Date().toISOString(),
           })
           if (!posted.posted) return { sent: false, reason: posted.reason }
           return {
             sent: true,
             to: posted.to,
-            note: `${posted.to} has it now and starts on it straight away — this went to them directly, not by email. They come back to you the same way, so there is nothing to wait on and nothing to chase.`,
+            note: `${posted.to} will see this next time they are working. It is a message, not a job — it went to them directly, not by email, and it does not put them to work. If you need them to actually DO something, delegate it instead.`,
           }
         }
         return send(to, subject, body, attachFileIds)
@@ -267,9 +269,15 @@ export function emailAbilities(args: {
             title: subject,
             body,
             runId,
+            kind: 'message',
+            sentAt: new Date().toISOString(),
           })
           if (!posted.posted) return { sent: false, reason: posted.reason }
-          return { sent: true, to: posted.to, note: `${posted.to} has it directly — no email needed, nothing to chase.` }
+          return {
+            sent: true,
+            to: posted.to,
+            note: `${posted.to} will see this next time they are working — a message, not a job, and no email needed. Delegate it if you need them to do something.`,
+          }
         }
         return send(to, subject, body, attachFileIds)
       },
@@ -325,6 +333,9 @@ export function askAbilities(args: {
             title: subject,
             body: question,
             runId,
+            // A question is a small job: somebody has to go and answer it.
+            kind: 'work',
+            sentAt: new Date().toISOString(),
           })
           if (!posted.posted) return { sent: false, reason: posted.reason }
           return {
@@ -487,6 +498,8 @@ export function delegationAbilities(args: { tenantId: string; person: PersonRow;
           title,
           body: brief,
           runId,
+          kind: 'work',
+          sentAt: new Date().toISOString(),
           ...(formats?.length ? { formats } : {}),
           ...(due ? { dueAt: due } : {}),
         })

@@ -1,7 +1,8 @@
 import 'server-only'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { assignments, people, type AssignmentSource } from '../db/schema'
 import { db } from '../db/client'
+import { createNote } from './memory'
 
 /**
  * Handing something to a colleague inside the company, without email.
@@ -29,8 +30,21 @@ import { db } from '../db/client'
 /** How many times a handoff may bounce between colleagues before it stops. */
 const MAX_HOPS = 4
 
+/**
+ * How much work one agent may have outstanding before it must finish some.
+ *
+ * A backstop, not a policy. Four test phone calls produced 913 assignments in
+ * an afternoon — the calls themselves cost twenty cents and the work the agents
+ * generated for each other cost thirty-six dollars — because nothing bounded
+ * how many pieces of work could exist at once. The hop counter bounds how DEEP
+ * a chain goes; this bounds how WIDE the whole thing gets.
+ */
+const MAX_OUTSTANDING_PER_AGENT = 12
+
 export type ColleaguePost =
   | { posted: true; assignmentId: string; to: string }
+  /** Left for them to read, with no work started. */
+  | { posted: true; assignmentId: null; to: string }
   | { posted: false; reason: string }
 
 /** The other end of a handoff, resolved from a directory address. */
@@ -79,6 +93,14 @@ export async function postToColleague(args: {
   hops?: number
   /** True when this is the answer to something they handed over first. */
   returning?: boolean
+  /**
+   * 'message' is something to read; 'work' is something to do. Only work
+   * starts a run, which is the difference between a colleague being told
+   * something and a colleague being given a job.
+   */
+  kind: 'message' | 'work'
+  /** When it was sent, for the note. Passed in rather than read from a clock. */
+  sentAt: string
   /** File formats the work should produce, when it needs to produce files. */
   formats?: ('pdf' | 'docx' | 'xlsx')[]
   dueAt?: Date
@@ -95,7 +117,46 @@ export async function postToColleague(args: {
       reason: `${colleague.name} is a person, and people read their email rather than a work queue — this one has to go by mail.`,
     }
   }
+  // TELLING SOMEBODY SOMETHING IS NOT GIVING THEM A JOB.
+  //
+  // Every internal message became an assignment, and every assignment is a
+  // full model run — so an agent saying "here is the list you asked for" spent
+  // as much as an agent researching for an hour, and the reply spent it again.
+  // That is where 913 assignments came from: work that begets work, with
+  // nothing in between to say "this one is just a message".
+  //
+  // A person emailing a colleague does not start a background job in them.
+  // They read it next time they are working. So a message lands in the
+  // colleague's logbook, which is retrieved into their next run whatever
+  // starts it — exactly what these agents invented for themselves when mail
+  // was broken, addressed "FOR: Bill McDonald, FROM: Jimmy Chonga". They were
+  // right. Only `delegate_to_colleague` hands over work that runs.
+  if (args.kind === 'message') {
+    await createNote({
+      tenantId: args.tenantId,
+      scope: 'agent',
+      personId: colleague.id,
+      kind: 'episode',
+      title: `From ${args.from.name}: ${args.title}`.slice(0, 120),
+      body: `${args.body}\n\n(Sent by ${args.from.name}, ${args.from.title}, on ${args.sentAt}. This is a message, not a job — act on it if it needs acting on, and reply only if there is something to say.)`,
+      author: 'agent',
+      importance: 4,
+      sourceRunId: args.runId,
+    })
+    return { posted: true, assignmentId: null, to: colleague.name }
+  }
+
   const hops = (args.hops ?? 0) + 1
+  const outstanding = await app.db
+    .select({ id: assignments.id })
+    .from(assignments)
+    .where(and(eq(assignments.personId, colleague.id), inArray(assignments.status, ['pending', 'working'])))
+  if (outstanding.length >= MAX_OUTSTANDING_PER_AGENT) {
+    return {
+      posted: false,
+      reason: `${colleague.name} already has ${outstanding.length} pieces of work outstanding, which is as many as anyone should be carrying. Say what you need in a message instead, or wait until they have finished something.`,
+    }
+  }
   if (hops > MAX_HOPS) {
     return {
       posted: false,

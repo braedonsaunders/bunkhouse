@@ -95,6 +95,11 @@ export async function finalizeAssignmentRun(
         runId,
         hops: hopsOf(assignment!.source),
         returning: true,
+        // The answer to something they asked for is information, not a new
+        // job. Making it a job is half of why one delegation used to cost two
+        // runs and could start a third.
+        kind: 'message',
+        sentAt: new Date().toISOString(),
       })
       await app.db
         .update(assignments)
