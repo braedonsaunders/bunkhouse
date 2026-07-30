@@ -39,6 +39,7 @@ import { saveFile } from '../src/lib/files'
 import { companyPromptProfile, getCompanyIdentity } from '../src/lib/company-identity'
 import { resolveSeeingModel } from '../src/lib/page-reading'
 import { echoOfAgent } from '../src/lib/call-echo'
+import { toolsPromisedButAbsent } from '../src/lib/call-reading'
 import { priceSpend } from '../src/lib/pricing'
 import { isWithinWorkingHours } from '../src/lib/working-hours'
 import { callMinutesBudget } from '../src/lib/call-budget'
@@ -379,7 +380,7 @@ async function buildInstructions(
     // search and email — so agents told callers they could not drive a browser
     // or run a command they had the tools for the whole time. Never describe
     // the toolset as narrower than it is.
-    'You have your whole working kit on this call, not a reduced one: search the web and read pages; drive a real browser (open, click, type, read, screenshot) for anything a plain fetch cannot do; a persistent workspace of your own with a shell in it, where you can fetch, run, build and organize real files; write documents and spreadsheets; send email and messages; search and save your logbook; schedule follow-ups; and every company integration connected to you.',
+    `You have your whole working kit on this call, not a reduced one: search the web and read pages; ${posture.browser ? 'drive a real browser (open, click, type, read, screenshot) for anything a plain fetch cannot do; ' : ''}a persistent workspace of your own with a shell in it, where you can fetch, run, build and organize real files; write documents and spreadsheets; send email and messages; search and save your logbook; schedule follow-ups; and every company integration connected to you.`,
     // The talker holds six tools; the kit above is reached through one of them.
     // Say so plainly, or the model reasons from the short tool list in front of
     // it and tells the caller it cannot do things it can.
@@ -1599,8 +1600,20 @@ export default defineAgent({
         // be told it will be watching pages load. The worker resolved which
         // route it actually has before any of this.
         browser: callWorker.pageAccess.route === 'browser',
-        pageAccess: callWorker.pageAccess.instruction,
+        pageAccess: callWorker.pageAccess.talk,
       })
+      // Contract three at the second seam. The talker's instructions are the
+      // longest prose in the system and the only prose a CALLER ever hears the
+      // consequences of; a tool named in them that is not in `tools` is the
+      // agent being told to do something it has no way to do. It named
+      // read_webpage for weeks after that ability was folded away.
+      const promised = toolsPromisedButAbsent(instructions, Object.keys(tools))
+      if (promised.length > 0) {
+        console.warn(`[voice] instructions name absent tools: ${promised.join(', ')}`)
+        await recordEvent('error', {
+          message: `Call instructions promised absent tools: ${promised.join(', ')}`,
+        }).catch(() => {})
+      }
       // The async-tool templates are the words the framework puts in front of
       // the model when work reports in or finishes. The stock ones name the
       // tool and its call id, which is precisely what a caller must never

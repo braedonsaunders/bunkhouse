@@ -5,7 +5,7 @@ import {
   type MailboxDelivery,
   type MailboxTiming,
 } from '../src/lib/call-mailbox'
-import { resolvePageAccess } from '../src/lib/call-reading'
+import { resolvePageAccess, toolsPromisedButAbsent } from '../src/lib/call-reading'
 import { createCallTrace } from '../src/lib/call-trace'
 
 /**
@@ -539,56 +539,77 @@ function harness(timing: Partial<MailboxTiming> = {}) {
   assert.ok(answer.length < 500, 'and every line is bounded')
 }
 
-// --- reading a page: never no route at all ---------------------------------
-// The regression this rule exists for: read_webpage was taken off every call so
-// pages would be visited, and an agent whose computer_use dial sits on
-// 'approval' then parked every browser_open awaiting sign-off — three for three
-// on one call — with no fetch path left and nothing saying so.
+// --- what the call can do about a page, and what it says it can do --------
+// Contract three. Every one of these is a sentence an agent was actually given
+// that did not match the tools it actually had.
 {
   const full = resolvePageAccess({
-    abilityNames: ['web_search', 'read_webpage', 'browser_open', 'browser_click'],
+    abilityNames: ['web_search', 'read_page', 'browser_open', 'browser_click'],
     computerUse: 'trusted',
   })
   assert.equal(full.route, 'browser', 'with a usable browser the page gets visited')
-  assert.equal(full.fetchAvailable, false, 'and the invisible fetch path is withdrawn')
-  assert.equal(full.instruction, '', 'nothing needs saying about it')
+  assert.equal(full.work, '', 'nothing needs saying about it')
+  assert.equal(full.talk, '')
 
-  // The dial parks every open: the browser is held but not usable.
+  // The dial parks every open: the browser is held but not usable, and the
+  // agent must be told what that costs — not left to find out three parked
+  // pages into a call while the caller waits.
   const parked = resolvePageAccess({
-    abilityNames: ['web_search', 'read_webpage', 'browser_open', 'browser_click'],
+    abilityNames: ['web_search', 'read_page', 'browser_open', 'browser_click'],
     computerUse: 'approval',
   })
   assert.equal(parked.route, 'fetch')
-  assert.equal(parked.fetchAvailable, true, 'the fetch path MUST remain — this is the whole defect')
   assert.match(parked.reason, /sign-off/)
-  assert.match(parked.instruction, /read_webpage/)
+  assert.match(parked.work, /still works/, 'reading a page is NOT withdrawn — that was the regression')
+  assert.match(parked.talk, /cannot/, 'and the talker knows what it cannot promise')
 
   // An ability that continues an approved step files no request of its own, so
   // an 'approval' dial does not park it and the browser is usable after all.
   assert.equal(
     resolvePageAccess({
-      abilityNames: ['read_webpage', 'browser_open'],
+      abilityNames: ['read_page', 'browser_open'],
       computerUse: 'approval',
       browserApproval: 'continues',
     }).route,
     'browser',
   )
 
-  // Forbidden, and no Chromium on the box: both leave the fetch path in place.
-  assert.equal(
-    resolvePageAccess({ abilityNames: ['read_webpage', 'browser_open'], computerUse: 'forbidden' }).fetchAvailable,
-    true,
-  )
-  const headless = resolvePageAccess({ abilityNames: ['web_search', 'read_webpage'], computerUse: 'trusted' })
-  assert.equal(headless.fetchAvailable, true)
+  // Forbidden, and no Chromium on the box: both are the quiet route, both with
+  // a reason an operator can act on.
+  assert.equal(resolvePageAccess({ abilityNames: ['read_page', 'browser_open'], computerUse: 'forbidden' }).route, 'fetch')
+  const headless = resolvePageAccess({ abilityNames: ['web_search', 'read_page'], computerUse: 'trusted' })
+  assert.equal(headless.route, 'fetch')
   assert.match(headless.reason, /no browser/)
 
-  // Neither route: nothing can conjure one, but the agent is told plainly
-  // rather than discovering it one dead end at a time.
-  const blind = resolvePageAccess({ abilityNames: ['web_search'], computerUse: 'forbidden' })
-  assert.equal(blind.fetchAvailable, false)
-  assert.match(blind.reason, /cannot read a web page/)
-  assert.match(blind.instruction, /cannot read a web page/)
+  // THE contract: no words this resolution produces may name a tool. Naming
+  // one is how "read pages with read_webpage instead" survived the ability
+  // being folded away — the sentence was still true-sounding and completely
+  // undoable.
+  for (const access of [full, parked, headless]) {
+    assert.deepEqual(toolsPromisedButAbsent(access.work, []), [], 'the work brief names no tool at all')
+    assert.deepEqual(toolsPromisedButAbsent(access.talk, []), [], 'and neither do the words the caller hears')
+  }
+}
+
+// --- a promise the tools cannot keep is caught, not shipped ----------------
+{
+  const held = ['do_work', 'check_work', 'end_call']
+  assert.deepEqual(toolsPromisedButAbsent('Hand it to do_work and use check_work to see where it is.', held), [])
+  assert.deepEqual(
+    toolsPromisedButAbsent('Read pages with read_webpage instead.', held),
+    ['read_webpage'],
+    'the exact sentence that was live for weeks',
+  )
+  assert.deepEqual(
+    toolsPromisedButAbsent('Use read_webpage, then read_webpage again.', held),
+    ['read_webpage'],
+    'named twice is one broken promise',
+  )
+  assert.deepEqual(
+    toolsPromisedButAbsent('Say what you are doing and never guess at a page.', held),
+    [],
+    'ordinary English is not a tool name',
+  )
 }
 
 console.log('call: coalesced, prioritized, rate limited, deduplicated, never over the agent — and every decision on the record')

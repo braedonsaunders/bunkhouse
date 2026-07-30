@@ -113,7 +113,7 @@ export type CallTrace = {
   /** One mailbox decision. */
   mailbox: (decision: MailboxTraceDecision) => void
   /** Which route this call has for reading a page, and why it has that one. */
-  pageAccess: (access: { route: string; fetchAvailable: boolean; reason: string }) => void
+  pageAccess: (access: { route: string; reason: string }) => void
   /**
    * The call is over. Every answer that exists and was never spoken is written
    * down here as an error, because an answer produced and never delivered is
@@ -321,7 +321,6 @@ export function createCallTrace(sink: TraceSink): CallTrace {
       write({
         trace: 'page_access',
         route: access.route,
-        fetchAvailable: access.fetchAvailable,
         reason: access.reason,
       })
     },

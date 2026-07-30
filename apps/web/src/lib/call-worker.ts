@@ -9,7 +9,7 @@ import type { people, RunTrigger } from '../db/schema'
 import { executeAgentRun } from './agent-runs'
 import { describeToolCall } from './call-activity'
 import type { DeliveryKind } from './call-mailbox'
-import { resolvePageAccess, type PageAccess } from './call-reading'
+import { resolvePageAccess, toolsPromisedButAbsent, type PageAccess } from './call-reading'
 import { pageReadingAbility, type SeeingModel } from './page-reading'
 import type { CallTrace } from './call-trace'
 import { browserSupported, closeBrowserSession } from './browser-use'
@@ -164,26 +164,40 @@ function describeToolResult(label: string, output: unknown): string {
   return `${label} — done.`
 }
 
-/** The brief the work runs on: the caller's ask, framed as live work. */
+/**
+ * The brief the work runs on: the caller's ask, framed as live work.
+ *
+ * Deliberately NOT a research brief. An earlier version was six paragraphs and
+ * five of them were about web pages — relentless sources, stale snippets,
+ * primary sources — so a run handed "email Dana the answer and put it in the
+ * shared folder" read a brief describing a web researcher and behaved like
+ * one. The kit is the same kit an email run gets, assembled once by
+ * `assembleAbilities` and handed in whole: the workspace and its shell, files,
+ * documents and spreadsheets, email and messages, the logbook, scheduling,
+ * every connected integration, every skill and procedure this agent has. The
+ * frame says so first, and the source discipline is a clause that applies WHEN
+ * the work involves looking something up — which is often, but is not what
+ * the work is.
+ */
 function workInstruction(args: { intent: string; caller: string; agentName: string; pageAccess: PageAccess }): string {
   return [
     `You are on a live call with ${args.caller} right now, and they are waiting on this:`,
     '',
     args.intent,
     '',
-    'Do it now, end to end, with the tools you have — this is live work, not a plan and not a promise to do it later.',
-    'Be relentless. A 403, a bot check, a dead domain, an empty search: that is the first thing you tried, not a verdict. Go straight to the next route — the official site, a result you have not opened, a directory or aggregator, the cached or printable version, a different phrasing, the browser instead of a plain fetch — and make three or four genuine attempts down different paths before you report any difficulty.',
+    'Do it now, end to end, with everything you have — this is live work, not a plan and not a promise to do it later. Your whole working kit is on this run, exactly as it is on any other: your workspace and its shell, real files, documents and spreadsheets, email and messages, your logbook, scheduling, every integration connected to you, and every skill and procedure you have been given. Use whichever of them the job actually needs, and follow a procedure that covers this if you have one. Looking something up is one of the things you can do here, not the whole of what you do.',
+    'Be relentless, whatever the job is. The first thing that does not work is the first thing you tried, not a verdict: a 403, a bot check, a dead domain, an empty search, a file that is not where you expected, a step that errors. Go straight to the next route and make three or four genuine attempts down different paths before you report any difficulty.',
     // Stale recommendations, and the call that earned this paragraph: the agent
     // recommended a restaurant that had closed, off a search snippet whose own
     // text showed the address now advertising a different business. A search
     // index is a memory of a page, not the page — and everything a caller acts
     // on today (open or closed, hours, price, availability, in stock, still
     // trading) is exactly the part of a page that goes out of date first.
-    'A search result is a MEMORY of a page, not the page. Anything perishable — whether a place is open or has closed, opening hours, prices, availability, whether something is in stock, whether a business still exists — must be read off the primary source itself: the business\'s own site, its own booking or ordering page, its own listing on the platform that takes its bookings. Never state a perishable fact on the strength of a search snippet, a cached description, or a directory entry alone.',
+    'When the job does involve looking something up: a search result is a MEMORY of a page, not the page. Anything perishable — whether a place is open or has closed, opening hours, prices, availability, whether something is in stock, whether a business still exists — must be read off the primary source itself: the business\'s own site, its own booking or ordering page, its own listing on the platform that takes its bookings. Never state a perishable fact on the strength of a search snippet, a cached description, or a directory entry alone.',
     'Read the source you land on for signs it has moved on: a different business name on the same address, a "permanently closed" notice, a parked or for-sale domain, a site whose latest news is years old, hours that contradict the snippet that sent you there. When the snippet and the source disagree, the source is right and the disagreement is itself worth reporting.',
     'If you could not verify a perishable fact against a primary source, say so in your answer, in plain words, and say what you did see — "their own site is down, so this is from a listing that may be out of date". An unverified fact presented as a verified one is the worst outcome available here; saying you could not check is never the worst outcome.',
-    ...(args.pageAccess.instruction ? [args.pageAccess.instruction] : []),
-    `Finish by answering with what ${args.agentName} should say out loud: one or two plain sentences with the actual facts in them, no markdown, no lists, no headings. If you genuinely could not get there, say exactly what you tried and what stopped you.`,
+    ...(args.pageAccess.work ? [args.pageAccess.work] : []),
+    `Finish by answering with what ${args.agentName} should say out loud: one or two plain sentences with the actual facts in them — what you did, and what came of it — with no markdown, no lists and no headings. If you genuinely could not get there, say exactly what you tried and what stopped you.`,
   ].join('\n')
 }
 
@@ -291,11 +305,7 @@ export function createCallWorker(args: {
       return opener?.approval ? { browserApproval: opener.approval } : {}
     })(),
   })
-  trace.pageAccess({
-    route: pageAccess.route,
-    fetchAvailable: pageAccess.fetchAvailable,
-    reason: pageAccess.reason,
-  })
+  trace.pageAccess({ route: pageAccess.route, reason: pageAccess.reason })
   // ONE PERCEPTION. `read_webpage` and `browser_open` were two ways to learn
   // what a page says, and the model chose between them badly every time: it
   // fetched a menu built from images four times and reported "still looking"
@@ -314,9 +324,21 @@ export function createCallWorker(args: {
   const reading = pageReadingAbility({
     visit,
     seeing: args.seeing,
-    onRoute: (page) => trace.pageAccess({ route: page.route, fetchAvailable: true, reason: page.unreadable ?? page.url }),
+    onRoute: (page) => trace.pageAccess({ route: page.route, reason: page.unreadable ?? page.url }),
   })
   const visible = [...args.abilities.filter((ability) => ability.name !== 'read_webpage'), reading]
+  // Contract three, enforced rather than remembered: the brief the work runs
+  // on may not name a tool the work does not hold. The frame is checked once —
+  // the intent is the caller's own words and is not part of the promise.
+  const promised = toolsPromisedButAbsent(
+    workInstruction({ intent: '', caller: args.caller, agentName: person.name, pageAccess }),
+    visible.map((ability) => ability.name),
+  )
+  if (promised.length > 0) {
+    args.onError(`the work brief names tools this call does not have: ${promised.join(', ')}`)
+    void args.record('error', { message: `Call brief promised absent tools: ${promised.join(', ')}` }).catch(() => {})
+  }
+
   const abilities = watchedForFrames(visible, async (frame) => {
     try {
       await args.onFrame(frame)
