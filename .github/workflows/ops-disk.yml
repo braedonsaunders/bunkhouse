@@ -42,6 +42,10 @@ on:
         description: 'Which call to replay: 1 is the latest, 2 the one before it'
         type: string
         default: '1'
+      checkStorage:
+        description: 'Show the SHAPE of the object-storage settings (masked) and test a real upload'
+        type: boolean
+        default: false
       serviceLogsFor:
         description: 'Print task history and recent logs for every swarm service matching this substring (leave blank to skip)'
         type: string
@@ -192,6 +196,37 @@ jobs:
           if [ -z "$cid" ]; then echo "::error::No running web container on this node"; exit 1; fi
           docker exec -e NODE_OPTIONS=--conditions=react-server "$cid" \
             apps/web/node_modules/.bin/tsx apps/web/scripts/call-report.mts "$who" "$back"
+
+      # MinIO refused the recording upload with "invalid hostname", which is a
+      # complaint about the endpoint rather than about credentials or the
+      # bucket. The value itself is deployment infrastructure and this log is
+      # public, so only its SHAPE is printed — scheme, host pattern, port,
+      # path — which is all that distinguishes a malformed endpoint from a
+      # working one.
+      - name: Check object storage settings
+        if: ${{ inputs.checkStorage }}
+        run: |
+          set -uo pipefail
+          cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
+          if [ -z "$cid" ]; then echo "::error::No running web container on this node"; exit 1; fi
+          docker exec "$cid" node -e '
+            const mask = (value) => {
+              if (!value) return "(unset)";
+              try {
+                const u = new URL(value);
+                const host = u.hostname.split(".").map((p) => "*".repeat(p.length)).join(".");
+                return `${u.protocol}//${host}${u.port ? ":" + u.port : ""}${u.pathname === "/" ? "" : u.pathname}`;
+              } catch {
+                return `NOT A URL (${value.length} chars, starts ${JSON.stringify(value.slice(0, 8))})`;
+              }
+            };
+            console.log("endpoint shape :", mask(process.env.APPKIT_STORAGE_ENDPOINT));
+            console.log("bucket         :", process.env.APPKIT_STORAGE_BUCKET ?? "(unset)");
+            console.log("region         :", process.env.APPKIT_STORAGE_REGION ?? "(unset, defaults us-east-1)");
+            console.log("forcePathStyle :", process.env.APPKIT_STORAGE_FORCE_PATH_STYLE ?? "(unset, defaults true)");
+            console.log("key id set     :", Boolean(process.env.APPKIT_STORAGE_ACCESS_KEY_ID));
+            console.log("secret set     :", Boolean(process.env.APPKIT_STORAGE_SECRET_ACCESS_KEY));
+          '
 
       - name: Create NAS directory
         if: ${{ inputs.nasMkdir != '' }}
