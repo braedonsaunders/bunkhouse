@@ -52,7 +52,7 @@ const HANDED_OVER =
   'It is running now, beside this call. You have ALREADY told the caller you are on it, so do not announce it again — repeating yourself the moment you have handed something over is what makes an agent sound like it is stammering. Say nothing about this handover. Just carry on the conversation you were having: answer what they asked, ask what you still need to know to make the result useful, or make ordinary conversation. You will be told where it has got to as it goes, and the result comes back to you when it is ready.'
 
 /** One line per piece of work, for `check_work` and for the model to read. */
-function readable(report: WorkReport, extra?: { alreadyHeard?: boolean }): Record<string, unknown> {
+function readable(report: WorkReport): Record<string, unknown> {
   // Collected rather than overwritten: "this is parked on a sign-off" and "you
   // have already said this" are both true at once on a parked piece of work,
   // and dropping either one loses something the caller is owed.
@@ -72,14 +72,6 @@ function readable(report: WorkReport, extra?: { alreadyHeard?: boolean }): Recor
       'This is parked on a human decision. Tell the caller it needs their sign-off and will happen once it is signed off — never that it is done.',
     )
   }
-  if (extra?.alreadyHeard) {
-    // The caller has already heard these exact words, because the mailbox said
-    // them at a quiet moment while this was still running. Saying them again as
-    // the answer is the byte-identical repeat, seconds apart, in the ledger.
-    notes.push(
-      'You have ALREADY said this to the caller, in these words. Do not say it again: reply with nothing at all unless you have something genuinely new to add.',
-    )
-  }
   return {
     handle: report.id,
     askedFor: report.intent,
@@ -95,7 +87,6 @@ function readable(report: WorkReport, extra?: { alreadyHeard?: boolean }): Recor
               : 'could not be done',
     latest: report.detail,
     runningForSeconds: report.runningForSeconds,
-    ...(extra?.alreadyHeard ? { alreadyToldTheCaller: true } : {}),
     ...(notes.length > 0 ? { note: notes.join(' ') } : {}),
   }
 }
@@ -299,21 +290,24 @@ export function callTools(args: {
       // the same words can never go out twice by two routes.
       mailbox.delivered({ kind: 'result', workId: work.id, text: settled.detail })
       if (alreadyHeard) {
-        // Nothing more is expected to be said, so nothing is waiting for a turn
-        // that will not come: the caller has heard these words already and the
-        // record says by which route.
+        // Returning nothing is the framework's "no deferred reply", the same
+        // answer given when the line is already gone. It is deliberately not a
+        // note asking the model to keep quiet: a note leaves the decision with
+        // the model, and a model holding an answer says it. One piece of
+        // content, one route — the mailbox owns these words, so this route has
+        // nothing to hand over and cannot repeat them.
         args.trace.answerAlreadySpoken({
           workId: work.id,
           route: 'the mailbox said these words at a quiet boundary while it was still running',
         })
-      } else {
-        // The framework makes a reply for this return value once the turn ends,
-        // so the next thing the agent says IS this answer being read out. That
-        // is what marks the answer delivered; if no such turn ever happens, the
-        // trace says the answer was produced and never spoken.
-        args.trace.expectTurn({ cause: 'work_result', workId: work.id })
+        return null
       }
-      return readable(settled, { alreadyHeard })
+      // The framework makes a reply for this return value once the turn ends,
+      // so the next thing the agent says IS this answer being read out. That
+      // is what marks the answer delivered; if no such turn ever happens, the
+      // trace says the answer was produced and never spoken.
+      args.trace.expectTurn({ cause: 'work_result', workId: work.id })
+      return readable(settled)
     },
   })
 
