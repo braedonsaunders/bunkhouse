@@ -39,6 +39,7 @@
     // tsx, which resolves .ts imports that tsc will not.
     "scripts/voice-agent.mts",
     "scripts/worker.mts",
+    "scripts/shell-runner.mts",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
