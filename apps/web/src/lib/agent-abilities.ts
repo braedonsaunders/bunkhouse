@@ -11,6 +11,7 @@ import {
 } from '@bunkhouse/runtime'
 import { assignments, duties, memories, people, type AssignmentSource, type McpIntegrationEntry } from '../db/schema'
 import { db } from '../db/client'
+import { findColleague, postToColleague } from './colleague-post'
 import { listMcpIntegrations } from './mcp-integrations'
 import { mcpOauthHeaders } from './mcp-oauth'
 import { sendNewMail } from './mailbox'
@@ -39,6 +40,24 @@ type PersonRow = typeof people.$inferSelect
 /** Ceilings on what an agent may book for itself — see `schedule_task`. */
 const MAX_SELF_SCHEDULED_DUTIES = 25
 const MIN_SELF_SCHEDULE_GAP_MINUTES = 15
+
+/**
+ * How many times a repeat an agent booked for ITSELF may fire before it has to
+ * be renewed deliberately.
+ *
+ * `maxRuns` was always available and no model ever set it, which is how one
+ * agent ended up with two hourly duties — "check whether Dana's note has
+ * arrived yet" and "re-check whether Dana's note has arrived yet" — firing
+ * forty times overnight, each a full model run, polling for something that
+ * could never arrive because the thing it was waiting on was broken. A person
+ * checking hourly on something that has not moved in a day stops and asks
+ * somebody; the schedule they set does not run for ever on its own.
+ *
+ * A standing routine belongs to the role, not to a run's follow-up impulse, so
+ * this bounds only what an agent books for itself. Twelve is enough for "chase
+ * this daily for a fortnight" and far short of all night, every night.
+ */
+export const MAX_SELF_SCHEDULED_REPEATS = 12
 
 /** The logbook: save and search notes. Ungoverned — it is the agent's own head. */
 export function memoryAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {
@@ -140,7 +159,6 @@ export function researchAbilities(args: { tenantId: string }): Ability[] {
  * writing to anyone else is external_email.
  */
 export function emailAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {
-  const app = db()
   const { tenantId, person, runId } = args
 
   const send = async (to: string, subject: string, body: string, attachFileIds?: string[]) => {
@@ -174,12 +192,31 @@ export function emailAbilities(args: { tenantId: string; person: PersonRow; runI
         attachFileIds: attachFileIdsSchema,
       }),
       execute: async ({ to, subject, body, attachFileIds }) => {
-        const [colleague] = await app.db
-          .select({ id: people.id })
-          .from(people)
-          .where(and(eq(people.status, 'active'), sql`lower(${people.email}) = ${to.toLowerCase()}`))
+        const colleague = await findColleague(to)
         if (!colleague) {
           return { sent: false, reason: `${to} is not in the company directory — use send_email for outside addresses.` }
+        }
+        // An AI colleague is inside this system, and reaching them through a
+        // mail provider and back was always a detour: it needed a mailbox
+        // neither of them had, so every handoff between two agents failed and
+        // they fell back to leaving each other notes and polling hourly for a
+        // reply. They are handed the work directly now. A human colleague
+        // genuinely does read email, so that path is untouched.
+        if (colleague.kind === 'agent') {
+          const posted = await postToColleague({
+            tenantId,
+            from: { id: person.id, name: person.name, title: person.title, email: person.email },
+            toEmail: to,
+            title: subject,
+            body,
+            runId,
+          })
+          if (!posted.posted) return { sent: false, reason: posted.reason }
+          return {
+            sent: true,
+            to: posted.to,
+            note: `${posted.to} has it now and starts on it straight away — this went to them directly, not by email. They come back to you the same way, so there is nothing to wait on and nothing to chase.`,
+          }
         }
         return send(to, subject, body, attachFileIds)
       },
@@ -213,7 +250,6 @@ export function askAbilities(args: {
   runId: string
   waitState: GovernanceState
 }): Ability[] {
-  const app = db()
   const { tenantId, person, runId, waitState } = args
   return [
     defineAbility({
@@ -234,10 +270,28 @@ export function askAbilities(args: {
           .describe('Days of silence before your one follow-up nudge.'),
       }),
       execute: async ({ to, subject, question, nudgeAfterDays }) => {
-        const [colleague] = await app.db
-          .select({ id: people.id, kind: people.kind })
-          .from(people)
-          .where(and(eq(people.status, 'active'), sql`lower(${people.email}) = ${to.toLowerCase()}`))
+        const colleague = await findColleague(to)
+        // Waiting days for an email is what you do for a person. An AI
+        // colleague is reachable now and answers by coming back to you, so
+        // suspending the run on a mail thread they were never going to read
+        // just parked the work — and, with no mailbox on either side, parked
+        // it forever.
+        if (colleague?.kind === 'agent') {
+          const posted = await postToColleague({
+            tenantId,
+            from: { id: person.id, name: person.name, title: person.title, email: person.email },
+            toEmail: to,
+            title: subject,
+            body: question,
+            runId,
+          })
+          if (!posted.posted) return { sent: false, reason: posted.reason }
+          return {
+            sent: true,
+            waiting: false,
+            note: `${posted.to} has the question and comes back to you directly with the answer. Do not pause for it and do not schedule anything to check — finish what you can now, and their answer will start you up again when it lands.`,
+          }
+        }
         const { threadId } = await sendNewMail({
           tenantId,
           personId: person.id,
@@ -364,7 +418,6 @@ export async function smsAbilities(args: { tenantId: string }): Promise<Ability[
  * internal_email: it creates work and mail inside the company.
  */
 export function delegationAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {
-  const app = db()
   const { tenantId, person, runId } = args
   return [
     defineAbility({
@@ -382,38 +435,25 @@ export function delegationAbilities(args: { tenantId: string; person: PersonRow;
         dueAt: z.string().optional().describe('ISO 8601 deadline, if there is one.'),
       }),
       execute: async ({ toEmail, title, brief, formats, dueAt }) => {
-        const [colleague] = await app.db
-          .select()
-          .from(people)
-          .where(and(eq(people.status, 'active'), sql`lower(${people.email}) = ${toEmail.toLowerCase()}`))
-        if (!colleague) return { delegated: false, reason: `${toEmail} is not in the company directory.` }
-        if (colleague.kind !== 'agent') {
-          return {
-            delegated: false,
-            reason: `${colleague.name} is a human colleague — ask them by email (email_colleague or ask_and_wait) instead.`,
-          }
-        }
-        if (colleague.id === person.id) return { delegated: false, reason: 'That is you.' }
         const due = dueAt ? new Date(dueAt) : null
         if (due && Number.isNaN(due.getTime())) return { delegated: false, reason: 'dueAt is not a valid date.' }
-        const [row] = await app.db
-          .insert(assignments)
-          .values({
-            tenantId,
-            personId: colleague.id,
-            source: { kind: 'delegation', fromPersonId: person.id, runId },
-            title,
-            spec: `${brief}\n\n(Delegated by ${person.name}, ${person.title}. Deliver your result to them by email.)`,
-            formats: formats ?? [],
-            deliverTo: { name: person.name, address: person.email },
-            dueAt: due,
-            createdBy: person.id,
-          })
-          .returning({ id: assignments.id })
+        // One path for every internal handoff, so the loop guard is one thing
+        // and cannot be walked around by picking the other tool.
+        const posted = await postToColleague({
+          tenantId,
+          from: { id: person.id, name: person.name, title: person.title, email: person.email },
+          toEmail,
+          title,
+          body: brief,
+          runId,
+          ...(formats?.length ? { formats } : {}),
+          ...(due ? { dueAt: due } : {}),
+        })
+        if (!posted.posted) return { delegated: false, reason: posted.reason }
         return {
           delegated: true,
-          assignmentId: row!.id,
-          note: `${colleague.name} starts immediately and will email you the result. You do not need to wait here.`,
+          assignmentId: posted.assignmentId,
+          note: `${posted.to} starts immediately and comes back to you directly with the outcome — no email in the way. You do not need to wait here, and you do not need to schedule anything to check on it.`,
         }
       },
     }),
@@ -428,7 +468,7 @@ export function schedulingAbilities(args: { tenantId: string; person: PersonRow 
     defineAbility({
       name: 'schedule_task',
       description:
-        'Schedule work for your future self — once at a specific date and time, or on a repeating schedule. Use it for follow-ups ("chase this invoice on Friday"), reminders, and standing routines you decide you need. Returns when it will first run.',
+        'Schedule work for your future self — once at a specific date and time, or on a repeating schedule. Use it for follow-ups ("chase this invoice on Friday") and reminders. A repeat you book for yourself is bounded and will not run for ever: if what you are waiting on has not moved after a few checks, that is not something to keep checking, it is something to tell a person about. Never schedule a repeat to poll for a colleague\'s answer — they come back to you on their own. Returns when it will first run.',
       category: null,
       inputSchema: z.object({
         title: z.string().describe('Short name, e.g. "Chase Acme invoice"'),
@@ -445,7 +485,14 @@ export function schedulingAbilities(args: { tenantId: string; person: PersonRow 
           }),
         ]),
         endsAt: z.string().optional().describe('ISO 8601; a repeating task stops after this.'),
-        maxRuns: z.number().int().min(1).optional().describe('A repeating task stops after this many runs.'),
+        maxRuns: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe(
+            `How many times a repeating task may fire. Defaults to ${MAX_SELF_SCHEDULED_REPEATS} and cannot exceed it — say how many times this is genuinely worth checking.`,
+          ),
       }),
       execute: async ({ title, instruction, when, endsAt, maxRuns }) => {
         const open = await app.db
@@ -507,12 +554,25 @@ export function schedulingAbilities(args: { tenantId: string; person: PersonRow 
           title,
           instruction,
           ...spec,
-          maxRuns: when.kind === 'once' ? null : (maxRuns ?? null),
+          // Bounded whatever the model said, including when it said nothing.
+          maxRuns:
+            when.kind === 'once' ? null : Math.min(maxRuns ?? MAX_SELF_SCHEDULED_REPEATS, MAX_SELF_SCHEDULED_REPEATS),
           nextDueAt,
           // Audit provenance: this duty was booked by the agent, not an operator.
           createdBy: person.id,
         })
-        return { scheduled: true, slug, firstRunAt: nextDueAt.toISOString() }
+        const cap = when.kind === 'once' ? null : Math.min(maxRuns ?? MAX_SELF_SCHEDULED_REPEATS, MAX_SELF_SCHEDULED_REPEATS)
+        return {
+          scheduled: true,
+          slug,
+          firstRunAt: nextDueAt.toISOString(),
+          ...(cap
+            ? {
+                runsAtMost: cap,
+                note: `This repeats at most ${cap} times and then stops on its own. If what you are waiting on still has not happened by then, tell a person rather than booking it again.`,
+              }
+            : {}),
+        }
       },
     }),
     defineAbility({
