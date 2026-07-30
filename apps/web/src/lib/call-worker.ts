@@ -10,6 +10,7 @@ import { executeAgentRun } from './agent-runs'
 import { describeToolCall } from './call-activity'
 import type { DeliveryKind } from './call-mailbox'
 import { resolvePageAccess, type PageAccess } from './call-reading'
+import { pageReadingAbility, type SeeingModel } from './page-reading'
 import type { CallTrace } from './call-trace'
 import { browserSupported, closeBrowserSession } from './browser-use'
 
@@ -216,6 +217,13 @@ export function createCallWorker(args: {
   /** The agent's whole ability set, assembled once for this call. */
   abilities: Ability[]
   /**
+   * A model that can look at a picture, or null when the company has connected
+   * nothing that can. Resolved once, before the first word: whether an agent
+   * can see is a property of the system, not of whichever model an operator
+   * assigned it, and a page built from images is unreadable without one.
+   */
+  seeing: SeeingModel
+  /**
    * The autonomy dial. The worker's own governed loop applies it per tool call;
    * this copy answers one question before the work starts — whether the browser
    * is genuinely usable on this call, or whether every page would park on a
@@ -288,9 +296,27 @@ export function createCallWorker(args: {
     fetchAvailable: pageAccess.fetchAvailable,
     reason: pageAccess.reason,
   })
-  const visible = args.abilities.filter(
-    (ability) => ability.name !== 'read_webpage' || pageAccess.fetchAvailable,
-  )
+  // ONE PERCEPTION. `read_webpage` and `browser_open` were two ways to learn
+  // what a page says, and the model chose between them badly every time: it
+  // fetched a menu built from images four times and reported "still looking"
+  // while the caller watched that menu on their own screen. Withdrawing the
+  // fetch to force a visit only moved the failure — an agent whose dial parks
+  // the browser was left unable to read anything at all. Both are now routes
+  // inside one ability, chosen here rather than by the model: fetch because it
+  // is cheap, the browser when that comes back thin, and a model that can see
+  // describing the picture when the page has no text to give. The browser's
+  // ACTING tools are untouched; this contract is about reading.
+  const opener = args.abilities.find((ability) => ability.name === 'browser_open')
+  const visit =
+    pageAccess.route === 'browser' && opener?.tool.execute
+      ? async (url: string) => opener.tool.execute!({ url } as never, { toolCallId: 'read_page', messages: [] } as never)
+      : null
+  const reading = pageReadingAbility({
+    visit,
+    seeing: args.seeing,
+    onRoute: (page) => trace.pageAccess({ route: page.route, fetchAvailable: true, reason: page.unreadable ?? page.url }),
+  })
+  const visible = [...args.abilities.filter((ability) => ability.name !== 'read_webpage'), reading]
   const abilities = watchedForFrames(visible, async (frame) => {
     try {
       await args.onFrame(frame)

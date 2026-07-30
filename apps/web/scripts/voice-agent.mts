@@ -37,6 +37,7 @@ import { MEETING_ROOM_PREFIX } from '../src/lib/meetings'
 import { watchScreenShare } from '../src/lib/screen-share'
 import { saveFile } from '../src/lib/files'
 import { companyPromptProfile, getCompanyIdentity } from '../src/lib/company-identity'
+import { resolveSeeingModel } from '../src/lib/page-reading'
 import { priceSpend } from '../src/lib/pricing'
 import { isWithinWorkingHours } from '../src/lib/working-hours'
 import { callMinutesBudget } from '../src/lib/call-budget'
@@ -1385,6 +1386,11 @@ export default defineAgent({
     worker = createCallWorker({
       tenantId: session.tenantId,
       person,
+      // Resolved once, before the first word. A page built from pictures is
+      // unreadable without something that can look at one, and which model the
+      // operator assigned this agent has nothing to do with whether the
+      // company owns eyes.
+      seeing: await resolveSeeingModel(session.tenantId),
       runId: session.runId ?? session.id,
       trigger: { type: 'chat', conversationId: session.id },
       abilities: assembled.abilities,
