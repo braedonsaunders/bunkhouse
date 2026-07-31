@@ -16,6 +16,7 @@ import { db } from '../../../db/client'
 import { resolveTenantId } from '../../../lib/tenant'
 import { wanderingEnabled } from '../../../lib/departments'
 import { SCENE_KINDS, SCENE_LABELS } from '../../../components/scene-art'
+import { OrganizationTabs } from '../../../components/organization-tabs'
 import { BackdropStudio } from './backdrop-studio'
 import {
   createDepartment,
@@ -61,6 +62,7 @@ export default async function DepartmentsPage() {
 
   return (
     <PageContainer className="space-y-6">
+      <OrganizationTabs active="departments" />
       <PageHeader
         title="Departments"
         description="The places your company has. Everyone works somewhere, and the floor on the home screen shows who is where."
