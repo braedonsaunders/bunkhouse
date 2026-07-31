@@ -30,7 +30,12 @@ export type LobbyPerson = {
   name: string
   /** Their one figure. Anyone without a composition still walks, as initials. */
   composition?: AvatarComposition
-  status?: { label: string; tone: 'active' | 'busy' | 'idle' }
+  /** Their role, shown beside the name on hover. */
+  title?: string
+  /** What they are doing, as a pill anyone can read without hovering. */
+  status?: { label: string; tone: 'active' | 'busy' | 'idle' | 'waiting' | 'trouble'; detail?: string }
+  /** Their own working note, drawn as a bubble above them while they work. */
+  speech?: { text: string; kind?: 'say' | 'think' }
   idleAnimation?: 'bounce' | 'sway' | 'still' | 'dance'
   walkSpeed?: number
 }
@@ -111,7 +116,9 @@ export function Lobby({
               ),
             }
           : {}),
+        ...(person.title ? { title: person.title } : {}),
         ...(person.status ? { status: person.status } : {}),
+        ...(person.speech ? { speech: person.speech } : {}),
         idleAnimation: person.idleAnimation ?? 'bounce',
         walkSpeed: person.walkSpeed ?? paceFor(person.id),
       })),

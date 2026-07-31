@@ -5,6 +5,7 @@ import { approvals, people, runs, tokenSpend } from '../db/schema'
 import { db } from '../db/client'
 import { resolveTenantId } from '../lib/tenant'
 import { Lobby, type LobbyPerson } from '../components/lobby'
+import { describeLatestEvent } from '../lib/scene-activity'
 import { listAvatarCompositions, loadAvatarPartLibrary } from '../lib/avatars'
 import { AVATAR_PART_CATEGORIES } from '../lib/avatar-parts'
 import { personDrawer } from './organization/person-record'
@@ -45,10 +46,36 @@ export default async function HomePage({
       .select({ cost: sql<string>`coalesce(sum(${tokenSpend.costUsd}), 0)` })
       .from(tokenSpend)
       .where(sql`${tokenSpend.createdAt} >= ${monthStart}`)
-    const busyIds = await app.db
-      .select({ personId: runs.personId })
-      .from(runs)
-      .where(eq(runs.status, 'running'))
+    // Not just WHO is busy but WHAT they are doing — the newest thing on each
+    // running agent's ledger, and the last thing it said. A floor of figures
+    // strolling about conveys that the office is populated and nothing at all
+    // about whether anybody is working, which is the only reason to open it.
+    const busy = await app.db.execute(sql`
+      select distinct on (r.person_id)
+             r.person_id            as "personId",
+             r.status               as "runStatus",
+             e.kind                 as "eventKind",
+             e.payload              as "eventPayload",
+             (
+               select m.payload ->> 'text' from run_events m
+               where m.run_id = r.id and m.kind = 'message' and m.payload ->> 'text' <> ''
+               order by m.seq desc limit 1
+             )                      as "saying"
+        from runs r
+        left join lateral (
+          select kind, payload from run_events
+          where run_id = r.id order by seq desc limit 1
+        ) e on true
+       where r.status in ('running', 'waiting_approval')
+       order by r.person_id, r.started_at desc
+    `)
+    const busyIds = busy.rows as {
+      personId: string
+      runStatus: string
+      eventKind: string | null
+      eventPayload: Record<string, unknown> | null
+      saying: string | null
+    }[]
     return {
       roster,
       pending: pending?.count ?? 0,
@@ -67,16 +94,29 @@ export default async function HomePage({
     listAvatarCompositions(tenantId),
     loadAvatarPartLibrary(tenantId),
   ])
-  const busy = new Set(data.busyIds.map((r) => r.personId))
-  const lobby: LobbyPerson[] = agents.map((agent) => ({
-    id: agent.id,
-    name: agent.name,
-    ...(compositions.has(agent.id) ? { composition: compositions.get(agent.id)! } : {}),
-    status: busy.has(agent.id)
-      ? { label: 'working', tone: 'busy' as const }
-      : { label: agent.title, tone: 'active' as const },
-    idleAnimation: 'bounce' as const,
-  }))
+  const busy = new Map(data.busyIds.map((row) => [row.personId, row]))
+  const lobby: LobbyPerson[] = agents.map((agent) => {
+    const now = busy.get(agent.id)
+    const doing = now?.eventKind ? describeLatestEvent(now.eventKind, now.eventPayload ?? {}) : null
+    return {
+      id: agent.id,
+      name: agent.name,
+      title: agent.title,
+      ...(compositions.has(agent.id) ? { composition: compositions.get(agent.id)! } : {}),
+      status: now
+        ? now.runStatus === 'waiting_approval'
+          ? { label: 'needs you', tone: 'waiting' as const, detail: 'waiting on a decision' }
+          : { label: 'working', tone: 'busy' as const, ...(doing ? { detail: doing } : {}) }
+        : { label: 'free', tone: 'idle' as const },
+      // Its own working notes, as a thought bubble. Only while it is actually
+      // running: a bubble left hanging over an idle figure reads as a stuck
+      // agent, which is worse than no bubble at all.
+      ...(now && now.runStatus === 'running' && now.saying
+        ? { speech: { text: now.saying.trim().slice(0, 220), kind: 'think' as const } }
+        : {}),
+      idleAnimation: 'bounce' as const,
+    }
+  })
 
   const stats: { label: string; value: string; href: string; alert?: boolean }[] = [
     { label: 'On staff', value: String(agents.length), href: '/organization' },

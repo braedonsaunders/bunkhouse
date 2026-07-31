@@ -6,7 +6,7 @@ import { resolveTenantId } from '../../lib/tenant'
 import { type ObservatoryRunRow } from '../../components/observatory-list'
 import { ObservatoryFloor, type ActiveRunCardRow } from '../../components/observatory-floor'
 import { RosterAvatar } from '../../components/roster-avatar'
-import { describeToolCall } from '../../lib/call-activity'
+import { describeLatestEvent } from '../../lib/scene-activity'
 import { listAvatarCompositions, loadAvatarPartLibrary } from '../../lib/avatars'
 import { AVATAR_PART_CATEGORIES } from '../../lib/avatar-parts'
 import { runDrawer } from '../runs/run-record'
@@ -44,45 +44,7 @@ const STATUS_LABELS: Record<string, string> = {
 const ACTIVE_STATUSES = ['running', 'waiting_approval', 'waiting_reply'] as const
 const FINISHED_STATUSES = ['completed', 'failed', 'cancelled'] as const
 
-const snippet = (value: unknown, max = 80): string | null => {
-  const text = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : ''
-  if (!text) return null
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text
-}
 
-/** The card's "now" line: the newest ledger event, phrased as an activity. */
-function describeLatestEvent(kind: string, payload: Record<string, unknown>): string | null {
-  switch (kind) {
-    case 'tool_call':
-      return describeToolCall(String(payload.toolName ?? ''), payload.input)
-    case 'tool_result': {
-      const name = snippet(payload.toolName)
-      return name ? `Reviewing ${name.replace(/[_-]+/g, ' ')} results` : 'Reviewing results'
-    }
-    case 'thought': {
-      const text = snippet(payload.text)
-      return text ? `Thinking — ${text}` : 'Thinking…'
-    }
-    case 'message': {
-      const text = snippet(payload.text)
-      return text ? `“${text}”` : 'Writing a reply'
-    }
-    case 'procedure_citation':
-      return `Consulting ${String(payload.slug ?? 'a procedure')} v${String(payload.version ?? '?')}`
-    case 'approval_request': {
-      const text = snippet(payload.description)
-      return text ? `Waiting for sign-off — ${text}` : 'Waiting for sign-off'
-    }
-    case 'delegation':
-      return 'Delegating work to a colleague'
-    case 'error': {
-      const text = snippet(payload.message)
-      return text ? `Hit an error — ${text}` : 'Hit an error'
-    }
-    default:
-      return null
-  }
-}
 
 export default async function ObservatoryPage({
   searchParams,
