@@ -26,6 +26,13 @@ import { db } from '../src/db/client'
  */
 
 const APPLY = process.env.TIDY_APPLY === 'true'
+/**
+ * Delete rather than close. Only for a development deployment being reset —
+ * on anything real, closing is the right verb and the audit trail is the
+ * point. Guarded by its own flag so it can never be reached by ticking the
+ * ordinary one.
+ */
+const PURGE = process.env.TIDY_PURGE === 'true'
 const app = db()
 
 const rows = async (query: ReturnType<typeof sql>) =>
@@ -83,6 +90,15 @@ show(
 
 if (!APPLY) {
   console.log('\nNothing changed. Re-run with tidyApply ticked to carry this out.')
+  process.exit(0)
+}
+
+// --- or, on a dev deployment, actually remove it -----------------------------
+if (PURGE) {
+  const approvals = await rows(sql`delete from approvals where status = 'pending' returning id`)
+  const work = await rows(sql`delete from assignments returning id`)
+  console.log(`\nPURGED: ${work.length} assignment(s) and ${approvals.length} pending approval(s) DELETED`)
+  console.log('Runs, notes and the rest are untouched.')
   process.exit(0)
 }
 

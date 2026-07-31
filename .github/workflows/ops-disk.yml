@@ -50,6 +50,10 @@ on:
         description: 'Agent housekeeping: DRY RUN counts only, unless tidyApply is also ticked'
         type: boolean
         default: false
+      tidyPurge:
+        description: 'DEV ONLY — actually DELETE all assignments and pending approvals'
+        type: boolean
+        default: false
       tidyApply:
         description: 'Actually apply the housekeeping above (retires notes, cancels queued work)'
         type: boolean
@@ -328,7 +332,7 @@ jobs:
           cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
           if [ -z "$cid" ]; then echo "::error::No running web container on this node"; exit 1; fi
           docker exec -e NODE_OPTIONS=--conditions=react-server \
-            -e TIDY_APPLY="${{ inputs.tidyApply }}" "$cid" \
+            -e TIDY_APPLY="${{ inputs.tidyApply }}" -e TIDY_PURGE="${{ inputs.tidyPurge }}" "$cid" \
             apps/web/node_modules/.bin/tsx apps/web/scripts/tidy-agents.mts
 
       - name: Create NAS directory
