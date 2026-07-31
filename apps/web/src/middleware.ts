@@ -23,7 +23,11 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Everything except /login, /meet/*, /api/auth/*, Next internals, and static files.
-    '/((?!login|meet|api/auth|_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?|ttf|map)$).*)',
+    // Everything except /login, /meet/*, /api/auth/*, /dev-scene, Next
+    // internals, and static files. /dev-scene renders UI components against no
+    // data at all — there is nothing behind it to protect, and putting it
+    // behind the sign-in is what stopped these being looked at before they
+    // shipped.
+    '/((?!login|meet|api/auth|dev-scene|_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?|ttf|map)$).*)',
   ],
 }

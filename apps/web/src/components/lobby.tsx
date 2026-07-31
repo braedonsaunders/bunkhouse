@@ -33,7 +33,11 @@ export type LobbyPerson = {
   /** Their role, shown beside the name on hover. */
   title?: string
   /** What they are doing, as a pill anyone can read without hovering. */
-  status?: { label: string; tone: 'active' | 'busy' | 'idle' | 'waiting' | 'trouble'; detail?: string }
+  status?: {
+    label: string
+    tone: 'active' | 'busy' | 'idle' | 'waiting' | 'trouble'
+    activity?: 'working' | 'reading' | 'searching' | 'talking' | 'writing' | 'waiting' | 'idle'
+  }
   /** Their own working note, drawn as a bubble above them while they work. */
   speech?: { text: string; kind?: 'say' | 'think' }
   idleAnimation?: 'bounce' | 'sway' | 'still' | 'dance'

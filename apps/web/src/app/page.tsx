@@ -5,7 +5,7 @@ import { approvals, people, runs, tokenSpend } from '../db/schema'
 import { db } from '../db/client'
 import { resolveTenantId } from '../lib/tenant'
 import { Lobby, type LobbyPerson } from '../components/lobby'
-import { describeLatestEvent } from '../lib/scene-activity'
+import { describeLatestEvent, sceneStatus } from '../lib/scene-activity'
 import { listAvatarCompositions, loadAvatarPartLibrary } from '../lib/avatars'
 import { AVATAR_PART_CATEGORIES } from '../lib/avatar-parts'
 import { personDrawer } from './organization/person-record'
@@ -103,16 +103,21 @@ export default async function HomePage({
       name: agent.name,
       title: agent.title,
       ...(compositions.has(agent.id) ? { composition: compositions.get(agent.id)! } : {}),
+      // One word and a kind of motion. The sentence goes in the bubble.
       status: now
-        ? now.runStatus === 'waiting_approval'
-          ? { label: 'needs you', tone: 'waiting' as const, detail: 'waiting on a decision' }
-          : { label: 'working', tone: 'busy' as const, ...(doing ? { detail: doing } : {}) }
-        : { label: 'free', tone: 'idle' as const },
+        ? sceneStatus({
+            runStatus: now.runStatus,
+            eventKind: now.eventKind,
+            toolName: typeof now.eventPayload?.toolName === 'string' ? now.eventPayload.toolName : null,
+          })
+        : { label: 'free', tone: 'idle' as const, activity: 'idle' as const },
       // Its own working notes, as a thought bubble. Only while it is actually
       // running: a bubble left hanging over an idle figure reads as a stuck
       // agent, which is worse than no bubble at all.
-      ...(now && now.runStatus === 'running' && now.saying
-        ? { speech: { text: now.saying.trim().slice(0, 220), kind: 'think' as const } }
+      // Its own working note if it has one, otherwise what it is doing right
+      // now — the sentence that used to be clipped into the pill.
+      ...(now && now.runStatus === 'running' && (now.saying || doing)
+        ? { speech: { text: (now.saying ?? doing ?? '').trim().slice(0, 220), kind: 'think' as const } }
         : {}),
       idleAnimation: 'bounce' as const,
     }

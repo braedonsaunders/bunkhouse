@@ -748,7 +748,7 @@ packages:
     engines: {node: '>=22'}
 
   '@appkit/scene@file:vendor/appkit/appkit-scene-0.3.4.tgz':
-    resolution: {integrity: sha512-WWu2f2PD5Ms3hhccr7202AE1999Uu6e3E6sDqmSCDGv/2KFtT637d5oxtz6HDZ7f9jkHnrvft18zqjHkH6RAWA==, tarball: file:vendor/appkit/appkit-scene-0.3.4.tgz}
+    resolution: {integrity: sha512-0VM1FgHpZTB0JwbvX24kbQFTsjY/1ScNT9TNqxFlGjfrZ/Mb/AKZQtzYutZNYXmC3DSUBlRCSjfxUizyjXpNow==, tarball: file:vendor/appkit/appkit-scene-0.3.4.tgz}
     version: 0.3.4
     engines: {node: '>=22'}
     peerDependencies:
