@@ -46,6 +46,14 @@ on:
         description: 'From the app container, reach the shell sandbox and run a real command through it'
         type: boolean
         default: false
+      tidyAgents:
+        description: 'Agent housekeeping: DRY RUN counts only, unless tidyApply is also ticked'
+        type: boolean
+        default: false
+      tidyApply:
+        description: 'Actually apply the housekeeping above (retires notes, cancels queued work)'
+        type: boolean
+        default: false
       checkStorage:
         description: 'Show the SHAPE of the object-storage settings (masked) and test a real upload'
         type: boolean
@@ -308,6 +316,20 @@ jobs:
               console.log("no token            :", noToken, noToken === 401 ? "(refused, correct)" : "(SHOULD BE 401)");
             })();
           '
+
+      # Housekeeping on live data, so it counts first and only changes anything
+      # when told twice. Nothing is deleted: notes are closed the way the app
+      # closes them (valid_until), work is cancelled the way the app cancels
+      # it. Everything stays readable afterwards.
+      - name: Tidy the agents
+        if: ${{ inputs.tidyAgents }}
+        run: |
+          set -uo pipefail
+          cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
+          if [ -z "$cid" ]; then echo "::error::No running web container on this node"; exit 1; fi
+          docker exec -e NODE_OPTIONS=--conditions=react-server \
+            -e TIDY_APPLY="${{ inputs.tidyApply }}" "$cid" \
+            apps/web/node_modules/.bin/tsx apps/web/scripts/tidy-agents.mts
 
       - name: Create NAS directory
         if: ${{ inputs.nasMkdir != '' }}
