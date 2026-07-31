@@ -435,3 +435,60 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
   assert.ok('reason' in sanitiseSceneSvg('just some prose'), 'prose is not a drawing')
   console.log('backdrop: a model drawing cannot carry anything that runs')
 }
+
+// --- the bright room is the SAME room --------------------------------------
+{
+  const { toLightBackdrop } = await import('../src/lib/scene-recolour')
+  const { PALETTES } = await import('../src/lib/scene-palette')
+
+  const dark = [
+    '<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">',
+    '<rect x="0" y="0" width="1600" height="468" fill="#0b1220"/>',
+    '<rect x="0" y="468" width="1600" height="432" fill="#1a2740"/>',
+    '<path d="M100 200 L300 200 L300 400 Z" fill="#24344f" stroke="#33455f"/>',
+    '<rect x="420" y="180" width="160" height="90" fill="#8FC7F0"/>',
+    '<circle cx="1500" cy="120" r="18" fill="#f5a623"/>',
+    '<rect x="900" y="200" width="40" height="40" fill="#2b1a06" class="black-panel"/>',
+    '<rect x="960" y="200" width="40" height="40" fill="black" stroke="none"/>',
+    '</svg>',
+  ].join('')
+  const light = toLightBackdrop(dark)
+
+  // Every shape, in order, with every geometry attribute untouched. This is the
+  // whole point: a theme switch should turn the lights on, not rearrange the
+  // furniture, which is exactly what drawing it twice did.
+  const shapesOf = (svg: string) =>
+    (svg.match(/<(rect|path|circle|ellipse|polygon|line)\b[^>]*>/g) ?? []).map((tag) =>
+      tag.replace(/\s(fill|stroke|stop-color)\s*=\s*"[^"]*"/g, ''),
+    )
+  assert.deepEqual(shapesOf(light), shapesOf(dark), 'the geometry is identical, only colour moves')
+
+  // The palette colours map exactly...
+  assert.ok(light.includes(PALETTES.light.colours[0]!), 'the darkest structure colour became the lightest')
+  assert.ok(light.includes(PALETTES.light.colours[2]!), 'mid structure mapped too')
+  assert.ok(!/#0b1220|#1a2740|#24344f|#33455f/i.test(light), 'no dim structure colour survives')
+  assert.ok(light.includes(PALETTES.light.lit), 'the lit colour became its bright-room equivalent')
+  // ...case-insensitively, because models shout their hex.
+  assert.ok(!/#8fc7f0/i.test(light), 'an uppercase hex is recoloured like any other')
+  // The accent is the brand amber and is deliberately the one colour that does
+  // not move between themes.
+  assert.ok(light.includes(PALETTES.dark.accent), 'the accent is untouched')
+
+  // Anything off-palette still has to stop being dark, or it is a smudge on a
+  // pale wall.
+  const stray = light.match(/fill="(#[0-9a-f]{6})" class="black-panel"/i)?.[1]
+  assert.ok(stray, 'the off-palette shape kept its class and its shape')
+  const luminance = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16) / 255)
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+  }
+  assert.ok(luminance(stray!) > 0.6, `an off-palette dark colour is flipped light, got ${stray}`)
+  assert.ok(luminance(PALETTES.dark.colours[0]!) < 0.2, 'and it really was dark to begin with')
+
+  // A colour word in an attribute is a colour; the same word in a class is not.
+  assert.ok(/stroke="none"/.test(light), 'none is not a colour and is left alone')
+  assert.ok(/class="black-panel"/.test(light), 'a class that reads like a colour is not a colour')
+  assert.ok(!/fill="black"/.test(light), 'a named fill is recoloured')
+
+  console.log('backdrop: the bright room is the dim room with the lights on')
+}

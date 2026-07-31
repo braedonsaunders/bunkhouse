@@ -32,8 +32,10 @@ export type LobbyDepartment = {
   slug: string
   /** A built-in room, or null when this department has its own artwork. */
   sceneKind: SceneKind | null
-  /** Sanitised SVG — see lib/scene-svg.ts. Never raw model output. */
+  /** Sanitised SVG for the dark theme — see lib/scene-svg.ts. Never raw model output. */
   backdropSvg: string | null
+  /** The same room drawn for the light theme. */
+  backdropSvgLight: string | null
 }
 
 export type LobbyPerson = {
@@ -121,6 +123,9 @@ export function Lobby({
   const scene = React.useSyncExternalStore(subscribeToScene, readStoredScene, () => 'office' as SceneKind)
   const places = departments ?? []
   const here = places.find((d) => d.slug === departmentSlug) ?? places[0] ?? null
+  // Two drawings per room, one per theme: the palette is baked into the shapes,
+  // so recolouring is not an option and the floor picks the one that matches.
+  const backdrop = here ? (isDark ? here.backdropSvg : (here.backdropSvgLight ?? here.backdropSvg)) : null
   // A department drawn from its own artwork still needs a floor to walk on, so
   // it borrows the office ground until somebody says otherwise.
   const sceneKind: SceneKind = here ? (here.sceneKind ?? 'office') : scene
@@ -165,12 +170,12 @@ export function Lobby({
         characters={characters}
         ground={bunkhouseSceneGround(sceneKind)}
         art={
-          here?.backdropSvg ? (
+          backdrop ? (
             // Sanitised on the way in — lib/scene-svg.ts strips anything that
             // can act, so what reaches here is shapes and nothing else.
             <div
               className="h-full w-full [&>svg]:h-full [&>svg]:w-full"
-              dangerouslySetInnerHTML={{ __html: here.backdropSvg }}
+              dangerouslySetInnerHTML={{ __html: backdrop }}
             />
           ) : (
             <BunkhouseSceneArt kind={sceneKind} isDark={isDark} />

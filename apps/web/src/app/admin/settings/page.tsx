@@ -166,6 +166,7 @@ export default async function SettingsPage({
     name: department.name,
     sceneKind: department.sceneKind,
     backdropSvg: department.backdropSvg,
+    backdropSvgLight: department.backdropSvgLight,
     backdropPrompt: department.backdropPrompt,
     headcount: counts.get(department.id) ?? 0,
   }))

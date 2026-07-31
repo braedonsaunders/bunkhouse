@@ -240,6 +240,7 @@ export default async function HomePage({
           slug: place.slug,
           sceneKind: (place.sceneKind ?? null) as SceneKind | null,
           backdropSvg: place.backdropSvg,
+          backdropSvgLight: place.backdropSvgLight,
         }))}
         {...(departmentSlug ? { departmentSlug } : {})}
       >

@@ -22,12 +22,15 @@ import { draftBackdrop, saveBackdrop, clearBackdrop } from '../app/organization/
 export function BackdropStudio({
   departmentId,
   currentSvg,
+  currentSvgLight,
   currentPrompt,
   sceneKind,
   sceneKinds,
 }: {
   departmentId: string
   currentSvg: string | null
+  /** The same room drawn for the light theme. */
+  currentSvgLight: string | null
   currentPrompt: string | null
   /** The built-in room this department uses when it has no drawing of its own. */
   sceneKind: string | null
@@ -37,11 +40,14 @@ export function BackdropStudio({
   const isDark = resolvedTheme === 'dark'
   const [state, draw, drawing] = React.useActionState(
     draftBackdrop,
-    {} as { svg?: string; error?: string; prompt?: string },
+    {} as { dark?: string; light?: string; error?: string; prompt?: string },
   )
   const [dismissed, setDismissed] = React.useState(false)
-  const draft = dismissed ? null : (state.svg ?? null)
-  const showing = draft ?? currentSvg
+  // Both themes are drawn; which one is shown follows the interface, so the
+  // preview is what this person will actually see on the floor.
+  const draft = dismissed ? null : ((isDark ? state.dark : state.light) ?? state.dark ?? null)
+  const saved = (isDark ? currentSvg : (currentSvgLight ?? currentSvg)) ?? null
+  const showing = draft ?? saved
 
   return (
     <div className="space-y-4">
@@ -74,7 +80,8 @@ export function BackdropStudio({
           <div className="flex flex-wrap items-center gap-2">
             <form action={saveBackdrop} onSubmit={() => setDismissed(true)}>
               <input type="hidden" name="id" value={departmentId} />
-              <input type="hidden" name="svg" value={draft} />
+              <input type="hidden" name="svg" value={state.dark ?? ''} />
+              <input type="hidden" name="svgLight" value={state.light ?? ''} />
               <input type="hidden" name="prompt" value={state.prompt ?? ''} />
               <Button type="submit">Use this backdrop</Button>
             </form>
@@ -100,20 +107,17 @@ export function BackdropStudio({
             placeholder="a warm workshop with a pegboard of tools, a roller door and a workbench"
           />
           <p className="mt-1 text-xs text-fg-subtle">
-            Say what is in the room and what it feels like. Composition, palette and perspective are handled for you.
+            Say what is in the room and what it feels like. Composition, perspective and both palettes are handled for
+            you.
           </p>
         </div>
-        <div className="flex flex-wrap items-end gap-2">
-          <div>
-            <Label htmlFor="backdrop-theme">Light</Label>
-            <Select id="backdrop-theme" name="theme" defaultValue="dark" className="w-32">
-              <option value="dark">Dim</option>
-              <option value="light">Bright</option>
-            </Select>
-          </div>
+        <div className="flex flex-wrap items-center gap-3">
           <Button type="submit" disabled={drawing}>
             {drawing ? 'Drawing…' : draft || currentSvg ? 'Draw another' : 'Draw it'}
           </Button>
+          <span className="text-xs text-fg-subtle">
+            Drawn for both themes — you are seeing the {isDark ? 'dark' : 'light'} one.
+          </span>
         </div>
       </form>
 

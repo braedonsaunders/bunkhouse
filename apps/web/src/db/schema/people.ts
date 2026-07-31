@@ -160,8 +160,18 @@ export const departments = pgTable(
     slug: text('slug').notNull(),
     /** A built-in scene kind, or null when drawn from `backdropSvg`. */
     sceneKind: text('scene_kind'),
-    /** Sanitised SVG. Never rendered without having been through the allowlist. */
+    /**
+     * Sanitised SVG for the dark theme. Never rendered without having been
+     * through the allowlist.
+     */
     backdropSvg: text('backdrop_svg'),
+    /**
+     * The same room drawn for the light theme.
+     *
+     * Two drawings, not one recoloured: the palette is baked into the shapes,
+     * so a room drawn in near-black slate is unreadable on a light canvas.
+     */
+    backdropSvgLight: text('backdrop_svg_light'),
     /** What was asked for, so it can be tweaked rather than re-described. */
     backdropPrompt: text('backdrop_prompt'),
     position: integer('position').notNull().default(0),

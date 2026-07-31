@@ -6,7 +6,7 @@ import { departments, people } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
 import { setWandering } from '../../lib/departments'
-import { generateBackdrop, type BackdropTheme } from '../../lib/scene-backdrop'
+import { generateBackdrop } from '../../lib/scene-backdrop'
 import { sanitiseSceneSvg } from '../../lib/scene-svg'
 
 /**
@@ -49,8 +49,11 @@ export async function createDepartment(formData: FormData): Promise<void> {
     // created, reopened and drawn — sanitised here like any other saved
     // drawing, because it has travelled through a browser to get here.
     const drawn = String(formData.get('backdropSvg') ?? '')
+    const drawnLight = String(formData.get('backdropSvgLight') ?? '')
     const cleaned = drawn ? sanitiseSceneSvg(drawn) : null
     const svg = cleaned && 'svg' in cleaned ? cleaned.svg : null
+    const cleanedLight = drawnLight ? sanitiseSceneSvg(drawnLight) : null
+    const svgLight = cleanedLight && 'svg' in cleanedLight ? cleanedLight.svg : null
     await app.db.insert(departments).values({
       tenantId,
       name: name.slice(0, 60),
@@ -58,7 +61,13 @@ export async function createDepartment(formData: FormData): Promise<void> {
       // One or the other: a drawing means there is no built-in room to fall
       // back to, which is exactly what a null sceneKind means everywhere else.
       sceneKind: svg ? null : String(formData.get('sceneKind') ?? 'office') || 'office',
-      ...(svg ? { backdropSvg: svg, backdropPrompt: String(formData.get('backdropPrompt') ?? '').slice(0, 400) } : {}),
+      ...(svg
+        ? {
+            backdropSvg: svg,
+            backdropSvgLight: svgLight,
+            backdropPrompt: String(formData.get('backdropPrompt') ?? '').slice(0, 400),
+          }
+        : {}),
       position: (last?.max ?? -1) + 1,
     })
   })
@@ -165,19 +174,19 @@ export async function setWanderingEnabled(formData: FormData): Promise<void> {
 export async function draftBackdrop(
   _previous: unknown,
   formData: FormData,
-): Promise<{ svg?: string; error?: string; prompt?: string }> {
+): Promise<{ dark?: string; light?: string; error?: string; prompt?: string }> {
   const description = String(formData.get('description') ?? '')
-  const theme = (String(formData.get('theme') ?? 'dark') === 'light' ? 'light' : 'dark') as BackdropTheme
   const tenantId = await resolveTenantId()
-  const result = await generateBackdrop({ tenantId, description, theme })
+  const result = await generateBackdrop({ tenantId, description })
   if (!result.ok) return { error: result.reason, prompt: description }
-  return { svg: result.svg, prompt: description }
+  return { dark: result.dark, light: result.light, prompt: description }
 }
 
 /** Keep the drawing that was previewed. */
 export async function saveBackdrop(formData: FormData): Promise<void> {
   const id = String(formData.get('id') ?? '')
   const svg = String(formData.get('svg') ?? '')
+  const svgLight = String(formData.get('svgLight') ?? '')
   const prompt = String(formData.get('prompt') ?? '')
   if (!id || !svg) return
   // Sanitised AGAIN on the way in. The preview came from this server, but the
@@ -185,12 +194,20 @@ export async function saveBackdrop(formData: FormData): Promise<void> {
   // a browser is something the user could have replaced.
   const cleaned = sanitiseSceneSvg(svg)
   if (!('svg' in cleaned) || !cleaned.svg) return
+  const cleanedLight = svgLight ? sanitiseSceneSvg(svgLight) : null
+  const lightSvg = cleanedLight && 'svg' in cleanedLight ? cleanedLight.svg : null
   const tenantId = await resolveTenantId()
   const app = db()
   await app.withTenant(tenantId, async () => {
     await app.db
       .update(departments)
-      .set({ backdropSvg: cleaned.svg, backdropPrompt: prompt.slice(0, 400), sceneKind: null, updatedAt: new Date() })
+      .set({
+        backdropSvg: cleaned.svg,
+        backdropSvgLight: lightSvg,
+        backdropPrompt: prompt.slice(0, 400),
+        sceneKind: null,
+        updatedAt: new Date(),
+      })
       .where(and(eq(departments.id, id), eq(departments.tenantId, tenantId)))
   })
   revalidatePath('/organization/departments')
@@ -207,7 +224,7 @@ export async function clearBackdrop(formData: FormData): Promise<void> {
   await app.withTenant(tenantId, async () => {
     await app.db
       .update(departments)
-      .set({ backdropSvg: null, sceneKind, updatedAt: new Date() })
+      .set({ backdropSvg: null, backdropSvgLight: null, sceneKind, updatedAt: new Date() })
       .where(and(eq(departments.id, id), eq(departments.tenantId, tenantId)))
   })
   revalidatePath('/organization/departments')

@@ -13,6 +13,7 @@ import {
   Spinner,
   Switch,
   Textarea,
+  useTheme,
   type PagedColumn,
 } from '@appkit/ui'
 import { DoorOpen } from 'lucide-react'
@@ -31,6 +32,8 @@ export type DepartmentRow = {
   name: string
   sceneKind: string | null
   backdropSvg: string | null
+  /** The same room drawn for the light theme. */
+  backdropSvgLight: string | null
   backdropPrompt: string | null
   headcount: number
 }
@@ -59,6 +62,8 @@ export function DepartmentsSettings({
   wander: boolean
   sceneKinds: { value: string; label: string }[]
 }) {
+  const { resolvedTheme } = useTheme()
+  const isDark = resolvedTheme !== 'light'
   const [editing, setEditing] = React.useState<DepartmentRow | null>(null)
   const [creating, setCreating] = React.useState(false)
   const labelOf = React.useMemo(
@@ -89,7 +94,7 @@ export function DepartmentsSettings({
           <span className="flex items-center gap-2">
             <span
               className="h-8 w-14 shrink-0 overflow-hidden rounded border border-border [&>svg]:h-full [&>svg]:w-full"
-              dangerouslySetInnerHTML={{ __html: row.backdropSvg }}
+              dangerouslySetInnerHTML={{ __html: isDark ? row.backdropSvg : (row.backdropSvgLight ?? row.backdropSvg) }}
             />
             <span className="text-fg-muted">Drawn</span>
           </span>
@@ -176,7 +181,12 @@ export function DepartmentsSettings({
         }
       />
 
-      <CreateDepartmentDrawer open={creating} onClose={() => setCreating(false)} sceneKinds={sceneKinds} />
+      <CreateDepartmentDrawer
+        open={creating}
+        onClose={() => setCreating(false)}
+        sceneKinds={sceneKinds}
+        isDark={isDark}
+      />
       <EditDepartmentDrawer
         department={editing}
         onClose={() => setEditing(null)}
@@ -202,15 +212,16 @@ function CreateDepartmentDrawer({
   open,
   onClose,
   sceneKinds,
+  isDark,
 }: {
   open: boolean
   onClose: () => void
   sceneKinds: { value: string; label: string }[]
+  isDark: boolean
 }) {
   const [mode, setMode] = React.useState<'builtin' | 'drawn'>('builtin')
   const [description, setDescription] = React.useState('')
-  const [theme, setTheme] = React.useState('dark')
-  const [draft, setDraft] = React.useState<string | null>(null)
+  const [draft, setDraft] = React.useState<{ dark: string; light: string } | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [drawing, startDrawing] = React.useTransition()
 
@@ -226,10 +237,9 @@ function CreateDepartmentDrawer({
     startDrawing(async () => {
       const payload = new FormData()
       payload.set('description', description)
-      payload.set('theme', theme)
       const result = await draftBackdrop(null, payload)
       if (result.error) setError(result.error)
-      setDraft(result.svg ?? null)
+      setDraft(result.dark && result.light ? { dark: result.dark, light: result.light } : null)
     })
   }
 
@@ -292,7 +302,7 @@ function CreateDepartmentDrawer({
                 {draft ? (
                   <div
                     className="h-full w-full [&>svg]:h-full [&>svg]:w-full"
-                    dangerouslySetInnerHTML={{ __html: draft }}
+                    dangerouslySetInnerHTML={{ __html: isDark ? draft.dark : draft.light }}
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-fg-muted">
@@ -317,23 +327,25 @@ function CreateDepartmentDrawer({
                 onChange={(event) => setDescription(event.target.value)}
                 placeholder="a warm workshop with a pegboard of tools, a roller door and a workbench"
               />
-              <div className="flex flex-wrap items-end gap-2">
-                <Select
-                  value={theme}
-                  onChange={(event) => setTheme(event.target.value)}
-                  aria-label="Light"
-                  className="w-32"
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={drawIt}
+                  disabled={drawing || description.trim().length < 3}
                 >
-                  <option value="dark">Dim</option>
-                  <option value="light">Bright</option>
-                </Select>
-                <Button type="button" variant="outline" onClick={drawIt} disabled={drawing || description.trim().length < 3}>
                   {drawing ? 'Drawing…' : draft ? 'Draw another' : 'Draw it'}
                 </Button>
+                <span className="text-xs text-fg-subtle">Drawn for both themes.</span>
               </div>
 
               {/* The drawing rides along with the create submit. */}
-              {draft ? <input type="hidden" name="backdropSvg" value={draft} /> : null}
+              {draft ? (
+                <>
+                  <input type="hidden" name="backdropSvg" value={draft.dark} />
+                  <input type="hidden" name="backdropSvgLight" value={draft.light} />
+                </>
+              ) : null}
               <input type="hidden" name="backdropPrompt" value={description} />
             </div>
           )}
@@ -404,6 +416,7 @@ function EditDepartmentDrawer({
             key={department.id}
             departmentId={department.id}
             currentSvg={department.backdropSvg}
+            currentSvgLight={department.backdropSvgLight}
             currentPrompt={department.backdropPrompt}
             sceneKind={department.sceneKind}
             sceneKinds={sceneKinds}

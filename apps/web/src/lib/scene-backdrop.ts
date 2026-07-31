@@ -3,6 +3,8 @@ import { generateText } from 'ai'
 import { getModel } from '@appkit/ai'
 import { resolveProviderAiConfig, listAiProviders } from './ai'
 import { sanitiseSceneSvg } from './scene-svg'
+import { toLightBackdrop } from './scene-recolour'
+import { PALETTES, type BackdropTheme } from './scene-palette'
 
 /**
  * Having a room drawn.
@@ -33,23 +35,6 @@ const VIEWBOX = '0 0 1600 900'
  */
 const HORIZON = 0.52
 
-const PALETTES = {
-  dark: {
-    note: 'a dim room, lit from within',
-    colours: ['#0b1220', '#111c30', '#1a2740', '#24344f', '#33455f'],
-    /** What glows. A flat drawing needs somewhere for the eye to land. */
-    lit: '#8fc7f0',
-    accent: '#f5a623',
-  },
-  light: {
-    note: 'a bright room, daylight',
-    colours: ['#eef2f7', '#e2e8f0', '#cbd5e1', '#aab7c6', '#8b9aad'],
-    lit: '#ffffff',
-    accent: '#f5a623',
-  },
-} as const
-
-export type BackdropTheme = keyof typeof PALETTES
 
 function brief(description: string, theme: BackdropTheme): string {
   const palette = PALETTES[theme]
@@ -80,7 +65,7 @@ Return ONLY the SVG markup. No prose, no explanation, no code fence.`
 }
 
 export type BackdropResult =
-  | { ok: true; svg: string; removed: string[] }
+  | { ok: true; dark: string; light: string; removed: string[] }
   | { ok: false; reason: string }
 
 /**
@@ -94,7 +79,6 @@ export type BackdropResult =
 export async function generateBackdrop(args: {
   tenantId: string
   description: string
-  theme?: BackdropTheme
 }): Promise<BackdropResult> {
   const description = args.description.trim()
   if (description.length < 3) return { ok: false, reason: 'Say a little more about the room.' }
@@ -107,35 +91,41 @@ export async function generateBackdrop(args: {
   const model = config ? (getModel(config, 'smart') ?? getModel(config, 'fast')) : null
   if (!model) return { ok: false, reason: 'That provider has no model assigned that can draw this.' }
 
-  let text: string
-  try {
-    const result = await generateText({
-      model,
-      messages: [{ role: 'user', content: brief(description, args.theme ?? 'dark') }],
+  /** One theme's worth. */
+  const drawOne = async (theme: BackdropTheme): Promise<{ svg: string; removed: string[] } | { error: string }> => {
+    let text: string
+    try {
+      const result = await generateText({
+        model,
+        messages: [{ role: 'user', content: brief(description, theme) }],
+      })
+      text = result.text
+    } catch (error) {
+      return { error: `The model could not draw it: ${error instanceof Error ? error.message : String(error)}` }
+    }
+    const cleaned = sanitiseSceneSvg(text)
+    if (!('svg' in cleaned) || !cleaned.svg) {
+      return { error: 'reason' in cleaned ? cleaned.reason : 'Nothing drawable came back.' }
+    }
+    // A backdrop that ignored the viewBox would be stretched or cropped wrongly
+    // on the stage, so it is corrected rather than rejected — the shapes are
+    // usually fine even when the frame is not.
+    const svg = cleaned.svg.replace(/<svg\b[^>]*>/i, (open) => {
+      const withBox = /viewBox\s*=/.test(open) ? open : open.replace(/<svg/i, `<svg viewBox="${VIEWBOX}"`)
+      return withBox
+        .replace(/\swidth\s*=\s*"[^"]*"/i, '')
+        .replace(/\sheight\s*=\s*"[^"]*"/i, '')
+        .replace(/<svg/i, '<svg preserveAspectRatio="xMidYMid slice"')
     })
-    text = result.text
-  } catch (error) {
-    return { ok: false, reason: `The model could not draw it: ${error instanceof Error ? error.message : String(error)}` }
+    const shapes = (svg.match(/<(rect|path|circle|ellipse|polygon|polyline|line)\b/g) ?? []).length
+    if (shapes < 6) return { error: 'That came back nearly empty — try describing the room differently.' }
+    return { svg, removed: cleaned.removed }
   }
 
-  const cleaned = sanitiseSceneSvg(text)
-  if (!('svg' in cleaned) || !cleaned.svg) {
-    return { ok: false, reason: 'reason' in cleaned ? cleaned.reason : 'Nothing drawable came back.' }
-  }
+  // Drawn once, in the dim palette, then recoloured. Drawing it twice gave two
+  // different rooms — see toLightBackdrop.
+  const dark = await drawOne('dark')
+  if ('error' in dark) return { ok: false, reason: dark.error }
 
-  // A backdrop that ignored the viewBox would be stretched or cropped wrongly
-  // on the stage, so it is corrected rather than rejected — the shapes are
-  // usually fine even when the frame is not.
-  const svg = cleaned.svg.replace(/<svg\b[^>]*>/i, (open) => {
-    const withBox = /viewBox\s*=/.test(open) ? open : open.replace(/<svg/i, `<svg viewBox="${VIEWBOX}"`)
-    return withBox
-      .replace(/\swidth\s*=\s*"[^"]*"/i, '')
-      .replace(/\sheight\s*=\s*"[^"]*"/i, '')
-      .replace(/<svg/i, '<svg preserveAspectRatio="xMidYMid slice"')
-  })
-
-  const shapes = (svg.match(/<(rect|path|circle|ellipse|polygon|polyline|line)\b/g) ?? []).length
-  if (shapes < 6) return { ok: false, reason: 'That came back nearly empty — try describing the room differently.' }
-
-  return { ok: true, svg, removed: cleaned.removed }
+  return { ok: true, dark: dark.svg, light: toLightBackdrop(dark.svg), removed: dark.removed }
 }
