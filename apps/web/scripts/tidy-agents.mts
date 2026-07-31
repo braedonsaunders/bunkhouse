@@ -118,15 +118,26 @@ console.log(`switched off ${paused.length} self-scheduled duty(s) — still list
 for (const duty of paused) console.log(`  · ${duty.title}`)
 
 // Approvals for work that no longer exists would otherwise sit in the queue
-// for ever, and every one of them is noise in front of a real decision.
+// for ever, and every one of them is noise in front of a real decision. The
+// link is through the run's own trigger to the assignment that was cancelled —
+// cancelling the work does not touch the run it was going to use.
+//
+// 'rejected' is what this enum calls it. 'declined' is not a value and the
+// first version of this failed on exactly that, after the other three
+// statements had already gone through.
 const dropped = await rows(sql`
-  update approvals a set status = 'declined',
-      decision_note = 'Declined during housekeeping: the work it belonged to was cancelled.',
+  update approvals set status = 'rejected',
+      decision_note = 'Rejected during housekeeping: the work it belonged to was cancelled.',
       decided_at = now()
-  where a.status = 'pending'
-    and exists (select 1 from runs r where r.id = a.run_id and r.status in ('failed', 'cancelled'))
-  returning a.id
+  where status = 'pending'
+    and exists (
+      select 1 from runs r join assignments a on a.id = (r.trigger ->> 'assignmentId')::uuid
+      where r.id = approvals.run_id
+        and r.trigger ->> 'type' = 'assignment'
+        and a.status = 'cancelled'
+    )
+  returning id
 `)
-console.log(`declined ${dropped.length} approval(s) whose work is already gone`)
+console.log(`rejected ${dropped.length} approval(s) whose work is already gone`)
 console.log('\nDone. Nothing was deleted.')
 process.exit(0)
