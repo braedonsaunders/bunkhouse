@@ -92,8 +92,20 @@ show(
 if (PURGE) {
   const approvals = await rows(sql`delete from approvals where status = 'pending' returning id`)
   const work = await rows(sql`delete from assignments returning id`)
+  // The runs themselves, which is what the observatory actually lists. Deleting
+  // the assignment and the approval left thirteen runs parked in
+  // waiting_approval for ever — nothing was going to decide them, because the
+  // thing they were waiting on no longer existed, and they sat on the Live tab
+  // reporting elapsed time against work that had been cancelled hours before.
+  const stuck = await rows(sql`
+    update runs set status = 'cancelled', finished_at = now(),
+        summary = coalesce(nullif(summary, ''), 'Cancelled during a development reset.')
+    where status in ('running', 'waiting_approval', 'waiting_reply')
+    returning id
+  `)
   console.log(`\nPURGED: ${work.length} assignment(s) and ${approvals.length} pending approval(s) DELETED`)
-  console.log('Runs, notes and the rest are untouched.')
+  console.log(`CLOSED: ${stuck.length} run(s) that were still open — they move to History`)
+  console.log('Notes, run events and everything else are untouched.')
   process.exit(0)
 }
 
