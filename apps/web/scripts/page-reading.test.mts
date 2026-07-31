@@ -333,3 +333,105 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
     `provenance: one ask may spend $${MAX_SPEND_PER_ROOT_USD} across ${MAX_DERIVED_RUNS_PER_ROOT} runs; unasked work $${MAX_SELF_DIRECTED_USD_PER_DAY}/day`,
   )
 }
+
+// --- who is where, and does it hold still ------------------------------------
+// The floor re-renders constantly. A whereabouts that rolled dice per render
+// would teleport the whole company several times a second — the jumping-
+// characters bug, but continuous. So it is a pure function of who, when, and
+// where they might go.
+{
+  const { whereaboutsOf, peopleInDepartment, WANDER_SLOT_MINUTES } = await import('../src/lib/whereabouts')
+  const departments = ['floor', 'exec', 'warehouse', 'roof']
+  const at = (iso: string) => new Date(iso)
+
+  // Same person, same slot, called a hundred times: the same answer every time.
+  const answers = new Set(
+    Array.from({ length: 100 }, () =>
+      JSON.stringify(
+        whereaboutsOf({
+          personId: 'bill',
+          homeId: 'floor',
+          departmentIds: departments,
+          now: at('2026-07-31T09:03:00Z'),
+          wander: true,
+        }),
+      ),
+    ),
+  )
+  assert.equal(answers.size, 1, 'the same moment always gives the same answer')
+
+  // And still the same a few seconds later, inside the same slot.
+  assert.deepEqual(
+    whereaboutsOf({ personId: 'bill', homeId: 'floor', departmentIds: departments, now: at('2026-07-31T09:03:00Z'), wander: true }),
+    whereaboutsOf({ personId: 'bill', homeId: 'floor', departmentIds: departments, now: at('2026-07-31T09:06:59Z'), wander: true }),
+    'nobody moves mid-slot',
+  )
+
+  // Turned off, everybody is at their own desk, always.
+  for (const hour of ['00', '06', '13', '21']) {
+    const still = whereaboutsOf({
+      personId: 'dana',
+      homeId: 'exec',
+      departmentIds: departments,
+      now: at(`2026-07-31T${hour}:00:00Z`),
+      wander: false,
+    })
+    assert.deepEqual(still, { departmentId: 'exec', visiting: false }, 'wandering off means nobody wanders')
+  }
+
+  // Somebody with no desk is shown wherever you are looking, rather than
+  // vanishing from every floor — which would read as a bug, not a person.
+  const nomad = peopleInDepartment({
+    people: [{ id: 'x', departmentId: null }],
+    departmentId: 'warehouse',
+    departmentIds: departments,
+    now: at('2026-07-31T09:03:00Z'),
+    wander: true,
+  })
+  assert.equal(nomad.length, 1, 'no desk means everywhere, not nowhere')
+
+  // Over a working day somebody does actually move, and never to their own desk
+  // when they do — otherwise "visiting" would be a lie.
+  const slots = Array.from({ length: Math.floor((8 * 60) / WANDER_SLOT_MINUTES) }, (_, i) =>
+    whereaboutsOf({
+      personId: 'jimmy',
+      homeId: 'floor',
+      departmentIds: departments,
+      now: new Date(Date.UTC(2026, 6, 31, 9, i * WANDER_SLOT_MINUTES)),
+      wander: true,
+    }),
+  )
+  const away = slots.filter((s) => s.visiting)
+  assert.ok(away.length > 0, 'somebody leaves their desk at some point in a day')
+  assert.ok(away.length < slots.length / 2, 'but they are mostly where they belong')
+  assert.ok(
+    away.every((s) => s.departmentId !== 'floor'),
+    'visiting always means somewhere that is not home',
+  )
+  console.log(`whereabouts: stable within a ${WANDER_SLOT_MINUTES}-minute slot, ${away.length}/${slots.length} slots away`)
+}
+
+// --- a backdrop a model drew cannot run anything -----------------------------
+{
+  const { sanitiseSceneSvg } = await import('../src/lib/scene-svg')
+  const ok = sanitiseSceneSvg('<svg viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" fill="#333"/></svg>')
+  assert.ok('svg' in ok && ok.svg, 'an ordinary drawing survives')
+  assert.match(ok.svg!, /<rect/)
+
+  const attacks: [string, string][] = [
+    ['script tag', '<svg><script>alert(1)</script><rect width="4" height="4"/></svg>'],
+    ['event handler', '<svg><rect width="4" height="4" onload="alert(1)"/></svg>'],
+    ['foreignObject', '<svg><foreignObject><body onload="alert(1)"/></foreignObject><rect width="4" height="4"/></svg>'],
+    ['javascript href', '<svg><a href="javascript:alert(1)"><rect width="4" height="4"/></a></svg>'],
+    ['remote image', '<svg><image href="https://evil.example/x.svg"/><rect width="4" height="4"/></svg>'],
+    ['style import', '<svg><rect width="4" height="4" style="background:url(https://evil.example/x)"/></svg>'],
+    ['comment smuggling', '<svg><!--<script>alert(1)</script>--><rect width="4" height="4"/></svg>'],
+  ]
+  for (const [name, attack] of attacks) {
+    const cleaned = sanitiseSceneSvg(attack)
+    const out = 'svg' in cleaned && cleaned.svg ? cleaned.svg : ''
+    assert.doesNotMatch(out, /<script|onload|foreignObject|javascript:|evil\.example/i, `${name} does not survive`)
+  }
+  assert.ok('reason' in sanitiseSceneSvg('just some prose'), 'prose is not a drawing')
+  console.log('backdrop: a model drawing cannot carry anything that runs')
+}

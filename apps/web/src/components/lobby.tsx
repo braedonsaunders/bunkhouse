@@ -25,9 +25,22 @@ function paceFor(id: string): number {
   return 0.8 + (hash / 1000) * 0.5
 }
 
+/** A place in the company, as the floor needs it. */
+export type LobbyDepartment = {
+  id: string
+  name: string
+  slug: string
+  /** A built-in room, or null when this department has its own artwork. */
+  sceneKind: SceneKind | null
+  /** Sanitised SVG — see lib/scene-svg.ts. Never raw model output. */
+  backdropSvg: string | null
+}
+
 export type LobbyPerson = {
   id: string
   name: string
+  /** True when they are somewhere that is not their own department today. */
+  visiting?: boolean
   /** Their one figure. Anyone without a composition still walks, as initials. */
   composition?: AvatarComposition
   /** Their role, shown beside the name on hover. */
@@ -77,6 +90,8 @@ export function Lobby({
   categories,
   children,
   selectBasePath = '/organization',
+  departments,
+  departmentSlug,
 }: {
   people: LobbyPerson[]
   parts: AvatarPart[]
@@ -88,6 +103,13 @@ export function Lobby({
    * the flyout opens in place, over the floor, with no page change beneath it.
    */
   selectBasePath?: string
+  /**
+   * The company's places. Empty falls back to the old wallpaper behaviour, so a
+   * deployment that has not migrated still gets a floor.
+   */
+  departments?: LobbyDepartment[]
+  /** Which one is being looked at; the page owns it so it survives navigation. */
+  departmentSlug?: string
 }) {
   const router = useRouter()
   const { resolvedTheme } = useTheme()
@@ -97,6 +119,11 @@ export function Lobby({
   // like a wallpaper, and comes back on the next visit. Read through a store
   // subscription so the server render (no localStorage) hydrates cleanly.
   const scene = React.useSyncExternalStore(subscribeToScene, readStoredScene, () => 'office' as SceneKind)
+  const places = departments ?? []
+  const here = places.find((d) => d.slug === departmentSlug) ?? places[0] ?? null
+  // A department drawn from its own artwork still needs a floor to walk on, so
+  // it borrows the office ground until somebody says otherwise.
+  const sceneKind: SceneKind = here ? (here.sceneKind ?? 'office') : scene
   const pickScene = (kind: SceneKind) => {
     window.localStorage.setItem(SCENE_STORAGE_KEY, kind)
     window.dispatchEvent(new Event(SCENE_CHANGE_EVENT))
@@ -136,8 +163,20 @@ export function Lobby({
     <div className="isolate relative h-full min-h-0">
       <CharacterScene
         characters={characters}
-        ground={bunkhouseSceneGround(scene)}
-        art={<BunkhouseSceneArt kind={scene} isDark={isDark} />}
+        ground={bunkhouseSceneGround(sceneKind)}
+        art={
+          here?.backdropSvg ? (
+            // Sanitised on the way in — lib/scene-svg.ts strips anything that
+            // can act, so what reaches here is shapes and nothing else.
+            <div
+              className="h-full w-full [&>svg]:h-full [&>svg]:w-full"
+              // eslint-disable-next-line react/no-danger
+              dangerouslySetInnerHTML={{ __html: here.backdropSvg }}
+            />
+          ) : (
+            <BunkhouseSceneArt kind={sceneKind} isDark={isDark} />
+          )
+        }
         height="100%"
         baseCharacterSize={170}
         className="rounded-none border-0"
@@ -148,22 +187,39 @@ export function Lobby({
       />
       {children ? <div className="pointer-events-none absolute inset-0 z-[92]">{children}</div> : null}
       <div className="bh-hud absolute bottom-3 left-1/2 z-[95] flex -translate-x-1/2 items-center gap-1 rounded-full p-1">
-        {SCENE_KINDS.map((kind) => (
-          <button
-            key={kind}
-            type="button"
-            onClick={() => pickScene(kind)}
-            aria-pressed={scene === kind}
-            title={SCENE_LABELS[kind]}
-            className={
-              scene === kind
-                ? 'rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-fg'
-                : 'rounded-full px-3 py-1 text-xs text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg'
-            }
-          >
-            {SCENE_LABELS[kind]}
-          </button>
-        ))}
+        {places.length > 0
+          ? places.map((place) => (
+              <button
+                key={place.id}
+                type="button"
+                onClick={() => router.push(`${selectBasePath}?dept=${place.slug}`, { scroll: false })}
+                aria-pressed={here?.id === place.id}
+                title={place.name}
+                className={
+                  here?.id === place.id
+                    ? 'rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-fg'
+                    : 'rounded-full px-3 py-1 text-xs text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg'
+                }
+              >
+                {place.name}
+              </button>
+            ))
+          : SCENE_KINDS.map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => pickScene(kind)}
+                aria-pressed={scene === kind}
+                title={SCENE_LABELS[kind]}
+                className={
+                  scene === kind
+                    ? 'rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-fg'
+                    : 'rounded-full px-3 py-1 text-xs text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg'
+                }
+              >
+                {SCENE_LABELS[kind]}
+              </button>
+            ))}
       </div>
     </div>
   )

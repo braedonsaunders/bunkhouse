@@ -6,6 +6,9 @@ import { db } from '../db/client'
 import { resolveTenantId } from '../lib/tenant'
 import { Lobby, type LobbyPerson } from '../components/lobby'
 import { describeLatestEvent, sceneStatus } from '../lib/scene-activity'
+import { listDepartments, wanderingEnabled } from '../lib/departments'
+import { peopleInDepartment } from '../lib/whereabouts'
+import type { SceneKind } from '../components/scene-art'
 import { listAvatarCompositions, loadAvatarPartLibrary } from '../lib/avatars'
 import { AVATAR_PART_CATEGORIES } from '../lib/avatar-parts'
 import { personDrawer } from './organization/person-record'
@@ -21,7 +24,7 @@ export const dynamic = 'force-dynamic'
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ person?: string }>
+  searchParams: Promise<{ person?: string; dept?: string }>
 }) {
   const params = await searchParams
   const selectedId = params.person
@@ -94,14 +97,33 @@ export default async function HomePage({
     listAvatarCompositions(tenantId),
     loadAvatarPartLibrary(tenantId),
   ])
+  // The company's places, and whether anybody wanders between them today.
+  const [places, wander] = await Promise.all([listDepartments(tenantId), wanderingEnabled(tenantId)])
+  const departmentSlug = typeof params.dept === 'string' ? params.dept : (places[0]?.slug ?? '')
+  const viewing = places.find((place) => place.slug === departmentSlug) ?? places[0] ?? null
+
   const busy = new Map(data.busyIds.map((row) => [row.personId, row]))
-  const lobby: LobbyPerson[] = agents.map((agent) => {
+  // Who is on this floor at this moment — home department, plus whoever has
+  // wandered in. Stable within a slot, so the crowd does not reshuffle on
+  // every re-render (see lib/whereabouts.ts).
+  const present = viewing
+    ? peopleInDepartment({
+        people: agents.map((agent) => ({ ...agent, departmentId: agent.departmentId ?? null })),
+        departmentId: viewing.id,
+        departmentIds: places.map((place) => place.id),
+        now: new Date(),
+        wander,
+      })
+    : agents.map((agent) => ({ ...agent, visiting: false }))
+
+  const lobby: LobbyPerson[] = present.map((agent) => {
     const now = busy.get(agent.id)
     const doing = now?.eventKind ? describeLatestEvent(now.eventKind, now.eventPayload ?? {}) : null
     return {
       id: agent.id,
       name: agent.name,
       title: agent.title,
+      ...(agent.visiting ? { visiting: true } : {}),
       ...(compositions.has(agent.id) ? { composition: compositions.get(agent.id)! } : {}),
       // One word and a kind of motion. The sentence goes in the bubble.
       status: now
@@ -207,7 +229,20 @@ export default async function HomePage({
 
   return (
     <div className="h-full min-h-0">
-      <Lobby people={lobby} parts={partLibrary} categories={AVATAR_PART_CATEGORIES} selectBasePath="/">
+      <Lobby
+        people={lobby}
+        parts={partLibrary}
+        categories={AVATAR_PART_CATEGORIES}
+        selectBasePath="/"
+        departments={places.map((place) => ({
+          id: place.id,
+          name: place.name,
+          slug: place.slug,
+          sceneKind: (place.sceneKind ?? null) as SceneKind | null,
+          backdropSvg: place.backdropSvg,
+        }))}
+        {...(departmentSlug ? { departmentSlug } : {})}
+      >
         {widgets}
       </Lobby>
       {/* The record flyout opens over the floor — same drawer as the

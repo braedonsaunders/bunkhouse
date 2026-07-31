@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { date, foreignKey, index, jsonb, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { date, foreignKey, index, integer, jsonb, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { auditColumns, id, tenantRef } from '@appkit/db'
 import type { AgentVoiceConfig } from '@appkit/voice'
 
@@ -113,6 +113,8 @@ export const people = pgTable(
      *  where set; desk phones reach the agent by dialing it. */
     extension: text('extension'),
     proactivity: proactivityMode('proactivity').default('duties'),
+    /** Where this agent normally works. Null means no fixed desk. */
+    departmentId: uuid('department_id'),
     inboundPolicy: inboundPolicy('inbound_policy').default('staff_only'),
     /**
      * When this agent works. Null = always on. With hours set, inbound email
@@ -134,4 +136,39 @@ export const people = pgTable(
   ],
 )
 
-export const PEOPLE_TENANT_TABLES = ['people'] as const
+export const PEOPLE_TENANT_TABLES = ['people', 'departments'] as const
+
+/**
+ * A place in the company, and what it looks like.
+ *
+ * The scene switcher used to be a wallpaper picker — six hardcoded rooms in
+ * localStorage, every agent drawn on every one. A company has places, people
+ * belong to them, and who-is-where is the entire reason to look at a floor.
+ *
+ * The backdrop is either one of the built-in scene kinds, which keep working
+ * exactly as before and seed the defaults, or artwork generated for this
+ * department. Generated SVG is sanitised before it is stored — see
+ * `lib/scene-svg.ts` — because a model writing markup that lands in a trusted
+ * origin is an XSS hole unless somebody makes it not one.
+ */
+export const departments = pgTable(
+  'departments',
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    /** A built-in scene kind, or null when drawn from `backdropSvg`. */
+    sceneKind: text('scene_kind'),
+    /** Sanitised SVG. Never rendered without having been through the allowlist. */
+    backdropSvg: text('backdrop_svg'),
+    /** What was asked for, so it can be tweaked rather than re-described. */
+    backdropPrompt: text('backdrop_prompt'),
+    position: integer('position').notNull().default(0),
+    ...auditColumns,
+  },
+  (t) => [
+    uniqueIndex('departments_slug_key').on(t.tenantId, t.slug),
+    index('departments_order_idx').on(t.tenantId, t.position),
+  ],
+)
