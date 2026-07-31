@@ -170,7 +170,6 @@ export function Lobby({
             // can act, so what reaches here is shapes and nothing else.
             <div
               className="h-full w-full [&>svg]:h-full [&>svg]:w-full"
-              // eslint-disable-next-line react/no-danger
               dangerouslySetInnerHTML={{ __html: here.backdropSvg }}
             />
           ) : (

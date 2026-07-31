@@ -26,6 +26,7 @@ import {
   LEVEL_BADGES,
 } from '../../lib/autonomy'
 import { assignedModelsSummary } from '../../lib/model-assignment'
+import { setPersonDepartment } from './department-actions'
 import { setAutonomy } from './actions'
 
 type Person = typeof people.$inferSelect
@@ -34,13 +35,43 @@ type Person = typeof people.$inferSelect
 export function OverviewSection({
   person,
   roster,
+  departments,
 }: {
   person: Person
   roster: { id: string; name: string; title: string }[]
+  /** The company's places, for the desk picker below. */
+  departments?: { id: string; name: string }[]
 }) {
   const isAgent = person.kind === 'agent'
   return (
     <div className="space-y-4">
+      {isAgent && departments && departments.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Desk</CardTitle>
+            <CardDescription>
+              Where {person.name.split(' ')[0]} normally works. They appear on that department&apos;s floor — and, if
+              wandering is on, occasionally somewhere else. Without a desk they show up everywhere.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form action={setPersonDepartment} className="flex flex-wrap items-end gap-2">
+              <input type="hidden" name="personId" value={person.id} />
+              <Select name="departmentId" defaultValue={person.departmentId ?? ''} className="w-56">
+                <option value="">No fixed desk</option>
+                {departments.map((department) => (
+                  <option key={department.id} value={department.id}>
+                    {department.name}
+                  </option>
+                ))}
+              </Select>
+              <Button type="submit" size="sm" variant="outline">
+                Save
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      ) : null}
       <Card>
         <CardHeader>
           <CardTitle>Record</CardTitle>

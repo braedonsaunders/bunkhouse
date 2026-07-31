@@ -10,7 +10,7 @@ import {
 } from '@appkit/voice'
 import { Pagination, parsePrefixedListParams, type ListSearchParams } from '@appkit/ui'
 import { isAiProvider, providerSpec } from '@appkit/ai'
-import { approvals, autonomySettings, duties, memories, people, runs, tokenSpend } from '../../db/schema'
+import { approvals, autonomySettings, departments, duties, memories, people, runs, tokenSpend } from '../../db/schema'
 import { db } from '../../db/client'
 import { listAiProviders } from '../../lib/ai'
 import { getVoiceProviders, listRealtimeCapableProviders } from '../../lib/voice'
@@ -135,6 +135,11 @@ export async function personDrawer({
       .map(([category]) => category)
     return {
       notesTotal,
+      // The company's places, for the desk picker on the record.
+      departments: await app.db
+        .select({ id: departments.id, name: departments.name })
+        .from(departments)
+        .orderBy(asc(departments.position), asc(departments.name)),
       personDuties,
       dial,
       notes,
@@ -179,7 +184,7 @@ export async function personDrawer({
       key: 'overview',
       label: 'Overview',
       content: (
-        <OverviewSection person={selected} roster={rosterOptions} />
+        <OverviewSection person={selected} roster={rosterOptions} departments={detail.departments} />
       ),
     },
     {
