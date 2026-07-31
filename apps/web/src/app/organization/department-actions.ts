@@ -45,11 +45,20 @@ export async function createDepartment(formData: FormData): Promise<void> {
     )
     let slug = base
     for (let n = 2; taken.has(slug); n += 1) slug = `${base}-${n}`
+    // A department can be born with its own backdrop rather than having to be
+    // created, reopened and drawn — sanitised here like any other saved
+    // drawing, because it has travelled through a browser to get here.
+    const drawn = String(formData.get('backdropSvg') ?? '')
+    const cleaned = drawn ? sanitiseSceneSvg(drawn) : null
+    const svg = cleaned && 'svg' in cleaned ? cleaned.svg : null
     await app.db.insert(departments).values({
       tenantId,
       name: name.slice(0, 60),
       slug,
-      sceneKind: String(formData.get('sceneKind') ?? 'office') || 'office',
+      // One or the other: a drawing means there is no built-in room to fall
+      // back to, which is exactly what a null sceneKind means everywhere else.
+      sceneKind: svg ? null : String(formData.get('sceneKind') ?? 'office') || 'office',
+      ...(svg ? { backdropSvg: svg, backdropPrompt: String(formData.get('backdropPrompt') ?? '').slice(0, 400) } : {}),
       position: (last?.max ?? -1) + 1,
     })
   })

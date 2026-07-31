@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import {
+  Alert,
   Button,
   Drawer,
   EmptyState,
@@ -9,13 +10,16 @@ import {
   Label,
   PagedTable,
   Select,
+  Spinner,
   Switch,
+  Textarea,
   type PagedColumn,
 } from '@appkit/ui'
 import { DoorOpen } from 'lucide-react'
 import { BackdropStudio } from './backdrop-studio'
 import {
   createDepartment,
+  draftBackdrop,
   deleteDepartment,
   moveDepartment,
   renameDepartment,
@@ -183,6 +187,17 @@ export function DepartmentsSettings({
   )
 }
 
+/**
+ * A new department, with its backdrop chosen at the same time.
+ *
+ * Making somebody create a department, reopen it and only then describe the
+ * room was a two-step where one would do — and it read as though drawing were
+ * an afterthought rather than the point.
+ *
+ * The draw call is invoked directly rather than through a nested form, because
+ * a form inside a form is not a thing: the create form owns the submit, and the
+ * drawing arrives as state that rides along in a hidden field.
+ */
 function CreateDepartmentDrawer({
   open,
   onClose,
@@ -192,34 +207,152 @@ function CreateDepartmentDrawer({
   onClose: () => void
   sceneKinds: { value: string; label: string }[]
 }) {
+  const [mode, setMode] = React.useState<'builtin' | 'drawn'>('builtin')
+  const [description, setDescription] = React.useState('')
+  const [theme, setTheme] = React.useState('dark')
+  const [draft, setDraft] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [drawing, startDrawing] = React.useTransition()
+
+  const reset = () => {
+    setMode('builtin')
+    setDescription('')
+    setDraft(null)
+    setError(null)
+  }
+
+  const drawIt = () => {
+    setError(null)
+    startDrawing(async () => {
+      const payload = new FormData()
+      payload.set('description', description)
+      payload.set('theme', theme)
+      const result = await draftBackdrop(null, payload)
+      if (result.error) setError(result.error)
+      setDraft(result.svg ?? null)
+    })
+  }
+
   return (
     <Drawer
       open={open}
-      onClose={onClose}
+      onClose={() => {
+        reset()
+        onClose()
+      }}
       title="Add a department"
-      description="A place in the company. Pick one of the built-in rooms now — you can have a backdrop drawn for it afterwards."
-      size="md"
+      description="A place in the company. Use one of the built-in rooms, or describe one and have it drawn."
+      size="lg"
     >
-      <form action={createDepartment} className="space-y-4" onSubmit={() => onClose()}>
+      <form
+        action={createDepartment}
+        className="space-y-5"
+        onSubmit={() => {
+          onClose()
+          reset()
+        }}
+      >
         <div>
           <Label htmlFor="dept-name">Name</Label>
           <Input id="dept-name" name="name" placeholder="Workshop" maxLength={60} required autoFocus />
         </div>
-        <div>
-          <Label htmlFor="dept-kind">Looks like</Label>
-          <Select id="dept-kind" name="sceneKind" defaultValue="office">
-            {sceneKinds.map((kind) => (
-              <option key={kind.value} value={kind.value}>
-                {kind.label}
-              </option>
-            ))}
-          </Select>
+
+        <div className="space-y-3">
+          <Label>Backdrop</Label>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={mode === 'builtin' ? 'default' : 'outline'}
+              onClick={() => setMode('builtin')}
+            >
+              Use a built-in room
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={mode === 'drawn' ? 'default' : 'outline'}
+              onClick={() => setMode('drawn')}
+            >
+              Draw one
+            </Button>
+          </div>
+
+          {mode === 'builtin' ? (
+            <Select name="sceneKind" defaultValue="office" aria-label="Built-in room">
+              {sceneKinds.map((kind) => (
+                <option key={kind.value} value={kind.value}>
+                  {kind.label}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <div className="space-y-3">
+              <div className="relative aspect-[16/9] w-full overflow-hidden rounded-xl border border-border bg-canvas">
+                {draft ? (
+                  <div
+                    className="h-full w-full [&>svg]:h-full [&>svg]:w-full"
+                    dangerouslySetInnerHTML={{ __html: draft }}
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-fg-muted">
+                    Describe the room below and it will be drawn here.
+                  </div>
+                )}
+                {drawing ? (
+                  <div className="absolute inset-0 flex items-center justify-center gap-3 bg-canvas/70 backdrop-blur-sm">
+                    <Spinner />
+                    <span className="text-sm text-fg">Drawing the room…</span>
+                  </div>
+                ) : null}
+              </div>
+
+              {error ? <Alert variant="destructive">{error}</Alert> : null}
+
+              <Textarea
+                aria-label="Describe the room"
+                rows={2}
+                maxLength={400}
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="a warm workshop with a pegboard of tools, a roller door and a workbench"
+              />
+              <div className="flex flex-wrap items-end gap-2">
+                <Select
+                  value={theme}
+                  onChange={(event) => setTheme(event.target.value)}
+                  aria-label="Light"
+                  className="w-32"
+                >
+                  <option value="dark">Dim</option>
+                  <option value="light">Bright</option>
+                </Select>
+                <Button type="button" variant="outline" onClick={drawIt} disabled={drawing || description.trim().length < 3}>
+                  {drawing ? 'Drawing…' : draft ? 'Draw another' : 'Draw it'}
+                </Button>
+              </div>
+
+              {/* The drawing rides along with the create submit. */}
+              {draft ? <input type="hidden" name="backdropSvg" value={draft} /> : null}
+              <input type="hidden" name="backdropPrompt" value={description} />
+            </div>
+          )}
         </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="outline" onClick={onClose}>
+
+        <div className="flex justify-end gap-2 border-t border-border pt-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              reset()
+              onClose()
+            }}
+          >
             Cancel
           </Button>
-          <Button type="submit">Add department</Button>
+          <Button type="submit" disabled={mode === 'drawn' && !draft}>
+            Add department
+          </Button>
         </div>
       </form>
     </Drawer>
