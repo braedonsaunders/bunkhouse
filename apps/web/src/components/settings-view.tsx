@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Boxes, Brain, Building2, FileText, FolderCog, Globe, ImageIcon, Mail, MessageSquare,
+import {
+  DoorOpen, Boxes, Brain, Building2, FileText, FolderCog, Globe, ImageIcon, Mail, MessageSquare,
   MessagesSquare, Phone, Shield } from 'lucide-react'
 import {
   Badge,
@@ -34,6 +35,7 @@ import {
 import { ImageProviderForm } from './image-provider-form'
 import { AutonomySettings, type AgentDial } from './autonomy-settings'
 import { CompanyIdentitySettings, type CompanyIdentityView, type IdentityProviderOption } from './company-identity-settings'
+import { DepartmentsSettings, type DepartmentRow } from './departments-settings'
 import { PhoneSystemRow, type AgentExtensionRow, type AgentOption, type PhoneNumberRowView, type SipTrunkSummary } from './phone-system'
 import { MailOauthApps, type MailOauthAppView } from './mail-oauth-apps'
 import { MailSignatureSettings, type MailSignatureView } from './mail-signature-settings'
@@ -121,6 +123,7 @@ const NAV: SettingsNavGroup[] = [
       { key: 'identity', label: 'Identity', icon: <Building2 /> },
       { key: 'documents', label: 'Documents', icon: <FileText /> },
       { key: 'avatar-parts', label: 'Avatars', icon: <Boxes /> },
+      { key: 'departments', label: 'Departments', icon: <DoorOpen /> },
     ],
   },
   {
@@ -235,6 +238,10 @@ export function SettingsView({
   research,
   documents,
   companyIdentity,
+  departments,
+  deskless,
+  wander,
+  sceneKinds,
   workspace,
   chat,
   callCosts,
@@ -273,6 +280,11 @@ export function SettingsView({
   documents: DocumentBrandingView
   /** Who the company is — the profile every agent works from. */
   companyIdentity: CompanyIdentityView
+  /** The company's places, and who has a desk in them. */
+  departments: DepartmentRow[]
+  deskless: number
+  wander: boolean
+  sceneKinds: { value: string; label: string }[]
   workspace: WorkspacePolicyView
   callCosts: VoiceCostSettingsView
   templates: TemplateRowView[]
@@ -593,6 +605,20 @@ export function SettingsView({
               }
             />
           )}
+        </SettingsSection>
+      ) : null}
+
+      {active === 'departments' ? (
+        <SettingsSection
+          title="Departments"
+          description="The places your company has. Everyone works somewhere, the floor on the home screen shows who is where, and each department can have a backdrop drawn for it."
+        >
+          <DepartmentsSettings
+            departments={departments}
+            deskless={deskless}
+            wander={wander}
+            sceneKinds={sceneKinds}
+          />
         </SettingsSection>
       ) : null}
 

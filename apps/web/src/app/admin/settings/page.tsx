@@ -27,6 +27,8 @@ import { getMailSignature } from '../../../lib/mail-signature'
 import { AVATAR_PART_CATEGORIES, avatarPartCategory } from '../../../lib/avatar-parts'
 import { IMAGE_MODELS } from '@appkit/avatars'
 import { resolveTenantId } from '../../../lib/tenant'
+import { listDepartments, wanderingEnabled } from '../../../lib/departments'
+import { SCENE_KINDS, SCENE_LABELS } from '../../../components/scene-art'
 import {  } from '../../../lib/auth'
 
 export const dynamic = 'force-dynamic'
@@ -145,8 +147,36 @@ export default async function SettingsPage({
       .orderBy(asc(people.name)),
   )
 
+  // The company's places, for the Departments section under Company.
+  const [departmentList, staffRows, wander] = await Promise.all([
+    listDepartments(tenantId),
+    app.withTenantContext(tenantId, () =>
+      app.db.select({ departmentId: people.departmentId }).from(people).where(eq(people.status, 'active')),
+    ),
+    wanderingEnabled(tenantId),
+  ])
+  const counts = new Map<string, number>()
+  for (const row of staffRows) {
+    if (!row.departmentId) continue
+    counts.set(row.departmentId, (counts.get(row.departmentId) ?? 0) + 1)
+  }
+  const deskless = staffRows.filter((row) => !row.departmentId).length
+  const departmentRows = departmentList.map((department) => ({
+    id: department.id,
+    name: department.name,
+    sceneKind: department.sceneKind,
+    backdropSvg: department.backdropSvg,
+    backdropPrompt: department.backdropPrompt,
+    headcount: counts.get(department.id) ?? 0,
+  }))
+  const sceneKinds = SCENE_KINDS.map((kind) => ({ value: kind, label: SCENE_LABELS[kind] }))
+
   return (
     <SettingsView
+      departments={departmentRows}
+      deskless={deskless}
+      wander={wander}
+      sceneKinds={sceneKinds}
       providers={providers.map((p) => ({
         slug: p.slug,
         label: p.label,

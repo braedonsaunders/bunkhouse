@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Button, Card, CardContent, Input, Select } from '@appkit/ui'
-import { draftBackdrop, saveBackdrop, clearBackdrop } from '../department-actions'
+import { draftBackdrop, saveBackdrop, clearBackdrop } from '../app/organization/department-actions'
 
 /**
  * Having a room drawn, and looking at it before keeping it.

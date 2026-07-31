@@ -26,6 +26,8 @@ export type Department = {
   slug: string
   sceneKind: string | null
   backdropSvg: string | null
+  /** What was asked for, so a backdrop can be tweaked rather than re-described. */
+  backdropPrompt: string | null
   position: number
 }
 
@@ -40,6 +42,7 @@ export async function listDepartments(tenantId: string): Promise<Department[]> {
         slug: departments.slug,
         sceneKind: departments.sceneKind,
         backdropSvg: departments.backdropSvg,
+        backdropPrompt: departments.backdropPrompt,
         position: departments.position,
       })
       .from(departments)

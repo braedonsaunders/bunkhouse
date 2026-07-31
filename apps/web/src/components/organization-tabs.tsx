@@ -7,13 +7,12 @@ const SECTIONS = [
   { value: 'agents', label: 'Agents', href: '/organization' },
   { value: 'people', label: 'People', href: '/organization/people' },
   { value: 'chart', label: 'Org chart', href: '/organization/chart' },
-  { value: 'departments', label: 'Departments', href: '/organization/departments' },
 ] as const
 
 export type OrganizationSection = (typeof SECTIONS)[number]['value']
 
 /**
- * The organization's views on one switcher — the same control the
+ * The organization's three views on one switcher — the same control the
  * observatory uses for Live/History, navigating instead of toggling.
  */
 export function OrganizationTabs({ active }: { active: OrganizationSection }) {
