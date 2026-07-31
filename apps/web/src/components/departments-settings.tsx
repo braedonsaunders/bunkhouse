@@ -73,10 +73,16 @@ export function DepartmentsSettings({
     {
       key: 'look',
       header: 'Backdrop',
+      // The drawn backdrop gets a thumbnail; a built-in room gets its name.
+      //
+      // NOT the scene art itself: those components position their contents
+      // absolutely and expect a full-size stage, so at 56x32 they escape the
+      // cell and paint over the entire page. Seen, not guessed. The built-in
+      // rooms are shown properly in the drawer, where there is a frame the
+      // right shape to hold them.
       cell: (row) =>
         row.backdropSvg ? (
           <span className="flex items-center gap-2">
-            {/* The drawing itself. The name of a picture tells you nothing. */}
             <span
               className="h-8 w-14 shrink-0 overflow-hidden rounded border border-border [&>svg]:h-full [&>svg]:w-full"
               dangerouslySetInnerHTML={{ __html: row.backdropSvg }}
@@ -122,7 +128,9 @@ export function DepartmentsSettings({
   ]
 
   return (
-    <div className="space-y-4">
+    // The same inset every other settings section uses; without it the
+    // toolbar sits flush against the panel edge.
+    <div className="space-y-4 px-5 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <form action={setWanderingEnabled} className="flex items-center gap-3">
           <Switch name="enabled" defaultChecked={wander} />
@@ -264,6 +272,7 @@ function EditDepartmentDrawer({
             departmentId={department.id}
             currentSvg={department.backdropSvg}
             currentPrompt={department.backdropPrompt}
+            sceneKind={department.sceneKind}
             sceneKinds={sceneKinds}
           />
 

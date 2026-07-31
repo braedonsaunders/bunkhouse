@@ -1,7 +1,9 @@
 'use client'
 
 import * as React from 'react'
-import { Alert, Badge, Button, Label, Select, Spinner, Textarea } from '@appkit/ui'
+import { Alert, Badge, Button, Label, Select, Spinner, Textarea, useTheme } from '@appkit/ui'
+import { BunkhouseSceneArt } from './scene-art'
+import type { SceneKind } from './scene-kinds'
 import { draftBackdrop, saveBackdrop, clearBackdrop } from '../app/organization/department-actions'
 
 /**
@@ -21,13 +23,18 @@ export function BackdropStudio({
   departmentId,
   currentSvg,
   currentPrompt,
+  sceneKind,
   sceneKinds,
 }: {
   departmentId: string
   currentSvg: string | null
   currentPrompt: string | null
+  /** The built-in room this department uses when it has no drawing of its own. */
+  sceneKind: string | null
   sceneKinds: { value: string; label: string }[]
 }) {
+  const { resolvedTheme } = useTheme()
+  const isDark = resolvedTheme === 'dark'
   const [state, draw, drawing] = React.useActionState(
     draftBackdrop,
     {} as { svg?: string; error?: string; prompt?: string },
@@ -50,9 +57,10 @@ export function BackdropStudio({
           {showing ? (
             <div className="h-full w-full [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: showing }} />
           ) : (
-            <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-fg-muted">
-              This department uses one of the built-in rooms. Describe something below to have its own drawn.
-            </div>
+            // The built-in room, drawn exactly as the floor draws it. Telling
+            // somebody in words which room they are using, on a screen whose
+            // entire job is showing them a room, was daft.
+            <BunkhouseSceneArt kind={(sceneKind ?? 'office') as SceneKind} isDark={isDark} />
           )}
           {drawing ? (
             <div className="absolute inset-0 flex items-center justify-center gap-3 bg-canvas/70 backdrop-blur-sm">
