@@ -2554,3 +2554,53 @@ export function BunkhouseSceneArt({ kind, isDark }: { kind: SceneKind; isDark: b
     </div>
   )
 }
+
+/**
+ * One of the built-in rooms, small.
+ *
+ * These rooms are laid out for a stage the size of a screen — a figure is
+ * about 210px tall and every prop is drawn against that — so they cannot
+ * simply be rendered into a small box. Dropped straight into a 56x32 table
+ * cell the first attempt escaped the cell entirely and painted over the whole
+ * page, because everything inside positions absolutely and there was no
+ * full-size stage to position against.
+ *
+ * So the room is built at its proper size and the whole stage is scaled down,
+ * which is what makes it a miniature of the room rather than a crop of one
+ * corner. Held still, because a list of these should not be a thousand
+ * animating elements.
+ */
+export function BunkhouseSceneThumbnail({
+  kind,
+  isDark,
+  width,
+  className = '',
+}: {
+  kind: SceneKind
+  isDark: boolean
+  /** Rendered width in pixels. The stage is scaled to meet it exactly. */
+  width: number
+  className?: string
+}) {
+  // The size the room is actually built at, and the 16:9 the floor uses.
+  const STAGE_WIDTH = 1280
+  const height = Math.round((width * 9) / 16)
+  return (
+    <span
+      className={`bh-scene-still relative block shrink-0 overflow-hidden ${className}`}
+      style={{ width, height }}
+      aria-hidden
+    >
+      <span
+        className="absolute left-0 top-0 block origin-top-left"
+        style={{
+          width: STAGE_WIDTH,
+          height: Math.round((STAGE_WIDTH * 9) / 16),
+          transform: `scale(${width / STAGE_WIDTH})`,
+        }}
+      >
+        <SceneLayer kind={kind} isDark={isDark} />
+      </span>
+    </span>
+  )
+}

@@ -145,6 +145,16 @@ html, body { min-height: 100%; }
    every one of them is a CSS keyframe the compositor can own on its own thread.
    Per-element variety comes from `animation-delay` and `animation-duration`
    set inline, never from a JS animation loop. */
+
+/* A room as a still picture, for the thumbnails in a list of departments.
+   Ten rooms on a page is a thousand animating elements for pictures the size
+   of a postage stamp, which is a lot of compositor work to spend on something
+   nobody is watching. The room still looks like itself standing still. */
+.bh-scene-still,
+.bh-scene-still * {
+  animation: none !important;
+  transition: none !important;
+}
 @keyframes bhs-glow {
   0%,
   100% {

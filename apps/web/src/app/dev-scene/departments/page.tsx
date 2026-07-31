@@ -1,6 +1,7 @@
 'use client'
 
-import { DepartmentsSettings } from '../../../components/departments-settings'
+import * as React from 'react'
+import { DepartmentsSettings, type DepartmentRow } from '../../../components/departments-settings'
 import { toLightBackdrop } from '../../../lib/scene-recolour'
 
 /**
@@ -22,7 +23,7 @@ const DRAWN = `<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" 
 // rather than a hand-picked pair that flatters it.
 const DRAWN_LIGHT = toLightBackdrop(DRAWN)
 
-const ROWS = [
+const ROWS: DepartmentRow[] = [
   { id: '1', name: 'The floor', sceneKind: 'office', backdropSvg: null, backdropSvgLight: null, backdropPrompt: null, headcount: 4 },
   { id: '2', name: 'Workshop', sceneKind: null, backdropSvg: DRAWN, backdropSvgLight: DRAWN_LIGHT, backdropPrompt: 'a warm workshop with a pegboard of tools', headcount: 2 },
   { id: '3', name: 'Executive', sceneKind: 'executive', backdropSvg: null, backdropSvgLight: null, backdropPrompt: null, headcount: 1 },
@@ -40,7 +41,14 @@ const KINDS = [
   { value: 'rooftop', label: 'Rooftop' },
 ]
 
+/** A different drawing, to stand in for one the model just returned. */
+const REDRAWN = DRAWN.replace('#8fc7f0', '#f5a623').replace('#1a2740', '#33455f')
+
 export default function DevDepartments() {
+  // What the server component would hand down. Held in state so the button
+  // below can play the part revalidation plays in the real app.
+  const [rows, setRows] = React.useState(ROWS)
+
   return (
     <main className="min-h-dvh bg-canvas p-8">
       <h1 className="mb-6 text-lg font-semibold text-fg">Departments</h1>
@@ -57,8 +65,28 @@ export default function DevDepartments() {
           </div>
         ))}
       </div>
+      {/* Saving a backdrop used to write the new drawing and then snap the
+          open drawer back to the old one. Two reasons: the drawer held a copy
+          of the row taken when it was clicked, and the actions revalidated a
+          route that no longer existed. Open Workshop, then press this — it
+          stands in for the data arriving, and the drawer has to follow it. */}
+      <button
+        type="button"
+        className="mb-4 rounded-lg border border-border px-3 py-1.5 text-sm text-fg"
+        onClick={() =>
+          setRows((current) =>
+            current.map((row) =>
+              row.id === '2'
+                ? { ...row, backdropSvg: REDRAWN, backdropSvgLight: toLightBackdrop(REDRAWN) }
+                : row,
+            ),
+          )
+        }
+      >
+        Stand in for a save landing
+      </button>
       <div style={{ maxWidth: 1000 }}>
-        <DepartmentsSettings departments={ROWS} deskless={2} wander={false} sceneKinds={KINDS} />
+        <DepartmentsSettings departments={rows} deskless={2} wander={false} sceneKinds={KINDS} />
       </div>
     </main>
   )

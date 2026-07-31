@@ -43,6 +43,20 @@ export function BackdropStudio({
     {} as { dark?: string; light?: string; error?: string; prompt?: string },
   )
   const [dismissed, setDismissed] = React.useState(false)
+  // Kept, but not necessarily written yet.
+  //
+  // Dropping the draft the moment the form submitted made the picture snap
+  // back to the old one: `currentSvg` is a prop, so it does not become the new
+  // drawing until the action has run, revalidated and re-rendered. For that
+  // round-trip the studio was showing the very thing it had just replaced,
+  // which reads as the save having failed. The draft stays on screen instead —
+  // it is what was saved, so there is nothing to swap to.
+  const [kept, setKept] = React.useState(false)
+  // State rather than a ref, because the badge below is rendered from it and a
+  // ref read during render is not a thing React promises to be consistent.
+  const [savedWhenKept, setSavedWhenKept] = React.useState<string | null>(null)
+  const written = kept && currentSvg !== savedWhenKept
+
   // Both themes are drawn; which one is shown follows the interface, so the
   // preview is what this person will actually see on the floor.
   const draft = dismissed ? null : ((isDark ? state.dark : state.light) ?? state.dark ?? null)
@@ -54,7 +68,13 @@ export function BackdropStudio({
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <Label>Backdrop</Label>
-          {draft ? <Badge variant="warning">Draft — not saved</Badge> : currentSvg ? <Badge>Saved</Badge> : null}
+          {draft && !kept ? (
+            <Badge variant="warning">Draft — not saved</Badge>
+          ) : kept && !written ? (
+            <Badge variant="warning">Saving…</Badge>
+          ) : currentSvg ? (
+            <Badge>Saved</Badge>
+          ) : null}
         </div>
 
         {/* The stage's own aspect, so what is approved here is exactly what
@@ -76,9 +96,20 @@ export function BackdropStudio({
           ) : null}
         </div>
 
-        {draft ? (
+        {draft && !kept ? (
           <div className="flex flex-wrap items-center gap-2">
-            <form action={saveBackdrop} onSubmit={() => setDismissed(true)}>
+            <form
+              action={saveBackdrop}
+              onSubmit={() => {
+                // What `currentSvg` was at the moment of submitting. When the
+                // prop stops matching it, the write has come back — a change
+                // is the signal rather than an equality check against the
+                // draft, because the server sanitises the markup again on the
+                // way in and need not hand back the identical string.
+                setSavedWhenKept(currentSvg)
+                setKept(true)
+              }}
+            >
               <input type="hidden" name="id" value={departmentId} />
               <input type="hidden" name="svg" value={state.dark ?? ''} />
               <input type="hidden" name="svgLight" value={state.light ?? ''} />
@@ -95,7 +126,14 @@ export function BackdropStudio({
 
       {state.error && !dismissed ? <Alert variant="destructive">{state.error}</Alert> : null}
 
-      <form action={draw} className="space-y-3" onSubmit={() => setDismissed(false)}>
+      <form
+        action={draw}
+        className="space-y-3"
+        onSubmit={() => {
+          setDismissed(false)
+          setKept(false)
+        }}
+      >
         <div>
           <Label htmlFor="backdrop-description">Describe the room</Label>
           <Textarea
@@ -113,7 +151,7 @@ export function BackdropStudio({
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Button type="submit" disabled={drawing}>
-            {drawing ? 'Drawing…' : draft || currentSvg ? 'Draw another' : 'Draw it'}
+            {drawing ? 'Drawing…' : (draft ?? currentSvg) ? 'Draw another' : 'Draw it'}
           </Button>
           <span className="text-xs text-fg-subtle">
             Drawn for both themes — you are seeing the {isDark ? 'dark' : 'light'} one.
@@ -122,7 +160,16 @@ export function BackdropStudio({
       </form>
 
       {currentSvg ? (
-        <form action={clearBackdrop} className="flex flex-wrap items-end gap-2 border-t border-border pt-4">
+        <form
+          action={clearBackdrop}
+          className="flex flex-wrap items-end gap-2 border-t border-border pt-4"
+          // Going back to a built-in room has to drop the draft as well, or the
+          // drawing stays on screen shadowing the room that was just chosen.
+          onSubmit={() => {
+            setDismissed(true)
+            setKept(false)
+          }}
+        >
           <input type="hidden" name="id" value={departmentId} />
           <div>
             <Label htmlFor="backdrop-builtin">Or go back to a built-in room</Label>

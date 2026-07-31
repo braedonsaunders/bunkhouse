@@ -9,6 +9,17 @@ import { setWandering } from '../../lib/departments'
 import { generateBackdrop } from '../../lib/scene-backdrop'
 import { sanitiseSceneSvg } from '../../lib/scene-svg'
 
+/*
+ * Where these screens actually live.
+ *
+ * Every one of these revalidated `/organization/departments`, a route that has
+ * not existed since departments moved under company settings — so nothing was
+ * ever refetched, and saving a backdrop wrote the new drawing and left the
+ * page rendering the old one. A path that does not resolve to a route is not
+ * an error, it is silently nothing, which is why this survived.
+ */
+const DEPARTMENTS_PAGE = '/admin/settings'
+
 /**
  * Editing the company's places.
  *
@@ -71,7 +82,7 @@ export async function createDepartment(formData: FormData): Promise<void> {
       position: (last?.max ?? -1) + 1,
     })
   })
-  revalidatePath('/organization/departments')
+  revalidatePath(DEPARTMENTS_PAGE)
   revalidatePath('/')
 }
 
@@ -87,7 +98,7 @@ export async function renameDepartment(formData: FormData): Promise<void> {
       .set({ name: name.slice(0, 60), updatedAt: new Date() })
       .where(and(eq(departments.id, id), eq(departments.tenantId, tenantId)))
   })
-  revalidatePath('/organization/departments')
+  revalidatePath(DEPARTMENTS_PAGE)
   revalidatePath('/')
 }
 
@@ -118,7 +129,7 @@ export async function moveDepartment(formData: FormData): Promise<void> {
         .where(and(eq(departments.id, row.id), eq(departments.tenantId, tenantId)))
     }
   })
-  revalidatePath('/organization/departments')
+  revalidatePath(DEPARTMENTS_PAGE)
   revalidatePath('/')
 }
 
@@ -137,7 +148,7 @@ export async function deleteDepartment(formData: FormData): Promise<void> {
       .where(and(eq(people.departmentId, id), eq(people.tenantId, tenantId)))
     await app.db.delete(departments).where(and(eq(departments.id, id), eq(departments.tenantId, tenantId)))
   })
-  revalidatePath('/organization/departments')
+  revalidatePath(DEPARTMENTS_PAGE)
   revalidatePath('/')
 }
 
@@ -154,13 +165,14 @@ export async function setPersonDepartment(formData: FormData): Promise<void> {
       .where(and(eq(people.id, personId), eq(people.tenantId, tenantId)))
   })
   revalidatePath('/organization')
+  revalidatePath(DEPARTMENTS_PAGE)
   revalidatePath('/')
 }
 
 export async function setWanderingEnabled(formData: FormData): Promise<void> {
   const tenantId = await resolveTenantId()
   await setWandering(tenantId, String(formData.get('enabled') ?? '') === 'on')
-  revalidatePath('/organization/departments')
+  revalidatePath(DEPARTMENTS_PAGE)
   revalidatePath('/')
 }
 
@@ -210,7 +222,7 @@ export async function saveBackdrop(formData: FormData): Promise<void> {
       })
       .where(and(eq(departments.id, id), eq(departments.tenantId, tenantId)))
   })
-  revalidatePath('/organization/departments')
+  revalidatePath(DEPARTMENTS_PAGE)
   revalidatePath('/')
 }
 
@@ -227,6 +239,6 @@ export async function clearBackdrop(formData: FormData): Promise<void> {
       .set({ backdropSvg: null, backdropSvgLight: null, sceneKind, updatedAt: new Date() })
       .where(and(eq(departments.id, id), eq(departments.tenantId, tenantId)))
   })
-  revalidatePath('/organization/departments')
+  revalidatePath(DEPARTMENTS_PAGE)
   revalidatePath('/')
 }

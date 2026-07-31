@@ -20,7 +20,10 @@ import {
  * afterwards is the application's identity, not its secret.
  */
 
-const FILING_PATH = '/admin/settings/filing'
+// Settings is one screen with sections, not a page per section — a path like
+// `/admin/settings/filing` resolves to no route at all, so this refreshed
+// nothing and the page went on rendering what it had.
+const FILING_PATH = '/admin/settings'
 
 type Result = { ok: true } | { ok: false; message: string }
 

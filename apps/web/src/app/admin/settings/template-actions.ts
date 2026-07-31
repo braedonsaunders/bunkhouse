@@ -22,7 +22,10 @@ import {
  * session before any template is read or written.
  */
 
-const TEMPLATES_PATH = '/admin/settings/templates'
+// Settings is one screen with sections, not a page per section — a path like
+// `/admin/settings/templates` resolves to no route at all, so this refreshed
+// nothing and the page went on rendering what it had.
+const TEMPLATES_PATH = '/admin/settings'
 
 function failure(error: unknown): { ok: false; message: string } {
   return { ok: false, message: error instanceof Error ? error.message : String(error) }

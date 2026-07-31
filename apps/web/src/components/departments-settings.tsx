@@ -18,6 +18,8 @@ import {
 } from '@appkit/ui'
 import { DoorOpen } from 'lucide-react'
 import { BackdropStudio } from './backdrop-studio'
+import { BunkhouseSceneArt, BunkhouseSceneThumbnail } from './scene-art'
+import type { SceneKind } from './scene-kinds'
 import {
   createDepartment,
   draftBackdrop,
@@ -64,7 +66,13 @@ export function DepartmentsSettings({
 }) {
   const { resolvedTheme } = useTheme()
   const isDark = resolvedTheme !== 'light'
-  const [editing, setEditing] = React.useState<DepartmentRow | null>(null)
+  // The id, not the row. Holding the row itself meant the open drawer kept
+  // showing whatever that department looked like at the moment it was clicked
+  // — so saving a backdrop wrote the new drawing to the database and then
+  // snapped the preview back to the old one, because the drawer was reading a
+  // snapshot that revalidation could never reach.
+  const [editingId, setEditingId] = React.useState<string | null>(null)
+  const editing = editingId ? (departments.find((row) => row.id === editingId) ?? null) : null
   const [creating, setCreating] = React.useState(false)
   const labelOf = React.useMemo(
     () => Object.fromEntries(sceneKinds.map((kind) => [kind.value, kind.label])) as Record<string, string>,
@@ -82,25 +90,35 @@ export function DepartmentsSettings({
     {
       key: 'look',
       header: 'Backdrop',
-      // The drawn backdrop gets a thumbnail; a built-in room gets its name.
+      // Every room gets a picture, drawn or built-in — a list of backdrops
+      // where half the entries are the word "Warehouse" tells you nothing
+      // about the thing you are choosing between.
       //
-      // NOT the scene art itself: those components position their contents
-      // absolutely and expect a full-size stage, so at 56x32 they escape the
-      // cell and paint over the entire page. Seen, not guessed. The built-in
-      // rooms are shown properly in the drawer, where there is a frame the
-      // right shape to hold them.
-      cell: (row) =>
-        row.backdropSvg ? (
-          <span className="flex items-center gap-2">
+      // The built-in rooms cannot simply be rendered small: they position
+      // absolutely against a full-size stage, and dropped into a 56x32 cell
+      // the first attempt escaped it and painted over the whole page. See
+      // BunkhouseSceneThumbnail, which builds the room at its proper size and
+      // scales the stage down.
+      cell: (row) => (
+        <span className="flex items-center gap-2">
+          {row.backdropSvg ? (
             <span
               className="h-8 w-14 shrink-0 overflow-hidden rounded border border-border [&>svg]:h-full [&>svg]:w-full"
               dangerouslySetInnerHTML={{ __html: isDark ? row.backdropSvg : (row.backdropSvgLight ?? row.backdropSvg) }}
             />
-            <span className="text-fg-muted">Drawn</span>
+          ) : (
+            <BunkhouseSceneThumbnail
+              kind={(row.sceneKind ?? 'office') as SceneKind}
+              isDark={isDark}
+              width={56}
+              className="rounded border border-border"
+            />
+          )}
+          <span className="text-fg-muted">
+            {row.backdropSvg ? 'Drawn' : (labelOf[row.sceneKind ?? 'office'] ?? row.sceneKind)}
           </span>
-        ) : (
-          <span className="text-fg-muted">{labelOf[row.sceneKind ?? 'office'] ?? row.sceneKind}</span>
-        ),
+        </span>
+      ),
       search: (row) => (row.backdropSvg ? 'drawn' : (labelOf[row.sceneKind ?? ''] ?? '')),
     },
     {
@@ -169,7 +187,7 @@ export function DepartmentsSettings({
         rowKey={(row) => row.id}
         pageSize={10}
         searchable
-        onRowClick={(row) => setEditing(row)}
+        onRowClick={(row) => setEditingId(row.id)}
         labels={{ searchPlaceholder: 'Search departments…', searchLabel: 'Search departments' }}
         empty={
           <EmptyState
@@ -189,7 +207,7 @@ export function DepartmentsSettings({
       />
       <EditDepartmentDrawer
         department={editing}
-        onClose={() => setEditing(null)}
+        onClose={() => setEditingId(null)}
         sceneKinds={sceneKinds}
         labelOf={labelOf}
       />
@@ -220,6 +238,7 @@ function CreateDepartmentDrawer({
   isDark: boolean
 }) {
   const [mode, setMode] = React.useState<'builtin' | 'drawn'>('builtin')
+  const [builtin, setBuiltin] = React.useState(sceneKinds[0]?.value ?? 'office')
   const [description, setDescription] = React.useState('')
   const [draft, setDraft] = React.useState<{ dark: string; light: string } | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -227,6 +246,7 @@ function CreateDepartmentDrawer({
 
   const reset = () => {
     setMode('builtin')
+    setBuiltin(sceneKinds[0]?.value ?? 'office')
     setDescription('')
     setDraft(null)
     setError(null)
@@ -289,13 +309,25 @@ function CreateDepartmentDrawer({
           </div>
 
           {mode === 'builtin' ? (
-            <Select name="sceneKind" defaultValue="office" aria-label="Built-in room">
-              {sceneKinds.map((kind) => (
-                <option key={kind.value} value={kind.value}>
-                  {kind.label}
-                </option>
-              ))}
-            </Select>
+            // The room, at the size it will be seen at. Choosing a backdrop
+            // from a list of six words is choosing blind.
+            <div className="space-y-3">
+              <div className="relative aspect-[16/9] w-full overflow-hidden rounded-xl border border-border bg-canvas">
+                <BunkhouseSceneArt kind={builtin as SceneKind} isDark={isDark} />
+              </div>
+              <Select
+                name="sceneKind"
+                value={builtin}
+                onChange={(event) => setBuiltin(event.target.value)}
+                aria-label="Built-in room"
+              >
+                {sceneKinds.map((kind) => (
+                  <option key={kind.value} value={kind.value}>
+                    {kind.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
           ) : (
             <div className="space-y-3">
               <div className="relative aspect-[16/9] w-full overflow-hidden rounded-xl border border-border bg-canvas">

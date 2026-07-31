@@ -492,3 +492,89 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
 
   console.log('backdrop: the bright room is the dim room with the lights on')
 }
+
+// --- every revalidated path is a real page ----------------------------------
+//
+// Departments moved under company settings, but every one of their actions
+// went on revalidating `/organization/departments` — a route that no longer
+// existed. Next does not complain about that; it just quietly refreshes
+// nothing. So saving a backdrop wrote the new drawing to the database and left
+// the open drawer rendering the old one, and it looked for all the world like
+// the save had failed.
+//
+// A path that resolves to no route is always a mistake, and it is invisible at
+// runtime, which is exactly the sort of thing a test should be holding.
+{
+  const { readdirSync, readFileSync, statSync } = await import('node:fs')
+  const { join } = await import('node:path')
+
+  const walk = (dir: string, out: string[] = []): string[] => {
+    for (const entry of readdirSync(dir)) {
+      if (entry === 'node_modules' || entry === '.next') continue
+      const full = join(dir, entry)
+      if (statSync(full).isDirectory()) walk(full, out)
+      else out.push(full)
+    }
+    return out
+  }
+
+  const files = walk('src')
+
+  // Routes, from the files that define them. A `(group)` segment is an
+  // organisational folder and does not appear in the URL.
+  const routes = new Set(
+    files
+      .filter((f) => /[\\/](page|route)\.tsx?$/.test(f))
+      .map(
+        (f) =>
+          '/' +
+          f
+            .replace(/^src[\\/]app[\\/]?/, '')
+            .replace(/[\\/]?(page|route)\.tsx?$/, '')
+            .split(/[\\/]/)
+            .filter((s) => s && !/^\(.*\)$/.test(s))
+            .join('/'),
+      ),
+  )
+  assert.ok(routes.has('/'), 'the home page is a route')
+  assert.ok(routes.has('/admin/settings'), 'company settings is a route')
+  assert.ok(!routes.has('/organization/departments'), 'and departments is not one any more')
+
+  // An EXACT match against a static route, deliberately. Letting `[param]`
+  // stand in for anything is not merely lax, it is the thing that hid the bug:
+  // `/organization/departments` happily matches `/organization/[id]`, so a
+  // path aimed at a page that no longer exists looks resolvable while actually
+  // revalidating one person's record with "departments" as their id. Nothing
+  // in this app revalidates a dynamic route by literal id; if something ever
+  // needs to, this should fail and be thought about rather than wave it past.
+  const dynamic = new Set([...routes].filter((route) => route.includes('[')))
+  const resolves = (path: string) => routes.has(path) && !dynamic.has(path)
+
+  const dead: string[] = []
+  const opaque: string[] = []
+  let checked = 0
+  for (const file of files.filter((f) => /\.tsx?$/.test(f))) {
+    const source = readFileSync(file, 'utf8')
+    // Several of these files name their page in a `const` and pass that. The
+    // first version of this test only read string literals, so those calls
+    // were invisible to it — and three of the four dead paths in the codebase
+    // were hiding behind exactly such a constant. Following them is the
+    // difference between this test working and only appearing to.
+    const consts = new Map(
+      [...source.matchAll(/^const\s+([A-Z][A-Z0-9_]*)\s*=\s*'([^']+)'/gm)].map(([, name, value]) => [name!, value!]),
+    )
+    for (const [, argument] of source.matchAll(/revalidatePath\(\s*([^,)]+?)\s*[,)]/g)) {
+      checked += 1
+      const literal = /^'([^']+)'$/.exec(argument!)?.[1] ?? consts.get(argument!)
+      // Anything this cannot read is reported rather than skipped. A silent
+      // skip is how the gap got in.
+      if (literal === undefined) opaque.push(`${file}: ${argument}`)
+      else if (!resolves(literal)) dead.push(`${file}: ${argument} → ${literal}`)
+    }
+  }
+
+  assert.ok(checked > 100, `found revalidatePath calls to check, got ${checked}`)
+  assert.deepEqual(opaque, [], `every revalidated path can be read statically:\n  ${opaque.join('\n  ')}`)
+  assert.deepEqual(dead, [], `every revalidated path resolves to a page:\n  ${dead.join('\n  ')}`)
+  console.log(`revalidation: all ${checked} revalidated paths resolve to a real page`)
+}
