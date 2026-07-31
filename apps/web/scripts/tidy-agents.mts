@@ -88,17 +88,17 @@ show(
   `),
 )
 
-if (!APPLY) {
-  console.log('\nNothing changed. Re-run with tidyApply ticked to carry this out.')
-  process.exit(0)
-}
-
 // --- or, on a dev deployment, actually remove it -----------------------------
 if (PURGE) {
   const approvals = await rows(sql`delete from approvals where status = 'pending' returning id`)
   const work = await rows(sql`delete from assignments returning id`)
   console.log(`\nPURGED: ${work.length} assignment(s) and ${approvals.length} pending approval(s) DELETED`)
   console.log('Runs, notes and the rest are untouched.')
+  process.exit(0)
+}
+
+if (!APPLY) {
+  console.log('\nNothing changed. Re-run with tidyApply ticked to carry this out.')
   process.exit(0)
 }
 
