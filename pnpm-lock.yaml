@@ -9,19 +9,19 @@ overrides:
   '@appkit/analytics': file:./vendor/appkit/appkit-analytics-0.2.0.tgz
   '@appkit/api': file:./vendor/appkit/appkit-api-0.1.1.tgz
   '@appkit/apps': file:./vendor/appkit/appkit-apps-1.0.0.tgz
-  '@appkit/auth': file:./vendor/appkit/appkit-auth-0.1.1.tgz
-  '@appkit/crypto': file:./vendor/appkit/appkit-crypto-0.2.0.tgz
+  '@appkit/auth': file:./vendor/appkit/appkit-auth-0.1.2.tgz
+  '@appkit/crypto': file:./vendor/appkit/appkit-crypto-0.3.0.tgz
   '@appkit/customization': file:./vendor/appkit/appkit-customization-1.0.0.tgz
-  '@appkit/dashboard': file:./vendor/appkit/appkit-dashboard-1.0.0.tgz
+  '@appkit/dashboard': file:./vendor/appkit/appkit-dashboard-1.0.2.tgz
   '@appkit/db': file:./vendor/appkit/appkit-db-0.2.0.tgz
   '@appkit/design-studio': file:./vendor/appkit/appkit-design-studio-0.2.0.tgz
-  '@appkit/editor': file:./vendor/appkit/appkit-editor-0.2.0.tgz
-  '@appkit/email-designer': file:./vendor/appkit/appkit-email-designer-0.1.0.tgz
+  '@appkit/editor': file:./vendor/appkit/appkit-editor-0.2.1.tgz
+  '@appkit/email-designer': file:./vendor/appkit/appkit-email-designer-0.2.0.tgz
   '@appkit/email-render': file:./vendor/appkit/appkit-email-render-0.1.1.tgz
   '@appkit/emails': file:./vendor/appkit/appkit-emails-0.2.0.tgz
   '@appkit/endpoints': file:./vendor/appkit/appkit-endpoints-0.1.1.tgz
   '@appkit/events': file:./vendor/appkit/appkit-events-0.2.0.tgz
-  '@appkit/forms': file:./vendor/appkit/appkit-forms-0.2.0.tgz
+  '@appkit/forms': file:./vendor/appkit/appkit-forms-0.2.1.tgz
   '@appkit/forms-core': file:./vendor/appkit/appkit-forms-core-0.1.1.tgz
   '@appkit/forms-documents': file:./vendor/appkit/appkit-forms-documents-0.1.1.tgz
   '@appkit/forms-pdf': file:./vendor/appkit/appkit-forms-pdf-1.0.0.tgz
@@ -29,24 +29,24 @@ overrides:
   '@appkit/iam': file:./vendor/appkit/appkit-iam-1.0.0.tgz
   '@appkit/integrations': file:./vendor/appkit/appkit-integrations-1.0.0.tgz
   '@appkit/jobs': file:./vendor/appkit/appkit-jobs-0.2.0.tgz
-  '@appkit/office': file:./vendor/appkit/appkit-office-0.1.0.tgz
+  '@appkit/office': file:./vendor/appkit/appkit-office-0.2.0.tgz
   '@appkit/notifications': file:./vendor/appkit/appkit-notifications-1.0.0.tgz
   '@appkit/pdf': file:./vendor/appkit/appkit-pdf-0.1.1.tgz
-  '@appkit/reports': file:./vendor/appkit/appkit-reports-0.2.0.tgz
+  '@appkit/reports': file:./vendor/appkit/appkit-reports-0.2.1.tgz
   '@appkit/process-sandbox': file:./vendor/appkit/appkit-process-sandbox-0.2.0.tgz
   '@appkit/sandbox': file:./vendor/appkit/appkit-sandbox-0.1.0.tgz
-  '@appkit/scheduling': file:./vendor/appkit/appkit-scheduling-0.1.0.tgz
+  '@appkit/scheduling': file:./vendor/appkit/appkit-scheduling-0.2.0.tgz
   '@appkit/scripts': file:./vendor/appkit/appkit-scripts-1.0.0.tgz
   '@appkit/sms': file:./vendor/appkit/appkit-sms-0.2.0.tgz
   '@appkit/storage': file:./vendor/appkit/appkit-storage-0.2.0.tgz
   '@appkit/superadmin': file:./vendor/appkit/appkit-superadmin-0.3.0.tgz
   '@appkit/sync': file:./vendor/appkit/appkit-sync-1.0.0.tgz
-  '@appkit/telephony': file:./vendor/appkit/appkit-telephony-0.1.0.tgz
+  '@appkit/telephony': file:./vendor/appkit/appkit-telephony-0.2.0.tgz
   '@appkit/tenant': file:./vendor/appkit/appkit-tenant-0.1.1.tgz
   '@appkit/tokens': file:./vendor/appkit/appkit-tokens-0.1.1.tgz
-  '@appkit/ui': file:./vendor/appkit/appkit-ui-0.1.9.tgz
+  '@appkit/ui': file:./vendor/appkit/appkit-ui-0.1.10.tgz
   '@appkit/workflows': file:./vendor/appkit/appkit-workflows-1.0.0.tgz
-  '@appkit/mailbox': file:./vendor/appkit/appkit-mailbox-0.4.0.tgz
+  '@appkit/mailbox': file:./vendor/appkit/appkit-mailbox-0.5.0.tgz
   '@appkit/avatars': file:./vendor/appkit/appkit-avatars-0.5.2.tgz
   '@appkit/voice': file:./vendor/appkit/appkit-voice-0.1.1.tgz
   '@appkit/scene': file:./vendor/appkit/appkit-scene-0.3.4.tgz
@@ -64,34 +64,34 @@ importers:
         version: file:vendor/appkit/appkit-agent-tools-0.1.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))
       '@appkit/ai':
         specifier: file:../../vendor/appkit/appkit-ai-0.2.0.tgz
-        version: file:vendor/appkit/appkit-ai-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: file:vendor/appkit/appkit-ai-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@appkit/api':
         specifier: file:../../vendor/appkit/appkit-api-0.1.1.tgz
         version: file:vendor/appkit/appkit-api-0.1.1.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
       '@appkit/apps':
         specifier: file:../../vendor/appkit/appkit-apps-1.0.0.tgz
-        version: file:vendor/appkit/appkit-apps-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: file:vendor/appkit/appkit-apps-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@appkit/auth':
-        specifier: file:../../vendor/appkit/appkit-auth-0.1.1.tgz
-        version: file:vendor/appkit/appkit-auth-0.1.1.tgz(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(kysely@0.29.4)(next@16.2.10(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+        specifier: file:../../vendor/appkit/appkit-auth-0.1.2.tgz
+        version: file:vendor/appkit/appkit-auth-0.1.2.tgz(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(kysely@0.29.4)(next@16.2.10(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@appkit/avatars':
         specifier: file:../../vendor/appkit/appkit-avatars-0.5.2.tgz
-        version: file:vendor/appkit/appkit-avatars-0.5.2.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(framer-motion@12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
+        version: file:vendor/appkit/appkit-avatars-0.5.2.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(framer-motion@12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
       '@appkit/crypto':
-        specifier: file:../../vendor/appkit/appkit-crypto-0.2.0.tgz
-        version: file:vendor/appkit/appkit-crypto-0.2.0.tgz
+        specifier: file:../../vendor/appkit/appkit-crypto-0.3.0.tgz
+        version: file:vendor/appkit/appkit-crypto-0.3.0.tgz
       '@appkit/db':
         specifier: file:../../vendor/appkit/appkit-db-0.2.0.tgz
         version: file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
       '@appkit/design-studio':
         specifier: file:../../vendor/appkit/appkit-design-studio-0.2.0.tgz
-        version: file:vendor/appkit/appkit-design-studio-0.2.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+        version: file:vendor/appkit/appkit-design-studio-0.2.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@appkit/editor':
-        specifier: file:../../vendor/appkit/appkit-editor-0.2.0.tgz
-        version: file:vendor/appkit/appkit-editor-0.2.0.tgz(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+        specifier: file:../../vendor/appkit/appkit-editor-0.2.1.tgz
+        version: file:vendor/appkit/appkit-editor-0.2.1.tgz(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@appkit/email-designer':
-        specifier: file:../../vendor/appkit/appkit-email-designer-0.1.0.tgz
-        version: file:vendor/appkit/appkit-email-designer-0.1.0.tgz(@grapesjs/react@2.0.0(grapesjs@0.22.16)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@noble/hashes@2.2.0)(grapesjs@0.22.16)(juice@12.1.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: file:../../vendor/appkit/appkit-email-designer-0.2.0.tgz
+        version: file:vendor/appkit/appkit-email-designer-0.2.0.tgz(@grapesjs/react@2.0.0(grapesjs@0.22.16)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@noble/hashes@2.2.0)(grapesjs@0.22.16)(juice@12.1.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@appkit/email-render':
         specifier: file:../../vendor/appkit/appkit-email-render-0.1.1.tgz
         version: file:vendor/appkit/appkit-email-render-0.1.1.tgz(@noble/hashes@2.2.0)
@@ -105,8 +105,8 @@ importers:
         specifier: file:../../vendor/appkit/appkit-events-0.2.0.tgz
         version: file:vendor/appkit/appkit-events-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
       '@appkit/forms':
-        specifier: file:../../vendor/appkit/appkit-forms-0.2.0.tgz
-        version: file:vendor/appkit/appkit-forms-0.2.0.tgz(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+        specifier: file:../../vendor/appkit/appkit-forms-0.2.1.tgz
+        version: file:vendor/appkit/appkit-forms-0.2.1.tgz(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@appkit/forms-core':
         specifier: file:../../vendor/appkit/appkit-forms-core-0.1.1.tgz
         version: file:vendor/appkit/appkit-forms-core-0.1.1.tgz(@noble/hashes@2.2.0)
@@ -115,28 +115,28 @@ importers:
         version: file:vendor/appkit/appkit-forms-documents-0.1.1.tgz(@noble/hashes@2.2.0)(tailwindcss@4.3.3)
       '@appkit/forms-pdf':
         specifier: file:../../vendor/appkit/appkit-forms-pdf-1.0.0.tgz
-        version: file:vendor/appkit/appkit-forms-pdf-1.0.0.tgz(@appkit/design-studio@file:vendor/appkit/appkit-design-studio-0.2.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@appkit/pdf@file:vendor/appkit/appkit-pdf-0.1.1.tgz(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)
+        version: file:vendor/appkit/appkit-forms-pdf-1.0.0.tgz(@appkit/design-studio@file:vendor/appkit/appkit-design-studio-0.2.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@appkit/pdf@file:vendor/appkit/appkit-pdf-0.1.1.tgz(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)
       '@appkit/i18n':
         specifier: file:../../vendor/appkit/appkit-i18n-0.1.1.tgz
         version: file:vendor/appkit/appkit-i18n-0.1.1.tgz
       '@appkit/iam':
         specifier: file:../../vendor/appkit/appkit-iam-1.0.0.tgz
-        version: file:vendor/appkit/appkit-iam-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@opentelemetry/api@1.9.1)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(kysely@0.29.4)(lucide-react@1.27.0(react@19.2.8))(pg@8.22.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: file:vendor/appkit/appkit-iam-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/tenant@file:vendor/appkit/appkit-tenant-0.1.1.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@appkit/jobs':
         specifier: file:../../vendor/appkit/appkit-jobs-0.2.0.tgz
         version: file:vendor/appkit/appkit-jobs-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))
       '@appkit/mailbox':
-        specifier: file:../../vendor/appkit/appkit-mailbox-0.4.0.tgz
-        version: file:vendor/appkit/appkit-mailbox-0.4.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: file:../../vendor/appkit/appkit-mailbox-0.5.0.tgz
+        version: file:vendor/appkit/appkit-mailbox-0.5.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@appkit/notifications':
         specifier: file:../../vendor/appkit/appkit-notifications-1.0.0.tgz
-        version: file:vendor/appkit/appkit-notifications-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/jobs@file:vendor/appkit/appkit-jobs-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: file:vendor/appkit/appkit-notifications-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/jobs@file:vendor/appkit/appkit-jobs-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@appkit/oauth':
         specifier: file:../../vendor/appkit/appkit-oauth-0.1.0.tgz
         version: file:vendor/appkit/appkit-oauth-0.1.0.tgz
       '@appkit/office':
-        specifier: file:../../vendor/appkit/appkit-office-0.1.0.tgz
-        version: file:vendor/appkit/appkit-office-0.1.0.tgz(exceljs@4.4.0)
+        specifier: file:../../vendor/appkit/appkit-office-0.2.0.tgz
+        version: file:vendor/appkit/appkit-office-0.2.0.tgz(exceljs@4.4.0)
       '@appkit/pdf':
         specifier: file:../../vendor/appkit/appkit-pdf-0.1.1.tgz
         version: file:vendor/appkit/appkit-pdf-0.1.1.tgz(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)
@@ -151,19 +151,19 @@ importers:
         version: file:vendor/appkit/appkit-scene-0.3.4.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@appkit/scripts':
         specifier: file:../../vendor/appkit/appkit-scripts-1.0.0.tgz
-        version: file:vendor/appkit/appkit-scripts-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: file:vendor/appkit/appkit-scripts-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@appkit/sms':
         specifier: file:../../vendor/appkit/appkit-sms-0.2.0.tgz
         version: file:vendor/appkit/appkit-sms-0.2.0.tgz
       '@appkit/storage':
         specifier: file:../../vendor/appkit/appkit-storage-0.2.0.tgz
-        version: file:vendor/appkit/appkit-storage-0.2.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: file:vendor/appkit/appkit-storage-0.2.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@appkit/superadmin':
         specifier: file:../../vendor/appkit/appkit-superadmin-0.3.0.tgz
-        version: file:vendor/appkit/appkit-superadmin-0.3.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: file:vendor/appkit/appkit-superadmin-0.3.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@appkit/telephony':
-        specifier: file:../../vendor/appkit/appkit-telephony-0.1.0.tgz
-        version: file:vendor/appkit/appkit-telephony-0.1.0.tgz
+        specifier: file:../../vendor/appkit/appkit-telephony-0.2.0.tgz
+        version: file:vendor/appkit/appkit-telephony-0.2.0.tgz
       '@appkit/tenant':
         specifier: file:../../vendor/appkit/appkit-tenant-0.1.1.tgz
         version: file:vendor/appkit/appkit-tenant-0.1.1.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
@@ -171,14 +171,14 @@ importers:
         specifier: file:../../vendor/appkit/appkit-tokens-0.1.1.tgz
         version: file:vendor/appkit/appkit-tokens-0.1.1.tgz(tailwindcss@4.3.3)
       '@appkit/ui':
-        specifier: file:../../vendor/appkit/appkit-ui-0.1.9.tgz
-        version: file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+        specifier: file:../../vendor/appkit/appkit-ui-0.1.10.tgz
+        version: file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@appkit/voice':
         specifier: file:../../vendor/appkit/appkit-voice-0.1.1.tgz
         version: file:vendor/appkit/appkit-voice-0.1.1.tgz
       '@appkit/workflows':
         specifier: file:../../vendor/appkit/appkit-workflows-1.0.0.tgz
-        version: file:vendor/appkit/appkit-workflows-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/forms-core@file:vendor/appkit/appkit-forms-core-0.1.1.tgz(@noble/hashes@2.2.0))(@appkit/forms@file:vendor/appkit/appkit-forms-0.2.0.tgz(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@xyflow/react@12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: file:vendor/appkit/appkit-workflows-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/forms-core@file:vendor/appkit/appkit-forms-core-0.1.1.tgz(@noble/hashes@2.2.0))(@appkit/forms@file:vendor/appkit/appkit-forms-0.2.1.tgz(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@xyflow/react@12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@bunkhouse/roles':
         specifier: workspace:*
         version: link:../../packages/roles
@@ -335,7 +335,7 @@ importers:
         version: 1.0.64(zod@4.4.3)
       '@appkit/ai':
         specifier: file:../../vendor/appkit/appkit-ai-0.2.0.tgz
-        version: file:vendor/appkit/appkit-ai-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: file:vendor/appkit/appkit-ai-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@modelcontextprotocol/sdk':
         specifier: ^1.21.0
         version: 1.30.0(zod@4.4.3)
@@ -406,7 +406,7 @@ packages:
     resolution: {integrity: sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ==}
 
   '@appkit/agent-tools@file:vendor/appkit/appkit-agent-tools-0.1.0.tgz':
-    resolution: {integrity: sha512-IEXt6SSvEDwbz/RSvlnPYfC+ZS5pxPSEFGQ7jPYS71v/SupBc+DNYUML51xdN9M8DI+oRcuA2OEb7aUOqeYJ8g==, tarball: file:vendor/appkit/appkit-agent-tools-0.1.0.tgz}
+    resolution: {integrity: sha512-l8jJ91cTZ/heL6EQsySrDhtsMuJTogmP58V8f6ZBeY/83KAd1rjuJNApWzR6yeeH8gaVGsa127qEUM8uXx+oNQ==, tarball: file:vendor/appkit/appkit-agent-tools-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=22'}
     peerDependencies:
@@ -419,11 +419,11 @@ packages:
         optional: true
 
   '@appkit/ai@file:vendor/appkit/appkit-ai-0.2.0.tgz':
-    resolution: {integrity: sha512-SHJSBPD/4Mmh5R/mplhU0K/h2rkZKd+B7bcmfiFTEamCT4wAvULZ20ex/4rX5WDSsz7vzGtLu2JnvhDzTnNQig==, tarball: file:vendor/appkit/appkit-ai-0.2.0.tgz}
+    resolution: {integrity: sha512-S9owW+aGv5GwMacWh8xu02xDbVtL4pu5e5Hw5fjQYTnuwJiVih1QSHJj4nuac6DDSIu9g6BWIhXxndQ5nYz72A==, tarball: file:vendor/appkit/appkit-ai-0.2.0.tgz}
     version: 0.2.0
     engines: {node: '>=22'}
     peerDependencies:
-      '@appkit/ui': ^0.1.1
+      '@appkit/ui': ^0.1.10
       lucide-react: ^1.24.0
       react: ^19.0.0
       react-dom: ^19.0.0
@@ -444,17 +444,17 @@ packages:
         optional: true
 
   '@appkit/api@file:vendor/appkit/appkit-api-0.1.1.tgz':
-    resolution: {integrity: sha512-Dr+QYynKC3PP+V0+WIyMIdWzb96dpOFijGaBhjiUPUQ5icvAn43+GrypfaIHQkPPRALXVpBb4IIcjiSeYw7pcA==, tarball: file:vendor/appkit/appkit-api-0.1.1.tgz}
+    resolution: {integrity: sha512-3PyW7XLnV1AGtvaTMQULJ58FK3hEsOuQSRqjh83sHT8TA7xwL2fVi+UbHHrN8suGrRzPRlLwvHdZI4TKC3bp7w==, tarball: file:vendor/appkit/appkit-api-0.1.1.tgz}
     version: 0.1.1
     engines: {node: '>=22'}
 
   '@appkit/apps@file:vendor/appkit/appkit-apps-1.0.0.tgz':
-    resolution: {integrity: sha512-fGLqaW7/mL51IlCK0nBeAxxhkeVcVLfodKbZ4RTJSsdec8q1iaiSZD1o1N2trjAxzJn2KuxWcfpjMF2CHLh+Bg==, tarball: file:vendor/appkit/appkit-apps-1.0.0.tgz}
+    resolution: {integrity: sha512-/3c/gQw2Ehcs4Gumk/PwzkyzCc89byYLW5dRtJHsem4VrNVUcx3unSVEEKv3b+mVvr+4tZGpgLC+D2IOnyseiw==, tarball: file:vendor/appkit/appkit-apps-1.0.0.tgz}
     version: 1.0.0
     engines: {node: '>=22'}
     peerDependencies:
       '@appkit/db': ^0.2.0
-      '@appkit/ui': ^0.1.1
+      '@appkit/ui': ^0.1.10
       drizzle-orm: ^0.45.2
       lucide-react: ^1.24.0
       react: ^19.0.0
@@ -473,19 +473,19 @@ packages:
       react-dom:
         optional: true
 
-  '@appkit/auth@file:vendor/appkit/appkit-auth-0.1.1.tgz':
-    resolution: {integrity: sha512-gZ7DSuHss55jON82uUnHiJDX3E4OvjsCAoJo/pVu/uXtQFen6yI+eb83F8EWnvMgQ809biQFHPLXgXTOVjcXUg==, tarball: file:vendor/appkit/appkit-auth-0.1.1.tgz}
-    version: 0.1.1
+  '@appkit/auth@file:vendor/appkit/appkit-auth-0.1.2.tgz':
+    resolution: {integrity: sha512-LflO3dlU24sM0KIzSG4TBtqD+vvbGslMM0JW6ReezO4FnWNQtws/+RLN6n4tyZmQbJWah09ZOWZAqHW1xvBc4A==, tarball: file:vendor/appkit/appkit-auth-0.1.2.tgz}
+    version: 0.1.2
     engines: {node: '>=22'}
     peerDependencies:
       react: '>=18.2 <20'
 
   '@appkit/avatars@file:vendor/appkit/appkit-avatars-0.5.2.tgz':
-    resolution: {integrity: sha512-buu90PJXQefssNopFiA7QTZZr2cLHeMbWJVzLly/Ga3QjGQ24qG90/ch+WZHXfrg1TGh8OXl4gc0389RoJ/JUQ==, tarball: file:vendor/appkit/appkit-avatars-0.5.2.tgz}
+    resolution: {integrity: sha512-lFbqlPPY5SCjfsvFt9kmeRPgbcYgscz/TXfEmDlLj/+XAS3qL1Amxc4UKgewB2BT4PQk9iM8BAHOQs3Ni9PBFA==, tarball: file:vendor/appkit/appkit-avatars-0.5.2.tgz}
     version: 0.5.2
     engines: {node: '>=22'}
     peerDependencies:
-      '@appkit/ui': ^0.1.1
+      '@appkit/ui': ^0.1.10
       framer-motion: ^12.34.0
       lucide-react: ^1.24.0
       react: ^19.0.0
@@ -502,22 +502,22 @@ packages:
       react-dom:
         optional: true
 
-  '@appkit/crypto@file:vendor/appkit/appkit-crypto-0.2.0.tgz':
-    resolution: {integrity: sha512-r7pLav6Ihxp6XO33CHjLHqPEN1QTWOqMWmiQo87H7RIRPe59uwEme7TegNr7qG3iw+2Vs+Un5i/9gCeqgqCA3w==, tarball: file:vendor/appkit/appkit-crypto-0.2.0.tgz}
-    version: 0.2.0
+  '@appkit/crypto@file:vendor/appkit/appkit-crypto-0.3.0.tgz':
+    resolution: {integrity: sha512-3R+qq4w8/GLvE8/AjcMC5ggbIEgnDTEaN+fNxZjHoiAlcfx+pKGLWRJliNfXa4zL9bZl/8vmGs2y3ze6b6gI2Q==, tarball: file:vendor/appkit/appkit-crypto-0.3.0.tgz}
+    version: 0.3.0
     engines: {node: '>=22'}
 
   '@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz':
-    resolution: {integrity: sha512-gBOQ3shD8TvaEKExlM3ArocDhSFSfI67RoI6D3xotGs9oGZ7fikgILfRxK2ecaILFVz0WJioBDUFBd4PG+WyKA==, tarball: file:vendor/appkit/appkit-db-0.2.0.tgz}
+    resolution: {integrity: sha512-6bA1dQXgjXoRGAoAAfkl6/NcKJJiAEUS456HkwEiWZ2hhKOFlA6HM0eTpYktyNQW+HI9aBk6FddMDaEXgUpK8Q==, tarball: file:vendor/appkit/appkit-db-0.2.0.tgz}
     version: 0.2.0
     engines: {node: '>=22'}
 
   '@appkit/design-studio@file:vendor/appkit/appkit-design-studio-0.2.0.tgz':
-    resolution: {integrity: sha512-KxaCxgxyEn+RyuDX7XSWEQ9aPinIvjENZknKQte1mvyTojHRDAOCujRFCuzlEjV6LBaimyIDBeDDLuLjenPteg==, tarball: file:vendor/appkit/appkit-design-studio-0.2.0.tgz}
+    resolution: {integrity: sha512-b55xPl6J62YqrKLcNWwPShx4gyUoTYk0yvkCvNqPhPz46t9e8LBECPLQB02bZv3UJOZtMMcO6/yiTrlOMp+GNw==, tarball: file:vendor/appkit/appkit-design-studio-0.2.0.tgz}
     version: 0.2.0
     engines: {node: '>=22'}
     peerDependencies:
-      '@appkit/ui': ^0.1.1
+      '@appkit/ui': ^0.1.10
       fabric: ^7.0.0
       lucide-react: ^1.24.0
       react: ^19.0.0
@@ -534,17 +534,17 @@ packages:
       react-dom:
         optional: true
 
-  '@appkit/editor@file:vendor/appkit/appkit-editor-0.2.0.tgz':
-    resolution: {integrity: sha512-zGhOWNwtjOF26ZlfO69QolvXs6fRZd1bxYmna6TYnG8bPyHex4x1rvQyd1Q/ffJzpUIlsZnX53SfL+cghkU34A==, tarball: file:vendor/appkit/appkit-editor-0.2.0.tgz}
-    version: 0.2.0
+  '@appkit/editor@file:vendor/appkit/appkit-editor-0.2.1.tgz':
+    resolution: {integrity: sha512-9HLPRzRKaUN1Vt5je/we/jL82tpxRGdeZs5e6lBHxhdAVzwB4zxKRWPyk5y68b3VJpqptYHfuD6iKtfF+CeMPw==, tarball: file:vendor/appkit/appkit-editor-0.2.1.tgz}
+    version: 0.2.1
     engines: {node: '>=22'}
     peerDependencies:
       react: ^19.0.0
       react-dom: ^19.0.0
 
-  '@appkit/email-designer@file:vendor/appkit/appkit-email-designer-0.1.0.tgz':
-    resolution: {integrity: sha512-dUab2s6aeuglclpRa8zD/fZsFZj6aHkH7GO1lZC9GVENOxaprPDb6EkCXKr0GdbG7L4oy93Ylgucoi40CtSANg==, tarball: file:vendor/appkit/appkit-email-designer-0.1.0.tgz}
-    version: 0.1.0
+  '@appkit/email-designer@file:vendor/appkit/appkit-email-designer-0.2.0.tgz':
+    resolution: {integrity: sha512-OGG3+vvuowZe8D1xJzMHJGmSEaF+LQoWcJIrcib8n0ZXeszGaXt24Nr3FHg2u2mnCfTQjSoINr5zqzx+7g2V5Q==, tarball: file:vendor/appkit/appkit-email-designer-0.2.0.tgz}
+    version: 0.2.0
     engines: {node: '>=22'}
     peerDependencies:
       '@grapesjs/react': ^2.0.0
@@ -565,43 +565,43 @@ packages:
         optional: true
 
   '@appkit/email-render@file:vendor/appkit/appkit-email-render-0.1.1.tgz':
-    resolution: {integrity: sha512-PC2aeBtbwHWcNh4ZlSWsvE3LZvYYXViI2WxoQyKnStvV+DQva3OcW9C741olOwotu8C5E4L7Rtsv4/56rcUzgw==, tarball: file:vendor/appkit/appkit-email-render-0.1.1.tgz}
+    resolution: {integrity: sha512-7ra4GPOUniYjo6rqDuJwqT0VDE7Ai0Q+TJLRI3jUV/9Xvq+V2fSn4KNpclU/ZlPpMlW6mUBE4cFJ7qLlsXMfPQ==, tarball: file:vendor/appkit/appkit-email-render-0.1.1.tgz}
     version: 0.1.1
     engines: {node: '>=22'}
 
   '@appkit/emails@file:vendor/appkit/appkit-emails-0.2.0.tgz':
-    resolution: {integrity: sha512-W0Ks7/PM39W8cmwtdPQI+bLy0OHH7r0GOoDgV+rK5M8ajjH2ZlkOgndC7PS7QBgycCcb3rYdo5bIjYPHc23Baw==, tarball: file:vendor/appkit/appkit-emails-0.2.0.tgz}
+    resolution: {integrity: sha512-AcBAvu9PCxeGnq6zoZJPwKMqfdlIa6OWodq7yMCvjZSMPamaKpoWlC9G6PH7Qk4SQl+LM7Dgft2ghBE5l4VrZw==, tarball: file:vendor/appkit/appkit-emails-0.2.0.tgz}
     version: 0.2.0
     engines: {node: '>=22'}
 
   '@appkit/endpoints@file:vendor/appkit/appkit-endpoints-0.1.1.tgz':
-    resolution: {integrity: sha512-NLyRBauuV9rEJzZ6mp5rnHsbvmrDlGv7qAiiLUZbBRbXtzhsSmB/6G+KfsC0Qt1CMdV9ceg4LLrGgkxBXxmrbA==, tarball: file:vendor/appkit/appkit-endpoints-0.1.1.tgz}
+    resolution: {integrity: sha512-+m9f55AXjzSZqbGK8oQZ9x8SM4LDrjYcv6ywBc8WmEvF4dxHU7/NAo3IKq5YeafaAuAu+48ow2BW6r4tL/fBSQ==, tarball: file:vendor/appkit/appkit-endpoints-0.1.1.tgz}
     version: 0.1.1
     engines: {node: '>=22'}
 
   '@appkit/events@file:vendor/appkit/appkit-events-0.2.0.tgz':
-    resolution: {integrity: sha512-ymgGyAN/Hhz06tLodQVS/CBZVxt2XZK39XXhDknqLhz+Evg5yUru/ai5BZYDFqznk9ni1zxTWTpIaToA3zH0FQ==, tarball: file:vendor/appkit/appkit-events-0.2.0.tgz}
+    resolution: {integrity: sha512-bWQdcXw7vVs6Nu1nF4OKmFXyjHbmCJUC8GpCltpM8PB+UdLG9946jHDCyWobaEBpH6tcwvFiBGEmGmJfY88JLA==, tarball: file:vendor/appkit/appkit-events-0.2.0.tgz}
     version: 0.2.0
     engines: {node: '>=22'}
 
   '@appkit/forms-core@file:vendor/appkit/appkit-forms-core-0.1.1.tgz':
-    resolution: {integrity: sha512-bB8YaWqSjoPPfyQqmrp3iolC8C4eJZQdOYXF51cef+EwME3HumwZTuVJAEzfZqf3qxo4qVL/hq6l6Mm10pkPSg==, tarball: file:vendor/appkit/appkit-forms-core-0.1.1.tgz}
+    resolution: {integrity: sha512-qORQdgq1L80gwu8r6e7fMWGa97h1Qev0CWQeDJ0MF3wI4enh2rAiXNUb0QRBwpFeOheuISxce8vOiY9qBoGZEg==, tarball: file:vendor/appkit/appkit-forms-core-0.1.1.tgz}
     version: 0.1.1
     engines: {node: '>=22'}
 
   '@appkit/forms-documents@file:vendor/appkit/appkit-forms-documents-0.1.1.tgz':
-    resolution: {integrity: sha512-0CXElZ9vY21l2/DV/99gMvPnFpIk5/1HZUxB1TFjxPY/jQ36f7LNuuPWkxN/9FceYWS7u+F+hNdwHTuOIIt8xw==, tarball: file:vendor/appkit/appkit-forms-documents-0.1.1.tgz}
+    resolution: {integrity: sha512-3R5hpghfPE5F5LRYrvTv3WttgDAFCWNG7FRH9Ttt/o2/cviApj9suufHzcG1+/AZkQomLoCM0SCZMzW6x9+jaQ==, tarball: file:vendor/appkit/appkit-forms-documents-0.1.1.tgz}
     version: 0.1.1
     engines: {node: '>=22'}
 
   '@appkit/forms-pdf@file:vendor/appkit/appkit-forms-pdf-1.0.0.tgz':
-    resolution: {integrity: sha512-NupE8tRxKqcurQng4VdVh2RDwoPX3blXRoP9x9QVEThGq9sXsX8UCI4vezNiDnzIVEcnZpP++T7A1pWl0I36Ag==, tarball: file:vendor/appkit/appkit-forms-pdf-1.0.0.tgz}
+    resolution: {integrity: sha512-esLBIi5ztGJmCBtQUy8uEqd/AwJLw6L/7rmvLHLSW60JVjMaT/AdG4Ijvwiz1WXpKGQZZBoyoONPfuv6DzhPFQ==, tarball: file:vendor/appkit/appkit-forms-pdf-1.0.0.tgz}
     version: 1.0.0
     engines: {node: '>=22'}
     peerDependencies:
       '@appkit/design-studio': ^0.2.0
       '@appkit/pdf': ^0.1.1
-      '@appkit/reports': ^0.2.0
+      '@appkit/reports': ^0.2.1
       '@appkit/sync': ^1.0.0
       puppeteer-core: ^25.3.0
     peerDependenciesMeta:
@@ -616,32 +616,35 @@ packages:
       puppeteer-core:
         optional: true
 
-  '@appkit/forms@file:vendor/appkit/appkit-forms-0.2.0.tgz':
-    resolution: {integrity: sha512-hgRWVlUn49GqufFiCZKhV4w+ezDZz6WXyThL0HFw6x+jS+bafr46yIAFL7GXl6UiAi9+VFzvlMtKt3hZLmHcOA==, tarball: file:vendor/appkit/appkit-forms-0.2.0.tgz}
-    version: 0.2.0
+  '@appkit/forms@file:vendor/appkit/appkit-forms-0.2.1.tgz':
+    resolution: {integrity: sha512-PUQH548rbRaYm231AclFbU3zZysWNzwToxGJCRZH2cGaUHSoo/dWlGu2MrMfLvg4R+yDlGr5qDvH9PJilElpPQ==, tarball: file:vendor/appkit/appkit-forms-0.2.1.tgz}
+    version: 0.2.1
     engines: {node: '>=22'}
     peerDependencies:
       react: ^19.0.0
       react-dom: ^19.0.0
 
   '@appkit/i18n@file:vendor/appkit/appkit-i18n-0.1.1.tgz':
-    resolution: {integrity: sha512-09IbynI4GuUZljO0kyg5QmdqD6NPZG7+X+6dzNpgs0AeazEQ5xncmsZH+9+b3xUBop+NuN/9yTjLgF9ZmEgmxg==, tarball: file:vendor/appkit/appkit-i18n-0.1.1.tgz}
+    resolution: {integrity: sha512-6BpgAbv0PHp9TlluSdY5VX9iVsNn2YZozdU/xMzR3Dygohb9cKMmPwl9nekGSZVXj3pgEc9SQaP/ZSCupnuJqA==, tarball: file:vendor/appkit/appkit-i18n-0.1.1.tgz}
     version: 0.1.1
     engines: {node: '>=22'}
 
   '@appkit/iam@file:vendor/appkit/appkit-iam-1.0.0.tgz':
-    resolution: {integrity: sha512-6xovzL+F5eYsAKUlCkau5LRUQ4LnjnNSahZy6ZziRp6AXm+7lZxuIxkAmE7LjuMpB1tF4HGFnjrp3Yd4rKPA+Q==, tarball: file:vendor/appkit/appkit-iam-1.0.0.tgz}
+    resolution: {integrity: sha512-74MEkM2psteidtZAl8CMEuHCbp9Eb8ejlDq309vHjuMeXSop3BGQQH39fFTuO4lB+olsaktDw7BQ6rVnqCtgww==, tarball: file:vendor/appkit/appkit-iam-1.0.0.tgz}
     version: 1.0.0
     engines: {node: '>=22'}
     peerDependencies:
       '@appkit/db': ^0.2.0
-      '@appkit/ui': ^0.1.1
+      '@appkit/tenant': ^0.1.1
+      '@appkit/ui': ^0.1.10
       drizzle-orm: ^0.45.2
       lucide-react: ^1.24.0
       react: ^19.0.0
       react-dom: ^19.0.0
     peerDependenciesMeta:
       '@appkit/db':
+        optional: true
+      '@appkit/tenant':
         optional: true
       '@appkit/ui':
         optional: true
@@ -655,16 +658,16 @@ packages:
         optional: true
 
   '@appkit/jobs@file:vendor/appkit/appkit-jobs-0.2.0.tgz':
-    resolution: {integrity: sha512-uTomhlvF9W+Yt3s792GQV+kmnRZw3jMfkn7lrdOmKEZvbAaxBGnp/g91uU0bA+/JaSRdfK1KhjnBMY9IWOvDJg==, tarball: file:vendor/appkit/appkit-jobs-0.2.0.tgz}
+    resolution: {integrity: sha512-8mVzalSONdMhBzHFMa6vRWWUDTZYN+hx13pizuZd5Dy5Eb19asdMZIWiseoNnWAwntE1+V2PNJ+EwPdSDltAVQ==, tarball: file:vendor/appkit/appkit-jobs-0.2.0.tgz}
     version: 0.2.0
     engines: {node: '>=22'}
 
-  '@appkit/mailbox@file:vendor/appkit/appkit-mailbox-0.4.0.tgz':
-    resolution: {integrity: sha512-jaaxHwu9tswW4Y5srlgp+LB6ecbR0B2//X/qqC9FHj/uRW8VSazWTF8RTAm9POm/ANkamK+ttKHLwhp3cZcrFw==, tarball: file:vendor/appkit/appkit-mailbox-0.4.0.tgz}
-    version: 0.4.0
+  '@appkit/mailbox@file:vendor/appkit/appkit-mailbox-0.5.0.tgz':
+    resolution: {integrity: sha512-/NoFgTohPAbOTQgrz8jorXUgOT5OOkKMC5dExErEily8E+0R/0z6rKL7HMACPkiH2hT4pJ/h4gHHqhNmuZ0EcA==, tarball: file:vendor/appkit/appkit-mailbox-0.5.0.tgz}
+    version: 0.5.0
     engines: {node: '>=22'}
     peerDependencies:
-      '@appkit/ui': ^0.1.1
+      '@appkit/ui': ^0.1.10
       lucide-react: ^1.24.0
       react: ^19.0.0
       react-dom: ^19.0.0
@@ -679,13 +682,13 @@ packages:
         optional: true
 
   '@appkit/notifications@file:vendor/appkit/appkit-notifications-1.0.0.tgz':
-    resolution: {integrity: sha512-NyD5qF1JpdYnJy0hQVNtmWA5he1fylvhsDO6nJqOW8tO1axGxXNHcsk7Aw2i+iAI3fo9ipeRBab1X2KwqLilOA==, tarball: file:vendor/appkit/appkit-notifications-1.0.0.tgz}
+    resolution: {integrity: sha512-5YI6vkp0HSlaKAEgZReAqWNEU3dqMnAx6zqvG6AYo0SQbdT79r5069UZGROCsclhKdmklTCfBgCw3EwtdpI3zw==, tarball: file:vendor/appkit/appkit-notifications-1.0.0.tgz}
     version: 1.0.0
     engines: {node: '>=22'}
     peerDependencies:
       '@appkit/db': ^0.2.0
       '@appkit/jobs': ^0.2.0
-      '@appkit/ui': ^0.1.1
+      '@appkit/ui': ^0.1.10
       drizzle-orm: ^0.45.2
       lucide-react: ^1.24.0
       react: ^19.0.0
@@ -707,13 +710,13 @@ packages:
         optional: true
 
   '@appkit/oauth@file:vendor/appkit/appkit-oauth-0.1.0.tgz':
-    resolution: {integrity: sha512-1KeTqN9jfXbbFmAj/h3ESLE3CQzoap7YF/SC5H6vwhyQUXkbkVUNV/j2ArG1ZoBvW+CptOnBa+UAnORIlL6nUA==, tarball: file:vendor/appkit/appkit-oauth-0.1.0.tgz}
+    resolution: {integrity: sha512-xm8fYJqSnx7c5c0U8jPIGgibNLt988Gy5sdlLqb/z1rC347gvMWVuINYKwKUkTKKV8BqEYP6wxxG06e4vHZeMQ==, tarball: file:vendor/appkit/appkit-oauth-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=22'}
 
-  '@appkit/office@file:vendor/appkit/appkit-office-0.1.0.tgz':
-    resolution: {integrity: sha512-+1fvhUlBSZDnAS9j/O4TKZDgo0MKhIn5mw6Uu6kjI0MsCH5e2l2sdCqdrKNAr60GLAlMMEy0f3SO/qCT7OWUag==, tarball: file:vendor/appkit/appkit-office-0.1.0.tgz}
-    version: 0.1.0
+  '@appkit/office@file:vendor/appkit/appkit-office-0.2.0.tgz':
+    resolution: {integrity: sha512-qMzJXqN7IcMEnJtlFy7LZqjaBvC7jnMGRk1/DPV50EkdAiy0v21YWBRvhHgEpndGBk1GR93ib+xgf6e/LuKiJw==, tarball: file:vendor/appkit/appkit-office-0.2.0.tgz}
+    version: 0.2.0
     engines: {node: '>=22'}
     peerDependencies:
       exceljs: ^4.4.0
@@ -722,7 +725,7 @@ packages:
         optional: true
 
   '@appkit/pdf@file:vendor/appkit/appkit-pdf-0.1.1.tgz':
-    resolution: {integrity: sha512-xS0vjiTjGBrGsk96kghbR8qmRF87GLaUqR6qiy4m7r8OkdRhehZXBFLOJUbnhd147i4Q8Kx/FA6mTJ2eZm0IFA==, tarball: file:vendor/appkit/appkit-pdf-0.1.1.tgz}
+    resolution: {integrity: sha512-mII9kbr/hicaqlPESLzt43m5rvk1ehy/p2Bjs8JJQQfTU/nHlNRBXwFcJKLmkjFLCHxKWzLYIYvMCOoM69ZpmA==, tarball: file:vendor/appkit/appkit-pdf-0.1.1.tgz}
     version: 0.1.1
     engines: {node: '>=22'}
     peerDependencies:
@@ -735,12 +738,12 @@ packages:
         optional: true
 
   '@appkit/process-sandbox@file:vendor/appkit/appkit-process-sandbox-0.2.0.tgz':
-    resolution: {integrity: sha512-c6B43dwyjb8OjY52GKtti0nwdHc5eY7ERySSjv1R1dLLIcb03ZCOR4gZeb/hbQaUT7ZYtwLgglgU3JSbKhNnNA==, tarball: file:vendor/appkit/appkit-process-sandbox-0.2.0.tgz}
+    resolution: {integrity: sha512-0e8Rsblq7wXiPt9fiViHBZrDAk6ey4+gQRXq3XasElQoiYDX4uln2VRpMfYY1UdIPTFIajzQ0e+eGn2GPrajYA==, tarball: file:vendor/appkit/appkit-process-sandbox-0.2.0.tgz}
     version: 0.2.0
     engines: {node: '>=22'}
 
   '@appkit/sandbox@file:vendor/appkit/appkit-sandbox-0.1.0.tgz':
-    resolution: {integrity: sha512-2ZPh/UNtPPaRhO06AaPEIVzafmVO7kGJZrLtf2v9Ya2Ct0u4LGvo33C1D17+YJgDnTKgJ3IFmtExSbPePnNorQ==, tarball: file:vendor/appkit/appkit-sandbox-0.1.0.tgz}
+    resolution: {integrity: sha512-9zgEgtMGQgtf4bABfciSqJXRYDQrFeY1ElpqzkQiBnhbgX9uct18yBlgkZfXQtLjkGmCKb+BahHR+Xtvz/NV/Q==, tarball: file:vendor/appkit/appkit-sandbox-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=22'}
 
@@ -753,12 +756,12 @@ packages:
       react-dom: ^19.0.0
 
   '@appkit/scripts@file:vendor/appkit/appkit-scripts-1.0.0.tgz':
-    resolution: {integrity: sha512-NiviN/3IZmGUk5BbnYEIhAJ9AgdffMCa3VKjwY4uTZ+Siiq/H0zoT2aaP4pSAKRvYH8WXM3ty6Wft8KdeT2DHQ==, tarball: file:vendor/appkit/appkit-scripts-1.0.0.tgz}
+    resolution: {integrity: sha512-t4SO/O4KJCDkf50KxCQ5ojujdH9O+vntM0ifnENJEcXCLTbtzN8F8888OaQPHdfUk1na/ywsoUnyKA0yzaZBGw==, tarball: file:vendor/appkit/appkit-scripts-1.0.0.tgz}
     version: 1.0.0
     engines: {node: '>=22'}
     peerDependencies:
       '@appkit/db': ^0.2.0
-      '@appkit/ui': ^0.1.1
+      '@appkit/ui': ^0.1.10
       drizzle-orm: ^0.45.2
       lucide-react: ^1.24.0
       react: ^19.0.0
@@ -778,16 +781,16 @@ packages:
         optional: true
 
   '@appkit/sms@file:vendor/appkit/appkit-sms-0.2.0.tgz':
-    resolution: {integrity: sha512-icxijrZCTn7x6+EoBG4Zj267dnJiFESBM/KYGhi24coaCalrFhBK9TvyPf79q+/5FazzNacrt4fLYCnkWZVlAQ==, tarball: file:vendor/appkit/appkit-sms-0.2.0.tgz}
+    resolution: {integrity: sha512-48JGYN02Yu5LT6XGD025eFbAsAR4dPlNtg3TPuTJYELPjxKScnVbAKedko0A1/aH5ud1EkctbfPNgm+pM3PhNQ==, tarball: file:vendor/appkit/appkit-sms-0.2.0.tgz}
     version: 0.2.0
     engines: {node: '>=22'}
 
   '@appkit/storage@file:vendor/appkit/appkit-storage-0.2.0.tgz':
-    resolution: {integrity: sha512-TeX1Sk7mUD5+3XzPrznr1gIsZpY7tKpzESUNTbIFJiA2rRX+VhqrL7++0k10PdA5H4yLFALWoYAXiVOHmAF5yw==, tarball: file:vendor/appkit/appkit-storage-0.2.0.tgz}
+    resolution: {integrity: sha512-EhTpL+0OwOPuyc15r2qS9C27ER0Ts3o69P1eW8jdb3Rlf55YuCpyosckTZFCDuD1KUgjaQTgjCMJtTzugULSmA==, tarball: file:vendor/appkit/appkit-storage-0.2.0.tgz}
     version: 0.2.0
     engines: {node: '>=22'}
     peerDependencies:
-      '@appkit/ui': ^0.1.1
+      '@appkit/ui': ^0.1.10
       lucide-react: ^1.24.0
       react: ^19.0.0
       react-dom: ^19.0.0
@@ -802,12 +805,12 @@ packages:
         optional: true
 
   '@appkit/superadmin@file:vendor/appkit/appkit-superadmin-0.3.0.tgz':
-    resolution: {integrity: sha512-EuBcl7KxxYNfMtukLhmo6LbJdHvSztbYLkOO/4g+LUgrUq7NU5bxMWA9IrFZs4f2pUY+qme4I88d5fnfkxWILA==, tarball: file:vendor/appkit/appkit-superadmin-0.3.0.tgz}
+    resolution: {integrity: sha512-EakzBl9cJs67cS9OfqviJ+Dvl085anIodqwMX6xmOQBjN2rH5rhaeSKEql41p6LsYrX8b8227cAnfY5KVHeTSA==, tarball: file:vendor/appkit/appkit-superadmin-0.3.0.tgz}
     version: 0.3.0
     engines: {node: '>=22'}
     peerDependencies:
       '@appkit/db': ^0.2.0
-      '@appkit/ui': ^0.1.1
+      '@appkit/ui': ^0.1.10
       drizzle-orm: ^0.45.2
       lucide-react: ^1.24.0
       react: ^19.0.0
@@ -827,7 +830,7 @@ packages:
         optional: true
 
   '@appkit/sync@file:vendor/appkit/appkit-sync-1.0.0.tgz':
-    resolution: {integrity: sha512-4gwbaTLFzbU34U82jjuTPBxPFbtAfDbTlrrIZagbatJkEp9MeHqPYektrTBwI0t83XoogIFEZ1x/Ju9IdleUsw==, tarball: file:vendor/appkit/appkit-sync-1.0.0.tgz}
+    resolution: {integrity: sha512-fOnd9S2yPl5j1aWJCmP1pVrq2xfxK2XV2L8VCIaW2coK5m6XnS+BWGhmm/8ykl8Q9wkN7FbHTi8SWtcNhDvG0w==, tarball: file:vendor/appkit/appkit-sync-1.0.0.tgz}
     version: 1.0.0
     engines: {node: '>=22'}
     peerDependencies:
@@ -848,45 +851,45 @@ packages:
       postgres:
         optional: true
 
-  '@appkit/telephony@file:vendor/appkit/appkit-telephony-0.1.0.tgz':
-    resolution: {integrity: sha512-5BW0dsCwujaRX6cE+Pomf/y/ffNDZd5AaJfX/iwtCJ4fj0EXigJBbyIDzfjyw1hmLD5SfIb6sAhRneTh2oqTdA==, tarball: file:vendor/appkit/appkit-telephony-0.1.0.tgz}
-    version: 0.1.0
+  '@appkit/telephony@file:vendor/appkit/appkit-telephony-0.2.0.tgz':
+    resolution: {integrity: sha512-OKbdK3hO76zIKRXg9DeEzjihNL5zDqtfIvCksicbVw1RijaI41O+pzpo6jpgF8LKKXAT2ldXyX5vxnhDgAucYg==, tarball: file:vendor/appkit/appkit-telephony-0.2.0.tgz}
+    version: 0.2.0
     engines: {node: '>=22'}
 
   '@appkit/tenant@file:vendor/appkit/appkit-tenant-0.1.1.tgz':
-    resolution: {integrity: sha512-C0btofrLW0GvhNxrSxVs66E9GVd3R2liBqyMem4uO0gr5FBzQ50rvFmS00zH7QW5os3+hXuGvABsjD/cZIUzug==, tarball: file:vendor/appkit/appkit-tenant-0.1.1.tgz}
+    resolution: {integrity: sha512-FYOBxTnSz6ej8qbLCeJvGVfopQSEjCQ8vU8lMbWsUUk0UsuhW2+coM3/JcDgRWalEW03PfhYWUrrM/iTSaaDJg==, tarball: file:vendor/appkit/appkit-tenant-0.1.1.tgz}
     version: 0.1.1
     engines: {node: '>=22'}
 
   '@appkit/tokens@file:vendor/appkit/appkit-tokens-0.1.1.tgz':
-    resolution: {integrity: sha512-+FzodOW9y7z0d94tWC5cFCErYFgp5N1xjRNdqwDua3MfUAxFCz4/KwcemAVgKxIcfHwPywa8V9GZR5eDq17jEg==, tarball: file:vendor/appkit/appkit-tokens-0.1.1.tgz}
+    resolution: {integrity: sha512-xzxx8Ue3Ad+DFxHINkv4TkYS7NfoEg4ULvzeyDyzRT5MzLJGH0znmmSI3sdxEzv0zGWDR6H3caKDV/CYyh2NRw==, tarball: file:vendor/appkit/appkit-tokens-0.1.1.tgz}
     version: 0.1.1
     engines: {node: '>=22'}
     peerDependencies:
       tailwindcss: ^4.0.0
 
-  '@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz':
-    resolution: {integrity: sha512-MNNwFKLX4YmUZVqOcqCLpcsDN53dJf+TxVYhyHko8xC6iv4KECmCVJMx/hELdRDGJviCjopc1N0WKhvt0mo+yg==, tarball: file:vendor/appkit/appkit-ui-0.1.9.tgz}
-    version: 0.1.9
+  '@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz':
+    resolution: {integrity: sha512-b1e6Mwqx505gn6G2HD4qn3zi9UWtmS0TcJp/9B8c9AX54lNjNW7oZk/OGoULDqbFU1asMbT4fuZOS5JbMeVKcQ==, tarball: file:vendor/appkit/appkit-ui-0.1.10.tgz}
+    version: 0.1.10
     engines: {node: '>=22'}
     peerDependencies:
       react: ^19.0.0
       react-dom: ^19.0.0
 
   '@appkit/voice@file:vendor/appkit/appkit-voice-0.1.1.tgz':
-    resolution: {integrity: sha512-HFsH1o5fvJ4jhmpCf3BoVaeLy8713NVpDuIFN6lqx2DOBd+mAwIr4gzSH5pXfpjNhEu3MKkfbFy1lbFbo8lGQw==, tarball: file:vendor/appkit/appkit-voice-0.1.1.tgz}
+    resolution: {integrity: sha512-7Uy/AgNCVbG1MNkztd1GXDkEBcSraY7XvZDjAFzfxnazw0BGOqfaJuOzJA5u+EaTeN3vu/GufnWgptVpTD2L2g==, tarball: file:vendor/appkit/appkit-voice-0.1.1.tgz}
     version: 0.1.1
     engines: {node: '>=22'}
 
   '@appkit/workflows@file:vendor/appkit/appkit-workflows-1.0.0.tgz':
-    resolution: {integrity: sha512-u6BG6vgtRMcPTeZvhnC1RApOlKw+45QAqqN1zN704kzCOIs/AOlkL7gMdP1MQguo7IvzJQsC/TwKIyCxc8s1FA==, tarball: file:vendor/appkit/appkit-workflows-1.0.0.tgz}
+    resolution: {integrity: sha512-EsV60Nw4bhitDvAqYL5pA1yIbN/HiqyXvxnsBccL41c7EvfU0oMyH15T0jB8JLyCBrqO7RTXgrGKCunQpk0QLg==, tarball: file:vendor/appkit/appkit-workflows-1.0.0.tgz}
     version: 1.0.0
     engines: {node: '>=22'}
     peerDependencies:
       '@appkit/db': ^0.2.0
-      '@appkit/forms': ^0.2.0
+      '@appkit/forms': ^0.2.1
       '@appkit/forms-core': ^0.1.1
-      '@appkit/ui': ^0.1.1
+      '@appkit/ui': ^0.1.10
       '@xyflow/react': ^12.10.0
       drizzle-orm: ^0.45.2
       lucide-react: ^1.24.0
@@ -7254,7 +7257,7 @@ snapshots:
       '@appkit/db': file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
 
-  '@appkit/ai@file:vendor/appkit/appkit-ai-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@appkit/ai@file:vendor/appkit/appkit-ai-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@ai-sdk/anthropic': 3.0.103(zod@4.4.3)
       '@ai-sdk/google': 3.0.101(zod@4.4.3)
@@ -7264,7 +7267,7 @@ snapshots:
       ai: 6.0.236(zod@4.4.3)
       zod: 4.4.3
     optionalDependencies:
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
@@ -7313,7 +7316,7 @@ snapshots:
       - sql.js
       - sqlite3
 
-  '@appkit/apps@file:vendor/appkit/appkit-apps-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@appkit/apps@file:vendor/appkit/appkit-apps-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@appkit/endpoints': file:vendor/appkit/appkit-endpoints-0.1.1.tgz
       '@codemirror/lang-css': 6.3.1
@@ -7325,7 +7328,7 @@ snapshots:
       zod: 4.4.3
     optionalDependencies:
       '@appkit/db': file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
@@ -7341,10 +7344,10 @@ snapshots:
       - '@codemirror/view'
       - codemirror
 
-  '@appkit/auth@file:vendor/appkit/appkit-auth-0.1.1.tgz(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(kysely@0.29.4)(next@16.2.10(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
+  '@appkit/auth@file:vendor/appkit/appkit-auth-0.1.2.tgz(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(kysely@0.29.4)(next@16.2.10(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
     dependencies:
       '@appkit/db': file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       better-auth: 1.6.25(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(next@16.2.10(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(pg@8.22.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
       pg: 8.22.0
@@ -7395,13 +7398,13 @@ snapshots:
       - vitest
       - vue
 
-  '@appkit/avatars@file:vendor/appkit/appkit-avatars-0.5.2.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(framer-motion@12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)':
+  '@appkit/avatars@file:vendor/appkit/appkit-avatars-0.5.2.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(framer-motion@12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)':
     dependencies:
       '@ai-sdk/google': 3.0.101(zod@4.4.3)
       '@ai-sdk/openai': 3.0.88(zod@4.4.3)
       ai: 6.0.236(zod@4.4.3)
     optionalDependencies:
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       framer-motion: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
@@ -7409,7 +7412,7 @@ snapshots:
     transitivePeerDependencies:
       - zod
 
-  '@appkit/crypto@file:vendor/appkit/appkit-crypto-0.2.0.tgz': {}
+  '@appkit/crypto@file:vendor/appkit/appkit-crypto-0.3.0.tgz': {}
 
   '@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)':
     dependencies:
@@ -7446,20 +7449,20 @@ snapshots:
       - sql.js
       - sqlite3
 
-  '@appkit/design-studio@file:vendor/appkit/appkit-design-studio-0.2.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
+  '@appkit/design-studio@file:vendor/appkit/appkit-design-studio-0.2.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
     dependencies:
       '@appkit/tokens': file:vendor/appkit/appkit-tokens-0.1.1.tgz(tailwindcss@4.3.3)
     optionalDependencies:
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
     transitivePeerDependencies:
       - tailwindcss
 
-  '@appkit/editor@file:vendor/appkit/appkit-editor-0.2.0.tgz(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
+  '@appkit/editor@file:vendor/appkit/appkit-editor-0.2.1.tgz(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
     dependencies:
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@tiptap/extension-link': 3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)
       '@tiptap/extension-placeholder': 3.29.1(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))
       '@tiptap/extension-table': 3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)
@@ -7477,7 +7480,7 @@ snapshots:
       - '@types/react-dom'
       - tailwindcss
 
-  '@appkit/email-designer@file:vendor/appkit/appkit-email-designer-0.1.0.tgz(@grapesjs/react@2.0.0(grapesjs@0.22.16)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@noble/hashes@2.2.0)(grapesjs@0.22.16)(juice@12.1.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@appkit/email-designer@file:vendor/appkit/appkit-email-designer-0.2.0.tgz(@grapesjs/react@2.0.0(grapesjs@0.22.16)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@noble/hashes@2.2.0)(grapesjs@0.22.16)(juice@12.1.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@appkit/email-render': file:vendor/appkit/appkit-email-render-0.1.1.tgz(@noble/hashes@2.2.0)
     optionalDependencies:
@@ -7499,7 +7502,7 @@ snapshots:
 
   '@appkit/emails@file:vendor/appkit/appkit-emails-0.2.0.tgz':
     dependencies:
-      '@appkit/crypto': file:vendor/appkit/appkit-crypto-0.2.0.tgz
+      '@appkit/crypto': file:vendor/appkit/appkit-crypto-0.3.0.tgz
       nodemailer: 6.10.1
 
   '@appkit/endpoints@file:vendor/appkit/appkit-endpoints-0.1.1.tgz':
@@ -7562,23 +7565,23 @@ snapshots:
       - canvas
       - tailwindcss
 
-  '@appkit/forms-pdf@file:vendor/appkit/appkit-forms-pdf-1.0.0.tgz(@appkit/design-studio@file:vendor/appkit/appkit-design-studio-0.2.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@appkit/pdf@file:vendor/appkit/appkit-pdf-0.1.1.tgz(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)':
+  '@appkit/forms-pdf@file:vendor/appkit/appkit-forms-pdf-1.0.0.tgz(@appkit/design-studio@file:vendor/appkit/appkit-design-studio-0.2.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@appkit/pdf@file:vendor/appkit/appkit-pdf-0.1.1.tgz(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)':
     dependencies:
       '@appkit/tokens': file:vendor/appkit/appkit-tokens-0.1.1.tgz(tailwindcss@4.3.3)
     optionalDependencies:
-      '@appkit/design-studio': file:vendor/appkit/appkit-design-studio-0.2.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/design-studio': file:vendor/appkit/appkit-design-studio-0.2.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@appkit/pdf': file:vendor/appkit/appkit-pdf-0.1.1.tgz(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)
       puppeteer-core: 25.4.0
     transitivePeerDependencies:
       - tailwindcss
 
-  '@appkit/forms@file:vendor/appkit/appkit-forms-0.2.0.tgz(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
+  '@appkit/forms@file:vendor/appkit/appkit-forms-0.2.1.tgz(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
     dependencies:
-      '@appkit/editor': file:vendor/appkit/appkit-editor-0.2.0.tgz(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/editor': file:vendor/appkit/appkit-editor-0.2.1.tgz(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@appkit/forms-core': file:vendor/appkit/appkit-forms-core-0.1.1.tgz(@noble/hashes@2.2.0)
       '@appkit/i18n': file:vendor/appkit/appkit-i18n-0.1.1.tgz
       '@appkit/tokens': file:vendor/appkit/appkit-tokens-0.1.1.tgz(tailwindcss@4.3.3)
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@excalidraw/excalidraw': 0.18.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       framer-motion: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       lucide-react: 1.27.0(react@19.2.8)
@@ -7600,47 +7603,15 @@ snapshots:
 
   '@appkit/i18n@file:vendor/appkit/appkit-i18n-0.1.1.tgz': {}
 
-  '@appkit/iam@file:vendor/appkit/appkit-iam-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@opentelemetry/api@1.9.1)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(kysely@0.29.4)(lucide-react@1.27.0(react@19.2.8))(pg@8.22.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
-    dependencies:
-      '@appkit/tenant': file:vendor/appkit/appkit-tenant-0.1.1.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
+  '@appkit/iam@file:vendor/appkit/appkit-iam-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/tenant@file:vendor/appkit/appkit-tenant-0.1.1.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     optionalDependencies:
       '@appkit/db': file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/tenant': file:vendor/appkit/appkit-tenant-0.1.1.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@upstash/redis'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
 
   '@appkit/jobs@file:vendor/appkit/appkit-jobs-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))':
     dependencies:
@@ -7660,22 +7631,22 @@ snapshots:
       - redis
       - supports-color
 
-  '@appkit/mailbox@file:vendor/appkit/appkit-mailbox-0.4.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@appkit/mailbox@file:vendor/appkit/appkit-mailbox-0.5.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       imapflow: 1.6.1
       mailparser: 3.9.14
       nodemailer: 7.0.13
     optionalDependencies:
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
-  '@appkit/notifications@file:vendor/appkit/appkit-notifications-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/jobs@file:vendor/appkit/appkit-jobs-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@appkit/notifications@file:vendor/appkit/appkit-notifications-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/jobs@file:vendor/appkit/appkit-jobs-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     optionalDependencies:
       '@appkit/db': file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
       '@appkit/jobs': file:vendor/appkit/appkit-jobs-0.2.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
@@ -7683,7 +7654,7 @@ snapshots:
 
   '@appkit/oauth@file:vendor/appkit/appkit-oauth-0.1.0.tgz': {}
 
-  '@appkit/office@file:vendor/appkit/appkit-office-0.1.0.tgz(exceljs@4.4.0)':
+  '@appkit/office@file:vendor/appkit/appkit-office-0.2.0.tgz(exceljs@4.4.0)':
     optionalDependencies:
       exceljs: 4.4.0
 
@@ -7705,7 +7676,7 @@ snapshots:
 
   '@appkit/scene@file:vendor/appkit/appkit-scene-0.3.4.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
     dependencies:
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       framer-motion: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
@@ -7713,7 +7684,7 @@ snapshots:
       - '@emotion/is-prop-valid'
       - tailwindcss
 
-  '@appkit/scripts@file:vendor/appkit/appkit-scripts-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@appkit/scripts@file:vendor/appkit/appkit-scripts-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@appkit/sandbox': file:vendor/appkit/appkit-sandbox-0.1.0.tgz
       '@codemirror/lang-javascript': 6.2.5
@@ -7721,7 +7692,7 @@ snapshots:
       cron-parser: 4.9.0
     optionalDependencies:
       '@appkit/db': file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
@@ -7739,22 +7710,22 @@ snapshots:
 
   '@appkit/sms@file:vendor/appkit/appkit-sms-0.2.0.tgz':
     dependencies:
-      '@appkit/crypto': file:vendor/appkit/appkit-crypto-0.2.0.tgz
+      '@appkit/crypto': file:vendor/appkit/appkit-crypto-0.3.0.tgz
 
-  '@appkit/storage@file:vendor/appkit/appkit-storage-0.2.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@appkit/storage@file:vendor/appkit/appkit-storage-0.2.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@aws-sdk/client-s3': 3.1096.0
       '@aws-sdk/s3-request-presigner': 3.1096.0
     optionalDependencies:
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
-  '@appkit/superadmin@file:vendor/appkit/appkit-superadmin-0.3.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@appkit/superadmin@file:vendor/appkit/appkit-superadmin-0.3.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     optionalDependencies:
       '@appkit/db': file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
@@ -7765,9 +7736,9 @@ snapshots:
       '@appkit/db': file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
 
-  '@appkit/telephony@file:vendor/appkit/appkit-telephony-0.1.0.tgz':
+  '@appkit/telephony@file:vendor/appkit/appkit-telephony-0.2.0.tgz':
     dependencies:
-      '@appkit/crypto': file:vendor/appkit/appkit-crypto-0.2.0.tgz
+      '@appkit/crypto': file:vendor/appkit/appkit-crypto-0.3.0.tgz
 
   '@appkit/tenant@file:vendor/appkit/appkit-tenant-0.1.1.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)':
     dependencies:
@@ -7810,7 +7781,7 @@ snapshots:
     dependencies:
       tailwindcss: 4.3.3
 
-  '@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
+  '@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
     dependencies:
       '@appkit/tokens': file:vendor/appkit/appkit-tokens-0.1.1.tgz(tailwindcss@4.3.3)
       class-variance-authority: 0.7.1
@@ -7828,12 +7799,12 @@ snapshots:
     dependencies:
       livekit-server-sdk: 2.17.0
 
-  ? '@appkit/workflows@file:vendor/appkit/appkit-workflows-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/forms-core@file:vendor/appkit/appkit-forms-core-0.1.1.tgz(@noble/hashes@2.2.0))(@appkit/forms@file:vendor/appkit/appkit-forms-0.2.0.tgz(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@xyflow/react@12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)'
+  ? '@appkit/workflows@file:vendor/appkit/appkit-workflows-1.0.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/forms-core@file:vendor/appkit/appkit-forms-core-0.1.1.tgz(@noble/hashes@2.2.0))(@appkit/forms@file:vendor/appkit/appkit-forms-0.2.1.tgz(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@xyflow/react@12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)'
   : optionalDependencies:
       '@appkit/db': file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/forms': file:vendor/appkit/appkit-forms-0.2.0.tgz(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/forms': file:vendor/appkit/appkit-forms-0.2.1.tgz(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@appkit/forms-core': file:vendor/appkit/appkit-forms-core-0.1.1.tgz(@noble/hashes@2.2.0)
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.9.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@xyflow/react': 12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
       lucide-react: 1.27.0(react@19.2.8)
