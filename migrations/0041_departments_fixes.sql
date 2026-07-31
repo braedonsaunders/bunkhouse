@@ -25,6 +25,17 @@ ALTER TABLE "departments" ADD COLUMN IF NOT EXISTS "created_by" uuid;
 --> statement-breakpoint
 ALTER TABLE "departments" ADD COLUMN IF NOT EXISTS "updated_by" uuid;
 --> statement-breakpoint
+-- Unforced first, so this seeds whatever state the table is in.
+--
+-- Forcing applies the policy to the owner too, and a migration has no
+-- `app.tenant_id` to satisfy it with — so a seed against an already-forced
+-- table fails with "new row violates row-level security policy" and takes the
+-- whole boot down with it, because migrate runs before the server starts. That
+-- is not hypothetical: it happened, on a table forced by hand during
+-- debugging, and the site 404'd until this line existed. A migration has to be
+-- idempotent from every starting state, not just the one it was written on.
+ALTER TABLE "departments" NO FORCE ROW LEVEL SECURITY;
+--> statement-breakpoint
 -- Seeded from `tenants`, which a migration can actually read. Every company
 -- gets the six built-in rooms so the floor keeps looking like itself, and
 -- ON CONFLICT means running this again after somebody has renamed or removed
