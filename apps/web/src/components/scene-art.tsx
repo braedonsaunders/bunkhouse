@@ -1,5 +1,10 @@
 'use client'
 
+// The room names live outside this module: a server component importing a
+// value from a 'use client' file gets a proxy, not the value.
+export { SCENE_KINDS, SCENE_LABELS, type SceneKind } from './scene-kinds'
+import { SCENE_KINDS, SCENE_LABELS, type SceneKind } from './scene-kinds'
+
 import * as React from 'react'
 import type { SceneGroundConfig } from '@appkit/scene'
 
@@ -37,25 +42,6 @@ import type { SceneGroundConfig } from '@appkit/scene'
  * render — so the server and client markup agree.
  */
 
-export type SceneKind = 'office' | 'executive' | 'warehouse' | 'serverroom' | 'breakroom' | 'rooftop'
-
-export const SCENE_KINDS = [
-  'office',
-  'executive',
-  'warehouse',
-  'serverroom',
-  'breakroom',
-  'rooftop',
-] as const satisfies readonly SceneKind[]
-
-export const SCENE_LABELS: Record<SceneKind, string> = {
-  office: 'Office',
-  executive: 'Executive',
-  warehouse: 'Warehouse',
-  serverroom: 'Server room',
-  breakroom: 'Break room',
-  rooftop: 'Rooftop',
-}
 
 // ---------------------------------------------------------------------------
 // Geometry

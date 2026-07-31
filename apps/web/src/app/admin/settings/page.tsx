@@ -28,7 +28,7 @@ import { AVATAR_PART_CATEGORIES, avatarPartCategory } from '../../../lib/avatar-
 import { IMAGE_MODELS } from '@appkit/avatars'
 import { resolveTenantId } from '../../../lib/tenant'
 import { listDepartments, wanderingEnabled } from '../../../lib/departments'
-import { SCENE_KINDS, SCENE_LABELS } from '../../../components/scene-art'
+import { SCENE_KINDS, SCENE_LABELS } from '../../../components/scene-kinds'
 import {  } from '../../../lib/auth'
 
 export const dynamic = 'force-dynamic'
