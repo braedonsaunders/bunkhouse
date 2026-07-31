@@ -1,6 +1,18 @@
 'use client'
 
-import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Select } from '@appkit/ui'
+import * as React from 'react'
+import {
+  Button,
+  Drawer,
+  EmptyState,
+  Input,
+  Label,
+  PagedTable,
+  Select,
+  Switch,
+  type PagedColumn,
+} from '@appkit/ui'
+import { DoorOpen } from 'lucide-react'
 import { BackdropStudio } from './backdrop-studio'
 import {
   createDepartment,
@@ -20,8 +32,17 @@ export type DepartmentRow = {
 }
 
 /**
- * The company's places, in settings beside identity and avatars — because a
- * floor plan is a fact about the company, not a view of the org chart.
+ * The company's places, as a list of records.
+ *
+ * The first version stacked a Card per department — the rename field, the
+ * reorder buttons, the remove button and the entire backdrop studio, all open
+ * at once, six times down the page. That is not a list, it is six forms
+ * pretending to be one, and the preview it offered was too small and too
+ * crowded to judge a picture by.
+ *
+ * Records belong in the table this app already uses everywhere. Editing one
+ * opens a drawer, which is where the detail goes and where a backdrop can be
+ * shown big enough to be worth looking at.
  */
 export function DepartmentsSettings({
   departments,
@@ -34,127 +55,233 @@ export function DepartmentsSettings({
   wander: boolean
   sceneKinds: { value: string; label: string }[]
 }) {
-  const rows = departments
-  const kinds = sceneKinds
-  const headcount = new Map(rows.map((row) => [row.id, row.headcount]))
-  const SCENE_LABELS = Object.fromEntries(kinds.map((kind) => [kind.value, kind.label])) as Record<string, string>
+  const [editing, setEditing] = React.useState<DepartmentRow | null>(null)
+  const [creating, setCreating] = React.useState(false)
+  const labelOf = React.useMemo(
+    () => Object.fromEntries(sceneKinds.map((kind) => [kind.value, kind.label])) as Record<string, string>,
+    [sceneKinds],
+  )
+
+  const columns: PagedColumn<DepartmentRow>[] = [
+    {
+      key: 'name',
+      header: 'Department',
+      cell: (row) => <span className="font-medium text-fg">{row.name}</span>,
+      search: (row) => row.name,
+      sortValue: (row) => row.name.toLowerCase(),
+    },
+    {
+      key: 'look',
+      header: 'Backdrop',
+      cell: (row) =>
+        row.backdropSvg ? (
+          <span className="flex items-center gap-2">
+            {/* The drawing itself. The name of a picture tells you nothing. */}
+            <span
+              className="h-8 w-14 shrink-0 overflow-hidden rounded border border-border [&>svg]:h-full [&>svg]:w-full"
+              dangerouslySetInnerHTML={{ __html: row.backdropSvg }}
+            />
+            <span className="text-fg-muted">Drawn</span>
+          </span>
+        ) : (
+          <span className="text-fg-muted">{labelOf[row.sceneKind ?? 'office'] ?? row.sceneKind}</span>
+        ),
+      search: (row) => (row.backdropSvg ? 'drawn' : (labelOf[row.sceneKind ?? ''] ?? '')),
+    },
+    {
+      key: 'headcount',
+      header: 'People',
+      align: 'right',
+      cell: (row) => <span className="tabular-nums text-fg-muted">{row.headcount}</span>,
+      sortValue: (row) => row.headcount,
+    },
+    {
+      key: 'order',
+      header: '',
+      align: 'right',
+      cell: (row) => (
+        // Reordering is a row action, so it must not also open the drawer.
+        <span className="flex items-center justify-end gap-1" onClick={(event) => event.stopPropagation()}>
+          <form action={moveDepartment}>
+            <input type="hidden" name="id" value={row.id} />
+            <input type="hidden" name="direction" value="up" />
+            <Button type="submit" size="sm" variant="ghost" aria-label={`Move ${row.name} up`}>
+              ↑
+            </Button>
+          </form>
+          <form action={moveDepartment}>
+            <input type="hidden" name="id" value={row.id} />
+            <input type="hidden" name="direction" value="down" />
+            <Button type="submit" size="sm" variant="ghost" aria-label={`Move ${row.name} down`}>
+              ↓
+            </Button>
+          </form>
+        </span>
+      ),
+    },
+  ]
+
   return (
-    <div className="space-y-6">
-    <Card>
-      <CardHeader>
-        <CardTitle>Wandering</CardTitle>
-        <CardDescription>
-          With this on, people occasionally turn up in a department that is not their own — the way anybody drifts
-          into someone else&apos;s doorway to ask a question. Nobody moves more than once every few minutes, and the
-          same moment always looks the same to everyone.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <form action={setWanderingEnabled} className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-sm text-fg">
-            <input type="checkbox" name="enabled" defaultChecked={wander} className="size-4 accent-[var(--color-primary)]" />
+          <Switch name="enabled" defaultChecked={wander} />
+          <span className="text-sm text-fg">
             Let people wander
-          </label>
+            <span className="ml-2 text-fg-muted">— they turn up in someone else&apos;s department now and then.</span>
+          </span>
           <Button type="submit" size="sm" variant="outline">
             Save
           </Button>
         </form>
-      </CardContent>
-    </Card>
+        <Button type="button" onClick={() => setCreating(true)}>
+          Add department
+        </Button>
+      </div>
 
-    <Card>
-      <CardHeader>
-        <CardTitle>Add a department</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <form action={createDepartment} className="flex flex-wrap items-end gap-2">
-          <label className="min-w-[220px] flex-1 space-y-1">
-            <span className="text-xs text-fg-muted">Name</span>
-            <Input name="name" placeholder="Workshop" maxLength={60} required />
-          </label>
-          <label className="space-y-1">
-            <span className="text-xs text-fg-muted">Looks like</span>
-            <Select name="sceneKind" defaultValue="office" className="w-44">
-              {kinds.map((kind) => (
-                <option key={kind.value} value={kind.value}>
-                  {kind.label}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <Button type="submit">Add</Button>
-        </form>
-      </CardContent>
-    </Card>
+      {deskless > 0 ? (
+        <p className="text-sm text-fg-muted">
+          {deskless} {deskless === 1 ? 'person has' : 'people have'} no department, so they appear on every floor. Give
+          them a desk from their record.
+        </p>
+      ) : null}
 
-    {deskless > 0 ? (
-      <p className="text-sm text-fg-muted">
-        {deskless} {deskless === 1 ? 'person has' : 'people have'} no department yet, so they appear on every floor.
-        Give them a desk from their record.
-      </p>
-    ) : null}
+      <PagedTable
+        columns={columns}
+        rows={departments}
+        rowKey={(row) => row.id}
+        pageSize={10}
+        searchable
+        onRowClick={(row) => setEditing(row)}
+        labels={{ searchPlaceholder: 'Search departments…', searchLabel: 'Search departments' }}
+        empty={
+          <EmptyState
+            icon={<DoorOpen />}
+            title="No departments yet"
+            description="Add the places your company has — the floor on the home screen shows who is in each of them."
+            action={<Button onClick={() => setCreating(true)}>Add department</Button>}
+          />
+        }
+      />
 
-    <div className="space-y-4">
-      {rows.map((row, index) => (
-        <Card key={row.id}>
-          <CardHeader>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <form action={renameDepartment} className="flex items-center gap-2">
-                <input type="hidden" name="id" value={row.id} />
-                <Input name="name" defaultValue={row.name} maxLength={60} className="w-56" />
-                <Button type="submit" size="sm" variant="outline">
-                  Rename
-                </Button>
-              </form>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-fg-muted">
-                  {headcount.get(row.id) ?? 0} {(headcount.get(row.id) ?? 0) === 1 ? 'person' : 'people'}
-                </span>
-                <form action={moveDepartment}>
-                  <input type="hidden" name="id" value={row.id} />
-                  <input type="hidden" name="direction" value="up" />
-                  <Button type="submit" size="sm" variant="ghost" disabled={index === 0} aria-label="Move up">
-                    ↑
-                  </Button>
-                </form>
-                <form action={moveDepartment}>
-                  <input type="hidden" name="id" value={row.id} />
-                  <input type="hidden" name="direction" value="down" />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    variant="ghost"
-                    disabled={index === rows.length - 1}
-                    aria-label="Move down"
-                  >
-                    ↓
-                  </Button>
-                </form>
-                <form action={deleteDepartment}>
-                  <input type="hidden" name="id" value={row.id} />
-                  <Button type="submit" size="sm" variant="ghost" className="text-danger">
-                    Remove
-                  </Button>
-                </form>
-              </div>
+      <CreateDepartmentDrawer open={creating} onClose={() => setCreating(false)} sceneKinds={sceneKinds} />
+      <EditDepartmentDrawer
+        department={editing}
+        onClose={() => setEditing(null)}
+        sceneKinds={sceneKinds}
+        labelOf={labelOf}
+      />
+    </div>
+  )
+}
+
+function CreateDepartmentDrawer({
+  open,
+  onClose,
+  sceneKinds,
+}: {
+  open: boolean
+  onClose: () => void
+  sceneKinds: { value: string; label: string }[]
+}) {
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      title="Add a department"
+      description="A place in the company. Pick one of the built-in rooms now — you can have a backdrop drawn for it afterwards."
+      size="md"
+    >
+      <form action={createDepartment} className="space-y-4" onSubmit={() => onClose()}>
+        <div>
+          <Label htmlFor="dept-name">Name</Label>
+          <Input id="dept-name" name="name" placeholder="Workshop" maxLength={60} required autoFocus />
+        </div>
+        <div>
+          <Label htmlFor="dept-kind">Looks like</Label>
+          <Select id="dept-kind" name="sceneKind" defaultValue="office">
+            {sceneKinds.map((kind) => (
+              <option key={kind.value} value={kind.value}>
+                {kind.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit">Add department</Button>
+        </div>
+      </form>
+    </Drawer>
+  )
+}
+
+/** One department, with room to actually judge its backdrop. */
+function EditDepartmentDrawer({
+  department,
+  onClose,
+  sceneKinds,
+  labelOf,
+}: {
+  department: DepartmentRow | null
+  onClose: () => void
+  sceneKinds: { value: string; label: string }[]
+  labelOf: Record<string, string>
+}) {
+  return (
+    <Drawer
+      open={department !== null}
+      onClose={onClose}
+      title={department?.name ?? 'Department'}
+      description={
+        department
+          ? department.backdropSvg
+            ? 'Drawn backdrop'
+            : `Built-in room — ${labelOf[department.sceneKind ?? 'office'] ?? department.sceneKind}`
+          : ''
+      }
+      size="xl"
+    >
+      {department ? (
+        <div className="space-y-6">
+          <form action={renameDepartment} className="flex items-end gap-2">
+            <div className="flex-1">
+              <Label htmlFor="dept-rename">Name</Label>
+              <input type="hidden" name="id" value={department.id} />
+              <Input id="dept-rename" name="name" defaultValue={department.name} maxLength={60} />
             </div>
-            <CardDescription>
-              {row.backdropSvg
-                ? 'Drawn backdrop'
-                : `Built-in room — ${SCENE_LABELS[(row.sceneKind ?? 'office') as keyof typeof SCENE_LABELS] ?? row.sceneKind}`}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <BackdropStudio
-              departmentId={row.id}
-              currentSvg={row.backdropSvg}
-              currentPrompt={row.backdropPrompt}
-              sceneKinds={kinds}
-            />
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-    </div>
+            <Button type="submit" variant="outline">
+              Rename
+            </Button>
+          </form>
+
+          {/* Keyed by department so opening a different one does not inherit
+              the last one's draft preview. */}
+          <BackdropStudio
+            key={department.id}
+            departmentId={department.id}
+            currentSvg={department.backdropSvg}
+            currentPrompt={department.backdropPrompt}
+            sceneKinds={sceneKinds}
+          />
+
+          <div className="flex items-center justify-between border-t border-border pt-4">
+            <span className="text-sm text-fg-muted">
+              {department.headcount === 0
+                ? 'Nobody works here yet.'
+                : `${department.headcount} ${department.headcount === 1 ? 'person works' : 'people work'} here.`}
+            </span>
+            <form action={deleteDepartment} onSubmit={() => onClose()}>
+              <input type="hidden" name="id" value={department.id} />
+              <Button type="submit" variant="outline" className="text-danger">
+                Remove department
+              </Button>
+            </form>
+          </div>
+        </div>
+      ) : null}
+    </Drawer>
   )
 }
