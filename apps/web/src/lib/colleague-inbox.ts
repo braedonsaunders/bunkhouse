@@ -1,83 +1,24 @@
 import 'server-only'
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
-import { colleagueMessages, people, runs, tokenSpend } from '../db/schema'
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
+import { colleagueMessages, people } from '../db/schema'
 import { db } from '../db/client'
 
 /**
- * The inbox, and what one human ask is allowed to cost.
+ * The inbox: what a colleague said, waiting until you are working anyway.
  *
- * Both of these exist because of the same afternoon. Four test phone calls —
- * four runs, twenty cents — turned into 913 assignments and fifty-three
- * dollars, and the titles of the work say precisely what it was:
- * `Re: Re: Re: Re: Daily check-in outcome — posture confirmed`. Agents
- * acknowledging each other's acknowledgements, each acknowledgement a full
- * model run, because every internal message had been made into a job.
+ * Two agents at one company have to be able to say something to each other
+ * without it becoming a job and without it becoming a memory. Both were tried
+ * and both were wrong. As an assignment, every message was a full model run —
+ * which is where `Re: Re: Re: Re: Daily check-in outcome` came from, agents
+ * acknowledging each other's acknowledgements at ten cents a time. As a note
+ * in the recipient's logbook it stopped costing runs but polluted the one
+ * place an agent keeps what it has LEARNED, competing for the retrieval budget
+ * and ageing through consolidation beside real facts. A message is not a
+ * lesson.
  *
- * Messages are no longer jobs; they wait here until the recipient is working
- * anyway. But "messages are cheap" is not on its own a governor — the deeper
- * hole was that nothing recorded which human ask a piece of work descended
- * from, so nothing could say what one request had cost, and nothing could stop
- * it. The only thing that noticed nine hundred assignments was the invoice.
- *
- * So every run carries a root: the call, the email, the operator action it
- * came from. Work derived from one carries the same root however far it
- * spreads, and the spend under a root is checked before more derived work
- * starts. A request that has already cost more than it could possibly be worth
- * stops, and says so, instead of quietly continuing.
+ * So it waits here instead, and is handed over — and marked read — the next
+ * time the recipient works, whatever started them.
  */
-
-/**
- * What one human ask may spend before work derived from it stops.
- *
- * Generous for anything a person actually asked for — an afternoon of research
- * costs well under this — and far below where a runaway is discovered on an
- * invoice. It bounds a REQUEST, which is a different question from the salary
- * meter's "what may this agent spend this month": the meter would have let a
- * single test call run to the monthly ceiling and only then stopped the agent
- * entirely, days later, with the money already gone.
- */
-export const MAX_SPEND_PER_ROOT_USD = 3
-
-/** And how many pieces of derived work, for the case that is cheap but endless. */
-export const MAX_DERIVED_RUNS_PER_ROOT = 40
-
-export type RootBudget = { spentUsd: number; runs: number; exhausted: boolean; reason?: string }
-
-/**
- * What everything descending from one ask has cost so far. Assumes an active
- * tenant scope.
- */
-export async function rootBudget(rootRunId: string): Promise<RootBudget> {
-  const app = db()
-  const [row] = await app.db
-    .select({
-      runs: sql<number>`count(distinct ${runs.id})`.mapWith(Number),
-      spent: sql<number>`coalesce(sum(${tokenSpend.costUsd}), 0)`.mapWith(Number),
-    })
-    .from(runs)
-    .leftJoin(tokenSpend, eq(tokenSpend.runId, runs.id))
-    .where(eq(runs.rootRunId, rootRunId))
-
-  const spentUsd = row?.spent ?? 0
-  const count = row?.runs ?? 0
-  if (spentUsd >= MAX_SPEND_PER_ROOT_USD) {
-    return {
-      spentUsd,
-      runs: count,
-      exhausted: true,
-      reason: `Everything stemming from this one request has already cost $${spentUsd.toFixed(2)}, which is the ceiling for a single ask. Finish with what you have and tell the person what is outstanding rather than starting more work on it.`,
-    }
-  }
-  if (count >= MAX_DERIVED_RUNS_PER_ROOT) {
-    return {
-      spentUsd,
-      runs: count,
-      exhausted: true,
-      reason: `This one request has already produced ${count} separate pieces of work. Whatever is still unfinished needs a person to look at it, not another handoff.`,
-    }
-  }
-  return { spentUsd, runs: count, exhausted: false }
-}
 
 export type InboxMessage = { from: string; subject: string; body: string; sentAt: Date }
 

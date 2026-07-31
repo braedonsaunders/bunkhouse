@@ -8,6 +8,7 @@ import {
   OPENAI_REALTIME_MODELS,
   OPENAI_REALTIME_VOICES,
 } from '@appkit/voice'
+import { Pagination, parsePrefixedListParams, type ListSearchParams } from '@appkit/ui'
 import { isAiProvider, providerSpec } from '@appkit/ai'
 import { approvals, autonomySettings, duties, memories, people, runs, tokenSpend } from '../../db/schema'
 import { db } from '../../db/client'
@@ -41,6 +42,7 @@ export async function personDrawer({
   mailboxError,
   tab,
   mailThreadId,
+  searchParams,
 }: {
   tenantId: string
   roster: Person[]
@@ -53,12 +55,25 @@ export async function personDrawer({
   tab?: string | undefined
   /** With tab=mailbox: the conversation to open. */
   mailThreadId?: string | undefined
+  /**
+   * The page's own query string, so the memory table can be paged without
+   * losing whichever person and tab are open.
+   */
+  searchParams?: ListSearchParams | undefined
 }): Promise<ReactNode> {
   const selected = selectedId ? roster.find((person) => person.id === selectedId) : undefined
   if (!selected) return null
 
   const app = db()
   const isAgent = selected.kind === 'agent'
+  // Its own prefix: the drawer shares a route with the roster, and one list's
+  // controls must not reset another's.
+  const notePage = parsePrefixedListParams(searchParams ?? {}, 'note', {
+    sort: 'created',
+    dir: 'desc',
+    perPage: 20,
+    allowedSorts: ['created'] as const,
+  })
   const detail = await app.withTenantContext(tenantId, async () => {
     const personDuties = await app.db
       .select()
@@ -66,11 +81,22 @@ export async function personDrawer({
       .where(eq(duties.personId, selected.id))
       .orderBy(asc(duties.title))
     const dial = await app.db.select().from(autonomySettings).where(eq(autonomySettings.personId, selected.id))
+    // Paged, because a logbook only grows. One agent wrote 195 notes in a day
+    // and this loaded every one of them into the page, oldest first — so the
+    // newest, which is the only part anybody opens this to read, was last.
+    const noteWhere = and(eq(memories.personId, selected.id), sql`${memories.validUntil} is null`)
+    const [noteCount] = await app.db
+      .select({ total: sql<number>`count(*)`.mapWith(Number) })
+      .from(memories)
+      .where(noteWhere)
+    const notesTotal = noteCount?.total ?? 0
     const notes = await app.db
       .select()
       .from(memories)
-      .where(and(eq(memories.personId, selected.id), sql`${memories.validUntil} is null`))
-      .orderBy(asc(memories.createdAt))
+      .where(noteWhere)
+      .orderBy(desc(memories.pinned), desc(memories.createdAt))
+      .limit(notePage.perPage)
+      .offset((notePage.page - 1) * notePage.perPage)
     const monthStart = new Date()
     monthStart.setUTCDate(1)
     monthStart.setUTCHours(0, 0, 0, 0)
@@ -108,6 +134,7 @@ export async function personDrawer({
       )
       .map(([category]) => category)
     return {
+      notesTotal,
       personDuties,
       dial,
       notes,
@@ -271,7 +298,22 @@ export async function personDrawer({
           {
             key: 'memory',
             label: 'Memory',
-            content: <MemorySection person={selected} notes={detail.notes} />,
+            content: (
+              <MemorySection
+                person={selected}
+                notes={detail.notes}
+                pagination={
+                  <Pagination
+                    basePath={basePath}
+                    currentParams={searchParams ?? {}}
+                    total={detail.notesTotal}
+                    page={notePage.page}
+                    perPage={notePage.perPage}
+                    pageParamKey="notePage"
+                  />
+                }
+              />
+            ),
           },
           {
             key: 'payroll',

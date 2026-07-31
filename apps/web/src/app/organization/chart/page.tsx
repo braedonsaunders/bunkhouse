@@ -26,7 +26,8 @@ export default async function OrgChartPage({
 }: {
   searchParams: Promise<{ person?: string; show?: string }>
 }) {
-  const { person: selectedId, show } = await searchParams
+  const params = await searchParams
+  const { person: selectedId, show } = params
   const includeOffboarded = show === 'all'
   const tenantId = await resolveTenantId()
   const app = db()
@@ -109,7 +110,7 @@ export default async function OrgChartPage({
           }
         />
       )}
-      {await personDrawer({ tenantId, roster, selectedId, basePath: BASE_PATH })}
+      {await personDrawer({ tenantId, roster, selectedId, basePath: BASE_PATH, searchParams: params })}
     </PageContainer>
   )
 }

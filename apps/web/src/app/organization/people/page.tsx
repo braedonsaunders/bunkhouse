@@ -22,7 +22,8 @@ export default async function PeoplePage({
 }: {
   searchParams: Promise<{ person?: string }>
 }) {
-  const { person: selectedId } = await searchParams
+  const params = await searchParams
+  const selectedId = params.person
   const tenantId = await resolveTenantId()
   const app = db()
   const roster = await app.withTenantContext(tenantId, () =>
@@ -81,7 +82,7 @@ export default async function PeoplePage({
           description: 'Add the humans on staff so your agents know who owns what and where to escalate.',
         }}
       />
-      {await personDrawer({ tenantId, roster, selectedId, basePath: BASE_PATH })}
+      {await personDrawer({ tenantId, roster, selectedId, basePath: BASE_PATH, searchParams: params })}
     </PageContainer>
   )
 }

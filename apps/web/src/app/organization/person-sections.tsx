@@ -13,6 +13,7 @@ import {
   Select,
   Textarea,
 } from '@appkit/ui'
+import type { ReactNode } from 'react'
 import type { autonomySettings, memories, people, runs } from '../../db/schema'
 import { AssignModelForm } from '../../components/assign-model-form'
 import { NotesView } from '../../components/notes-view'
@@ -305,16 +306,21 @@ export function AutonomySection({
 export function MemorySection({
   person,
   notes,
+  pagination,
 }: {
   person: Person
   notes: (typeof memories.$inferSelect)[]
+  /** The page control, rendered under the list — a logbook only grows. */
+  pagination?: ReactNode
 }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle>Memory</CardTitle>
         <CardDescription>
-          This agent&apos;s logbook — human-readable, append-only. Corrections keep history; forgetting closes validity.
+          This agent&apos;s logbook. Newest first, and paged — a logbook only grows, and one agent wrote 195 notes in a
+          day. Raw entries are consolidated into what they amount to and then closed; nothing is deleted, so the history
+          is all still here.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -333,6 +339,7 @@ export function MemorySection({
             updatedAt: note.updatedAt.toISOString().slice(0, 16).replace('T', ' '),
           }))}
         />
+        {pagination}
       </CardContent>
     </Card>
   )

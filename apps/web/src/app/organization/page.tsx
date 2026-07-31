@@ -24,7 +24,8 @@ export default async function AgentsPage({
 }: {
   searchParams: Promise<{ person?: string; mailboxError?: string; tab?: string; thread?: string }>
 }) {
-  const { person: selectedId, mailboxError, tab, thread } = await searchParams
+  const params = await searchParams
+  const { person: selectedId, mailboxError, tab, thread } = params
   const tenantId = await resolveTenantId()
   const app = db()
   const roster = await app.withTenantContext(tenantId, () =>
@@ -83,7 +84,16 @@ export default async function AgentsPage({
           description: 'Hire your first agent from a role pack — the pack brings its duties and procedures with it.',
         }}
       />
-      {await personDrawer({ tenantId, roster, selectedId, basePath: BASE_PATH, mailboxError, tab, mailThreadId: thread })}
+      {await personDrawer({
+        tenantId,
+        roster,
+        selectedId,
+        basePath: BASE_PATH,
+        mailboxError,
+        tab,
+        mailThreadId: thread,
+        searchParams: params,
+      })}
     </PageContainer>
   )
 }

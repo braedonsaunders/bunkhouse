@@ -314,11 +314,22 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
 // fifty-three dollars, and nothing noticed but the invoice. The salary meter
 // would not have caught it: it bounds an agent's month, not a request.
 {
-  const { MAX_SPEND_PER_ROOT_USD, MAX_DERIVED_RUNS_PER_ROOT } = await import('../src/lib/colleague-inbox')
+  const { MAX_SPEND_PER_ROOT_USD, MAX_DERIVED_RUNS_PER_ROOT, MAX_SELF_DIRECTED_USD_PER_DAY } = await import(
+    '../src/lib/work-budget'
+  )
   assert.ok(MAX_SPEND_PER_ROOT_USD > 0 && MAX_SPEND_PER_ROOT_USD <= 10, 'a single ask has a small, real ceiling')
   assert.ok(
     MAX_DERIVED_RUNS_PER_ROOT < 913,
     'and a count low enough that the afternoon which caused this would have been stopped',
   )
-  console.log(`provenance: one ask may spend $${MAX_SPEND_PER_ROOT_USD} across ${MAX_DERIVED_RUNS_PER_ROOT} runs`)
+  // The one that actually happened: a broken mailbox an agent decided to fix
+  // itself, a day of NetSuite queries, every run its own root so no per-ask
+  // ceiling ever applied.
+  assert.ok(
+    MAX_SELF_DIRECTED_USD_PER_DAY > 0 && MAX_SELF_DIRECTED_USD_PER_DAY < MAX_SPEND_PER_ROOT_USD,
+    'work nobody asked for gets a smaller allowance than work somebody did',
+  )
+  console.log(
+    `provenance: one ask may spend $${MAX_SPEND_PER_ROOT_USD} across ${MAX_DERIVED_RUNS_PER_ROOT} runs; unasked work $${MAX_SELF_DIRECTED_USD_PER_DAY}/day`,
+  )
 }

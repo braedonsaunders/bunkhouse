@@ -4,6 +4,8 @@ import { schema as identity } from '@appkit/db'
 import { db } from '../src/db/client'
 import { ASSIGNMENT_MAX_STEPS } from '../src/lib/agent-runs'
 import { retireContradictedBeliefs } from '../src/lib/stale-beliefs'
+import { dutyIsSelfDirected, selfDirectedBudget } from '../src/lib/work-budget'
+import { consolidateMemories } from '../src/lib/memory-consolidation'
 import { MAX_SELF_SCHEDULED_REPEATS } from '../src/lib/agent-abilities'
 import { approvals, assignments, mailboxAccounts, mailMessages, people, runs, tokenSpend } from '../src/db/schema'
 import { sendNewMail, sendReplyInThread, syncPersonMailbox } from '../src/lib/mailbox'
@@ -83,6 +85,17 @@ async function dutiesPass(): Promise<void> {
       }
       await markDutyRun(tenantId, duty.id, next, !anchoring)
       if (anchoring) continue
+      // A schedule an agent wrote for itself is work nobody asked for, and it
+      // shares one small daily allowance with everything else in that
+      // category. The schedule is still advanced above, so it retires on its
+      // own timetable rather than queueing up to fire twice tomorrow.
+      if (await app.withTenant(tenantId, () => dutyIsSelfDirected(duty.id))) {
+        const budget = await app.withTenant(tenantId, () => selfDirectedBudget(duty.personId))
+        if (budget.exhausted) {
+          console.warn(`[duty] ${duty.title}: skipped — ${budget.reason}`)
+          continue
+        }
+      }
       const { outcome } = await executeAgentRun({
         tenantId,
         personId: duty.personId,
@@ -443,6 +456,24 @@ async function callSweepPass(): Promise<void> {
 }
 
 /**
+ * Sleeping on the day: a logbook of raw episodes becomes the few conclusions
+ * worth carrying, and the raw entries are expired out of the way of everything
+ * that reads memory in order to work. Never deleted — the day is still there
+ * for anyone who goes looking.
+ */
+async function consolidateMemoriesAll(): Promise<void> {
+  for (const tenantId of await activeTenantIds()) {
+    const done = await consolidateMemories(tenantId).catch((error: unknown) => {
+      console.error(`[memory] ${tenantId}: ${error instanceof Error ? error.message : String(error)}`)
+      return []
+    })
+    for (const one of done) {
+      console.log(`[memory] ${one.agent}: ${one.read} episodes became ${one.kept} note(s)`)
+    }
+  }
+}
+
+/**
  * Beliefs the ledger has since disproved.
  *
  * An agent's own logbook has never been gardened — the gardener only ever
@@ -644,6 +675,7 @@ const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
     else if (job.data.pass === 'gardener') {
       await gardenerPassAll()
       await staleBeliefsPass()
+      await consolidateMemoriesAll()
     }
     else if (job.data.pass === 'trunks') await trunkHealthPass()
     else if (job.data.pass === 'journal') await journalPass()

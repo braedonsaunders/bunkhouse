@@ -5,7 +5,7 @@ import { assignments, files, mailMessages, people, type AssignmentSource } from 
 import { hopsOf, postToColleague } from './colleague-post'
 import { db } from '../db/client'
 import { ASSIGNMENT_MAX_STEPS, executeAgentRun } from './agent-runs'
-import { rootBudget } from './colleague-inbox'
+import { rootBudget, selfDirectedBudget } from './work-budget'
 
 /**
  * Assignments: committed deliverables executed as background runs. The worker
@@ -163,8 +163,14 @@ export async function runAssignment(tenantId: string, assignmentId: string): Pro
   // stops the request instead, while everything else carries on.
   const root =
     claimed.source.kind === 'delegation' ? (claimed.source.rootRunId ?? claimed.source.runId ?? null) : null
-  if (root) {
-    const budget = await app.withTenant(tenantId, () => rootBudget(root))
+  // Requested work is bounded by what the request has cost; work nobody asked
+  // for is bounded by the day. An agent that found its own mailbox broken spent
+  // a day investigating it, and every one of those runs was its own root, so a
+  // per-ask ceiling never touched it.
+  const budget = root
+    ? await app.withTenant(tenantId, () => rootBudget(root))
+    : await app.withTenant(tenantId, () => selfDirectedBudget(claimed.personId))
+  {
     if (budget.exhausted) {
       await app.withTenant(tenantId, async () => {
         await app.db

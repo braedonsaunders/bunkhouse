@@ -22,7 +22,8 @@ export default async function HomePage({
 }: {
   searchParams: Promise<{ person?: string }>
 }) {
-  const { person: selectedId } = await searchParams
+  const params = await searchParams
+  const selectedId = params.person
   const tenantId = await resolveTenantId()
   const app = db()
 
@@ -166,7 +167,7 @@ export default async function HomePage({
       </Lobby>
       {/* The record flyout opens over the floor — same drawer as the
           directory, no page change beneath it. */}
-      {await personDrawer({ tenantId, roster: data.roster, selectedId, basePath: '/' })}
+      {await personDrawer({ tenantId, roster: data.roster, selectedId, basePath: '/', searchParams: params })}
     </div>
   )
 }
