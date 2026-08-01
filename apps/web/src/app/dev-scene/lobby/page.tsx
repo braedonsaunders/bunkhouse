@@ -19,10 +19,14 @@ import { toLightBackdrop } from '../../../lib/scene-recolour'
  * (drawn→drawn, drawn→built-in, built-in→drawn, built-in→built-in) has to
  * sweep, and has to sweep from the side the button sits on.
  */
-const WORKSHOP = `<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg"><rect width="1600" height="468" fill="#111c30"/><rect y="468" width="1600" height="432" fill="#0b1220"/><rect x="1000" y="330" width="120" height="90" fill="#8fc7f0"/><rect x="300" y="300" width="380" height="168" fill="#1a2740"/><rect x="700" y="400" width="60" height="24" fill="#f5a623"/></svg>`
+// Written the way a model is asked to write one — lit shapes above the horizon
+// carrying motion classes, and something cropped by each edge — so the light
+// pools, the haze and the movement can be judged here rather than only against
+// whatever a real provider happens to return.
+const WORKSHOP = `<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg"><rect width="1600" height="468" fill="#111c30"/><rect y="468" width="1600" height="432" fill="#0b1220"/><rect x="0" y="150" width="210" height="420" fill="#1a2740"/><rect x="1390" y="120" width="210" height="450" fill="#1a2740"/><rect x="960" y="300" width="200" height="130" fill="#8fc7f0" class="bhs-glow"/><rect x="300" y="300" width="380" height="168" fill="#1a2740"/><rect x="700" y="400" width="60" height="24" fill="#f5a623" class="bhs-blink"/><circle cx="480" cy="250" r="14" fill="#8fc7f0" class="bhs-twinkle"/></svg>`
 
 /** A second drawing, plainly a different room at a glance. */
-const GREENHOUSE = `<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg"><rect width="1600" height="468" fill="#123023"/><rect y="468" width="1600" height="432" fill="#0a1b12"/><circle cx="1240" cy="220" r="90" fill="#6fd39b"/><rect x="240" y="360" width="300" height="108" fill="#1e4a34"/><rect x="820" y="420" width="80" height="48" fill="#f5a623"/></svg>`
+const GREENHOUSE = `<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg"><rect width="1600" height="468" fill="#123023"/><rect y="468" width="1600" height="432" fill="#0a1b12"/><rect x="0" y="180" width="200" height="400" fill="#1e4a34"/><circle cx="1240" cy="220" r="90" fill="#8fc7f0" class="bhs-glow"/><rect x="240" y="360" width="300" height="108" fill="#1e4a34"/><rect x="820" y="420" width="80" height="48" fill="#f5a623" class="bhs-sway"/></svg>`
 
 const PLACES: LobbyDepartment[] = [
   { id: '1', name: 'The floor', slug: 'floor', sceneKind: 'office', backdropSvg: null, backdropSvgLight: null },
