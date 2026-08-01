@@ -31,8 +31,12 @@ export const FRAME = { width: 1600, height: 900, horizon: 468 } as const
 
 /** What the brief asks for, as numbers. */
 const WANT = {
-  shapes: { min: 90, max: 160 },
-  lit: { min: 3, max: 12 },
+  // Raised hard, twice: 90 shapes looked unfinished beside the hand-drawn
+  // rooms, and 160 still read as a diagram of a room rather than a room. The
+  // difference between the two is almost entirely small parts — fixings,
+  // seams, cable, hardware — which is exactly what a shape floor buys.
+  shapes: { min: 170, max: 280 },
+  lit: { min: 6, max: 20 },
   /** Things whose base sits on the horizon — the middle depth layer. */
   standing: { min: 3 },
   /** Large shapes cropped by the left and right edges — the near layer. */
@@ -46,7 +50,7 @@ const WANT = {
    * precisely the failure that made every generated room look like every other
    * one: obedient to the palette, composed correctly, and completely anonymous.
    */
-  material: { min: 6, max: 16 },
+  material: { min: 12, max: 34 },
 } as const
 
 export type BackdropScore = {
@@ -57,7 +61,14 @@ export type BackdropScore = {
   parts: Record<string, number>
 }
 
-type Palette = { colours: readonly string[]; lit: string; accent: string; material: string }
+type Palette = {
+  colours: readonly string[]
+  lit: string
+  hot: string
+  accent: string
+  material: string
+  material2: string
+}
 
 /** A ramp: 0 below `min`, 1 at or above it. */
 const atLeast = (value: number, min: number): number => Math.max(0, Math.min(1, value / Math.max(min, 1)))
@@ -71,6 +82,7 @@ function within(value: number, min: number, max: number): number {
 
 const isLit = (shape: ShapeBox, palette: Palette): boolean =>
   shape.fill === palette.lit.toLowerCase() ||
+  shape.fill === palette.hot.toLowerCase() ||
   shape.fill === palette.accent.toLowerCase() ||
   shape.classes.some((name) => name === 'bhs-glow' || name === 'bhs-blink' || name === 'bhs-twinkle')
 
@@ -177,7 +189,14 @@ export function scoreBackdrop(svg: string, palette: Palette): BackdropScore {
 
   // --- palette -------------------------------------------------------------
   const allowed = new Set(
-    [...palette.colours, palette.lit, palette.accent, palette.material].map((c) => c.toLowerCase()),
+    [
+      ...palette.colours,
+      palette.lit,
+      palette.hot,
+      palette.accent,
+      palette.material,
+      palette.material2,
+    ].map((c) => c.toLowerCase()),
   )
   const filled = shapes.filter((s) => s.fill && s.fill !== 'none' && !s.fill.startsWith('url('))
   const onPalette = filled.filter((s) => allowed.has(s.fill!)).length
@@ -200,11 +219,12 @@ export function scoreBackdrop(svg: string, palette: Palette): BackdropScore {
   // --- material ------------------------------------------------------------
   // What the room is built from, and the only thing distinguishing a steel
   // shop from an electrical room once both have obeyed the same composition.
-  const materialShapes = shapes.filter((s) => s.fill === palette.material.toLowerCase()).length
+  const materials = new Set([palette.material.toLowerCase(), palette.material2.toLowerCase()])
+  const materialShapes = shapes.filter((s) => materials.has(s.fill ?? '')).length
   const material = within(materialShapes, WANT.material.min, WANT.material.max)
   if (materialShapes < WANT.material.min) {
     notes.push(
-      `Only ${materialShapes} shape${materialShapes === 1 ? '' : 's'} in ${palette.material}, the material this room is made of. Without it the drawing is a correctly composed grey box that could be any room in the building — put it on ${WANT.material.min}–12 things that would genuinely be made of it, across all three depth layers, never on the walls or floor.`,
+      `Only ${materialShapes} shape${materialShapes === 1 ? '' : 's'} in ${palette.material} or ${palette.material2}, the two materials this room is made of. Without them the drawing is a correctly composed grey box that could be any room in the building — put them on ${WANT.material.min}–28 things that would genuinely be made of them, across all three depth layers, never on the walls or floor.`,
     )
   }
 

@@ -84,23 +84,25 @@ function goodRoom(): string {
     parts.push(`<rect x="${300 + index * 200}" y="${368}" width="120" height="100" fill="#1a2740" />`)
   }
   // Lit shapes, all above the horizon.
-  for (let index = 0; index < 4; index++) {
-    parts.push(`<rect x="${340 + index * 200}" y="300" width="60" height="40" fill="#8fc7f0" class="bhs-glow" />`)
+  for (let index = 0; index < 7; index++) {
+    parts.push(`<rect x="${340 + index * 160}" y="300" width="60" height="40" fill="#8fc7f0" class="bhs-glow" />`)
   }
+  parts.push(`<rect x="520" y="250" width="26" height="18" fill="#d7ecff" />`)
   // Perspective on the floor.
   for (let index = 0; index < 6; index++) {
     parts.push(`<line x1="800" y1="468" x2="${index * 320}" y2="900" stroke="#24344f" stroke-width="2" />`)
   }
   // The room's own material, on things that would be made of it. Without
   // these the drawing is a correctly composed grey box that could be anywhere.
-  for (let index = 0; index < 8; index++) {
-    parts.push(`<rect x="${320 + index * 150}" y="${200 + (index % 3) * 40}" width="40" height="26" fill="#5b7fa6" />`)
+  for (let index = 0; index < 14; index++) {
+    const material = index % 2 === 0 ? '#5b7fa6' : '#a2794f'
+    parts.push(`<rect x="${320 + index * 80}" y="${200 + (index % 3) * 40}" width="34" height="22" fill="${material}" />`)
   }
   // Motion, and enough shapes to look finished.
   parts.push(`<circle cx="1200" cy="180" r="8" fill="#f5a623" class="bhs-blink" />`)
   parts.push(`<circle cx="1240" cy="180" r="8" fill="#f5a623" class="bhs-twinkle" />`)
   parts.push(`<rect x="700" y="60" width="80" height="18" fill="#8fc7f0" class="bhs-glow" />`)
-  for (let index = 0; index < 80; index++) {
+  for (let index = 0; index < 150; index++) {
     parts.push(`<rect x="${20 + index * 18}" y="${140 + (index % 7) * 12}" width="12" height="8" fill="#24344f" />`)
   }
   return `<svg viewBox="0 0 1600 900">${parts.join('')}</svg>`
@@ -192,12 +194,18 @@ assert.equal(paletteFor('welding shop').slug, paletteFor('welding shop').slug)
 // Every palette is genuinely a different room, not a relabelled one.
 const materials = new Set(BACKDROP_PALETTES.map((p) => p.dark.material))
 assert.equal(materials.size, BACKDROP_PALETTES.length, 'each palette has its own material colour')
+const seconds = new Set(BACKDROP_PALETTES.map((p) => p.dark.material2))
+assert.equal(seconds.size, BACKDROP_PALETTES.length, 'and its own second material')
 const floors = new Set(BACKDROP_PALETTES.map((p) => p.dark.colours[0]))
 assert.equal(floors.size, BACKDROP_PALETTES.length, 'and its own darkest value, so the rooms do not share a shell')
 for (const palette of BACKDROP_PALETTES) {
-  assert.equal(palette.dark.colours.length, 5, `${palette.slug} keeps the five-value ramp`)
-  assert.equal(palette.light.colours.length, 5, `${palette.slug} keeps it in daylight too`)
+  assert.equal(palette.dark.colours.length, 6, `${palette.slug} keeps the six-value ramp`)
+  assert.equal(palette.light.colours.length, 6, `${palette.slug} keeps it in daylight too`)
   assert.equal(palette.dark.accent, palette.light.accent, `${palette.slug} keeps the brand accent through the switch`)
+  // Two materials, and they have to be genuinely different or the second one
+  // is doing no work at all.
+  assert.notEqual(palette.dark.material, palette.dark.material2, `${palette.slug} has two distinct materials`)
+  assert.notEqual(palette.dark.lit, palette.dark.hot, `${palette.slug} has a hot light distinct from its lit`)
 }
 
 // The daylight version is derived through the room's own palette: mapping a
@@ -205,6 +213,10 @@ for (const palette of BACKDROP_PALETTES) {
 const steelRoom = `<svg viewBox="0 0 1600 900"><rect fill="${steel.dark.material}" /><rect fill="${steel.dark.colours[0]}" /></svg>`
 const inDaylight = toLightBackdrop(steelRoom, steel)
 assert.ok(inDaylight.includes(steel.light.material), 'the material survives into daylight as itself')
+const extras = `<svg><rect fill="${steel.dark.material2}" /><rect fill="${steel.dark.hot}" /></svg>`
+const extrasLit = toLightBackdrop(extras, steel)
+assert.ok(extrasLit.includes(steel.light.material2), 'so does the second material')
+assert.ok(extrasLit.includes(steel.light.hot), 'and the hot light')
 assert.ok(inDaylight.includes(steel.light.colours[0]!), 'and so does the structure')
 assert.ok(!inDaylight.includes(steel.dark.material), 'nothing dark is left behind')
 

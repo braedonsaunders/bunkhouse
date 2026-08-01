@@ -55,12 +55,12 @@ const CANDIDATES = 3
 /**
  * Room for the drawing to be finished.
  *
- * 90 to 160 shapes is a lot of markup, and a default output ceiling cuts it off
+ * 170 to 280 shapes is a great deal of markup, and a default output ceiling cuts it off
  * mid-path — which arrives here as "That was not an SVG", because a truncated
  * drawing has no closing tag. Asking for the detail and not leaving room for it
  * is the kind of bug that looks like the model being bad at drawing.
  */
-const MAX_OUTPUT_TOKENS = 24_000
+const MAX_OUTPUT_TOKENS = 40_000
 
 function motionVocabulary(): string {
   return Object.entries(BACKDROP_MOTION)
@@ -88,10 +88,11 @@ Hard requirements — a drawing that breaks any of these is unusable:
 - The lower half is where people walk. Keep it CALM: floor, a rug, maybe a shadow or a floor edge. No furniture taller than about 120 units below the horizon, and nothing at all in the middle third of the floor.
 - No text, no letters, no numbers, no logos. At this size they read as noise.
 - Flat vector shapes only: rect, path, circle, ellipse, polygon, line, and linear gradients. No filters, no images, no patterns of photographic detail.
-- A dim room, lit from within. Structure and surfaces — walls, floor, furniture, machinery — use ONLY these five: ${tones.colours.join(', ')}.
-- THE ROOM IS MADE OF ${palette.materials.toUpperCase()}. ${tones.material} is that material, and the single thing that makes this room look like itself rather than like every other room: put it on six to twelve shapes that would genuinely be made of it, spread across all three depth layers. Not on the walls, not on the floor, and never as a large flat field.
-- ${tones.lit} is LIT — anything glowing from within. ${tones.accent} is the brand accent, for one or two small things and nothing else.
-- Those eight colours are the whole palette. Nothing else, and no white.
+- A dim room, lit from within. Structure and surfaces — walls, floor, furniture, machinery — use these six: ${tones.colours.join(', ')}. The lightest of them, ${tones.colours[5]}, is for EDGES: panel seams, the lit top of a bench, the near corner of a cabinet. Use it constantly and thinly. It is what stops the drawing being flat blocks.
+- THE ROOM IS MADE OF ${palette.materials.toUpperCase()}. Two colours carry that: ${tones.material} and ${tones.material2}. Between them put material on TWELVE TO TWENTY-EIGHT shapes, spread across all three depth layers — the gear, the fittings, the cable, the hardware, the small parts on the bench. This is where the room's colour lives and it is the single thing that stops it looking like every other room. Not on the walls, not on the floor, and never as one large flat field.
+- ${tones.lit} is LIT — anything glowing from within, on six to fourteen shapes. ${tones.hot} is HOT: the two or three fiercest sources only — an arc, an LED head-on, a screen at full brightness. Every light being equally bright reads as wallpaper.
+- ${tones.accent} is the brand accent, for one or two small things and nothing else.
+- Those eleven colours are the whole palette. Nothing else, and no white.
 
 What makes it look composed rather than like clip art — do all of these:
 - BUILD IT IN THREE DEPTH LAYERS. Far: the back wall itself, and openings in it — windows, a doorway, a roller door, shelving recessed into it. Middle: things standing against that wall, their bases ON the horizon line so they sit in the room. Near: one or two large objects at the far LEFT and far RIGHT edges, cropped by the frame, no more than 300 units wide. That cropping is what creates depth; without it the picture looks like a sticker.
@@ -99,7 +100,10 @@ What makes it look composed rather than like clip art — do all of these:
 - LIGHT SOMETHING. Three to six small shapes lit from within — screens, a lamp shade, a doorway with light behind it — in ${tones.lit}. These are the focal points a flat drawing needs. Keep every one of them above the horizon or at the far edges.
 - LAYER THE WALL. The back wall should not be one flat rectangle: band it into a lower dado, a main field and a narrower ceiling strip, each a slightly different value from the palette.
 - REPEAT WITH VARIATION. Where something repeats — shelves, slats, panes, pegboard holes — vary the spacing or length slightly. Perfect repetition reads as a texture swatch.
-- 90 to 160 shapes. Below 90 it looks unfinished at this size; above 160 it turns to noise.
+- 170 to 280 shapes. This is the difference between a diagram of a room and a room, and almost all of it is small parts rather than more furniture.
+- DRAW THE SMALL PARTS. On every large object, put the things that are actually on it: panel seams and shut lines, hinges, handles, fixings, feet, a label plate, the gap under a door. Four to ten small shapes on each major object. This is the single biggest lever on whether it looks drawn or generated.
+- RUN SOMETHING THROUGH THE ROOM. Conduit, cable tray, ducting, pipework or a hose — one or two continuous runs crossing the wall horizontally, with brackets at intervals and a bend where it turns down. A room with no services in it reads as a stage flat.
+- CLUSTER, DO NOT SCATTER. Real rooms have busy corners and empty stretches. Put two or three dense clusters of small objects — a bench top with tools on it, a shelf of parts, a board of hanging hardware — and leave the wall between them comparatively plain. Even distribution is what makes a drawing read as a texture.
 
 MAKE IT MOVE. The rooms this sits beside are full of small loops, and a still picture next to them looks like a photograph of a room rather than the room. Put a class on ${MOTION_RANGE.min} to 8 shapes that would plausibly move — no more, and never on a large structural shape:
 ${motionVocabulary()}
@@ -115,7 +119,7 @@ function repairBrief(svg: string, notes: string[], palette: BackdropPalette): st
 
 ${notes.map((note, index) => `${index + 1}. ${note}`).join('\n')}
 
-Rules that still hold: one <svg>, viewBox="${VIEWBOX}", no width or height, horizon at y=${FRAME.horizon}, no text, flat shapes only, colours from ${tones.colours.join(', ')} plus ${tones.material} for the ${palette.slug} the room is made of, ${tones.lit} for what glows and ${tones.accent} for accents, and motion only via the class names already in the drawing (${Object.keys(BACKDROP_MOTION).join(', ')}).
+Rules that still hold: one <svg>, viewBox="${VIEWBOX}", no width or height, horizon at y=${FRAME.horizon}, no text, flat shapes only, colours from ${tones.colours.join(', ')} plus ${tones.material} and ${tones.material2} for what the room is made of, ${tones.lit} and ${tones.hot} for what glows, and ${tones.accent} for accents, and motion only via the class names already in the drawing (${Object.keys(BACKDROP_MOTION).join(', ')}).
 
 THE DRAWING:
 ${svg}

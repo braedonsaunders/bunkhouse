@@ -439,7 +439,7 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
 // --- the bright room is the SAME room --------------------------------------
 {
   const { toLightBackdrop } = await import('../src/lib/scene-recolour')
-  const { PALETTES } = await import('../src/lib/scene-palette')
+  const { DEFAULT_PALETTE } = await import('../src/lib/scene-palette')
 
   const dark = [
     '<svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">',
@@ -464,15 +464,15 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
   assert.deepEqual(shapesOf(light), shapesOf(dark), 'the geometry is identical, only colour moves')
 
   // The palette colours map exactly...
-  assert.ok(light.includes(PALETTES.light.colours[0]!), 'the darkest structure colour became the lightest')
-  assert.ok(light.includes(PALETTES.light.colours[2]!), 'mid structure mapped too')
+  assert.ok(light.includes(DEFAULT_PALETTE.light.colours[0]!), 'the darkest structure colour became the lightest')
+  assert.ok(light.includes(DEFAULT_PALETTE.light.colours[2]!), 'mid structure mapped too')
   assert.ok(!/#0b1220|#1a2740|#24344f|#33455f/i.test(light), 'no dim structure colour survives')
-  assert.ok(light.includes(PALETTES.light.lit), 'the lit colour became its bright-room equivalent')
+  assert.ok(light.includes(DEFAULT_PALETTE.light.lit), 'the lit colour became its bright-room equivalent')
   // ...case-insensitively, because models shout their hex.
   assert.ok(!/#8fc7f0/i.test(light), 'an uppercase hex is recoloured like any other')
   // The accent is the brand amber and is deliberately the one colour that does
   // not move between themes.
-  assert.ok(light.includes(PALETTES.dark.accent), 'the accent is untouched')
+  assert.ok(light.includes(DEFAULT_PALETTE.dark.accent), 'the accent is untouched')
 
   // Anything off-palette still has to stop being dark, or it is a smudge on a
   // pale wall.
@@ -483,7 +483,7 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
     return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
   }
   assert.ok(luminance(stray!) > 0.6, `an off-palette dark colour is flipped light, got ${stray}`)
-  assert.ok(luminance(PALETTES.dark.colours[0]!) < 0.2, 'and it really was dark to begin with')
+  assert.ok(luminance(DEFAULT_PALETTE.dark.colours[0]!) < 0.2, 'and it really was dark to begin with')
 
   // A colour word in an attribute is a colour; the same word in a class is not.
   assert.ok(/stroke="none"/.test(light), 'none is not a colour and is left alone')

@@ -89,7 +89,9 @@ function mapping(palette: BackdropPalette): Map<string, string> {
   return new Map<string, string>([
     ...palette.dark.colours.map((from, i) => [from.toLowerCase(), palette.light.colours[i]!] as const),
     [palette.dark.lit.toLowerCase(), palette.light.lit] as const,
+    [palette.dark.hot.toLowerCase(), palette.light.hot] as const,
     [palette.dark.material.toLowerCase(), palette.light.material] as const,
+    [palette.dark.material2.toLowerCase(), palette.light.material2] as const,
     // The accent is the brand amber and works on both. Left alone deliberately.
     [palette.dark.accent.toLowerCase(), palette.light.accent] as const,
   ])
