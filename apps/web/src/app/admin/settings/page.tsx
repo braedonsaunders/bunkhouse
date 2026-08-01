@@ -26,6 +26,7 @@ import { listMailOauthApps, mailOauthRedirectUri } from '../../../lib/mail-oauth
 import { getMailSignature } from '../../../lib/mail-signature'
 import { AVATAR_PART_CATEGORIES, avatarPartCategory } from '../../../lib/avatar-parts'
 import { IMAGE_MODELS } from '@appkit/avatars'
+import { runHealthChecks } from '../../../lib/health'
 import { resolveTenantId } from '../../../lib/tenant'
 import { listDepartments, wanderingEnabled } from '../../../lib/departments'
 import { SCENE_KINDS, SCENE_LABELS } from '../../../components/scene-kinds'
@@ -160,6 +161,7 @@ export default async function SettingsPage({
     if (!row.departmentId) continue
     counts.set(row.departmentId, (counts.get(row.departmentId) ?? 0) + 1)
   }
+  const health = await runHealthChecks(tenantId)
   const deskless = staffRows.filter((row) => !row.departmentId).length
   const departmentRows = departmentList.map((department) => ({
     id: department.id,
@@ -174,6 +176,7 @@ export default async function SettingsPage({
 
   return (
     <SettingsView
+      health={health}
       departments={departmentRows}
       deskless={deskless}
       wander={wander}

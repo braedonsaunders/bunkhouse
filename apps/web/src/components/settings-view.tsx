@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import {
-  DoorOpen, Boxes, Brain, Building2, FileText, FolderCog, Globe, ImageIcon, Mail, MessageSquare,
+  Activity, DoorOpen, Boxes, Brain, Building2, FileText, FolderCog, Globe, ImageIcon, Mail, MessageSquare,
   MessagesSquare, Phone, Shield } from 'lucide-react'
 import {
   Badge,
@@ -33,6 +33,8 @@ import {
   type ProviderSummary,
 } from './model-settings'
 import { ImageProviderForm } from './image-provider-form'
+import { HealthSettings } from './health-settings'
+import type { HealthCheck } from '../lib/health'
 import { AutonomySettings, type AgentDial } from './autonomy-settings'
 import { CompanyIdentitySettings, type CompanyIdentityView, type IdentityProviderOption } from './company-identity-settings'
 import { DepartmentsSettings, type DepartmentRow } from './departments-settings'
@@ -117,6 +119,10 @@ const SPEECH_PROVIDERS: {
  * page and split across subtabs rather than stacking lists on top of each other.
  */
 const NAV: SettingsNavGroup[] = [
+  {
+    label: 'Operations',
+    items: [{ key: 'health', label: 'Health', icon: <Activity /> }],
+  },
   {
     label: 'Company',
     items: [
@@ -221,6 +227,7 @@ const MAILBOX_COLUMNS: PagedColumn<MailRow>[] = [
 ]
 
 export function SettingsView({
+  health,
   providers,
   providerAssignments,
   kinds,
@@ -280,6 +287,8 @@ export function SettingsView({
   documents: DocumentBrandingView
   /** Who the company is — the profile every agent works from. */
   companyIdentity: CompanyIdentityView
+  /** What is broken right now, worst first. */
+  health: HealthCheck[]
   /** The company's places, and who has a desk in them. */
   departments: DepartmentRow[]
   deskless: number
@@ -349,6 +358,8 @@ export function SettingsView({
       onSelect={setActive}
       linkRender={nextLink}
     >
+      {active === 'health' ? <HealthSettings checks={health} /> : null}
+
       {active === 'identity' ? (
         <CompanyIdentitySettings identity={companyIdentity} providers={identityProviders} />
       ) : null}
