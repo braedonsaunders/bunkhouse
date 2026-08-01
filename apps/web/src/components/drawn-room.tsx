@@ -60,8 +60,12 @@ export function DrawnRoom({
             width: `${pool.spread * 200}%`,
             top: `${horizon - 6}%`,
             height: '46%',
-            background: `radial-gradient(60% 100% at 50% 0%, rgb(${isDark ? '150 199 240' : '255 246 224'} / ${
-              (isDark ? 0.16 : 0.3) * pool.strength
+            // Weaker in daylight, and it is not a fudge: a pool is the
+            // difference between the lit floor and the unlit floor, and a pale
+            // floor has less room above it to be brighter in. At the dim
+            // room's strength it reads as fog rather than light.
+            background: `radial-gradient(60% 100% at 50% 0%, rgb(${isDark ? '150 199 240' : '255 244 216'} / ${
+              (isDark ? 0.16 : 0.2) * pool.strength
             }), transparent 72%)`,
           }}
           aria-hidden
@@ -69,15 +73,17 @@ export function DrawnRoom({
       ))}
 
       {/* Haze where the floor meets the wall. Depth is contrast before it is
-          anything else: the far end of a room is never as sharp as the near. */}
+          anything else: the far end of a room is never as sharp as the near.
+          Faded at BOTH ends — a gradient that starts at full strength draws a
+          hard line across the frame at the exact place it is meant to soften. */}
       <div
         className="pointer-events-none absolute inset-x-0"
         style={{
-          top: `${horizon - 9}%`,
-          height: '18%',
+          top: `${horizon - 12}%`,
+          height: '24%',
           background: isDark
-            ? 'linear-gradient(to bottom, rgba(120,150,190,0.14), transparent)'
-            : 'linear-gradient(to bottom, rgba(255,255,255,0.3), transparent)',
+            ? 'linear-gradient(to bottom, transparent, rgb(120 150 190 / 0.16) 42%, transparent)'
+            : 'linear-gradient(to bottom, transparent, rgb(255 255 255 / 0.18) 42%, transparent)',
         }}
         aria-hidden
       />
