@@ -100,14 +100,21 @@ export function documentAbilities(args: { tenantId: string; person: PersonRow; r
       inputSchema: z.object({
         title: z.string().describe('Document title, shown on the letterhead'),
         format: z.enum(['docx', 'pdf']),
+        orientation: z
+          .enum(['portrait', 'landscape'])
+          .optional()
+          .describe(
+            'Landscape for anything wider than about eight columns. A wide table on a portrait page loses its right-hand columns off the edge of the sheet with nothing in the file to say they are missing.',
+          ),
         bodyHtml: z.string().describe('The full document body as clean HTML'),
         filename: z.string().optional().describe('Without extension; defaults to the title'),
       }),
-      execute: async ({ title, format, bodyHtml, filename }) => {
+      execute: async ({ title, format, bodyHtml, filename, orientation }) => {
         const html = officeDocumentHtml({
           bodyHtml: sanitizeOfficeHtml(bodyHtml),
           title,
           branding: await resolveDocumentBranding(tenantId),
+          ...(orientation ? { orientation } : {}),
         })
         const bytes = format === 'docx' ? await htmlToDocx(html) : await htmlToPdf(html)
         const record = await saveFile({
