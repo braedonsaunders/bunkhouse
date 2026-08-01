@@ -1,0 +1,19 @@
+-- colleague_messages had its policy but not its enforcement.
+--
+-- 0039 enabled row level security on the table and wrote the same
+-- tenant_isolation policy every other tenant table has, and its own comment
+-- says the pattern matches the rest of the schema. It did not, by one line:
+-- FORCE was never applied. ENABLE alone exempts the table owner, and the
+-- application connects as the owner — BUNKHOUSE_DB_URL is the role that runs
+-- these migrations and therefore owns every table in this schema. So on this
+-- one table the policy was never consulted for the connection that matters,
+-- and a query scoped to one tenant returned every tenant's rows.
+--
+-- Nothing depended on that. Both readers of the table are single-tenant:
+-- postToColleague resolves the recipient through `people`, which is forced, so
+-- a colleague is always one of your own; takeInbox filters on recipient and
+-- unread only, with no tenant predicate anywhere in it, because it was written
+-- expecting RLS to supply the tenant boundary. It wasn't there to supply.
+--
+-- 0039 is applied everywhere and is left alone; this is the missing line.
+ALTER TABLE colleague_messages FORCE ROW LEVEL SECURITY;

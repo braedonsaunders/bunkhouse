@@ -70,6 +70,26 @@ jobs:
           psql "$BUNKHOUSE_DB_URL" -v ON_ERROR_STOP=1 -c "create role bunkhouse_super login bypassrls"
           pnpm --filter web db:migrate
           pnpm --filter web db:migrate
+          # ENABLE without FORCE exempts the table owner, and the application
+          # connects as the owner — so a tenant table that is enabled but not
+          # forced has a policy that is never consulted in production. The
+          # isolation check below cannot see this: it runs as a role that owns
+          # nothing, which every policy applies to whether forced or not. That
+          # is how colleague_messages sat unforced from 0039 until 0048. This
+          # asks the catalog instead, and covers every table rather than one.
+          psql "$BUNKHOUSE_DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare unforced text;
+          begin
+            select string_agg(c.relname, ', ' order by c.relname) into unforced
+              from pg_class c join pg_namespace n on n.oid = c.relnamespace
+             where c.relkind = 'r' and n.nspname = 'public'
+               and c.relrowsecurity and not c.relforcerowsecurity;
+            if unforced is not null then
+              raise exception 'RLS enabled but not FORCEd: %', unforced;
+            end if;
+          end $$;
+          SQL
           psql "$BUNKHOUSE_DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
           create role bunkhouse_rls_test login;
           grant usage on schema public to bunkhouse_rls_test;
