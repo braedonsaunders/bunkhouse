@@ -1530,6 +1530,108 @@
           "total": 93
         }
       ]
+    },
+    {
+      "at": "2026-08-01T16:52:04.388Z",
+      "sha": "082d00498a41931ede3af7a344323403dd28b022",
+      "pr": null,
+      "actor": "braedonsaunders",
+      "files": 375,
+      "functions": 1112,
+      "loc": 108857,
+      "languages": 12,
+      "topLanguages": [
+        {
+          "ext": "ts",
+          "pct": 33,
+          "lines": 35630
+        },
+        {
+          "ext": "json",
+          "pct": 25,
+          "lines": 26695
+        },
+        {
+          "ext": "tsx",
+          "pct": 23,
+          "lines": 25545
+        },
+        {
+          "ext": "yaml",
+          "pct": 14,
+          "lines": 15285
+        },
+        {
+          "ext": "sql",
+          "pct": 3,
+          "lines": 2943
+        }
+      ],
+      "dead": 32,
+      "deadPct": 2.9,
+      "circular": 1,
+      "godObjects": 1,
+      "avgCoupling": 2.5,
+      "securityIssues": 39,
+      "patterns": 7,
+      "duplicates": 12,
+      "layerViolations": 203,
+      "connections": 955,
+      "avgFnLines": 15.6,
+      "longestFn": 16,
+      "testFiles": 1,
+      "testRatio": 0.3,
+      "topFolders": [
+        {
+          "name": "apps",
+          "count": 284
+        },
+        {
+          "name": "migrations",
+          "count": 49
+        },
+        {
+          "name": "packages",
+          "count": 20
+        },
+        {
+          "name": "root",
+          "count": 11
+        },
+        {
+          "name": "docs",
+          "count": 7
+        }
+      ],
+      "folders": 5,
+      "grade": "D",
+      "score": 69,
+      "topBlast": {
+        "path": "apps/web/src/db/client.ts",
+        "direct": 81,
+        "transitive": 153,
+        "total": 234
+      },
+      "fragility": [
+        {
+          "path": "apps/web/src/db/client.ts",
+          "direct": 81,
+          "transitive": 153,
+          "total": 234
+        },
+        {
+          "path": "apps/web/src/lib/tenant.ts",
+          "direct": 44,
+          "transitive": 95,
+          "total": 139
+        },
+        {
+          "path": "apps/web/src/lib/auth.ts",
+          "direct": 5,
+          "transitive": 88,
+          "total": 93
+        }
+      ]
     }
   ]
 }
