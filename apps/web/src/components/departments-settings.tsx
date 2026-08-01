@@ -19,6 +19,7 @@ import {
 import { DoorOpen } from 'lucide-react'
 import { BackdropStudio } from './backdrop-studio'
 import { BunkhouseSceneArt, BunkhouseSceneThumbnail } from './scene-art'
+import { DrawnRoom } from './drawn-room'
 import type { SceneKind } from './scene-kinds'
 import {
   createDepartment,
@@ -102,8 +103,12 @@ export function DepartmentsSettings({
       cell: (row) => (
         <span className="flex items-center gap-2">
           {row.backdropSvg ? (
+            // Held still, like the built-in thumbnails beside it: a drawn room
+            // breathes now, and a page of stamps blinking at you is a lot of
+            // compositor work spent on something nobody is watching. No light
+            // pools either — at 56x32 a soft gradient is a smudge.
             <span
-              className="h-8 w-14 shrink-0 overflow-hidden rounded border border-border [&>svg]:h-full [&>svg]:w-full"
+              className="bh-scene-still h-8 w-14 shrink-0 overflow-hidden rounded border border-border [&>svg]:h-full [&>svg]:w-full"
               dangerouslySetInnerHTML={{ __html: isDark ? row.backdropSvg : (row.backdropSvgLight ?? row.backdropSvg) }}
             />
           ) : (
@@ -332,10 +337,7 @@ function CreateDepartmentDrawer({
             <div className="space-y-3">
               <div className="relative aspect-[16/9] w-full overflow-hidden rounded-xl border border-border bg-canvas">
                 {draft ? (
-                  <div
-                    className="h-full w-full [&>svg]:h-full [&>svg]:w-full"
-                    dangerouslySetInnerHTML={{ __html: isDark ? draft.dark : draft.light }}
-                  />
+                  <DrawnRoom svg={isDark ? draft.dark : draft.light} isDark={isDark} />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-fg-muted">
                     Describe the room below and it will be drawn here.

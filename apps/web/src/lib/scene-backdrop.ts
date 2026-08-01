@@ -5,6 +5,9 @@ import { resolveProviderAiConfig, listAiProviders } from './ai'
 import { sanitiseSceneSvg } from './scene-svg'
 import { toLightBackdrop } from './scene-recolour'
 import { PALETTES, type BackdropTheme } from './scene-palette'
+import { BACKDROP_MOTION, MOTION_RANGE } from './scene-motion'
+import { shotFor, type Shot } from './scene-shot'
+import { scoreBackdrop, FRAME, type BackdropScore } from './scene-score'
 
 /**
  * Having a room drawn.
@@ -21,32 +24,67 @@ import { PALETTES, type BackdropTheme } from './scene-palette'
  * clip-art desk; asked for a backdrop with a horizon at 52%, nothing busy below
  * it, no text, and six named colours, it returns something that looks composed.
  * The constraints are the design.
+ *
+ * Three things were added after the first version shipped looking thinner than
+ * the rooms beside it:
+ *
+ *  - **The constraints are marked, not just stated.** Three drawings are raced,
+ *    scored against the brief (scene-score.ts), and the winner gets one pass to
+ *    fix what it lost marks for. Asking once and hoping was the single biggest
+ *    difference between a generated room and a hand-drawn one.
+ *  - **A shot.** Every room used to be asked for in identical words, so every
+ *    room came back the same shape. scene-shot.ts samples the things a director
+ *    would decide — where the camera stands, what the back wall does, what is
+ *    lighting it — and each of the three candidates gets a different one.
+ *  - **Motion.** The vocabulary in scene-motion.ts, which is the same CSS the
+ *    hand-drawn rooms breathe with.
  */
 
 /** The shape every backdrop is drawn into, matching the stage's aspect. */
-const VIEWBOX = '0 0 1600 900'
+const VIEWBOX = `0 0 ${FRAME.width} ${FRAME.height}`
 
 /**
- * Where the floor meets the wall, as a fraction of height.
+ * How many drawings are raced.
  *
- * The stage's own ground config puts the horizon near here and scales
- * characters by depth against it. A backdrop whose horizon disagrees makes
- * everybody look like they are standing in the wall.
+ * Three, because the spread between the best and worst of three is wide and
+ * the spread between the best of three and the best of six is not — and every
+ * one of these is a model call somebody is waiting on.
  */
-const HORIZON = 0.52
+const CANDIDATES = 3
 
+/**
+ * Room for the drawing to be finished.
+ *
+ * 90 to 160 shapes is a lot of markup, and a default output ceiling cuts it off
+ * mid-path — which arrives here as "That was not an SVG", because a truncated
+ * drawing has no closing tag. Asking for the detail and not leaving room for it
+ * is the kind of bug that looks like the model being bad at drawing.
+ */
+const MAX_OUTPUT_TOKENS = 24_000
 
-function brief(description: string, theme: BackdropTheme): string {
+function motionVocabulary(): string {
+  return Object.entries(BACKDROP_MOTION)
+    .map(([name, what]) => `  - class="${name}" — ${what}`)
+    .join('\n')
+}
+
+function brief(description: string, theme: BackdropTheme, shot: Shot): string {
   const palette = PALETTES[theme]
   return `Draw one SVG backdrop for a room in a small company's office, seen straight on, as the background of an animated scene where cartoon staff walk about in front of it.
 
 THE ROOM: ${description}
 
+THE SHOT — how this particular room is composed. Follow it unless the description above contradicts it; the description always wins.
+- ${shot.architecture}
+- ${shot.light}
+- ${shot.camera}
+- ${shot.material}
+
 This is a BACKDROP, not an illustration. It sits behind moving characters and must never compete with them.
 
 Hard requirements — a drawing that breaks any of these is unusable:
 - Exactly one <svg> element, viewBox="${VIEWBOX}", no width or height attributes.
-- The horizon — where the back wall meets the floor — sits at y=${Math.round(900 * HORIZON)}, spanning the full width. Above it is wall and whatever is on it; below it is floor.
+- The horizon — where the back wall meets the floor — sits at y=${FRAME.horizon}, spanning the full width. Above it is wall and whatever is on it; below it is floor.
 - The lower half is where people walk. Keep it CALM: floor, a rug, maybe a shadow or a floor edge. No furniture taller than about 120 units below the horizon, and nothing at all in the middle third of the floor.
 - No text, no letters, no numbers, no logos. At this size they read as noise.
 - Flat vector shapes only: rect, path, circle, ellipse, polygon, line, and linear gradients. No filters, no images, no patterns of photographic detail.
@@ -61,12 +99,34 @@ What makes it look composed rather than like clip art — do all of these:
 - REPEAT WITH VARIATION. Where something repeats — shelves, slats, panes, pegboard holes — vary the spacing or length slightly. Perfect repetition reads as a texture swatch.
 - 90 to 160 shapes. Below 90 it looks unfinished at this size; above 160 it turns to noise.
 
+MAKE IT MOVE. The rooms this sits beside are full of small loops, and a still picture next to them looks like a photograph of a room rather than the room. Put a class on ${MOTION_RANGE.min} to 8 shapes that would plausibly move — no more, and never on a large structural shape:
+${motionVocabulary()}
+A class may go on a shape or on a <g> holding a few of them. These are the only class names that survive; anything else is stripped. Nothing else animates — no <animate>, no SMIL, no CSS.
+
 Return ONLY the SVG markup. No prose, no explanation, no code fence.`
+}
+
+/** What to fix, in the model's own drawing. */
+function repairBrief(svg: string, notes: string[], theme: BackdropTheme): string {
+  const palette = PALETTES[theme]
+  return `Here is an SVG backdrop you drew. It is close, but it misses some of the brief. Return a corrected version of THIS drawing — keep its composition, its room and its palette, and change only what is listed.
+
+${notes.map((note, index) => `${index + 1}. ${note}`).join('\n')}
+
+Rules that still hold: one <svg>, viewBox="${VIEWBOX}", no width or height, horizon at y=${FRAME.horizon}, no text, flat shapes only, colours from ${palette.colours.join(', ')} plus ${palette.lit} for what glows and ${palette.accent} for accents, and motion only via the class names already in the drawing (${Object.keys(BACKDROP_MOTION).join(', ')}).
+
+THE DRAWING:
+${svg}
+
+Return ONLY the corrected SVG markup. No prose, no explanation, no code fence.`
 }
 
 export type BackdropResult =
   | { ok: true; dark: string; light: string; removed: string[] }
   | { ok: false; reason: string }
+
+/** A drawing that came back, cleaned up and marked. */
+type Candidate = { svg: string; removed: string[]; score: BackdropScore }
 
 /**
  * Ask whichever model this company has connected, then put what comes back
@@ -79,6 +139,12 @@ export type BackdropResult =
 export async function generateBackdrop(args: {
   tenantId: string
   description: string
+  /**
+   * Fixes the shots the candidates are drawn from. Left out in the app, where
+   * every press should be able to come back with a different room; passed by
+   * tests that need the same three shots twice.
+   */
+  seed?: string
 }): Promise<BackdropResult> {
   const description = args.description.trim()
   if (description.length < 3) return { ok: false, reason: 'Say a little more about the room.' }
@@ -91,18 +157,23 @@ export async function generateBackdrop(args: {
   const model = config ? (getModel(config, 'smart') ?? getModel(config, 'fast')) : null
   if (!model) return { ok: false, reason: 'That provider has no model assigned that can draw this.' }
 
-  /** One theme's worth. */
-  const drawOne = async (theme: BackdropTheme): Promise<{ svg: string; removed: string[] } | { error: string }> => {
-    let text: string
+  const theme: BackdropTheme = 'dark'
+  const palette = PALETTES[theme]
+  // A fresh seed per press, so "draw another" is another room rather than the
+  // same one again. Tests pass their own.
+  const seed = args.seed ?? crypto.randomUUID()
+
+  const ask = async (prompt: string): Promise<string | { error: string }> => {
     try {
-      const result = await generateText({
-        model,
-        messages: [{ role: 'user', content: brief(description, theme) }],
-      })
-      text = result.text
+      const result = await generateText({ model, maxOutputTokens: MAX_OUTPUT_TOKENS, messages: [{ role: 'user', content: prompt }] })
+      return result.text
     } catch (error) {
       return { error: `The model could not draw it: ${error instanceof Error ? error.message : String(error)}` }
     }
+  }
+
+  /** Sanitise, straighten the frame, and mark. */
+  const prepare = (text: string): Candidate | { error: string } => {
     const cleaned = sanitiseSceneSvg(text)
     if (!('svg' in cleaned) || !cleaned.svg) {
       return { error: 'reason' in cleaned ? cleaned.reason : 'Nothing drawable came back.' }
@@ -119,13 +190,47 @@ export async function generateBackdrop(args: {
     })
     const shapes = (svg.match(/<(rect|path|circle|ellipse|polygon|polyline|line)\b/g) ?? []).length
     if (shapes < 6) return { error: 'That came back nearly empty — try describing the room differently.' }
-    return { svg, removed: cleaned.removed }
+    return { svg, removed: cleaned.removed, score: scoreBackdrop(svg, palette) }
   }
 
-  // Drawn once, in the dim palette, then recoloured. Drawing it twice gave two
-  // different rooms — see toLightBackdrop.
-  const dark = await drawOne('dark')
-  if ('error' in dark) return { ok: false, reason: dark.error }
+  // Three rooms at once, each from a different shot. Racing them is what turns
+  // the brief's rules from a paragraph the model has read into something it has
+  // to have obeyed to be the one that ships.
+  const drawn = await Promise.all(
+    Array.from({ length: CANDIDATES }, async (_unused, index) => {
+      const text = await ask(brief(description, theme, shotFor(`${seed}#${index}`)))
+      return typeof text === 'string' ? prepare(text) : text
+    }),
+  )
 
-  return { ok: true, dark: dark.svg, light: toLightBackdrop(dark.svg), removed: dark.removed }
+  const candidates = drawn.filter((one): one is Candidate => !('error' in one))
+  if (candidates.length === 0) {
+    const firstError = drawn.find((one): one is { error: string } => 'error' in one)
+    return { ok: false, reason: firstError?.error ?? 'Nothing drawable came back.' }
+  }
+
+  let best = candidates.reduce((winner, one) => (one.score.total > winner.score.total ? one : winner))
+
+  // One pass to fix what it lost marks for. Only what it lost marks for: a
+  // model handed its own drawing and a short list of specific faults improves
+  // it, and a model asked to "make it better" redraws something else entirely.
+  if (best.score.notes.length > 0) {
+    const repaired = await ask(repairBrief(best.svg, best.score.notes.slice(0, 6), theme))
+    if (typeof repaired === 'string') {
+      const marked = prepare(repaired)
+      // Kept only if it actually improved. A repair pass can come back worse,
+      // and the drawing that was already the best of three is not worth losing
+      // to a second opinion.
+      if (!('error' in marked) && marked.score.total > best.score.total) best = marked
+    }
+  }
+
+  return {
+    ok: true,
+    dark: best.svg,
+    // Drawn once, in the dim palette, then recoloured. Drawing it twice gave two
+    // different rooms — see toLightBackdrop.
+    light: toLightBackdrop(best.svg),
+    removed: best.removed,
+  }
 }

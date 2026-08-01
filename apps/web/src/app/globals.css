@@ -283,9 +283,45 @@ html, body { min-height: 100%; }
 .bhs-bulb {
   animation: bhs-glow 5.5s ease-in-out infinite;
 }
+/* The same vocabulary, on a department's own drawing (components/drawn-room.tsx).
+   Two of these classes need help inside an SVG that the hand-drawn rooms do not.
+   A CSS rotation applies about the user-space origin, so `bhs-sway` on a shape
+   at x=1200 swings it around the top-left corner of the frame and off the
+   screen; `transform-box: fill-box` re-centres it on the shape's own bounds,
+   which is what the hand-drawn rooms achieve with an inline transform-origin on
+   a wrapping <g>. */
+.bh-drawn-room :is(.bhs-sway, .bhs-spin, .bhs-steam, .bhs-mote) {
+  transform-box: fill-box;
+}
+.bh-drawn-room .bhs-sway {
+  /* Pivots at its base, the way anything standing on a floor does. */
+  transform-origin: 50% 100%;
+}
+.bh-drawn-room :is(.bhs-spin, .bhs-steam, .bhs-mote) {
+  transform-origin: 50% 50%;
+}
+/* Drift is the exception that cannot be fixed by re-centring: its keyframes
+   move an element by a percentage of itself, which inside `fill-box` means a
+   cloud crossing its own width rather than the window. In a drawing the frame
+   is always 1600 units wide, so it can be said in those units instead. */
+@keyframes bh-drawn-drift {
+  from {
+    transform: translateX(-420px);
+  }
+  to {
+    transform: translateX(1780px);
+  }
+}
+.bh-drawn-room .bhs-drift {
+  animation: bh-drawn-drift 220s linear infinite;
+}
+
 /* A drawn room is decoration. If motion is unwelcome, the room still reads —
    it just stops breathing. */
 @media (prefers-reduced-motion: reduce) {
+  .bh-drawn-room .bhs-drift {
+    animation: none;
+  }
   .bhs-glow,
   .bhs-blink,
   .bhs-sway,

@@ -2465,9 +2465,17 @@ const SCENES: Record<SceneKind, React.FC<SceneProps>> = {
 /**
  * One complete room: its sky-or-far-wall plane, its floor plane, and the art
  * standing on them. Self-contained on purpose — a wipe slides one of these over
- * another, so a room has to carry its own ground with it.
+ * another, so a room has to carry its own ground with it. Exported because a
+ * department that has no artwork of its own is drawn as one of these, inside
+ * the same wipe that carries the drawn ones (see components/lobby.tsx).
  */
-const SceneLayer = React.memo(function SceneLayer({ kind, isDark }: { kind: SceneKind; isDark: boolean }) {
+export const BunkhouseSceneRoom = React.memo(function BunkhouseSceneRoom({
+  kind,
+  isDark,
+}: {
+  kind: SceneKind
+  isDark: boolean
+}) {
   const Scene = SCENES[kind]
   return (
     <div className="absolute inset-0">
@@ -2485,33 +2493,55 @@ const SceneLayer = React.memo(function SceneLayer({ kind, isDark }: { kind: Scen
 })
 
 /**
- * The painted room, and the wipe between rooms.
+ * The stage, and the wipe between the two pictures on it.
  *
- * Picking a stage sweeps the new room in from the side it sits on in the
- * picker: a room further right in the list arrives from the right. The
- * outgoing room does not move — only the edge between the two travels, because
- * the staff standing on the floor are a separate layer that stays put, and a
- * room sliding out from under stationary people looks like a mistake. A lit
- * seam rides the edge so the sweep reads as one gesture.
+ * Picking a stage sweeps the new picture in from the side it sits on in the
+ * picker: one further right in the list arrives from the right. The outgoing
+ * picture does not move — only the edge between the two travels, because the
+ * staff standing on the floor are a separate layer that stays put, and a room
+ * sliding out from under stationary people looks like a mistake. A lit seam
+ * rides the edge so the sweep reads as one gesture.
+ *
+ * Deliberately incurious about what a picture *is*. The floor shows built-in
+ * rooms on one deployment and each department's own drawing on the next, and
+ * the sweep belongs to the act of switching, not to one kind of artwork — when
+ * this knew only about `SceneKind`, a company that had drawn its own rooms got
+ * a hard cut between them. Callers pass a stable `id` for what is showing, its
+ * `order` among the picker's buttons, and a `render` that can draw any id.
+ *
+ * The outgoing picture is re-drawn from its id rather than kept as a stored
+ * element, so it stays live: flipping the theme mid-wipe repaints both halves
+ * instead of leaving a snapshot of the old room in the old palette.
  */
 /** Kept in step with `--bh-wipe-duration` in globals.css. */
 const WIPE_MS = 620
 
-export function BunkhouseSceneArt({ kind, isDark }: { kind: SceneKind; isDark: boolean }) {
+export function BunkhouseSceneStage({
+  id,
+  order,
+  render,
+}: {
+  id: string
+  /** Position in the picker. Decides which side the new picture arrives from. */
+  order: number
+  render: (id: string) => React.ReactNode
+}) {
   const [wipe, setWipe] = React.useState<{
-    shown: SceneKind
-    leaving: SceneKind | null
+    shown: string
+    order: number
+    leaving: string | null
     from: 'left' | 'right'
-  }>({ shown: kind, leaving: null, from: 'right' })
+  }>({ shown: id, order, leaving: null, from: 'right' })
 
   // Derived during render rather than in an effect: an effect would paint one
-  // frame of the new room un-clipped before the animation started, which reads
-  // as a flash of the destination just before it wipes in.
-  if (wipe.shown !== kind) {
+  // frame of the new picture un-clipped before the animation started, which
+  // reads as a flash of the destination just before it wipes in.
+  if (wipe.shown !== id) {
     setWipe({
-      shown: kind,
+      shown: id,
+      order,
       leaving: wipe.shown,
-      from: SCENE_KINDS.indexOf(kind) > SCENE_KINDS.indexOf(wipe.shown) ? 'right' : 'left',
+      from: order > wipe.order ? 'right' : 'left',
     })
   }
 
@@ -2520,7 +2550,7 @@ export function BunkhouseSceneArt({ kind, isDark }: { kind: SceneKind; isDark: b
     [],
   )
 
-  // A backstop for retiring the outgoing room. `animationend` is the prompt
+  // A backstop for retiring the outgoing picture. `animationend` is the prompt
   // path, but it is not a guarantee: a background tab freezes the document
   // timeline and never dispatches it, and an interrupted or reduced-motion
   // animation can skip it too. What is left behind if it never arrives is a
@@ -2534,13 +2564,13 @@ export function BunkhouseSceneArt({ kind, isDark }: { kind: SceneKind; isDark: b
 
   return (
     <div className="absolute inset-0 overflow-hidden">
-      {wipe.leaving ? <SceneLayer kind={wipe.leaving} isDark={isDark} /> : null}
+      {wipe.leaving ? <div className="absolute inset-0">{render(wipe.leaving)}</div> : null}
       <div
-        // Keyed by room, and by room alone: a new pick remounts this and so
-        // restarts the sweep from the beginning even mid-wipe, while clearing
-        // `leaving` at the end leaves the key untouched and does not throw away
-        // the room that just arrived.
-        key={kind}
+        // Keyed by what is showing, and by that alone: a new pick remounts this
+        // and so restarts the sweep from the beginning even mid-wipe, while
+        // clearing `leaving` at the end leaves the key untouched and does not
+        // throw away the picture that just arrived.
+        key={id}
         className={`absolute inset-0 ${wipe.leaving ? `bh-wipe-${wipe.from}` : ''}`}
         // Animation events bubble, and every room is full of looping keyframes
         // — only the wipe's own end means the transition is over.
@@ -2548,11 +2578,23 @@ export function BunkhouseSceneArt({ kind, isDark }: { kind: SceneKind; isDark: b
           if (event.animationName.startsWith('bh-wipe')) done()
         }}
       >
-        <SceneLayer kind={kind} isDark={isDark} />
+        {render(id)}
       </div>
       {wipe.leaving ? <div className={`bh-wipe-seam bh-wipe-seam-${wipe.from}`} /> : null}
     </div>
   )
+}
+
+/**
+ * The built-in rooms on the stage, wiping between each other. The picker's
+ * order is the order the rooms are declared in.
+ */
+export function BunkhouseSceneArt({ kind, isDark }: { kind: SceneKind; isDark: boolean }) {
+  const render = React.useCallback(
+    (id: string) => <BunkhouseSceneRoom kind={id as SceneKind} isDark={isDark} />,
+    [isDark],
+  )
+  return <BunkhouseSceneStage id={kind} order={SCENE_KINDS.indexOf(kind)} render={render} />
 }
 
 /**
@@ -2599,7 +2641,7 @@ export function BunkhouseSceneThumbnail({
           transform: `scale(${width / STAGE_WIDTH})`,
         }}
       >
-        <SceneLayer kind={kind} isDark={isDark} />
+        <BunkhouseSceneRoom kind={kind} isDark={isDark} />
       </span>
     </span>
   )

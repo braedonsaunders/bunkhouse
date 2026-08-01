@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Alert, Badge, Button, Label, Select, Spinner, Textarea, useTheme } from '@appkit/ui'
 import { BunkhouseSceneArt } from './scene-art'
+import { DrawnRoom } from './drawn-room'
 import type { SceneKind } from './scene-kinds'
 import { draftBackdrop, saveBackdrop, clearBackdrop } from '../app/organization/department-actions'
 
@@ -81,7 +82,9 @@ export function BackdropStudio({
             appears on the floor rather than an approximation of it. */}
         <div className="relative aspect-[16/9] w-full overflow-hidden rounded-xl border border-border bg-canvas">
           {showing ? (
-            <div className="h-full w-full [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: showing }} />
+            // Lit exactly as the floor lights it, or this approves a picture
+            // nobody will ever see (see drawn-room.tsx).
+            <DrawnRoom svg={showing} isDark={isDark} />
           ) : (
             // The built-in room, drawn exactly as the floor draws it. Telling
             // somebody in words which room they are using, on a screen whose
@@ -145,8 +148,9 @@ export function BackdropStudio({
             placeholder="a warm workshop with a pegboard of tools, a roller door and a workbench"
           />
           <p className="mt-1 text-xs text-fg-subtle">
-            Say what is in the room and what it feels like. Composition, perspective and both palettes are handled for
-            you.
+            Say what is in the room and what it feels like — that is the whole input. The camera, the architecture, the
+            lighting, both palettes and the small movements are chosen for you, and differ every time you draw, so
+            drawing again gives you a genuinely different room rather than the same one twice.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

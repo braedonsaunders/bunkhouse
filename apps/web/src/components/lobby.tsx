@@ -6,8 +6,11 @@ import { useTheme } from '@appkit/ui'
 import { CharacterScene, type SceneCharacter } from '@appkit/scene'
 import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
 import { SeatedFigure } from './seated-figure'
+import { DrawnRoom } from './drawn-room'
 import {
   BunkhouseSceneArt,
+  BunkhouseSceneRoom,
+  BunkhouseSceneStage,
   SCENE_KINDS,
   SCENE_LABELS,
   bunkhouseSceneGround,
@@ -128,12 +131,32 @@ export function Lobby({
   const scene = React.useSyncExternalStore(subscribeToScene, readStoredScene, () => 'office' as SceneKind)
   const places = departments ?? []
   const here = places.find((d) => d.slug === departmentSlug) ?? places[0] ?? null
-  // Two drawings per room, one per theme: the palette is baked into the shapes,
-  // so recolouring is not an option and the floor picks the one that matches.
-  const backdrop = here ? (isDark ? here.backdropSvg : (here.backdropSvgLight ?? here.backdropSvg)) : null
   // A department drawn from its own artwork still needs a floor to walk on, so
   // it borrows the office ground until somebody says otherwise.
   const sceneKind: SceneKind = here ? (here.sceneKind ?? 'office') : scene
+
+  /**
+   * One department's room, whichever kind of room it is. Written as a function
+   * of the department rather than of the department being *looked at* because
+   * the stage draws two of them during a wipe — the one arriving and the one
+   * leaving.
+   */
+  const roomFor = (id: string) => {
+    const place = places.find((p) => p.id === id)
+    if (!place) return null
+    // Two drawings per room, one per theme: the palette is baked into the
+    // shapes, so recolouring is not an option and the floor picks the one that
+    // matches.
+    const backdrop = isDark ? place.backdropSvg : (place.backdropSvgLight ?? place.backdropSvg)
+    return backdrop ? (
+      // Not the raw markup: a drawing gets its light, haze and vignette laid
+      // over it here rather than being asked to draw them (see drawn-room.tsx).
+      <DrawnRoom svg={backdrop} isDark={isDark} />
+    ) : (
+      <BunkhouseSceneRoom kind={place.sceneKind ?? 'office'} isDark={isDark} />
+    )
+  }
+
   const pickScene = (kind: SceneKind) => {
     window.localStorage.setItem(SCENE_STORAGE_KEY, kind)
     window.dispatchEvent(new Event(SCENE_CHANGE_EVENT))
@@ -171,12 +194,14 @@ export function Lobby({
         characters={characters}
         ground={bunkhouseSceneGround(sceneKind)}
         art={
-          backdrop ? (
-            // Sanitised on the way in — lib/scene-svg.ts strips anything that
-            // can act, so what reaches here is shapes and nothing else.
-            <div
-              className="h-full w-full [&>svg]:h-full [&>svg]:w-full"
-              dangerouslySetInnerHTML={{ __html: backdrop }}
+          here ? (
+            // Departments wipe between each other the way the built-in rooms
+            // do, drawn or not: `order` is the department's place in the row of
+            // buttons below, so a room further right arrives from the right.
+            <BunkhouseSceneStage
+              id={here.id}
+              order={places.findIndex((place) => place.id === here.id)}
+              render={roomFor}
             />
           ) : (
             <BunkhouseSceneArt kind={sceneKind} isDark={isDark} />

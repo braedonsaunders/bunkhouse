@@ -1,4 +1,5 @@
 import 'server-only'
+import { keepMotionClasses } from './scene-motion'
 
 /**
  * Making a model's drawing safe to put on the page.
@@ -16,6 +17,14 @@ import 'server-only'
  * which means a novel trick fails closed rather than passing because nobody
  * thought to ban it. What survives is shapes, paths, text, gradients and
  * transforms — enough to draw a room, and nothing that can act.
+ *
+ * `class` is allowlisted the same way, down to the individual name. A drawing
+ * is rendered inside the application's own document, so its class names are
+ * matched against the application's own stylesheet: an unfiltered `class` lets
+ * a model dress its shapes in whatever utilities happen to exist — including
+ * the ones that position, size and stack elements — which is how a backdrop
+ * ends up covering the interface. Only the motion vocabulary in scene-motion.ts
+ * survives, which is also what lets a drawn room breathe.
  */
 
 /** Elements a backdrop may use. Everything else is removed entirely. */
@@ -135,6 +144,15 @@ export function sanitiseSceneSvg(input: string, options?: { maxBytes?: number })
       }
       if (DANGEROUS_VALUE.test(value) || REMOTE_URL.test(value)) {
         removed.push(`${tag}@${name}`)
+        continue
+      }
+      // The one attribute that is filtered rather than kept or dropped whole:
+      // the motion names are useful and the rest is somebody else's stylesheet.
+      if (name === 'class') {
+        const motion = keepMotionClasses(value)
+        if (motion !== value) removed.push(`${tag}@class`)
+        if (!motion) continue
+        kept.push(`class="${motion}"`)
         continue
       }
       kept.push(`${name}="${value.replace(/"/g, '&quot;')}"`)
