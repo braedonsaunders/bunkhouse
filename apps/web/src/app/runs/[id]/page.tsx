@@ -21,7 +21,7 @@ export default async function RunPage({
 }) {
   const { id } = await params
   const { from, tab } = await searchParams
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('work.read')
 
   const view = await loadRunRecord({ tenantId, runId: id })
   if (!view) notFound()

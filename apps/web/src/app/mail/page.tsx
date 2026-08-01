@@ -16,7 +16,7 @@ export default async function MailRedirect({
   searchParams: Promise<{ mailbox?: string; thread?: string }>
 }) {
   const params = await searchParams
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('mail.read')
   const app = db()
   const accounts = await app.withTenantContext(tenantId, () =>
     app.db

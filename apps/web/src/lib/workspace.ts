@@ -34,18 +34,18 @@ const READ_CAP_BYTES = 32 * 1024
 const LIST_CAP = 200
 
 function homesRoot(): string {
-  return resolve(process.env.BUNKHOUSE_AGENT_HOMES ?? '/data/agent-homes')
+  return resolve(/* turbopackIgnore: true */ process.env.BUNKHOUSE_AGENT_HOMES ?? '/data/agent-homes')
 }
 
 export async function agentHomePath(tenantId: string, personId: string): Promise<string> {
-  const home = join(homesRoot(), tenantId, personId)
-  await mkdir(home, { recursive: true })
+  const home = join(/* turbopackIgnore: true */ homesRoot(), tenantId, personId)
+  await mkdir(/* turbopackIgnore: true */ home, { recursive: true })
   return home
 }
 
 /** Resolve a path inside the home, refusing anything that escapes it. */
 function insideHome(home: string, relativePath: string): string {
-  const target = resolve(home, relativePath)
+  const target = resolve(/* turbopackIgnore: true */ home, relativePath)
   if (target !== home && !target.startsWith(home + sep)) {
     throw new Error('Path escapes the workspace.')
   }
@@ -86,17 +86,17 @@ export async function materializeSkillBundle(args: {
   files: { path: string; bytes: Uint8Array }[]
 }): Promise<{ path: string; files: string[] }> {
   const home = await agentHomePath(args.tenantId, args.personId)
-  const root = insideHome(home, join(SKILLS_FOLDER, args.slug))
-  await rm(root, { recursive: true, force: true })
-  await mkdir(root, { recursive: true })
+  const root = insideHome(home, join(/* turbopackIgnore: true */ SKILLS_FOLDER, args.slug))
+  await rm(/* turbopackIgnore: true */ root, { recursive: true, force: true })
+  await mkdir(/* turbopackIgnore: true */ root, { recursive: true })
 
   const written: string[] = []
   for (const file of args.files) {
     // Belt and braces: install already refuses unsafe paths, but this is the
     // moment one would actually escape, so it is checked again here.
     const target = insideHome(root, file.path)
-    await mkdir(dirname(target), { recursive: true })
-    await writeFile(target, file.bytes)
+    await mkdir(/* turbopackIgnore: true */ dirname(target), { recursive: true })
+    await writeFile(/* turbopackIgnore: true */ target, file.bytes)
     written.push(file.path)
   }
   return { path: `~/${SKILLS_FOLDER}/${args.slug}`, files: written }
@@ -136,34 +136,35 @@ export async function tidyWorkspaces(tenantId: string): Promise<{ deleted: numbe
   const policy = await getWorkspacePolicy(tenantId)
   if (!policy.retentionDays || policy.retentionDays < 1) return { deleted: 0 }
   const cutoff = Date.now() - policy.retentionDays * 24 * 60 * 60 * 1000
-  const tenantRoot = join(homesRoot(), tenantId)
+  const tenantRoot = join(/* turbopackIgnore: true */ homesRoot(), tenantId)
   let deleted = 0
 
   const sweep = async (dir: string, isRoot: boolean): Promise<void> => {
-    const names = await readdir(dir).catch(() => null)
+    const names = await readdir(/* turbopackIgnore: true */ dir).catch(() => null)
     if (names === null) return
     for (const name of names) {
-      const full = join(dir, name)
-      const info = await stat(full).catch(() => null)
+      const full = join(/* turbopackIgnore: true */ dir, name)
+      const info = await stat(/* turbopackIgnore: true */ full).catch(() => null)
       if (!info) continue
       if (info.isDirectory()) {
         await sweep(full, false)
       } else if (info.mtime.getTime() < cutoff) {
-        await rm(full, { force: true }).catch(() => {})
+        await rm(/* turbopackIgnore: true */ full, { force: true }).catch(() => {})
         deleted += 1
       }
     }
     if (!isRoot) {
-      const remaining = await readdir(dir).catch(() => null)
-      if (remaining !== null && remaining.length === 0) await rmdir(dir).catch(() => {})
+      const remaining = await readdir(/* turbopackIgnore: true */ dir).catch(() => null)
+      if (remaining !== null && remaining.length === 0)
+        await rmdir(/* turbopackIgnore: true */ dir).catch(() => {})
     }
   }
 
   // Agent home directories themselves are kept; only their contents age out.
-  const homes = await readdir(tenantRoot).catch(() => [])
+  const homes = await readdir(/* turbopackIgnore: true */ tenantRoot).catch(() => [])
   for (const personId of homes) {
-    const home = join(tenantRoot, personId)
-    const info = await stat(home).catch(() => null)
+    const home = join(/* turbopackIgnore: true */ tenantRoot, personId)
+    const info = await stat(/* turbopackIgnore: true */ home).catch(() => null)
     if (info?.isDirectory()) await sweep(home, true)
   }
   return { deleted }
@@ -243,11 +244,11 @@ export function workspaceAbilities(args: { tenantId: string; person: PersonRow; 
         const entries: { path: string; kind: 'file' | 'folder'; sizeBytes?: number; modifiedAt?: string }[] = []
         const walk = async (current: string, prefix: string, depth: number): Promise<void> => {
           if (depth > 4 || entries.length >= LIST_CAP) return
-          const names = await readdir(current).catch(() => [])
+          const names = await readdir(/* turbopackIgnore: true */ current).catch(() => [])
           for (const name of names) {
             if (entries.length >= LIST_CAP) return
-            const full = join(current, name)
-            const info = await stat(full).catch(() => null)
+            const full = join(/* turbopackIgnore: true */ current, name)
+            const info = await stat(/* turbopackIgnore: true */ full).catch(() => null)
             if (!info) continue
             const rel = prefix ? `${prefix}/${name}` : name
             if (info.isDirectory()) {
@@ -270,9 +271,9 @@ export function workspaceAbilities(args: { tenantId: string; person: PersonRow; 
       execute: async ({ path }) => {
         const home = await agentHomePath(tenantId, person.id)
         const target = insideHome(home, path)
-        const info = await stat(target).catch(() => null)
+        const info = await stat(/* turbopackIgnore: true */ target).catch(() => null)
         if (!info || !info.isFile()) return { found: false, reason: 'No such file in your workspace.' }
-        const bytes = await readFile(target)
+        const bytes = await readFile(/* turbopackIgnore: true */ target)
         const text = bytes.subarray(0, READ_CAP_BYTES).toString('utf8')
         return { found: true, text, ...(bytes.length > READ_CAP_BYTES ? { truncated: true } : {}) }
       },
@@ -290,9 +291,9 @@ export function workspaceAbilities(args: { tenantId: string; person: PersonRow; 
       execute: async ({ path, filename, contentType }) => {
         const home = await agentHomePath(tenantId, person.id)
         const target = insideHome(home, path)
-        const info = await stat(target).catch(() => null)
+        const info = await stat(/* turbopackIgnore: true */ target).catch(() => null)
         if (!info || !info.isFile()) return { published: false, reason: 'No such file in your workspace.' }
-        const bytes = await readFile(target)
+        const bytes = await readFile(/* turbopackIgnore: true */ target)
         const record = await saveFile({
           tenantId,
           personId: person.id,

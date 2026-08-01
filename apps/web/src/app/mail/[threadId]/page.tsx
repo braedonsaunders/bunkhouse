@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic'
  */
 export default async function ThreadRedirect({ params }: { params: Promise<{ threadId: string }> }) {
   const { threadId } = await params
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('mail.read')
   const app = db()
   const [thread] = await app.withTenantContext(tenantId, () =>
     app.db

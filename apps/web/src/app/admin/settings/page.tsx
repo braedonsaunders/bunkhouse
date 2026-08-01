@@ -27,7 +27,7 @@ import { getMailSignature } from '../../../lib/mail-signature'
 import { AVATAR_PART_CATEGORIES, avatarPartCategory } from '../../../lib/avatar-parts'
 import { IMAGE_MODELS } from '@appkit/avatars'
 import { runHealthChecks } from '../../../lib/health'
-import { resolveTenantId } from '../../../lib/tenant'
+import { getTenantAccess } from '../../../lib/tenant'
 import { listDepartments, wanderingEnabled } from '../../../lib/departments'
 import { SCENE_KINDS, SCENE_LABELS } from '../../../components/scene-kinds'
 import {  } from '../../../lib/auth'
@@ -45,7 +45,11 @@ export default async function SettingsPage({
   // Connected systems moved to Resources; a bookmarked deep link follows them
   // there rather than landing on a section that no longer exists.
   if (section === 'integrations') redirect('/resources?tab=systems')
-  const tenantId = await resolveTenantId('settings.read')
+  const access = await getTenantAccess()
+  if (!access.user.isSuperAdmin && !access.permissions.has('settings.read')) {
+    throw new Error('Missing permission: settings.read')
+  }
+  const tenantId = access.tenantId
   const app = db()
   const [providers, prices, imageSetting, voiceProviders, trunks, agentExtensions, mailboxData, agentDials, partRows, partLibrary] = await Promise.all([
     listAiProviders(tenantId),
@@ -374,6 +378,7 @@ export default async function SettingsPage({
         departments: departmentList.map((department) => ({ value: department.id, label: department.name })),
         people: activeAgents.map((person) => ({ value: person.id, label: person.name })),
       }}
+      canManageAccess={access.user.isSuperAdmin || access.permissions.has('access.manage')}
     />
   )
 }

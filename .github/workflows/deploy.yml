@@ -83,10 +83,18 @@ jobs:
             ('00000000-0000-0000-0000-000000000002', 'human', 'active', 'Two', 'Owner', 'two@example.test');
           set role bunkhouse_rls_test;
           set app.tenant_id = '00000000-0000-0000-0000-000000000001';
+          insert into audit_log (tenant_id, action, entity_type, summary) values
+            ('00000000-0000-0000-0000-000000000001', 'ci.immutability_check', 'ci', 'CI ledger guard canary');
           do $$ begin
             if (select count(*) from people) <> 1 then
               raise exception 'RLS tenant isolation failed';
             end if;
+            begin
+              update audit_log set summary = 'tampered';
+              raise exception 'Immutable ledger enforcement failed';
+            exception when sqlstate '55000' then
+              null;
+            end;
           end $$;
           reset role;
           SQL
@@ -256,10 +264,7 @@ jobs:
           echo "::warning::Deployment still running after 10 minutes — letting it converge."
           exit 0
 
-      # Informational only. Swarm keeps converging after this job ends (a big
-      # image pull can outlast any polling window), so slow-to-healthy must
-      # never mark the deploy failed — it reports, it does not gate.
-      - name: Health check
+      - name: Production health gate
         env:
           PUBLIC_URL: ${{ vars.BUNKHOUSE_PUBLIC_URL }}
         run: |
@@ -278,5 +283,5 @@ jobs:
               exit 0
             fi
           done
-          echo "::warning::Not serving yet after 10 minutes — swarm is likely still pulling; check the observatory or re-run this check."
-          exit 0
+          echo "::error::The deployed application did not become healthy within 10 minutes."
+          exit 1

@@ -29,7 +29,7 @@ export default async function OrgChartPage({
   const params = await searchParams
   const { person: selectedId, show } = params
   const includeOffboarded = show === 'all'
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('people.read')
   const app = db()
   const roster = await app.withTenantContext(tenantId, () =>
     app.db.select().from(people).orderBy(asc(people.name)),

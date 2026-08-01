@@ -38,12 +38,15 @@ export function AppFrame({
   user,
   tenant,
   switchTenant,
+  allowedSections,
 }: {
   children: ReactNode
   user: FrameUser | null
   tenant?: FrameTenant | null
   /** Server action: validates membership, sets the httpOnly tenant cookie. */
   switchTenant?: (tenantId: string) => Promise<{ ok: boolean; message?: string }>
+  /** Navigation is derived from the same server-resolved grants as page authorization. */
+  allowedSections: string[]
 }) {
   const pathname = usePathname()
   // The sign-in screen and the guest meeting rooms render bare (no shell
@@ -73,7 +76,7 @@ export function AppFrame({
     <UiLinkProvider link={Link}>
       <ThemeProvider>
         <AppShell
-          groups={navigation}
+          groups={navigation.filter((group) => allowedSections.includes(group.id ?? ''))}
           pathname={pathname}
           brand={<Logo animated size={17} />}
           header={

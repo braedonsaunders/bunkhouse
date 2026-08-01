@@ -34,7 +34,7 @@ function Blocked({ title, description, href, linkLabel }: { title: string; descr
 
 export default async function CallPage({ params }: { params: Promise<{ personId: string }> }) {
   const { personId } = await params
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('calls.manage')
   const app = db()
   const [person] = await app.withTenantContext(tenantId, () =>
     app.db.select().from(people).where(eq(people.id, personId)),

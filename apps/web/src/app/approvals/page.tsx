@@ -44,7 +44,7 @@ function draftOf(payload: unknown): { fields: { label: string; value: string }[]
 }
 
 export default async function ApprovalsPage() {
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('approvals.read')
   const app = db()
   const rows = await app.withTenantContext(tenantId, () =>
     app.db

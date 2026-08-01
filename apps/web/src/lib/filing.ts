@@ -404,7 +404,7 @@ export async function validateFilingDirectory(basePath: string): Promise<{ ok: t
   const path = basePath.trim()
   if (!path) return { ok: false, message: 'Enter the folder path as the server sees it.' }
   if (!isAbsolute(path)) return { ok: false, message: 'Use an absolute path, e.g. /mnt/company-files.' }
-  const resolved = resolve(path)
+  const resolved = resolve(/* turbopackIgnore: true */ path)
   try {
     const info = await stat(resolved)
     if (!info.isDirectory()) return { ok: false, message: `${resolved} is not a folder.` }
@@ -419,7 +419,7 @@ export async function validateFilingDirectory(basePath: string): Promise<{ ok: t
   } catch {
     return { ok: false, message: `${resolved} is not writable by the application.` }
   }
-  const probe = join(resolved, `.bunkhouse-write-test-${randomUUID()}`)
+  const probe = join(/* turbopackIgnore: true */ resolved, `.bunkhouse-write-test-${randomUUID()}`)
   try {
     await writeFile(probe, 'bunkhouse filing check\n')
     await unlink(probe)
@@ -433,7 +433,7 @@ export async function validateFilingDirectory(basePath: string): Promise<{ ok: t
 export async function saveFilingDirectory(input: { tenantId: string; basePath: string; label?: string }): Promise<void> {
   const check = await validateFilingDirectory(input.basePath)
   if (!check.ok) throw new Error(check.message)
-  const basePath = resolve(input.basePath.trim())
+  const basePath = resolve(/* turbopackIgnore: true */ input.basePath.trim())
   await mutateFilingSettings(input.tenantId, (current) => ({
     ...current,
     enabled: true,
@@ -1001,9 +1001,9 @@ async function uploadToTarget(args: {
 }): Promise<string> {
   const { target, subfolder, filename, record, bytes } = args
   if (target.provider === 'smb') {
-    const directory = subfolder ? join(target.basePath, safeSegment(subfolder)) : target.basePath
+    const directory = subfolder ? join(/* turbopackIgnore: true */ target.basePath, safeSegment(subfolder)) : target.basePath
     await mkdir(directory, { recursive: true })
-    const destination = join(directory, filename)
+    const destination = join(/* turbopackIgnore: true */ directory, filename)
     await writeFile(destination, bytes)
     return destination
   }

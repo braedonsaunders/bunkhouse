@@ -36,7 +36,7 @@ type PersonRow = typeof people.$inferSelect
 
 /** Where installed tools live. Deployment infrastructure, like the homes root. */
 function toolsRoot(): string {
-  return resolve(process.env.BUNKHOUSE_AGENT_TOOLS ?? '/data/agent-tools')
+  return resolve(/* turbopackIgnore: true */ process.env.BUNKHOUSE_AGENT_TOOLS ?? '/data/agent-tools')
 }
 
 export function toolsSupported(): boolean {

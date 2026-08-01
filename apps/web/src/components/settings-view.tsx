@@ -267,6 +267,7 @@ export function SettingsView({
   avatarPartCategories,
   avatarPartLibrary,
   accessScopes,
+  canManageAccess,
 }: {
   providers: ProviderSummary[]
   /** Which agent works on which provider, so removing one shows its cost. */
@@ -326,8 +327,21 @@ export function SettingsView({
   /** The same parts shaped for the composer and the previews. */
   avatarPartLibrary: AvatarPart[]
   accessScopes: ScopeOptions
+  canManageAccess: boolean
 }) {
-  const arrival = React.useMemo(() => resolveSection(initialSection), [initialSection])
+  const arrival = React.useMemo(() => {
+    const requested = resolveSection(initialSection)
+    return requested.section === 'access' && !canManageAccess
+      ? { section: 'identity', tab: null }
+      : requested
+  }, [initialSection, canManageAccess])
+  const visibleNav = React.useMemo(
+    () => NAV.map((group) => ({
+      ...group,
+      items: group.items.filter((item) => item.key !== 'access' || canManageAccess),
+    })).filter((group) => group.items.length > 0),
+    [canManageAccess],
+  )
   const [active, setActive] = React.useState(arrival.section)
   const [documentTab, setDocumentTab] = React.useState(arrival.tab ?? 'letterhead')
   const [mailTab, setMailTab] = React.useState(arrival.tab ?? 'mailboxes')
@@ -360,7 +374,7 @@ export function SettingsView({
     <SettingsShell
       title="Settings"
       description="Company-level configuration: who your agents work for, how far they are trusted, and what powers them."
-      nav={NAV}
+      nav={visibleNav}
       activeKey={active}
       onSelect={setActive}
       linkRender={nextLink}
@@ -380,7 +394,7 @@ export function SettingsView({
         </SettingsSection>
       ) : null}
 
-      {active === 'access' ? <AccessSettings scopeOptions={accessScopes} /> : null}
+      {active === 'access' && canManageAccess ? <AccessSettings scopeOptions={accessScopes} /> : null}
 
       {active === 'ai' ? (
         <ModelSettings

@@ -4,7 +4,7 @@ import { ConfirmRoot, getThemeScript, PromptRoot, Toaster } from '@appkit/ui'
 import { AppFrame, type FrameTenant } from '@/components/app-frame'
 import { SplashScreen } from '@/components/brand-splash'
 import { getSessionUser } from '@/lib/auth'
-import { getTenantSelectionForChrome } from '@/lib/tenant'
+import { getTenantAccess, getTenantSelectionForChrome } from '@/lib/tenant'
 import { switchTenantAction } from '@/app/tenant-actions'
 import './globals.css'
 
@@ -28,13 +28,25 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         options: selection.options.map((option) => ({ value: option.id, label: option.name })),
       }
     : null
+  const access = user && tenant ? await getTenantAccess() : null
+  const allowedSections = user?.isSuperAdmin
+    ? ['home', 'agents', 'roles', 'approvals', 'observatory', 'resources', 'settings']
+    : [
+        access?.permissions.has('work.read') ? 'home' : null,
+        access?.permissions.has('people.read') ? 'agents' : null,
+        access?.permissions.has('roles.read') ? 'roles' : null,
+        access?.permissions.has('approvals.read') ? 'approvals' : null,
+        access?.permissions.has('observatory.read') ? 'observatory' : null,
+        access?.permissions.has('resources.read') ? 'resources' : null,
+        access?.permissions.has('settings.read') ? 'settings' : null,
+      ].filter((value): value is string => value !== null)
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
         <script id="appkit-theme" dangerouslySetInnerHTML={{ __html: getThemeScript() }} />
       </head>
       <body className="min-h-screen bg-bg text-fg antialiased">
-        <AppFrame user={user} tenant={tenant} switchTenant={switchTenantAction}>
+        <AppFrame user={user} tenant={tenant} switchTenant={switchTenantAction} allowedSections={allowedSections}>
           {children}
         </AppFrame>
         <SplashScreen />

@@ -24,7 +24,7 @@ export default async function PeoplePage({
 }) {
   const params = await searchParams
   const selectedId = params.person
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('people.read')
   const app = db()
   const roster = await app.withTenantContext(tenantId, () =>
     app.db.select().from(people).orderBy(asc(people.name)),

@@ -9,7 +9,7 @@ import { RolesView } from '../../components/roles-view'
 export const dynamic = 'force-dynamic'
 
 export default async function RolesPage() {
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('roles.read')
   const app = db()
   const [roles, roster] = await Promise.all([
     listRoles(tenantId),

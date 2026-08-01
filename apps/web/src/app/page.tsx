@@ -28,7 +28,7 @@ export default async function HomePage({
 }) {
   const params = await searchParams
   const selectedId = params.person
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('work.read')
   const app = db()
 
   const monthStart = new Date()

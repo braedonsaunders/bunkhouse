@@ -52,7 +52,7 @@ export default async function ObservatoryPage({
   searchParams: Promise<{ run?: string; tab?: string }>
 }) {
   const { run: selectedRunId, tab } = await searchParams
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('observatory.read')
   const app = db()
 
   const data = await app.withTenantContext(tenantId, async () => {

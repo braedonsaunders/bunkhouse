@@ -26,7 +26,7 @@ export default async function AgentsPage({
 }) {
   const params = await searchParams
   const { person: selectedId, mailboxError, tab, thread } = params
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('people.read')
   const app = db()
   const roster = await app.withTenantContext(tenantId, () =>
     app.db.select().from(people).orderBy(asc(people.name)),

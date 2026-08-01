@@ -40,7 +40,7 @@ export default async function ResourcesPage({
     : mcpOauthError
       ? { ok: false, message: mcpOauthError }
       : null
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('resources.read')
   const app = db()
   const data = await app.withTenantContext(tenantId, async () => {
     const notes = await app.db

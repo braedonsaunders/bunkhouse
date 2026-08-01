@@ -21,7 +21,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   const { id } = await params
   if (!isUuid(id)) notFound()
 
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('people.read')
   const app = db()
   const [person] = await app.withTenantContext(tenantId, () =>
     app.db.select({ kind: people.kind }).from(people).where(eq(people.id, id)),
