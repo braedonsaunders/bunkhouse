@@ -150,10 +150,15 @@ assert.deepEqual(lightPools('<svg><rect width="10" height="10" fill="#111c30" />
 
 // --- the shot ---------------------------------------------------------------
 assert.deepEqual(shotFor('room#0'), shotFor('room#0'), 'the same seed is the same shot')
+// Whole rooms have to differ, not just the histogram of their ceilings: with
+// 600 combinations, 200 draws of a well-mixed hash land on about 170 distinct
+// rooms, and a hash whose dimensions stay correlated lands on far fewer while
+// still looking uniform one dimension at a time.
 const spread = new Set(
   Array.from({ length: 200 }, (_unused, index) => JSON.stringify(shotFor(`seed#${index}`))),
 )
-assert.ok(spread.size > 150, `seeds spread across the combinations (got ${spread.size} of 200)`)
+const ideal = Math.round(SHOT_COMBINATIONS * (1 - Math.pow(1 - 1 / SHOT_COMBINATIONS, 200)))
+assert.ok(spread.size >= ideal * 0.94, `200 seeds spread across ${spread.size} rooms, near the ideal ${ideal}`)
 assert.ok(SHOT_COMBINATIONS > 400, `enough rooms to describe (got ${SHOT_COMBINATIONS})`)
 // The three candidates within one draw must not be near-identical, which is
 // what a single hash walked four times would give for consecutive seeds.
