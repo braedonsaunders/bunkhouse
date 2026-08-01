@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { namespaceSvgIds, sanitiseSceneSvg } from '../src/lib/scene-svg'
+import { namespaceSvgIds } from '../src/lib/scene-ids'
+import { sanitiseSceneSvg } from '../src/lib/scene-svg'
 import { readShapes } from '../src/lib/scene-geometry'
 import { scoreBackdrop, FRAME } from '../src/lib/scene-score'
 import { lightPools } from '../src/lib/scene-lighting'

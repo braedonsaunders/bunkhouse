@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { lightPools } from '../lib/scene-lighting'
-import { namespaceSvgIds } from '../lib/scene-svg'
+import { namespaceSvgIds } from '../lib/scene-ids'
 import { BACKDROP_PALETTES } from '../lib/scene-palette'
 import { FRAME } from '../lib/scene-score'
 
