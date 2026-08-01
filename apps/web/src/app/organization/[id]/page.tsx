@@ -27,5 +27,6 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
     app.db.select({ kind: people.kind }).from(people).where(eq(people.id, id)),
   )
   if (!person) notFound()
-  redirect(`/organization/${person.kind === 'agent' ? 'agents' : 'people'}?person=${id}`)
+  // The agent roster is the section root; only the people roster is nested.
+  redirect(`/organization${person.kind === 'agent' ? '' : '/people'}?person=${id}`)
 }

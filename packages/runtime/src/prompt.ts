@@ -51,6 +51,33 @@ function renderIdentity(name: string, identity: CompanyIdentity): string {
  * Procedures are quoted verbatim and must be cited by slug when followed —
  * the loop turns citations into run events.
  */
+/**
+ * What day it is, in the agent's own zone.
+ *
+ * Staff know the date without being told; an agent that is never told either
+ * guesses or spends a tool call working it out, and both go wrong. A cash
+ * report asked for "the previous business day" was filed twice from the same
+ * instruction — once correctly dated Thursday, once dated Friday with Friday's
+ * partial takings — because nothing in the context said which day it was. The
+ * weekday is spelled out so "previous business day" is arithmetic rather than
+ * inference.
+ */
+function today(timezone: string | null): string {
+  const zone = timezone ?? 'UTC'
+  const now = new Date()
+  const stamp = new Intl.DateTimeFormat('en-CA', {
+    timeZone: zone,
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(now)
+  return `Right now it is ${stamp} (${zone}). Work out any relative date — today, yesterday, the previous business day, this month — from that, and never from what a document or your own memory happens to say.`
+}
+
 export function buildSystemPrompt(args: {
   agent: AgentProfile
   company: CompanyProfile
@@ -71,6 +98,7 @@ export function buildSystemPrompt(args: {
     : `Sign outbound mail exactly: "${agent.personality.signoff}".`
   sections.push(`About you: ${agent.personality.bio}\nTone: ${agent.personality.tone.join(', ')}.\n${signing}`)
   if (agent.responsibilities) sections.push(`Your responsibilities: ${agent.responsibilities}`)
+  sections.push(today(agent.timezone ?? null))
 
   if (company.description) sections.push(`About ${company.name}: ${company.description}`)
   if (company.identity) {

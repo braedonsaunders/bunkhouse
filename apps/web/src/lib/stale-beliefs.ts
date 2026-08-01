@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, eq, gt, isNull, sql } from 'drizzle-orm'
+import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm'
 import { memories, people, runEvents, runs } from '../db/schema'
 import { db } from '../db/client'
 import { expireNote } from './memory'
@@ -167,7 +167,10 @@ export async function retireContradictedBeliefs(tenantId: string): Promise<Retir
             eq(runs.personId, note.personId),
             eq(runEvents.kind, 'tool_result'),
             gt(runEvents.createdAt, note.createdAt),
-            sql`${runEvents.payload} ->> 'toolName' = any(${claims})`,
+            // A bare `any(${claims})` expands the array into one bind parameter
+            // per element — `any(($1, $2))` — which Postgres rejects. inArray
+            // builds the IN list the driver can actually plan.
+            inArray(sql<string>`${runEvents.payload} ->> 'toolName'`, claims),
           ),
         )
 

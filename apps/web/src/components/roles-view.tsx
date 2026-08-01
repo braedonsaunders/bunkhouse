@@ -214,6 +214,10 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
           <form
             action={(form) => {
               form.set('rolePack', onboarding.slug)
+              // The zone the hiring operator is sitting in, so the role pack's
+              // standing duties keep the hours their titles claim rather than
+              // resolving against whatever clock the worker happens to run on.
+              form.set('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone)
               act(hireAgent, form)
             }}
             className="space-y-4"
