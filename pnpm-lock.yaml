@@ -730,7 +730,7 @@ packages:
     engines: {node: '>=22'}
 
   '@appkit/office@file:vendor/appkit/appkit-office-0.2.0.tgz':
-    resolution: {integrity: sha512-DyeimmLpWaMH+Zd5+tYWFcB51YqboqalIsmj4TcvgzNFrjpA28OpHxOYFMRizX37H1YSxcyip4S/wo1/xehqvg==, tarball: file:vendor/appkit/appkit-office-0.2.0.tgz}
+    resolution: {integrity: sha512-e4P9dcqKx+RSkf6eCc3o5EIIHJgukd7AOWYUm3u+zjfFg+1YRDv7FksZcEefsdwzNft6S8mU5hQajEY+LfA3fA==, tarball: file:vendor/appkit/appkit-office-0.2.0.tgz}
     version: 0.2.0
     engines: {node: '>=22'}
     peerDependencies:

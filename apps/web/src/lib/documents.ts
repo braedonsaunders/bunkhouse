@@ -106,15 +106,22 @@ export function documentAbilities(args: { tenantId: string; person: PersonRow; r
           .describe(
             'Landscape for anything wider than about eight columns. A wide table on a portrait page loses its right-hand columns off the edge of the sheet with nothing in the file to say they are missing.',
           ),
+        density: z
+          .enum(['normal', 'compact'])
+          .optional()
+          .describe(
+            'Compact shrinks tabular type and padding. Reach for it when a table is still too wide in landscape — twelve columns or more of figures.',
+          ),
         bodyHtml: z.string().describe('The full document body as clean HTML'),
         filename: z.string().optional().describe('Without extension; defaults to the title'),
       }),
-      execute: async ({ title, format, bodyHtml, filename, orientation }) => {
+      execute: async ({ title, format, bodyHtml, filename, orientation, density }) => {
         const html = officeDocumentHtml({
           bodyHtml: sanitizeOfficeHtml(bodyHtml),
           title,
           branding: await resolveDocumentBranding(tenantId),
           ...(orientation ? { orientation } : {}),
+          ...(density ? { density } : {}),
         })
         const bytes = format === 'docx' ? await htmlToDocx(html) : await htmlToPdf(html)
         const record = await saveFile({
