@@ -9,7 +9,7 @@ import pg from 'pg'
 
 const dir = fileURLToPath(new URL('../../../migrations/', import.meta.url))
 const url = process.env.BUNKHOUSE_DB_URL
-if (!url) throw new Error('BUNKHOUSE_DB_URL must be set (run with --env-file=.env.local)')
+if (!url) throw new Error('BUNKHOUSE_DB_URL must be set (in .env.local, or in the environment)')
 
 /**
  * Tenant tables carry FORCE ROW LEVEL SECURITY, which applies to the table
