@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/assets/bunkhouse.svg" alt="Bunkhouse" width="620" />
+  <img src=".github/assets/bunkhouse.svg" alt="Bunkhouse" width="460" />
 </p>
 
 <p align="center">
