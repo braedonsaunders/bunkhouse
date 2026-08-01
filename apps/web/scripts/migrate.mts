@@ -26,21 +26,38 @@ if (!url) throw new Error('BUNKHOUSE_DB_URL must be set (in .env.local, or in th
  * toggle back with everything else.
  */
 async function withoutForcedRls<T>(client: pg.Client, work: () => Promise<T>): Promise<T> {
-  const { rows } = await client.query<{ ident: string }>(
-    `select format('%I.%I', n.nspname, c.relname) as ident
+  // Tracked by oid, not by name. A migration is allowed to drop one of these
+  // tables — 0016 lifts the imported artwork out of `avatar_images` and then
+  // drops it — and restoring by name meant putting protection back on a table
+  // that no longer existed. That threw INSIDE the migration's own transaction,
+  // so every migration after it rolled back too, and the error named the
+  // migration rather than the runner. It has failed on every database built
+  // from scratch since; the deployed one never noticed, because it passed
+  // through 0016 long before this function existed.
+  //
+  // An oid also survives a rename, which a name plainly does not, and a
+  // migration that renames a tenant table must not quietly leave it unforced.
+  const { rows } = await client.query<{ oid: string; ident: string }>(
+    `select c.oid::text as oid, format('%I.%I', n.nspname, c.relname) as ident
        from pg_class c
        join pg_namespace n on n.oid = c.relnamespace
       where c.relforcerowsecurity and c.relkind = 'r' and n.nspname = 'public'`,
   )
-  const tables = rows.map((r) => r.ident)
-  if (tables.length === 0) return work()
-  for (const table of tables) await client.query(`alter table ${table} no force row level security`)
+  if (rows.length === 0) return work()
+  for (const table of rows) await client.query(`alter table ${table.ident} no force row level security`)
   try {
     return await work()
   } finally {
     // Restoring inside the transaction means a rollback cannot leave a tenant
     // table unprotected, and a commit never lands one either.
-    for (const table of tables) await client.query(`alter table ${table} force row level security`)
+    for (const table of rows) {
+      const { rows: still } = await client.query<{ ident: string }>(
+        `select oid::regclass::text as ident from pg_class where oid = $1`,
+        [table.oid],
+      )
+      // Gone means the migration dropped it, which is its right.
+      if (still[0]) await client.query(`alter table ${still[0].ident} force row level security`)
+    }
   }
 }
 
