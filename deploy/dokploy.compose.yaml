@@ -237,10 +237,23 @@ services:
           # advertised and neither could be reached, which is what "could not
           # establish pc connection" was. The swarm node is reachable on the
           # network callers are on, and answers on both ports once they publish
-          # in host mode. Opening those ports through to the public address is
-          # what this line is waiting on; until then a caller must be on the
-          # network.
-          node_ip: 10.0.0.101
+          # in host mode.
+          #
+          # WHO CAN CALL is decided entirely by this one line. It is the swarm
+          # node's LAN address, so media works for callers on 10.0.0.0/24 and
+          # for nobody else: a caller on another subnet or over the VPN reaches
+          # the signalling (Traefik, 443) and then fails ICE, which is heard as
+          # an agent who answers and never speaks. Verified from both sides —
+          # 10.0.0.73 reaches 7881, this deployment's own callers on other
+          # networks time out with "wait_pc_connection timed out", and LiveKit
+          # logs every candidate pair failing with 0 responses.
+          #
+          # To let anyone else call: forward 7881/tcp and 7882/udp from the
+          # public address to this node, then set LIVEKIT_NODE_IP to that
+          # public address in the deployment environment. It is a variable
+          # rather than a literal precisely so that opening the ports is the
+          # only work — no code change, no rebuild.
+          node_ip: ${LIVEKIT_NODE_IP:-10.0.0.101}
         redis:
           address: media-redis:6379
         keys:
