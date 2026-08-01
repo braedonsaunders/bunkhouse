@@ -20,6 +20,29 @@ import { approveAction, rejectAction } from './actions'
 
 export const dynamic = 'force-dynamic'
 
+/**
+ * The exact wording an approver is signing off on. Approving an external email
+ * without reading it is not approval, so the queued action's own arguments are
+ * shown verbatim: the addressee and subject as labelled fields, and the body —
+ * or the shell command, or the page being opened — as the reviewable text.
+ */
+function draftOf(payload: unknown): { fields: { label: string; value: string }[]; text: string | null } {
+  const action = (payload as { action?: { input?: Record<string, unknown> } } | null)?.action
+  const input = action?.input ?? {}
+  const str = (key: string): string | null => {
+    const value = input[key]
+    return typeof value === 'string' && value.trim() ? value.trim() : null
+  }
+  const fields: { label: string; value: string }[] = []
+  const to = str('to')
+  const subject = str('subject')
+  const cwd = str('cwd')
+  if (to) fields.push({ label: 'To', value: to })
+  if (subject) fields.push({ label: 'Subject', value: subject })
+  if (cwd) fields.push({ label: 'Working directory', value: cwd })
+  return { fields, text: str('body') ?? str('command') ?? str('url') ?? str('target') }
+}
+
 export default async function ApprovalsPage() {
   const tenantId = await resolveTenantId()
   const app = db()
@@ -27,6 +50,7 @@ export default async function ApprovalsPage() {
     app.db
       .select({
         id: approvals.id,
+        runId: approvals.runId,
         category: approvals.category,
         payload: approvals.payload,
         status: approvals.status,
@@ -70,6 +94,24 @@ export default async function ApprovalsPage() {
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <p>{row.payload.description}</p>
+              {(() => {
+                const draft = draftOf(row.payload)
+                if (draft.fields.length === 0 && !draft.text) return null
+                return (
+                  <div className="space-y-2 rounded-md border border-border bg-bg-subtle p-3">
+                    {draft.fields.map((field) => (
+                      <p key={field.label}>
+                        <span className="text-fg-muted">{field.label}: </span>
+                        {field.value}
+                      </p>
+                    ))}
+                    {draft.text ? <p className="whitespace-pre-wrap">{draft.text}</p> : null}
+                  </div>
+                )
+              })()}
+              <Link href={`/runs/${row.runId}`} className="inline-block text-fg-muted hover:text-primary">
+                Open the run this came from →
+              </Link>
               <form className="flex flex-wrap items-center gap-2">
                 <input type="hidden" name="approvalId" value={row.id} />
                 <Input name="note" placeholder="Optional note back to the agent" className="max-w-sm" />
