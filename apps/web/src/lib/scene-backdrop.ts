@@ -4,7 +4,7 @@ import { getModel } from '@appkit/ai'
 import { resolveProviderAiConfig, listAiProviders } from './ai'
 import { sanitiseSceneSvg } from './scene-svg'
 import { toLightBackdrop } from './scene-recolour'
-import { PALETTES, type BackdropTheme } from './scene-palette'
+import { paletteFor, type BackdropPalette, type PaletteTones } from './scene-palette'
 import { BACKDROP_MOTION, MOTION_RANGE } from './scene-motion'
 import { shotFor, type Shot } from './scene-shot'
 import { scoreBackdrop, FRAME, type BackdropScore } from './scene-score'
@@ -68,8 +68,8 @@ function motionVocabulary(): string {
     .join('\n')
 }
 
-function brief(description: string, theme: BackdropTheme, shot: Shot): string {
-  const palette = PALETTES[theme]
+function brief(description: string, palette: BackdropPalette, shot: Shot): string {
+  const tones = palette.dark
   return `Draw one SVG backdrop for a room in a small company's office, seen straight on, as the background of an animated scene where cartoon staff walk about in front of it.
 
 THE ROOM: ${description}
@@ -88,13 +88,15 @@ Hard requirements — a drawing that breaks any of these is unusable:
 - The lower half is where people walk. Keep it CALM: floor, a rug, maybe a shadow or a floor edge. No furniture taller than about 120 units below the horizon, and nothing at all in the middle third of the floor.
 - No text, no letters, no numbers, no logos. At this size they read as noise.
 - Flat vector shapes only: rect, path, circle, ellipse, polygon, line, and linear gradients. No filters, no images, no patterns of photographic detail.
-- ${palette.note}. Structure and surfaces use ONLY these: ${palette.colours.join(', ')}.
-- Two colours sit outside that set and are the only exceptions. ${palette.lit} is LIT — anything glowing from within. ${palette.accent} is the accent, for one or two small things and nothing else.
+- A dim room, lit from within. Structure and surfaces — walls, floor, furniture, machinery — use ONLY these five: ${tones.colours.join(', ')}.
+- THE ROOM IS MADE OF ${palette.materials.toUpperCase()}. ${tones.material} is that material, and the single thing that makes this room look like itself rather than like every other room: put it on six to twelve shapes that would genuinely be made of it, spread across all three depth layers. Not on the walls, not on the floor, and never as a large flat field.
+- ${tones.lit} is LIT — anything glowing from within. ${tones.accent} is the brand accent, for one or two small things and nothing else.
+- Those eight colours are the whole palette. Nothing else, and no white.
 
 What makes it look composed rather than like clip art — do all of these:
 - BUILD IT IN THREE DEPTH LAYERS. Far: the back wall itself, and openings in it — windows, a doorway, a roller door, shelving recessed into it. Middle: things standing against that wall, their bases ON the horizon line so they sit in the room. Near: one or two large objects at the far LEFT and far RIGHT edges, cropped by the frame, no more than 300 units wide. That cropping is what creates depth; without it the picture looks like a sticker.
 - GIVE THE FLOOR PERSPECTIVE. Draw four to eight faint lines fanning from the horizon down toward the bottom corners, and one or two horizontal bands. They should be barely darker or lighter than the floor — a suggestion of a receding surface, not a grid.
-- LIGHT SOMETHING. Three to six small shapes lit from within — screens, a lamp shade, a doorway with light behind it — in ${palette.lit}. These are the focal points a flat drawing needs. Keep every one of them above the horizon or at the far edges.
+- LIGHT SOMETHING. Three to six small shapes lit from within — screens, a lamp shade, a doorway with light behind it — in ${tones.lit}. These are the focal points a flat drawing needs. Keep every one of them above the horizon or at the far edges.
 - LAYER THE WALL. The back wall should not be one flat rectangle: band it into a lower dado, a main field and a narrower ceiling strip, each a slightly different value from the palette.
 - REPEAT WITH VARIATION. Where something repeats — shelves, slats, panes, pegboard holes — vary the spacing or length slightly. Perfect repetition reads as a texture swatch.
 - 90 to 160 shapes. Below 90 it looks unfinished at this size; above 160 it turns to noise.
@@ -107,13 +109,13 @@ Return ONLY the SVG markup. No prose, no explanation, no code fence.`
 }
 
 /** What to fix, in the model's own drawing. */
-function repairBrief(svg: string, notes: string[], theme: BackdropTheme): string {
-  const palette = PALETTES[theme]
+function repairBrief(svg: string, notes: string[], palette: BackdropPalette): string {
+  const tones = palette.dark
   return `Here is an SVG backdrop you drew. It is close, but it misses some of the brief. Return a corrected version of THIS drawing — keep its composition, its room and its palette, and change only what is listed.
 
 ${notes.map((note, index) => `${index + 1}. ${note}`).join('\n')}
 
-Rules that still hold: one <svg>, viewBox="${VIEWBOX}", no width or height, horizon at y=${FRAME.horizon}, no text, flat shapes only, colours from ${palette.colours.join(', ')} plus ${palette.lit} for what glows and ${palette.accent} for accents, and motion only via the class names already in the drawing (${Object.keys(BACKDROP_MOTION).join(', ')}).
+Rules that still hold: one <svg>, viewBox="${VIEWBOX}", no width or height, horizon at y=${FRAME.horizon}, no text, flat shapes only, colours from ${tones.colours.join(', ')} plus ${tones.material} for the ${palette.slug} the room is made of, ${tones.lit} for what glows and ${tones.accent} for accents, and motion only via the class names already in the drawing (${Object.keys(BACKDROP_MOTION).join(', ')}).
 
 THE DRAWING:
 ${svg}
@@ -157,8 +159,11 @@ export async function generateBackdrop(args: {
   const model = config ? (getModel(config, 'smart') ?? getModel(config, 'fast')) : null
   if (!model) return { ok: false, reason: 'That provider has no model assigned that can draw this.' }
 
-  const theme: BackdropTheme = 'dark'
-  const palette = PALETTES[theme]
+  // Read off the room itself, before anything is drawn, so all three
+  // candidates and the repair pass are working in the same material — and so a
+  // redraw of the same room comes back the same colour.
+  const palette = paletteFor(description)
+  const tones: PaletteTones = palette.dark
   // A fresh seed per press, so "draw another" is another room rather than the
   // same one again. Tests pass their own.
   const seed = args.seed ?? crypto.randomUUID()
@@ -190,7 +195,7 @@ export async function generateBackdrop(args: {
     })
     const shapes = (svg.match(/<(rect|path|circle|ellipse|polygon|polyline|line)\b/g) ?? []).length
     if (shapes < 6) return { error: 'That came back nearly empty — try describing the room differently.' }
-    return { svg, removed: cleaned.removed, score: scoreBackdrop(svg, palette) }
+    return { svg, removed: cleaned.removed, score: scoreBackdrop(svg, tones) }
   }
 
   // Three rooms at once, each from a different shot. Racing them is what turns
@@ -198,7 +203,7 @@ export async function generateBackdrop(args: {
   // to have obeyed to be the one that ships.
   const drawn = await Promise.all(
     Array.from({ length: CANDIDATES }, async (_unused, index) => {
-      const text = await ask(brief(description, theme, shotFor(`${seed}#${index}`)))
+      const text = await ask(brief(description, palette, shotFor(`${seed}#${index}`)))
       return typeof text === 'string' ? prepare(text) : text
     }),
   )
@@ -215,7 +220,7 @@ export async function generateBackdrop(args: {
   // model handed its own drawing and a short list of specific faults improves
   // it, and a model asked to "make it better" redraws something else entirely.
   if (best.score.notes.length > 0) {
-    const repaired = await ask(repairBrief(best.svg, best.score.notes.slice(0, 6), theme))
+    const repaired = await ask(repairBrief(best.svg, best.score.notes.slice(0, 6), palette))
     if (typeof repaired === 'string') {
       const marked = prepare(repaired)
       // Kept only if it actually improved. A repair pass can come back worse,
@@ -230,7 +235,7 @@ export async function generateBackdrop(args: {
     dark: best.svg,
     // Drawn once, in the dim palette, then recoloured. Drawing it twice gave two
     // different rooms — see toLightBackdrop.
-    light: toLightBackdrop(best.svg),
+    light: toLightBackdrop(best.svg, palette),
     removed: best.removed,
   }
 }

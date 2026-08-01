@@ -1,4 +1,4 @@
-import { PALETTES } from './scene-palette'
+import { DEFAULT_PALETTE, type BackdropPalette } from './scene-palette'
 
 /* -- the same room, in the other palette ----------------------------------- */
 
@@ -77,13 +77,23 @@ function flipLightness(hex: string): string {
   return toHex((r2 + m) * 255, (g2 + m) * 255, (b2 + m) * 255)
 }
 
-/** Dark palette hex → light palette hex, for the colours the brief asked for. */
-const MAPPED = new Map<string, string>([
-  ...PALETTES.dark.colours.map((from, i) => [from, PALETTES.light.colours[i]!] as const),
-  [PALETTES.dark.lit, PALETTES.light.lit] as const,
-  // The accent is the brand amber and works on both. Left alone deliberately.
-  [PALETTES.dark.accent, PALETTES.light.accent] as const,
-])
+/**
+ * Dark palette hex → light palette hex, for the colours the brief asked for.
+ *
+ * Built per palette rather than once, because the room is no longer always
+ * drawn in the same five colours: a steel shop and a copper electrical room
+ * have their own ramps, and mapping one through the other's would repaint the
+ * room a different material on the way into daylight.
+ */
+function mapping(palette: BackdropPalette): Map<string, string> {
+  return new Map<string, string>([
+    ...palette.dark.colours.map((from, i) => [from.toLowerCase(), palette.light.colours[i]!] as const),
+    [palette.dark.lit.toLowerCase(), palette.light.lit] as const,
+    [palette.dark.material.toLowerCase(), palette.light.material] as const,
+    // The accent is the brand amber and works on both. Left alone deliberately.
+    [palette.dark.accent.toLowerCase(), palette.light.accent] as const,
+  ])
+}
 
 /**
  * The two colour words a model reaches for regardless of what the brief said.
@@ -93,12 +103,19 @@ const MAPPED = new Map<string, string>([
 const NAMED = /\b(fill|stroke|stop-color|flood-color)\s*=\s*"(white|black)"/gi
 const NAMED_LIGHT: Record<string, string> = { white: '#1b2430', black: '#eef2f7' }
 
-/** The dark drawing, shape for shape, in daylight. */
-export function toLightBackdrop(svg: string): string {
+/**
+ * The dark drawing, shape for shape, in daylight.
+ *
+ * The palette is the one the room was drawn in; anything it does not name
+ * falls back to flipping lightness, which is what has always caught the
+ * colours a model reaches for that nobody asked for.
+ */
+export function toLightBackdrop(svg: string, palette: BackdropPalette = DEFAULT_PALETTE): string {
+  const mapped = mapping(palette)
   return svg
     .replace(HEX, (hex) => {
       const key = hex.toLowerCase()
-      return MAPPED.get(key) ?? flipLightness(key)
+      return mapped.get(key) ?? flipLightness(key)
     })
     .replace(NAMED, (_all, attribute: string, name: string) => `${attribute}="${NAMED_LIGHT[name.toLowerCase()]}"`)
 }

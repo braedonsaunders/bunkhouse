@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
-import { sanitiseSceneSvg } from '../src/lib/scene-svg'
+import { namespaceSvgIds, sanitiseSceneSvg } from '../src/lib/scene-svg'
 import { readShapes } from '../src/lib/scene-geometry'
 import { scoreBackdrop, FRAME } from '../src/lib/scene-score'
 import { lightPools } from '../src/lib/scene-lighting'
 import { shotFor, SHOT_COMBINATIONS } from '../src/lib/scene-shot'
 import { keepMotionClasses } from '../src/lib/scene-motion'
-import { PALETTES } from '../src/lib/scene-palette'
+import { BACKDROP_PALETTES, DEFAULT_PALETTE, paletteFor } from '../src/lib/scene-palette'
+import { toLightBackdrop } from '../src/lib/scene-recolour'
 
 /*
  * The drawn rooms: what survives the sanitiser, what the scorer can see, and
@@ -14,7 +15,7 @@ import { PALETTES } from '../src/lib/scene-palette'
  * Run with --conditions=react-server, because scene-svg.ts is server-only.
  */
 
-const palette = PALETTES.dark
+const palette = DEFAULT_PALETTE.dark
 
 // --- the motion vocabulary --------------------------------------------------
 assert.equal(keepMotionClasses('bhs-glow'), 'bhs-glow', 'a motion class is kept')
@@ -89,6 +90,11 @@ function goodRoom(): string {
   // Perspective on the floor.
   for (let index = 0; index < 6; index++) {
     parts.push(`<line x1="800" y1="468" x2="${index * 320}" y2="900" stroke="#24344f" stroke-width="2" />`)
+  }
+  // The room's own material, on things that would be made of it. Without
+  // these the drawing is a correctly composed grey box that could be anywhere.
+  for (let index = 0; index < 8; index++) {
+    parts.push(`<rect x="${320 + index * 150}" y="${200 + (index % 3) * 40}" width="40" height="26" fill="#5b7fa6" />`)
   }
   // Motion, and enough shapes to look finished.
   parts.push(`<circle cx="1200" cy="180" r="8" fill="#f5a623" class="bhs-blink" />`)
@@ -166,3 +172,62 @@ const siblings = new Set([0, 1, 2].map((index) => JSON.stringify(shotFor(`abc#${
 assert.equal(siblings.size, 3, 'the candidates in one draw are three different rooms')
 
 console.log('backdrop: ok')
+
+/* -- a room is drawn in what it is made of --------------------------------- */
+
+// The failure this replaced: every room, whatever it was, came back in the same
+// five navies, because the only palette axis was dark and light.
+const steel = paletteFor('industrial fabrication shop welding steel metal')
+const copper = paletteFor('detailed industrial electrical contractor workspace, cables tools panels')
+assert.notEqual(steel.slug, copper.slug, 'a fabrication shop and an electrical room are not the same room')
+assert.equal(steel.slug, 'steel')
+assert.equal(copper.slug, 'copper')
+assert.equal(paletteFor('a quiet room with a door').slug, DEFAULT_PALETTE.slug, 'anything unrecognised stays neutral')
+// Longest cue wins, so a server room is racks rather than storage.
+assert.equal(paletteFor('the server room, next to the parts store').slug, 'cyan')
+
+// Deterministic, because a redraw of the same room must not change its colour.
+assert.equal(paletteFor('welding shop').slug, paletteFor('welding shop').slug)
+
+// Every palette is genuinely a different room, not a relabelled one.
+const materials = new Set(BACKDROP_PALETTES.map((p) => p.dark.material))
+assert.equal(materials.size, BACKDROP_PALETTES.length, 'each palette has its own material colour')
+const floors = new Set(BACKDROP_PALETTES.map((p) => p.dark.colours[0]))
+assert.equal(floors.size, BACKDROP_PALETTES.length, 'and its own darkest value, so the rooms do not share a shell')
+for (const palette of BACKDROP_PALETTES) {
+  assert.equal(palette.dark.colours.length, 5, `${palette.slug} keeps the five-value ramp`)
+  assert.equal(palette.light.colours.length, 5, `${palette.slug} keeps it in daylight too`)
+  assert.equal(palette.dark.accent, palette.light.accent, `${palette.slug} keeps the brand accent through the switch`)
+}
+
+// The daylight version is derived through the room's own palette: mapping a
+// steel shop through slate's ramp would repaint it a different material.
+const steelRoom = `<svg viewBox="0 0 1600 900"><rect fill="${steel.dark.material}" /><rect fill="${steel.dark.colours[0]}" /></svg>`
+const inDaylight = toLightBackdrop(steelRoom, steel)
+assert.ok(inDaylight.includes(steel.light.material), 'the material survives into daylight as itself')
+assert.ok(inDaylight.includes(steel.light.colours[0]!), 'and so does the structure')
+assert.ok(!inDaylight.includes(steel.dark.material), 'nothing dark is left behind')
+
+console.log('backdrop palettes: ok')
+
+/* -- two rooms on one page ------------------------------------------------- */
+
+// The bug: every generated room names its gradients for what they are, so two
+// of them in one document collide and the second paints itself with the
+// first's. Valid markup, resolving references, wrong room.
+const withGradient = `<svg viewBox="0 0 1600 900"><defs><linearGradient id="floorLight"><stop stop-color="#111c30"/></linearGradient></defs><rect fill="url(#floorLight)" /><use href="#floorLight" /></svg>`
+const a = namespaceSvgIds(withGradient, 'r1')
+const b = namespaceSvgIds(withGradient, 'r2')
+assert.ok(a.includes('id="r1-floorLight"') && a.includes('url(#r1-floorLight)'), 'ids and references move together')
+assert.ok(a.includes('href="#r1-floorLight"'), 'and so do href references')
+assert.ok(!a.includes('"floorLight"'), 'nothing is left pointing at the bare id')
+assert.equal(a.match(/r1-floorLight/g)?.length, 3, 'every occurrence is renamed')
+const shared = new Set([...a.matchAll(/id="([^"]+)"/g)].map((m) => m[1]))
+for (const id of [...b.matchAll(/id="([^"]+)"/g)].map((m) => m[1])) {
+  assert.ok(!shared.has(id!), 'two rooms on one page share no ids at all')
+}
+// A drawing with nothing to namespace comes back untouched, not rebuilt.
+const plain = `<svg viewBox="0 0 1600 900"><rect fill="#111c30" /></svg>`
+assert.equal(namespaceSvgIds(plain, 'r1'), plain)
+
+console.log('backdrop ids: ok')

@@ -41,6 +41,12 @@ const WANT = {
   perspective: { min: 3 },
   /** Distinct fills used above the horizon — a banded wall, not a flat one. */
   wallTones: { min: 4 },
+  /**
+   * Shapes drawn in the room's own material. Scored because its absence is
+   * precisely the failure that made every generated room look like every other
+   * one: obedient to the palette, composed correctly, and completely anonymous.
+   */
+  material: { min: 6, max: 16 },
 } as const
 
 export type BackdropScore = {
@@ -51,7 +57,7 @@ export type BackdropScore = {
   parts: Record<string, number>
 }
 
-type Palette = { colours: readonly string[]; lit: string; accent: string }
+type Palette = { colours: readonly string[]; lit: string; accent: string; material: string }
 
 /** A ramp: 0 below `min`, 1 at or above it. */
 const atLeast = (value: number, min: number): number => Math.max(0, Math.min(1, value / Math.max(min, 1)))
@@ -170,7 +176,9 @@ export function scoreBackdrop(svg: string, palette: Palette): BackdropScore {
   }
 
   // --- palette -------------------------------------------------------------
-  const allowed = new Set([...palette.colours, palette.lit, palette.accent].map((c) => c.toLowerCase()))
+  const allowed = new Set(
+    [...palette.colours, palette.lit, palette.accent, palette.material].map((c) => c.toLowerCase()),
+  )
   const filled = shapes.filter((s) => s.fill && s.fill !== 'none' && !s.fill.startsWith('url('))
   const onPalette = filled.filter((s) => allowed.has(s.fill!)).length
   const obedience = filled.length === 0 ? 0 : onPalette / filled.length
@@ -189,7 +197,18 @@ export function scoreBackdrop(svg: string, palette: Palette): BackdropScore {
     )
   }
 
-  const parts = { density, depth, calm, receding, lit, banding, obedience, motion }
+  // --- material ------------------------------------------------------------
+  // What the room is built from, and the only thing distinguishing a steel
+  // shop from an electrical room once both have obeyed the same composition.
+  const materialShapes = shapes.filter((s) => s.fill === palette.material.toLowerCase()).length
+  const material = within(materialShapes, WANT.material.min, WANT.material.max)
+  if (materialShapes < WANT.material.min) {
+    notes.push(
+      `Only ${materialShapes} shape${materialShapes === 1 ? '' : 's'} in ${palette.material}, the material this room is made of. Without it the drawing is a correctly composed grey box that could be any room in the building — put it on ${WANT.material.min}–12 things that would genuinely be made of it, across all three depth layers, never on the walls or floor.`,
+    )
+  }
+
+  const parts = { density, depth, calm, receding, lit, banding, obedience, motion, material }
   const weights: Record<keyof typeof parts, number> = {
     density: 1,
     depth: 1.6,
@@ -199,6 +218,9 @@ export function scoreBackdrop(svg: string, palette: Palette): BackdropScore {
     banding: 0.8,
     obedience: 1.2,
     motion: 1,
+    // Weighted like depth: a room with no material in it is the exact drawing
+    // this whole pipeline was producing before, and it scored well.
+    material: 1.6,
   }
   const total =
     Object.entries(parts).reduce((sum, [key, value]) => sum + value * weights[key as keyof typeof parts], 0) /

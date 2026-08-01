@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { lightPools } from '../lib/scene-lighting'
-import { PALETTES } from '../lib/scene-palette'
+import { namespaceSvgIds } from '../lib/scene-svg'
+import { BACKDROP_PALETTES } from '../lib/scene-palette'
 import { FRAME } from '../lib/scene-score'
 
 /**
@@ -39,14 +40,18 @@ export function DrawnRoom({
   // Reading the shapes back out is a pass over a few tens of kilobytes of
   // markup. Once per drawing, not once per render.
   const pools = React.useMemo(
-    () => lightPools(svg, isDark ? PALETTES.dark.lit : PALETTES.light.lit),
+    () => lightPools(svg, BACKDROP_PALETTES.map((p) => (isDark ? p.dark.lit : p.light.lit))),
     [svg, isDark],
   )
+  // Two rooms on one page name their gradients the same thing; without this
+  // the second one paints itself with the first one's.
+  const uid = React.useId().replace(/:/g, '')
+  const drawing = React.useMemo(() => namespaceSvgIds(svg, uid), [svg, uid])
   const horizon = (FRAME.horizon / FRAME.height) * 100
 
   return (
     <div className={`bh-drawn-room absolute inset-0 overflow-hidden ${still ? 'bh-scene-still' : ''} ${className}`}>
-      <div className="absolute inset-0 [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: svg }} />
+      <div className="absolute inset-0 [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: drawing }} />
 
       {/* Light on the floor, under whatever is glowing above it. Half of each
           pool sits above the horizon so it reads as light falling rather than

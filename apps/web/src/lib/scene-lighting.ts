@@ -35,11 +35,15 @@ const CLUSTER = 0.14
  * frame. Three at most: a pool under every screen in a bank of six is not
  * lighting, it is a smear.
  */
-export function lightPools(svg: string, litColour: string): LightPool[] {
-  const lit = litColour.toLowerCase()
+export function lightPools(svg: string, litColour: string | readonly string[]): LightPool[] {
+  // A set rather than one colour: which palette a room was drawn in is not
+  // recorded on the drawing, and every palette lights its room in its own
+  // colour. The lit colours are distinct across all of them, so matching any
+  // of them finds this room's pools without having to be told which it is.
+  const lit = new Set((typeof litColour === 'string' ? [litColour] : litColour).map((c) => c.toLowerCase()))
   const glowing = readShapes(svg).filter(
     (shape) =>
-      (shape.fill === lit || shape.classes.some((name) => name === 'bhs-glow' || name === 'bhs-blink')) &&
+      (lit.has(shape.fill ?? '') || shape.classes.some((name) => name === 'bhs-glow' || name === 'bhs-blink')) &&
       shape.y + shape.height <= FRAME.horizon + 40 &&
       shape.width > 4 &&
       shape.height > 4,
