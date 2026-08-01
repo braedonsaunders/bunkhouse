@@ -73,14 +73,26 @@ const MATERIAL = [
   'Sparse and new: large plain surfaces, a few pieces well spaced, most of the wall left empty.',
 ]
 
-/** A small, stable hash. Same seed, same shot — so a test can pin one down. */
+/**
+ * A small, stable hash. Same seed, same shot — so a test can pin one down.
+ *
+ * The final scramble is not decoration. Each of the four choices below hashes
+ * the same seed under a different salt, and without it the four results stay
+ * correlated: every dimension looked uniform on its own while the combinations
+ * clumped, which is the failure that matters — it is whole rooms that have to
+ * differ, not the histogram of their ceilings.
+ */
 function hash(seed: string): number {
   let value = 2166136261
   for (let index = 0; index < seed.length; index++) {
     value ^= seed.charCodeAt(index)
     value = Math.imul(value, 16777619)
   }
-  return value >>> 0
+  value ^= value >>> 15
+  value = Math.imul(value, 2246822507)
+  value ^= value >>> 13
+  value = Math.imul(value, 3266489909)
+  return (value ^= value >>> 16) >>> 0
 }
 
 /**

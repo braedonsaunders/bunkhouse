@@ -98,8 +98,14 @@ export function scoreBackdrop(svg: string, palette: Palette): BackdropScore {
   }).length
   // Near: big shapes cut off by the left and right edges. This is the one that
   // creates depth, and the one models skip most often.
-  const croppedLeft = shapes.some((s) => s.x <= 8 && s.height > 260 && s.width > 60)
-  const croppedRight = shapes.some((s) => s.x + s.width >= width - 8 && s.height > 260 && s.width > 60)
+  //
+  // The width ceiling matters more than it looks: without it the back wall
+  // itself — one rect spanning the frame, touching both edges, taller than
+  // anything — scores as a near-layer object at each edge, and the flattest
+  // possible drawing gets full marks for depth.
+  const nearLayer = (s: ShapeBox): boolean => s.height > 260 && s.width > 60 && s.width < 520
+  const croppedLeft = shapes.some((s) => s.x <= 8 && nearLayer(s))
+  const croppedRight = shapes.some((s) => s.x + s.width >= width - 8 && nearLayer(s))
   const cropped = (croppedLeft ? 1 : 0) + (croppedRight ? 1 : 0)
   const depth = (atLeast(standing, WANT.standing.min) + cropped / WANT.cropped.min) / 2
   if (standing < WANT.standing.min) {
