@@ -9,7 +9,7 @@ import { describeLatestEvent, sceneStatus } from '../lib/scene-activity'
 import { listDepartments, wanderingEnabled } from '../lib/departments'
 import { peopleInDepartment } from '../lib/whereabouts'
 import type { SceneKind } from '../components/scene-kinds'
-import { listAvatarCompositions, loadAvatarPartLibrary } from '../lib/avatars'
+import { hasDrawnFigure, listAvatarCompositions, loadAvatarPartLibrary } from '../lib/avatars'
 import { AVATAR_PART_CATEGORIES } from '../lib/avatar-parts'
 import { personDrawer } from './organization/person-record'
 
@@ -97,6 +97,14 @@ export default async function HomePage({
     listAvatarCompositions(tenantId),
     loadAvatarPartLibrary(tenantId),
   ])
+  // …and only the ones somebody has actually drawn. An agent with no figure
+  // used to walk the floor as an initials disc, which reads as a broken avatar
+  // rather than a colleague, and put a placeholder in the one screen that is
+  // meant to look like a room. They are still on staff and still in the
+  // directory — they just don't come to work until they have a face.
+  const drawn = agents.filter((agent) =>
+    hasDrawnFigure(compositions.get(agent.id), partLibrary, AVATAR_PART_CATEGORIES),
+  )
   // The company's places, and whether anybody wanders between them today.
   const [places, wander] = await Promise.all([listDepartments(tenantId), wanderingEnabled(tenantId)])
   const departmentSlug = typeof params.dept === 'string' ? params.dept : (places[0]?.slug ?? '')
@@ -108,13 +116,13 @@ export default async function HomePage({
   // every re-render (see lib/whereabouts.ts).
   const present = viewing
     ? peopleInDepartment({
-        people: agents.map((agent) => ({ ...agent, departmentId: agent.departmentId ?? null })),
+        people: drawn.map((agent) => ({ ...agent, departmentId: agent.departmentId ?? null })),
         departmentId: viewing.id,
         departmentIds: places.map((place) => place.id),
         now: new Date(),
         wander,
       })
-    : agents.map((agent) => ({ ...agent, visiting: false }))
+    : drawn.map((agent) => ({ ...agent, visiting: false }))
 
   const lobby: LobbyPerson[] = present.map((agent) => {
     const now = busy.get(agent.id)
@@ -124,7 +132,7 @@ export default async function HomePage({
       name: agent.name,
       title: agent.title,
       ...(agent.visiting ? { visiting: true } : {}),
-      ...(compositions.has(agent.id) ? { composition: compositions.get(agent.id)! } : {}),
+      composition: compositions.get(agent.id)!,
       // One word and a kind of motion. The sentence goes in the bubble.
       status: now
         ? sceneStatus({
@@ -211,18 +219,34 @@ export default async function HomePage({
     </div>
   )
 
-  if (lobby.length === 0) {
+  // Two ways for the whole company to be missing, and they want different
+  // sentences: nobody hired, or nobody drawn. A room that is merely empty this
+  // minute — everyone is in another department — is not one of them: that still
+  // renders the floor, so the picker is there to go and find them.
+  if (agents.length === 0 || drawn.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
-        <EmptyState
-          title="Nobody lives here yet"
-          description="Onboard your first agent and they will show up on the floor."
-          action={
-            <Button asChild>
-              <Link href="/roles">Onboard an agent</Link>
-            </Button>
-          }
-        />
+        {agents.length === 0 ? (
+          <EmptyState
+            title="Nobody lives here yet"
+            description="Onboard your first agent and they will show up on the floor."
+            action={
+              <Button asChild>
+                <Link href="/roles">Onboard an agent</Link>
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            title="Nobody has a face yet"
+            description={`${agents.length} agent${agents.length === 1 ? '' : 's'} on staff, none of them drawn. Give one an avatar in the directory and they will come to work.`}
+            action={
+              <Button asChild>
+                <Link href="/organization">Open the directory</Link>
+              </Button>
+            }
+          />
+        )}
       </div>
     )
   }

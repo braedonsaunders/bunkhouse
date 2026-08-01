@@ -663,7 +663,7 @@ packages:
     engines: {node: '>=22'}
 
   '@appkit/mailbox@file:vendor/appkit/appkit-mailbox-0.5.0.tgz':
-    resolution: {integrity: sha512-/NoFgTohPAbOTQgrz8jorXUgOT5OOkKMC5dExErEily8E+0R/0z6rKL7HMACPkiH2hT4pJ/h4gHHqhNmuZ0EcA==, tarball: file:vendor/appkit/appkit-mailbox-0.5.0.tgz}
+    resolution: {integrity: sha512-bmhLUrSCQWvRATpprlVeKFB5bDVEUY+cheuXlVrGiPZ2y5OUxKHQSCvWH5YikH1R3nLQR/gqihbgHhNAZ60Z9g==, tarball: file:vendor/appkit/appkit-mailbox-0.5.0.tgz}
     version: 0.5.0
     engines: {node: '>=22'}
     peerDependencies:

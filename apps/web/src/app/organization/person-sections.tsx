@@ -26,7 +26,6 @@ import {
   LEVEL_BADGES,
 } from '../../lib/autonomy'
 import { assignedModelsSummary } from '../../lib/model-assignment'
-import { setPersonDepartment } from './department-actions'
 import { setAutonomy } from './actions'
 
 type Person = typeof people.$inferSelect
@@ -39,39 +38,13 @@ export function OverviewSection({
 }: {
   person: Person
   roster: { id: string; name: string; title: string }[]
-  /** The company's places, for the desk picker below. */
+  /** The company's places, for the desk field in the record. */
   departments?: { id: string; name: string }[]
 }) {
   const isAgent = person.kind === 'agent'
+  const hasDesks = isAgent && Boolean(departments && departments.length > 0)
   return (
     <div className="space-y-4">
-      {isAgent && departments && departments.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Desk</CardTitle>
-            <CardDescription>
-              Where {person.name.split(' ')[0]} normally works. They appear on that department&apos;s floor — and, if
-              wandering is on, occasionally somewhere else. Without a desk they show up everywhere.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form action={setPersonDepartment} className="flex flex-wrap items-end gap-2">
-              <input type="hidden" name="personId" value={person.id} />
-              <Select name="departmentId" defaultValue={person.departmentId ?? ''} className="w-56">
-                <option value="">No fixed desk</option>
-                {departments.map((department) => (
-                  <option key={department.id} value={department.id}>
-                    {department.name}
-                  </option>
-                ))}
-              </Select>
-              <Button type="submit" size="sm" variant="outline">
-                Save
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      ) : null}
       <Card>
         <CardHeader>
           <CardTitle>Record</CardTitle>
@@ -114,6 +87,23 @@ export function OverviewSection({
               </Select>
               <p className="text-xs text-fg-muted">Sets their place on the org chart and where work escalates to.</p>
             </div>
+            {hasDesks ? (
+              <div className="space-y-2">
+                <Label htmlFor="p-desk">Desk</Label>
+                <Select id="p-desk" name="departmentId" defaultValue={person.departmentId ?? ''}>
+                  <option value="">No fixed desk</option>
+                  {departments!.map((department) => (
+                    <option key={department.id} value={department.id}>
+                      {department.name}
+                    </option>
+                  ))}
+                </Select>
+                <p className="text-xs text-fg-muted">
+                  The floor they normally work on — and, if wandering is on, occasionally somewhere else. Without a
+                  desk they appear on every floor.
+                </p>
+              </div>
+            ) : null}
             {isAgent ? null : (
               <>
                 <div className="space-y-2">

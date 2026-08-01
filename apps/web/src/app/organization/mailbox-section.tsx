@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import {
   Badge,
   Button,
@@ -14,7 +14,7 @@ import { mailboxAccounts, people } from '../../db/schema'
 import { db } from '../../db/client'
 import { listMailOauthApps } from '../../lib/mail-oauth'
 import { loadMailConversationAction, loadMailFolderAction } from '../mail/actions'
-import { AgentMailInbox, type AgentMailboxOption } from '../../components/agent-mail-inbox'
+import { AgentMailInbox } from '../../components/agent-mail-inbox'
 import { connectMailboxAction, disconnectMailboxAction, syncMailboxAction } from './actions'
 
 /** A failed sign-in round-trip, shown where the operator started it. */
@@ -31,14 +31,11 @@ function MailboxError({ message }: { message: string }) {
 export async function MailboxSection({
   tenantId,
   personId,
-  basePath,
   selectedThreadId,
   error,
 }: {
   tenantId: string
   personId: string
-  /** The organization surface the flyout lives on — mailbox switching stays there. */
-  basePath: string
   /** Deep-linked conversation (old /mail links, run references). */
   selectedThreadId?: string | undefined
   /** Surfaced when a Google/Microsoft sign-in came back without connecting. */
@@ -46,23 +43,23 @@ export async function MailboxSection({
 }) {
   const app = db()
   const data = await app.withTenantContext(tenantId, async () => {
+    // This person's mailbox and nobody else's — the drawer is open on them, so
+    // the inbox it shows is theirs and does not offer to become someone
+    // else's. Their colleague's mail is on their colleague's record.
     const [account] = await app.db
-      .select()
-      .from(mailboxAccounts)
-      .where(eq(mailboxAccounts.personId, personId))
-    if (!account) return { account: null, mailboxes: [] as AgentMailboxOption[] }
-    // Every connected mailbox, for the switcher — flipping agents flips the flyout.
-    const all = await app.db
       .select({
         id: mailboxAccounts.id,
-        personId: mailboxAccounts.personId,
         address: mailboxAccounts.address,
+        provider: mailboxAccounts.provider,
+        status: mailboxAccounts.status,
+        lastSyncAt: mailboxAccounts.lastSyncAt,
+        lastError: mailboxAccounts.lastError,
         ownerName: people.name,
       })
       .from(mailboxAccounts)
       .innerJoin(people, eq(people.id, mailboxAccounts.personId))
-      .orderBy(asc(people.name))
-    return { account, mailboxes: all }
+      .where(eq(mailboxAccounts.personId, personId))
+    return { account: account ?? null }
   })
   const signInApps = await listMailOauthApps(tenantId)
 
@@ -138,7 +135,7 @@ export async function MailboxSection({
     )
   }
 
-  const { account, mailboxes } = data
+  const { account } = data
   // A mailbox signed in through Google/Microsoft can have its consent revoked
   // on the provider's side; re-signing in is the fix, so offer it in place.
   const signIn = signInApps.find(
@@ -156,7 +153,6 @@ export async function MailboxSection({
     ? await loadMailConversationAction({ threadId: initialThreadId })
     : null
   const firstName = account.address.split('@')[0]
-  const owner = mailboxes.find((m) => m.id === account.id)
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -196,10 +192,8 @@ export async function MailboxSection({
       {error ? <MailboxError message={error} /> : null}
       <div className="min-h-0 flex-1">
         <AgentMailInbox
-          basePath={basePath}
-          mailboxes={mailboxes}
-          activeMailboxId={account.id}
-          replyLabel={`Reply as ${owner?.ownerName ?? firstName}`}
+          mailbox={{ id: account.id, ownerName: account.ownerName, address: account.address }}
+          replyLabel={`Reply as ${account.ownerName || firstName}`}
           initialFolder={initialFolder}
           initialCounts={initial.counts}
           initialThreads={initial.threads}

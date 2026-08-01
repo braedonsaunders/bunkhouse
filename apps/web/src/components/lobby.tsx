@@ -43,8 +43,13 @@ export type LobbyPerson = {
   name: string
   /** True when they are somewhere that is not their own department today. */
   visiting?: boolean
-  /** Their one figure. Anyone without a composition still walks, as initials. */
-  composition?: AvatarComposition
+  /**
+   * Their one figure. Required: the floor draws people, and an agent with no
+   * artwork would walk it as an initials disc — a placeholder in the one screen
+   * that is supposed to look like a room. Whoever fills the floor leaves the
+   * undrawn out (see app/page.tsx).
+   */
+  composition: AvatarComposition
   /** Their role, shown beside the name on hover. */
   title?: string
   /** What they are doing, as a pill anyone can read without hovering. */
@@ -139,19 +144,15 @@ export function Lobby({
       people.map((person) => ({
         id: person.id,
         name: person.name,
-        ...(person.composition
-          ? {
-              figure: (
-                <SeatedFigure
-                  composition={person.composition}
-                  parts={parts}
-                  categories={categories}
-                  size={170}
-                  name={person.name}
-                />
-              ),
-            }
-          : {}),
+        figure: (
+          <SeatedFigure
+            composition={person.composition}
+            parts={parts}
+            categories={categories}
+            size={170}
+            name={person.name}
+          />
+        ),
         ...(person.title ? { title: person.title } : {}),
         ...(person.status ? { status: person.status } : {}),
         ...(person.speech ? { speech: person.speech } : {}),

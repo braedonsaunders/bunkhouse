@@ -4,9 +4,11 @@ import {
   buildPartPrompt,
   createEmptyComposition,
   generateImages,
+  sortLayers,
   IMAGE_CAPABLE_PROVIDERS,
   type AvatarComposition,
   type AvatarPart,
+  type AvatarPartCategory,
   type ImageModelId,
 } from '@appkit/avatars'
 import { avatarCompositions, avatarParts, tenantSettings } from '../db/schema'
@@ -273,6 +275,23 @@ export async function listAvatarCompositions(
       .from(avatarCompositions),
   )
   return new Map(rows.map((row) => [row.personId, row.composition]))
+}
+
+/**
+ * Whether this composition actually draws somebody.
+ *
+ * Not the same question as "is there a row". The composer saves work in
+ * progress, so a person can hold a composition with nothing placed in it; and
+ * deleting a library part deliberately leaves the placements wearing it alone,
+ * so a composition can outlive its own artwork. Both render as empty air, so
+ * the test is that the composition resolves to at least one paintable layer.
+ */
+export function hasDrawnFigure(
+  composition: AvatarComposition | null | undefined,
+  parts: readonly AvatarPart[],
+  categories: readonly AvatarPartCategory[],
+): boolean {
+  return composition ? sortLayers(composition, parts, categories).length > 0 : false
 }
 
 export async function saveAvatarComposition(args: {

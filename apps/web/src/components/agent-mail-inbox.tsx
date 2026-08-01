@@ -1,7 +1,6 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
 import { MailboxInbox, type MailFolderKey, type MailThreadListItem } from '@appkit/mailbox/react'
 import { formatAttachmentSize } from '@appkit/storage'
 import {
@@ -15,20 +14,21 @@ import {
 
 export type AgentMailboxOption = {
   id: string
-  personId: string
   ownerName: string
   address: string
 }
 
 /**
  * The agent's inbox on its own flyout tab: @appkit/mailbox's inbox surface,
- * fed by server actions. Switching mailbox switches the flyout to that
- * colleague — the inbox is never separate from the person it belongs to.
+ * fed by server actions.
+ *
+ * One mailbox, and only theirs. The drawer is already open on a person, so a
+ * picker offering everyone else's mail asked you to leave the record you had
+ * just opened — you get to a colleague's inbox by opening the colleague.
+ * @appkit/mailbox draws no switcher when there is nowhere to switch to.
  */
 export function AgentMailInbox({
-  basePath,
-  mailboxes,
-  activeMailboxId,
+  mailbox,
   replyLabel,
   initialFolder,
   initialCounts,
@@ -36,9 +36,7 @@ export function AgentMailInbox({
   initialThreadId,
   initialConversation,
 }: {
-  basePath: string
-  mailboxes: AgentMailboxOption[]
-  activeMailboxId: string
+  mailbox: AgentMailboxOption
   replyLabel: string
   initialFolder: MailFolderKey
   initialCounts: Record<MailFolderKey, number>
@@ -46,7 +44,7 @@ export function AgentMailInbox({
   initialThreadId: string | null
   initialConversation: MailConversation | null
 }) {
-  const router = useRouter()
+  const activeMailboxId = mailbox.id
   const [folder, setFolder] = React.useState<MailFolderKey>(initialFolder)
   const [counts, setCounts] = React.useState(initialCounts)
   const [threads, setThreads] = React.useState<MailThreadRow[]>(initialThreads)
@@ -73,12 +71,8 @@ export function AgentMailInbox({
   return (
     <MailboxInbox
       className="h-full"
-      mailboxes={mailboxes.map((m) => ({ id: m.id, ownerName: m.ownerName, address: m.address }))}
+      mailboxes={[{ id: mailbox.id, ownerName: mailbox.ownerName, address: mailbox.address }]}
       activeMailboxId={activeMailboxId}
-      onSwitchMailbox={(id) => {
-        const target = mailboxes.find((m) => m.id === id)
-        if (target) router.push(`${basePath}?person=${target.personId}&tab=mailbox`, { scroll: false })
-      }}
       folder={folder}
       folderCounts={counts}
       onSwitchFolder={(key) => {

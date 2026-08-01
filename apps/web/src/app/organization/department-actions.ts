@@ -152,22 +152,11 @@ export async function deleteDepartment(formData: FormData): Promise<void> {
   revalidatePath('/')
 }
 
-export async function setPersonDepartment(formData: FormData): Promise<void> {
-  const personId = String(formData.get('personId') ?? '')
-  const raw = String(formData.get('departmentId') ?? '')
-  if (!personId) return
-  const tenantId = await resolveTenantId()
-  const app = db()
-  await app.withTenant(tenantId, async () => {
-    await app.db
-      .update(people)
-      .set({ departmentId: raw === '' ? null : raw, updatedAt: new Date() })
-      .where(and(eq(people.id, personId), eq(people.tenantId, tenantId)))
-  })
-  revalidatePath('/organization')
-  revalidatePath(DEPARTMENTS_PAGE)
-  revalidatePath('/')
-}
+/*
+ * Somebody's desk is set on their record, not here — it is a field of the
+ * person like their title or their manager, and `updatePerson` writes it with
+ * the rest of the form.
+ */
 
 export async function setWanderingEnabled(formData: FormData): Promise<void> {
   const tenantId = await resolveTenantId()

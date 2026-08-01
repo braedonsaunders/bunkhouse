@@ -230,7 +230,6 @@ export async function personDrawer({
               <MailboxSection
                 tenantId={tenantId}
                 personId={selected.id}
-                basePath={basePath}
                 selectedThreadId={mailThreadId}
                 error={mailboxError}
               />

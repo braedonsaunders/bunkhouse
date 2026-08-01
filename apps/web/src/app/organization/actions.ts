@@ -7,6 +7,7 @@ import { listRealtimeCapableProviders } from '../../lib/voice'
 import { getRole } from '../../lib/roles'
 import {
   autonomySettings,
+  departments,
   duties,
   mailboxAccounts,
   memories,
@@ -132,6 +133,7 @@ export async function hireAgent(formData: FormData): Promise<void> {
   const bio = String(formData.get('bio') ?? '').trim() || pack.personality.bio
   const salaryUsd = Number(formData.get('salaryUsd') ?? pack.suggestedSalaryUsd)
   const reportsToId = String(formData.get('reportsToId') ?? '') || null
+  const timezone = String(formData.get('timezone') ?? '').trim() || null
   if (!name || !email) throw new Error('An agent needs a name and an email address.')
   if (!Number.isFinite(salaryUsd) || salaryUsd <= 0) throw new Error('Salary must be a positive monthly USD amount.')
 
@@ -154,6 +156,7 @@ export async function hireAgent(formData: FormData): Promise<void> {
         name,
         title: pack.title,
         email,
+        timezone,
         reportsToId,
         rolePackSlug: pack.slug,
         responsibilities: pack.pitch,
@@ -185,9 +188,14 @@ export async function hireAgent(formData: FormData): Promise<void> {
           instruction: duty.instruction,
           scheduleKind: 'cron' as const,
           schedule: duty.cron,
+          // A pack's cron is written in the company's working day ("0 8" is
+          // eight in the morning), so it has to be pinned to a real zone; left
+          // null it would resolve against the worker process's clock and a
+          // morning sweep would land in the middle of the night.
+          timezone,
           // Armed on hire so the pack's duties fire at their first real
           // occurrence instead of being skipped by the worker's anchoring pass.
-          nextDueAt: firstOccurrence({ scheduleKind: 'cron', schedule: duty.cron }),
+          nextDueAt: firstOccurrence({ scheduleKind: 'cron', schedule: duty.cron, timezone }),
           fromRolePackDuty: duty.slug,
         })),
       )
@@ -520,6 +528,9 @@ export async function updatePerson(formData: FormData): Promise<PersonUpdateResu
 
   const tenantId = await resolveTenantId()
   const app = db()
+  // The desk is a field of the record now, so moving somebody also redraws the
+  // floor they were on and the headcount beside their department.
+  const deskEdited = formData.has('departmentId')
   try {
     await app.withTenant(tenantId, async () => {
       const roster = await app.db
@@ -531,6 +542,21 @@ export async function updatePerson(formData: FormData): Promise<PersonUpdateResu
 
       const update: Partial<typeof people.$inferInsert> = {
         name, title, email, status, reportsToId, responsibilities, updatedAt: new Date(),
+      }
+      // Only when the form carried the field: a record rendered without a desk
+      // picker — a human, or a company with no places yet — must not clear one.
+      // A department id in a form is a request, so it is matched against this
+      // tenant's own places before it is written.
+      if (deskEdited) {
+        const departmentId = String(formData.get('departmentId') ?? '') || null
+        if (departmentId) {
+          const [place] = await app.db
+            .select({ id: departments.id })
+            .from(departments)
+            .where(eq(departments.id, departmentId))
+          if (!place) throw new Error('That department is not part of this organization.')
+        }
+        update.departmentId = departmentId
       }
       if (person.kind === 'human') {
         update.phone = String(formData.get('phone') ?? '').trim() || null
@@ -596,6 +622,11 @@ export async function updatePerson(formData: FormData): Promise<PersonUpdateResu
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
   revalidateOrganization()
+  if (deskEdited) {
+    // The floor, and the per-department headcount on company settings.
+    revalidatePath('/')
+    revalidatePath('/admin/settings')
+  }
   return { ok: true }
 }
 
