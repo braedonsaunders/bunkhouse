@@ -36,11 +36,6 @@ export async function saveRoleDef(formData: FormData): Promise<void> {
     CronExpressionParser.parse(duty.cron)
     duty.slug = slugify(duty.title)
   }
-  const procedures = JSON.parse(String(formData.get('procedures') ?? '[]')) as RoleProcedure[]
-  for (const procedure of procedures) {
-    if (!procedure.title?.trim() || !procedure.body?.trim()) throw new Error('Every procedure needs a title and a body.')
-    procedure.slug = slugify(procedure.title)
-  }
   const autonomyDefaults = JSON.parse(String(formData.get('autonomyDefaults') ?? '{}')) as RoleAutonomyDefaults
   for (const [category, level] of Object.entries(autonomyDefaults)) {
     if (!CATEGORIES.includes(category as (typeof CATEGORIES)[number]) || !LEVELS.includes(level as (typeof LEVELS)[number])) {
@@ -59,7 +54,6 @@ export async function saveRoleDef(formData: FormData): Promise<void> {
       description,
       personality: { bio, tone: tone.length ? tone : ['professional'] },
       duties,
-      procedures,
       autonomyDefaults,
       inboundPolicy,
       suggestedSalaryUsd,
@@ -73,6 +67,47 @@ export async function saveRoleDef(formData: FormData): Promise<void> {
     }
   })
   revalidatePath('/roles')
+}
+
+/**
+ * Give a role one kind of company resource, or take it away. Writes the same
+ * assignment the Company resources screens write — the link has one home, and
+ * this is simply its other end.
+ */
+export async function setRoleResources(formData: FormData): Promise<void> {
+  const roleSlug = String(formData.get('roleSlug') ?? '')
+  const kind = String(formData.get('kind') ?? '')
+  if (!roleSlug) throw new Error('roleSlug is required.')
+  if (!isRoleResourceKind(kind)) throw new Error('Unknown resource kind.')
+  const keys = String(formData.get('keys') ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  const tenantId = await resolveTenantId()
+  const role = await getRole(tenantId, roleSlug)
+  if (!role) throw new Error('That role no longer exists.')
+  await setRoleLinks({ tenantId, roleSlug, kind, keys })
+  revalidatePath('/roles')
+  revalidatePath('/resources')
+}
+
+/**
+ * Put a role's starter procedures into the company's library, where they can
+ * be read, revised and cited like any other doctrine. Onboarding does this on
+ * its own; offering it here means a role's procedures exist before the first
+ * hire rather than appearing halfway through one.
+ */
+export async function installRoleStarterProcedures(formData: FormData): Promise<void> {
+  const roleSlug = String(formData.get('roleSlug') ?? '')
+  if (!roleSlug) throw new Error('roleSlug is required.')
+  const tenantId = await resolveTenantId()
+  const role = await getRole(tenantId, roleSlug)
+  if (!role) throw new Error('That role no longer exists.')
+  const app = db()
+  await app.withTenant(tenantId, () => installRoleProcedures(tenantId, role))
+  revalidatePath('/roles')
+  revalidatePath('/resources')
 }
 
 /** Remove a custom role definition (agents already onboarded keep working). */

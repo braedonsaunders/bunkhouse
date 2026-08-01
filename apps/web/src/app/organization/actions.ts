@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { and, eq, inArray } from 'drizzle-orm'
 import { schema as identity } from '@appkit/db'
 import { listRealtimeCapableProviders } from '../../lib/voice'
-import { getRole } from '../../lib/roles'
+import { getRole, installRoleProcedures } from '../../lib/roles'
 import {
   autonomySettings,
   approvals,
@@ -207,30 +207,10 @@ export async function hireAgent(formData: FormData): Promise<void> {
       )
     }
 
-    for (const procedure of pack.procedures) {
-      const [head] = await app.db
-        .insert(procedures)
-        .values({
-          tenantId,
-          slug: `${pack.slug}-${procedure.slug}`,
-          title: procedure.title,
-          status: 'active',
-          currentVersion: 1,
-          assignment: { rolePacks: [pack.slug] },
-          source: { type: 'role-pack', pack: pack.slug, procedure: procedure.slug },
-        })
-        .onConflictDoNothing()
-        .returning({ id: procedures.id })
-      if (head) {
-        await app.db.insert(procedureRevisions).values({
-          tenantId,
-          procedureId: head.id,
-          version: 1,
-          body: procedure.body,
-          changeNote: `Installed with the ${pack.title} role pack.`,
-        })
-      }
-    }
+    // The role's starter procedures, if nobody has installed them yet. Every
+    // other resource the role carries is already linked to it, so this agent
+    // picks them up by holding the role — nothing is copied per hire.
+    await installRoleProcedures(tenantId, pack)
 
     await app.db.insert(memories).values({
       tenantId,

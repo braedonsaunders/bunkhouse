@@ -199,20 +199,27 @@ services:
   livekit:
     image: livekit/livekit-server:latest
     # Signalling reaches this over Traefik on 443; media does not, and media is
-    # what a call actually is. Two things had to be true and neither was:
+    # what a call actually is. Two things have to be true, and getting one of
+    # them wrong is silent: the agent still answers, and the caller hears
+    # nothing at all.
     #
-    # It advertised an address no client could reach. `${PUBLIC_IP}` does not
-    # forward 7881/7882, and the server's own view of itself is an overlay
-    # address meaningless outside the swarm — so every client was handed a
-    # candidate it could not route to and failed with "could not establish pc
-    # connection". It now advertises the swarm node, which callers on this
-    # network can reach and which is verified answering on both ports.
+    # The address clients are told to send media to must be one they can route
+    # to. `${PUBLIC_IP}` does not forward 7881/7882, and the server's own view
+    # of itself is an overlay address meaningless outside the swarm — both were
+    # advertised at one point and neither could be reached. It now advertises
+    # the swarm node, which callers on this network can reach.
     #
-    # And host-mode publishing put 7881/7882 on one node's own interfaces,
-    # where they were reachable from nothing we could observe — not the LAN,
-    # not the public address, not the manager. Ingress publishing puts them on
-    # the swarm routing mesh instead, so they answer on every node, including
-    # the one the ingress domain already resolves to.
+    # And the media ports must publish in HOST mode, exactly as livekit-sip's
+    # do. Ingress publishing puts them on the swarm routing mesh, which
+    # source-NATs and load-balances — TCP survives that and ICE does not. On
+    # the mesh, 7881/tcp answered while 7882/udp was a black hole: every
+    # candidate pair failed with 8 STUN requests sent and 0 responses, on both
+    # transports, on every call. Host mode is safe here because the service is
+    # pinned to the one node whose address is advertised above.
+    #
+    # Verify after any change to this block, from a machine on the caller's
+    # network — a STUN binding request to <node_ip>:7882/udp must come back:
+    #   python3 -c "import socket,struct,os;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.settimeout(4);s.sendto(struct.pack('>HHI',1,0,0x2112A442)+os.urandom(12),('10.0.0.101',7882));print(s.recvfrom(2048)[1])"
     environment:
       # One config body rather than flags plus environment: the media settings
       # below have no flag equivalents, and splitting the configuration across
@@ -229,9 +236,10 @@ services:
           # and the public address does not forward 7881/7882 — both were
           # advertised and neither could be reached, which is what "could not
           # establish pc connection" was. The swarm node is reachable on the
-          # network callers are on, and it is now answering on both ports.
-          # Opening those ports through to the public address is what this line
-          # is waiting on; until then a caller must be on the network.
+          # network callers are on, and answers on both ports once they publish
+          # in host mode. Opening those ports through to the public address is
+          # what this line is waiting on; until then a caller must be on the
+          # network.
           node_ip: 10.0.0.101
         redis:
           address: media-redis:6379
@@ -245,9 +253,11 @@ services:
       - target: 7881
         published: 7881
         protocol: tcp
+        mode: host
       - target: 7882
         published: 7882
         protocol: udp
+        mode: host
     deploy:
       replicas: 1
       placement:
