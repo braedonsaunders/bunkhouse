@@ -240,6 +240,7 @@ export async function assembleRunFoundation(args: {
         ...(person.responsibilities ? { responsibilities: person.responsibilities } : {}),
         ...(person.reportsToId ? { reportsToId: person.reportsToId } : {}),
         proactivity: person.proactivity ?? 'duties',
+        timezone: person.timezone ?? null,
         ...(signatureAppended ? { signatureAppended: true } : {}),
       },
       company: {
@@ -278,6 +279,7 @@ export async function assembleRunFoundation(args: {
           model: usage.model,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
+          cachedInputTokens: usage.cachedInputTokens ?? 0,
           ...priced,
         })
       },
@@ -659,6 +661,7 @@ export async function executeAgentRun(args: {
     }
 
     const outcome = await runAgent({
+      runId,
       ...(priorMessages.length ? { priorMessages: priorMessages as ModelMessage[] } : {}),
       ...(args.maxSteps ? { maxSteps: args.maxSteps } : {}),
       state: waitState,
@@ -709,14 +712,41 @@ export async function executeAgentRun(args: {
       await closeBrowserSession(runId)
     })
 
+    // The completion contract: work that was triggered by a person waiting for
+    // an answer is not "completed" until something actually went back to them.
+    // A cheap model that writes a perfectly good reply as its closing remark
+    // instead of calling reply_to_thread used to finish green, with the sender
+    // never contacted and nothing anywhere saying so — measured on two models,
+    // both of which "completed" having sent nothing at all.
+    let unmetContract: string | null = null
+    if (outcome.status === 'completed' && args.trigger.type === 'email') {
+      const [answered] = await app.db
+        .select({ id: mailMessages.id })
+        .from(mailMessages)
+        .where(and(eq(mailMessages.runId, runId), eq(mailMessages.direction, 'outbound')))
+        .limit(1)
+      const [queued] = await app.db
+        .select({ id: approvals.id })
+        .from(approvals)
+        .where(eq(approvals.runId, runId))
+        .limit(1)
+      if (!answered && !queued) {
+        unmetContract =
+          'Finished without answering the thread: no reply was sent and none was queued for approval. The sender has heard nothing.'
+      }
+    }
+
     const status =
       outcome.status === 'completed'
-        ? ('completed' as const)
+        ? unmetContract
+          ? ('failed' as const)
+          : ('completed' as const)
         : outcome.status === 'waiting_approval'
           ? ('waiting_approval' as const)
           : outcome.status === 'waiting_reply'
             ? ('waiting_reply' as const)
             : ('failed' as const)
+    if (unmetContract) await sink.event({ kind: 'error', message: unmetContract })
     if (outcome.status === 'waiting_approval' && person.reportsToId) {
       const [manager] = await app.db.select().from(people).where(eq(people.id, person.reportsToId))
       const [approval] = await app.db.select().from(approvals).where(eq(approvals.id, outcome.approvalId))
@@ -759,7 +789,9 @@ export async function executeAgentRun(args: {
             : null,
         summary:
           outcome.status === 'completed'
-            ? outcome.summary.slice(0, 500)
+            ? unmetContract
+              ? `${unmetContract} What it did instead: ${outcome.summary}`.slice(0, 500)
+              : outcome.summary.slice(0, 500)
             : outcome.status === 'waiting_approval'
               ? 'Waiting on an approval.'
               : outcome.status === 'waiting_reply'
@@ -969,15 +1001,25 @@ export async function startRunsForNewInbound(tenantId: string): Promise<number> 
       continue
     }
     const { subject, conversation, images } = await threadConversation(tenantId, item.threadId)
-    await executeAgentRun({
-      tenantId,
-      personId: item.personId,
-      trigger: { type: 'email', threadId: item.threadId, messageId: item.messageId },
-      input: { type: 'email', threadSubject: subject, conversation, ...(images.length ? { images } : {}) },
-      // The sender is who work committed on this thread defaults to.
-      ...(item.sender ? { counterparty: { address: item.sender } } : {}),
-    })
-    started += 1
+    try {
+      await executeAgentRun({
+        tenantId,
+        personId: item.personId,
+        trigger: { type: 'email', threadId: item.threadId, messageId: item.messageId },
+        input: { type: 'email', threadSubject: subject, conversation, ...(images.length ? { images } : {}) },
+        // The sender is who work committed on this thread defaults to.
+        ...(item.sender ? { counterparty: { address: item.sender } } : {}),
+      })
+      started += 1
+    } catch (error) {
+      // Two schedulers can select the same unhandled message before either has
+      // written its run row; the unique index decides between them. Losing that
+      // race is the correct outcome, not an incident — the message is being
+      // answered by the other pass — so this one steps over it quietly rather
+      // than aborting the whole sweep and stranding the mail behind it.
+      const message = error instanceof Error ? error.message : String(error)
+      if (!message.includes('runs_inbound_message_key')) throw error
+    }
   }
   return started
 }

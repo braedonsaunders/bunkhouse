@@ -109,14 +109,41 @@ export async function executeDecidedApproval(tenantId: string, approvalId: strin
   }
 
   const resumable = run.status === 'waiting_approval'
-  const { runId: continuedRunId, outcome } = await executeAgentRun({
-    tenantId,
-    personId: claimed.personId,
-    trigger: resumable ? run.trigger : { type: 'approval_followup', approvalId: claimed.id, originRunId: run.id },
-    input: decisionInput,
-    ...(resumable ? { resumeRunId: run.id } : {}),
-    ...(run.trigger.type === 'assignment' ? { maxSteps: ASSIGNMENT_MAX_STEPS } : {}),
-  })
+  let continuedRunId: string
+  let outcome: Awaited<ReturnType<typeof executeAgentRun>>['outcome']
+  try {
+    ;({ runId: continuedRunId, outcome } = await executeAgentRun({
+      tenantId,
+      personId: claimed.personId,
+      trigger: resumable ? run.trigger : { type: 'approval_followup', approvalId: claimed.id, originRunId: run.id },
+      input: decisionInput,
+      ...(resumable ? { resumeRunId: run.id } : {}),
+      ...(run.trigger.type === 'assignment' ? { maxSteps: ASSIGNMENT_MAX_STEPS } : {}),
+    }))
+  } catch (error) {
+    // The approval is already claimed, so nothing will pick this run up again.
+    // Leaving it parked on `waiting_approval` is the worst of both worlds: the
+    // queue reads as clear, the ledger says the decision was executed, and the
+    // run waits for a sign-off that has already been given and can never come
+    // twice. Land it somewhere terminal and say why.
+    const message = error instanceof Error ? error.message : String(error)
+    await app.withTenant(tenantId, async () => {
+      await app.db
+        .update(runs)
+        .set({
+          status: 'failed',
+          finishedAt: new Date(),
+          transcript: null,
+          summary:
+            `The decision on "${description}" was applied, but continuing the run afterwards failed: ${message}`.slice(
+              0,
+              500,
+            ),
+        })
+        .where(eq(runs.id, run.id))
+    })
+    throw error
+  }
 
   if (run.trigger.type === 'assignment') {
     await finalizeAssignmentRun(tenantId, run.trigger.assignmentId, continuedRunId, outcome)
