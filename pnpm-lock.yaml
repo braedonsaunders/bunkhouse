@@ -419,7 +419,7 @@ packages:
         optional: true
 
   '@appkit/ai@file:vendor/appkit/appkit-ai-0.2.0.tgz':
-    resolution: {integrity: sha512-S9owW+aGv5GwMacWh8xu02xDbVtL4pu5e5Hw5fjQYTnuwJiVih1QSHJj4nuac6DDSIu9g6BWIhXxndQ5nYz72A==, tarball: file:vendor/appkit/appkit-ai-0.2.0.tgz}
+    resolution: {integrity: sha512-H5s9fk2pv6pp0XaA/yc5cpv4aaLnZb1BMuOCyo90YqPtmBC4XU7VasCmIn5C9lMK0jzC4NTdLbOMkIQbAzySCw==, tarball: file:vendor/appkit/appkit-ai-0.2.0.tgz}
     version: 0.2.0
     engines: {node: '>=22'}
     peerDependencies:
@@ -715,7 +715,7 @@ packages:
     engines: {node: '>=22'}
 
   '@appkit/office@file:vendor/appkit/appkit-office-0.2.0.tgz':
-    resolution: {integrity: sha512-qMzJXqN7IcMEnJtlFy7LZqjaBvC7jnMGRk1/DPV50EkdAiy0v21YWBRvhHgEpndGBk1GR93ib+xgf6e/LuKiJw==, tarball: file:vendor/appkit/appkit-office-0.2.0.tgz}
+    resolution: {integrity: sha512-eDNkKIPRyFllCSC/+4ZPRwKZs+LZqOlavxbIuGhhXi3LJcFs5H7T2dsp0yWoXs2xrwE3oXl96YteO+bROJc94g==, tarball: file:vendor/appkit/appkit-office-0.2.0.tgz}
     version: 0.2.0
     engines: {node: '>=22'}
     peerDependencies:
@@ -830,7 +830,7 @@ packages:
         optional: true
 
   '@appkit/sync@file:vendor/appkit/appkit-sync-1.0.0.tgz':
-    resolution: {integrity: sha512-fOnd9S2yPl5j1aWJCmP1pVrq2xfxK2XV2L8VCIaW2coK5m6XnS+BWGhmm/8ykl8Q9wkN7FbHTi8SWtcNhDvG0w==, tarball: file:vendor/appkit/appkit-sync-1.0.0.tgz}
+    resolution: {integrity: sha512-OebvVtAOzIgU5DqojHpO8cfhQ1xvu7gh5IBwjV+NH50bv5WV3xMe3qE9+i8MCSBzH/qd3vNovJDqQn6UIAKwVA==, tarball: file:vendor/appkit/appkit-sync-1.0.0.tgz}
     version: 1.0.0
     engines: {node: '>=22'}
     peerDependencies:
