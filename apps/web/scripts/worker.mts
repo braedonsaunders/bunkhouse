@@ -1,5 +1,5 @@
 import { createJobs } from '@appkit/jobs'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { schema as identity } from '@appkit/db'
 import { db } from '../src/db/client'
 import { ASSIGNMENT_MAX_STEPS } from '../src/lib/agent-runs'
@@ -47,11 +47,15 @@ async function activeTenantIds(): Promise<string[]> {
 
 async function mailboxPass(): Promise<void> {
   for (const tenantId of await activeTenantIds()) {
+    // Errored accounts are swept alongside healthy ones: a mail server that
+    // was down at 09:00 is usually back by 09:05, and syncPersonMailbox
+    // returns the account to `active` as soon as one pass succeeds. Only
+    // `disabled` — the state an operator chose — is left alone.
     const accounts = await app.withTenantContext(tenantId, () =>
       app.db
         .select({ personId: mailboxAccounts.personId, address: mailboxAccounts.address })
         .from(mailboxAccounts)
-        .where(eq(mailboxAccounts.status, 'active')),
+        .where(inArray(mailboxAccounts.status, ['active', 'error'])),
     )
     for (const account of accounts) {
       try {
@@ -556,7 +560,7 @@ async function abandonedWorkPass(): Promise<void> {
         returning r.id
       )
       update assignments a
-        set status = case when a.last_error like ${`${CRASH_MARKER}%`} then 'failed' else 'pending' end,
+        set status = (case when a.last_error like ${`${CRASH_MARKER}%`} then 'failed' else 'pending' end)::assignment_status,
             last_error = ${`${CRASH_MARKER}; picked up again.`},
             updated_at = now()
       where a.run_id in (select id from dead) and a.status = 'working'
