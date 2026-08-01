@@ -224,6 +224,8 @@ export const tokenSpend = pgTable(
     model: text('model').notNull(),
     inputTokens: bigint('input_tokens', { mode: 'number' }).notNull(),
     outputTokens: bigint('output_tokens', { mode: 'number' }).notNull(),
+    /** Of inputTokens, the portion the provider served from its prompt cache. */
+    cachedInputTokens: bigint('cached_input_tokens', { mode: 'number' }).notNull().default(0),
     costUsd: money('cost_usd').notNull(),
     /** The exact price applied, stamped at spend time for audit. */
     inputUsdPerMtok: money('input_usd_per_mtok'),

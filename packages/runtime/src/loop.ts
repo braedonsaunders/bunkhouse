@@ -7,6 +7,8 @@ import {
   type Ability,
   type GovernanceState,
 } from './abilities'
+import { cachedInputTokens, cachedSystemMessage, sessionPinningOptions } from './caching'
+import { compactMessages, COMPACT_KEEP_RECENT } from './compaction'
 import { reportedCostUsd, usageAccountingOptions } from './cost'
 import { buildRunInstruction, buildSystemPrompt } from './prompt'
 import { loadSkillAbility, type BoundSkill } from './skills'
@@ -49,6 +51,12 @@ export type RunAgentArgs = {
    */
   toolDeadlineMs?: number
   abortSignal?: AbortSignal
+  /**
+   * The run this work belongs to. Used to pin every step of one run to the
+   * same upstream so the prompt cache built on step one is still there on
+   * step twelve.
+   */
+  runId?: string
   describeAction?: (toolName: string, input: unknown) => string
   /**
    * Shared governance state. Pass one in when app-side abilities need to
@@ -181,7 +189,25 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
 
   // Where the provider is willing to price its own work, ask it to. The flag
   // costs nothing and makes the ledger authoritative rather than estimated.
-  const providerOptions = usageAccountingOptions(args.agent.ai)
+  // Pinned to one upstream in the same breath, so the steps of this run keep
+  // meeting the same prompt cache instead of scattering across providers.
+  const accounting = usageAccountingOptions(args.agent.ai)
+  const pinning = sessionPinningOptions(args.agent.ai, args.runId)
+  const providerOptions =
+    accounting || pinning
+      ? Object.fromEntries(
+          [...new Set([...Object.keys(accounting ?? {}), ...Object.keys(pinning ?? {})])].map((name) => [
+            name,
+            { ...(accounting?.[name] ?? {}), ...(pinning?.[name] ?? {}) },
+          ]),
+        )
+      : undefined
+
+  // A provider that needs to be told where the reusable prefix ends gets the
+  // system prompt as a marked message; one that caches by itself keeps the
+  // plain string, which is what it would have had anyway.
+  const cachedSystem = cachedSystemMessage(args.agent.ai, system)
+  if (cachedSystem) messages.unshift(cachedSystem)
 
   // What lets a run go long: something watching the money, and something that
   // can tell work from a loop. Both are read by `stopWhen` after every step.
@@ -190,6 +216,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
   let bloated = false
   let lastCall: string | null = null
   let repeats = 0
+  let compactionAnnounced = false
 
   try {
     const result = await generateText({
@@ -205,10 +232,26 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
         // The two governors that let a run go long safely.
         () => budgetExhausted || stuck || bloated,
       ],
+      // Evidence the agent has already reasoned over does not need re-buying at
+      // full price on every subsequent step. The working set stays verbatim.
+      prepareStep: async ({ messages: stepMessages }) => {
+        const { messages: compacted, trimmedChars, trimmedResults } = compactMessages(stepMessages)
+        if (trimmedChars <= 0) return {}
+        if (!compactionAnnounced) {
+          compactionAnnounced = true
+          await args.sink.event({
+            kind: 'message',
+            text: `Trimmed ${trimmedResults} earlier tool result(s) from the working context to keep this run affordable. The most recent ${COMPACT_KEEP_RECENT} are unchanged.`,
+          })
+        }
+        return { messages: compacted }
+      },
       abortSignal: args.abortSignal,
       onStepFinish: async (step) => {
         usage.inputTokens += step.usage.inputTokens ?? 0
         usage.outputTokens += step.usage.outputTokens ?? 0
+        const cached = cachedInputTokens(step.usage)
+        if (cached > 0) usage.cachedInputTokens = (usage.cachedInputTokens ?? 0) + cached
         for (const call of step.toolCalls) {
           // Going round in circles: the same call, with the same input, over
           // and over. A run allowed to work for hours needs something that can
@@ -255,6 +298,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
           model: args.agent.ai.modelSmart ?? '',
           inputTokens: step.usage.inputTokens ?? 0,
           outputTokens: step.usage.outputTokens ?? 0,
+          ...(cached > 0 ? { cachedInputTokens: cached } : {}),
           ...(reported === null ? {} : { costUsd: reported }),
         })
         // The budget, every step — not once at the door. Checking it only at

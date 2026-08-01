@@ -35,6 +35,8 @@ export type AgentProfile = {
   /** This agent's manager on the org chart — its escalation path. */
   reportsToId?: string
   proactivity: 'reactive' | 'duties' | 'autonomous'
+  /** IANA zone this agent works in; the clock its working day is read against. */
+  timezone?: string | null
   /**
    * The company signature is appended mechanically on the send path, so the
    * agent must not type a sign-off of its own or the message ends twice.
@@ -159,7 +161,17 @@ export type RunEvent =
   | { kind: 'approval_request'; approvalId: string; category: ActionCategory; description: string }
   | { kind: 'error'; message: string }
 
-export type TokenUsage = { inputTokens: number; outputTokens: number }
+export type TokenUsage = {
+  inputTokens: number
+  outputTokens: number
+  /**
+   * Input tokens the provider served from its prompt cache rather than reading
+   * afresh. They are already counted inside inputTokens — this is the portion
+   * of them that was cheap — so it is banked beside the total rather than
+   * subtracted from it, and a run's cache hit rate stops being invisible.
+   */
+  cachedInputTokens?: number
+}
 
 /**
  * What one model call actually cost, as the provider itself reported it —
