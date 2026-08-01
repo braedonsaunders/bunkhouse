@@ -203,6 +203,42 @@ export const LIVE_TOOL_DEADLINE_MS = 60_000
 /** The offline ceiling: bounded so nothing wedges, long enough for real work. */
 export const DEFAULT_TOOL_DEADLINE_MS = 15 * 60_000
 
+/**
+ * Identical failures of one tool before the run stops paying to find out again.
+ *
+ * Three is the point where "retry the flaky thing" becomes "this is down".
+ * Every attempt past it buys a full step of context at full price and returns
+ * the same sentence.
+ */
+export const TOOL_FAILURE_LIMIT = 3
+
+/**
+ * The most useful sentence available about a thrown value.
+ *
+ * `error.message` alone is not enough: a refused socket arrives as an
+ * AggregateError whose own message is empty and whose detail sits in
+ * `errors[]`, and wrapped failures hide theirs under `cause`. An empty string
+ * reaches the agent as "that did not work" with no reason, which is how an
+ * unreachable file store turns into eight blind retries of the same tool.
+ */
+function describeThrown(error: unknown): string {
+  const seen = new Set<unknown>()
+  const walk = (value: unknown): string => {
+    if (value === null || value === undefined || seen.has(value)) return ''
+    seen.add(value)
+    if (!(value instanceof Error)) return String(value)
+    const parts = [value.message.trim()]
+    if (value instanceof AggregateError) {
+      for (const inner of value.errors ?? []) parts.push(walk(inner))
+    }
+    parts.push(walk((value as { cause?: unknown }).cause))
+    const detail = parts.filter(Boolean).join(': ')
+    // Nameless and messageless still beats silence — say at least what it was.
+    return detail || value.name || ''
+  }
+  return walk(error) || 'The tool failed without reporting a reason.'
+}
+
 /** Reject if the work has not settled by the deadline, without cancelling it. */
 async function withDeadline<T>(name: string, work: Promise<T>, deadlineMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -239,6 +275,8 @@ export function governedToolSet(args: {
   deadlineMs?: number
 }): ToolSet {
   const deadlineMs = args.deadlineMs ?? DEFAULT_TOOL_DEADLINE_MS
+  // Same tool, same failure, over and over — one open breaker per run.
+  const breakers = new Map<string, { failures: number; error: string }>()
   const set: ToolSet = {}
   for (const ability of args.abilities) {
     const base = ability.tool
@@ -298,13 +336,45 @@ export function governedToolSet(args: {
         // with no outcome — the activity read as running for ever, the caller
         // was told "almost there" indefinitely, and nothing anywhere said what
         // had happened. Failing is fine; failing invisibly is not.
+        // A tool that has failed the same way three times is not flaky, it is
+        // broken, and the next identical attempt costs another full step of
+        // context at full price. One measured run spent roughly $24 of a
+        // $26.70 report retrying a document tool whose file store was
+        // unreachable; the input differed each time, so the no-progress
+        // governor never saw a repeat. Refuse early and say so.
+        const open = breakers.get(ability.name)
+        if (open && open.failures >= TOOL_FAILURE_LIMIT) {
+          return {
+            error: open.error,
+            note: `${ability.name} has already failed ${open.failures} times in this run with the same error, so it will not be tried again. Do not call it again. Report plainly that this step could not be completed and carry on with what you can still do.`,
+          }
+        }
         try {
-          return await withDeadline(ability.name, Promise.resolve(execute(input as any, options as any)), deadlineMs)
+          const result = await withDeadline(
+            ability.name,
+            Promise.resolve(execute(input as any, options as any)),
+            deadlineMs,
+          )
+          // Working again clears the count: a flaky endpoint is not a broken one.
+          breakers.delete(ability.name)
+          return result
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          const output = { error: message, note: 'That did not work. Say so plainly and try another way.' }
-          await args.sink.event({ kind: 'tool_result', toolName: ability.name, output })
-          return output
+          const message = describeThrown(error)
+          const prior = breakers.get(ability.name)
+          const failures = prior && prior.error === message ? prior.failures + 1 : 1
+          breakers.set(ability.name, { failures, error: message })
+          const spent =
+            failures >= TOOL_FAILURE_LIMIT
+              ? ` It has now failed ${failures} times the same way and will not be tried again in this run.`
+              : ''
+          // Returned, not emitted: a returned value is a tool result like any
+          // other and the loop ledgers it once. Recording it here as well wrote
+          // every failure into the run's history twice, which double-counts
+          // anything an operator or a report later tries to add up.
+          return {
+            error: message,
+            note: `That did not work. Say so plainly and try another way.${spent}`,
+          }
         }
       },
     } as ToolSet[string]
