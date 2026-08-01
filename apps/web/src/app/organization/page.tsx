@@ -78,6 +78,7 @@ export default async function AgentsPage({
         rows={rows}
         columns={AGENT_COLUMNS}
         basePath={BASE_PATH}
+        selectedId={selectedId}
         searchPlaceholder="Search agents…"
         empty={{
           title: 'No agents yet',

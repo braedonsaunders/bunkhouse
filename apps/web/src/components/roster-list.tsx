@@ -83,6 +83,7 @@ export function RosterList({
   basePath,
   searchPlaceholder,
   empty,
+  selectedId,
 }: {
   rows: RosterRow[]
   columns: RecordColumn<RosterRow>[]
@@ -90,8 +91,15 @@ export function RosterList({
   basePath: string
   searchPlaceholder: string
   empty: { title: string; description: string }
+  /** The record the drawer has open, so its row reads as the live one. */
+  selectedId?: string | undefined
 }) {
   const router = useRouter()
+  // The row clicked but not yet open. The record is fetched on the server, so
+  // between the click and the drawer there is a wait with nothing in the URL
+  // yet; without this the click is unacknowledged for the whole of it.
+  const [opening, setOpening] = React.useState<string | null>(null)
+  const [pending, startTransition] = React.useTransition()
   const [search, setSearch] = React.useState('')
   const [sort, setSort] = React.useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' })
 
@@ -126,7 +134,17 @@ export function RosterList({
           {children}
         </Link>
       )}
-      onRowClick={(row) => router.push(`${basePath}?person=${row.id}`, { scroll: false })}
+      // While the record is on its way the clicked row is the live one; once it
+      // lands the open record is, and closing the drawer clears both.
+      activeRowId={pending ? opening : selectedId}
+      onRowClick={(row) => {
+        setOpening(row.id)
+        // In a transition, so React keeps the roster on screen while the record
+        // loads. A bare push runs at click priority, which lets the page fall
+        // back to the route-level spinner — the whole list disappearing and
+        // coming back, which reads as the page reloading before the drawer opens.
+        startTransition(() => router.push(`${basePath}?person=${row.id}`, { scroll: false }))
+      }}
       empty={empty}
     />
   )

@@ -884,7 +884,7 @@ packages:
       tailwindcss: ^4.0.0
 
   '@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz':
-    resolution: {integrity: sha512-b1e6Mwqx505gn6G2HD4qn3zi9UWtmS0TcJp/9B8c9AX54lNjNW7oZk/OGoULDqbFU1asMbT4fuZOS5JbMeVKcQ==, tarball: file:vendor/appkit/appkit-ui-0.1.10.tgz}
+    resolution: {integrity: sha512-Jts10YJwBVxM+xyRYZT32qrO+ZQRM5BQDW7OV1vtnkxegX7a7mnIV1Hrgm/MTUaQCK3PXR+8S1dJAmi5Qcs/XA==, tarball: file:vendor/appkit/appkit-ui-0.1.10.tgz}
     version: 0.1.10
     engines: {node: '>=22'}
     peerDependencies:

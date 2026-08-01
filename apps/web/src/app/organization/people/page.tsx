@@ -76,6 +76,7 @@ export default async function PeoplePage({
         rows={rows}
         columns={PEOPLE_COLUMNS}
         basePath={BASE_PATH}
+        selectedId={selectedId}
         searchPlaceholder="Search people…"
         empty={{
           title: 'No people yet',
