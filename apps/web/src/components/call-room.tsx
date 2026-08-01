@@ -169,11 +169,13 @@ function useCallFeed(sessionId: string): CallFeed {
 }
 
 /**
- * What the call sounds like around the talking, driven by the phase alone: a
- * ringing tone for exactly as long as the agent is being rung, one short
- * connect blip the moment they pick up — from the ringing phase or, when they
- * are quick enough that ringing never renders, straight from dialling — and
- * the receiver going down the instant the call ends, however it ended. The
+ * What the call sounds like around the talking: a ringing tone for exactly as
+ * long as the agent is being rung, one short connect blip the moment they pick
+ * up — from the ringing phase or, when they are quick enough that ringing never
+ * renders, straight from dialling — a keyboard for as long as the agent is away
+ * doing something, and the receiver going down the instant the call ends,
+ * however it ended. The phase drives all of it but the typing, which follows
+ * the work itself so it can never be heard over an agent who has finished. The
  * caller hanging up, the agent hanging up, and the line dropping all arrive
  * here as the same phase change, and all three sound the same, because to the
  * person on the call they are the same thing: the call is over.
@@ -183,7 +185,7 @@ function useCallFeed(sessionId: string): CallFeed {
  * will not play it stays quiet and nothing else changes: every method on the
  * player absorbs its own failures.
  */
-function useCallTones(phase: CallPhase): void {
+function useCallTones(phase: CallPhase, working: boolean): void {
   const tonesRef = React.useRef<CallTones | null>(null)
   const previousRef = React.useRef<CallPhase | null>(null)
 
@@ -216,6 +218,17 @@ function useCallTones(phase: CallPhase): void {
     if (phase === 'live') tones.connected()
     else if (phase === 'ended') tones.hangup()
   }, [phase])
+
+  // The keyboard, for as long as there is genuinely something in flight. A
+  // caller who hears nothing at all assumes the line has dropped; a caller who
+  // hears someone typing knows they are being dealt with, and waits. It stops
+  // the moment the work does, so it never outlives what it is reporting.
+  React.useEffect(() => {
+    const tones = tonesRef.current
+    if (!tones) return
+    if (working && phase === 'live') tones.startTyping()
+    else tones.stopTyping()
+  }, [working, phase])
 }
 
 /**
@@ -433,7 +446,6 @@ function LiveCallSurface({
         ? 'ringing'
         : 'dialling'
   const elapsedSeconds = useCallTimer(phase === 'live')
-  useCallTones(phase)
 
   // There is no "hanging up" to report: a hang-up is instant here, and the
   // room is dropped in the same beat. The line either carries a call or says
@@ -550,6 +562,12 @@ function LiveCallSurface({
     }
     return stageActivity
   }, [items, phase])
+
+  // Sounded from the stage's own reading of what is happening, so the keyboard
+  // and the thing it is reporting can never disagree. Only 'running' counts:
+  // an action parked for a signature is the agent waiting on a person, and
+  // nobody types while they wait.
+  useCallTones(phase, current?.status === 'running')
   const screen = React.useMemo<CallStageScreenView | null>(() => {
     const still = browser ? screenView(browser, browser.live && phase !== 'ended') : null
     if (!agentScreen || phase === 'ended') return still
