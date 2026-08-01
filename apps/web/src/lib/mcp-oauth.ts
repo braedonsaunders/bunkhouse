@@ -271,13 +271,18 @@ export async function completeMcpOauth(input: { state: string; code: string }): 
       sealedTokens: sealTokens(tokens),
     }
     await app.withTenant(state.tenantId, async () => {
-      const existing = (await listMcpIntegrations(state.tenantId)).filter((entry) => entry.slug !== pending.slug)
+      const all = await listMcpIntegrations(state.tenantId)
+      const previous = all.find((entry) => entry.slug === pending.slug)
+      const existing = all.filter((entry) => entry.slug !== pending.slug)
       existing.push({
         slug: pending.slug,
         label: pending.label,
         url: pending.url,
         category: pending.category,
         oauth: grant,
+        // Signing in again keeps who the system was granted to; a first
+        // sign-in starts in every agent's toolbox, as a fresh connection does.
+        assignment: previous?.assignment ?? { everyone: true },
       })
       await saveMcpIntegrations(state.tenantId, existing)
     })

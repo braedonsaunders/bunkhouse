@@ -11,6 +11,7 @@ import {
 } from '@bunkhouse/runtime'
 import { assignments, duties, memories, people, type AssignmentSource, type McpIntegrationEntry } from '../db/schema'
 import { db } from '../db/client'
+import { agentBinding, bindsToAgent, type AgentBinding } from './assignment'
 import { findColleague, postToColleague } from './colleague-post'
 import { listMcpIntegrations } from './mcp-integrations'
 import { mcpOauthHeaders } from './mcp-oauth'
@@ -114,7 +115,7 @@ export function memoryAbilities(args: { tenantId: string; person: PersonRow; run
       category: null,
       inputSchema: z.object({ query: z.string() }),
       execute: async ({ query }) => {
-        const found = await retrieveNotes({ tenantId, personId: person.id, query, limit: 6 })
+        const found = await retrieveNotes({ tenantId, agent: agentBinding(person), query, limit: 6 })
         return {
           notes: found.map((n) => ({ slug: n.slug, kind: n.kind, title: n.title, body: n.body })),
         }
@@ -725,12 +726,18 @@ export async function resolveIntegrationHeaders(
   return undefined
 }
 
-export async function connectIntegrationAbilities(tenantId: string): Promise<{
+export async function connectIntegrationAbilities(
+  tenantId: string,
+  agent: AgentBinding,
+): Promise<{
   abilities: Ability[]
   failures: string[]
   close: () => Promise<void>
 }> {
-  const entries = await listMcpIntegrations(tenantId)
+  // Only the systems this agent has been given. A connection nobody assigned to
+  // it is not connected at all — an agent should no more carry the accounting
+  // package's tools it was never granted than a person should hold the login.
+  const entries = (await listMcpIntegrations(tenantId)).filter((entry) => bindsToAgent(entry.assignment, agent))
   const abilities: Ability[] = []
   const failures: string[] = []
   const closers: (() => Promise<void>)[] = []
@@ -787,7 +794,7 @@ export async function assembleAbilities(args: {
   handoffDepth?: number
 }): Promise<{ abilities: Ability[]; integrationFailures: string[]; close: () => Promise<void> }> {
   const { tenantId, person, runId } = args
-  const integrations = await connectIntegrationAbilities(tenantId)
+  const integrations = await connectIntegrationAbilities(tenantId, agentBinding(person))
   // Who counts as a colleague, read once. Mail to one of these is internal
   // whichever tool sends it — see the category resolver in emailAbilities.
   const staffAddresses = new Set(

@@ -1,5 +1,6 @@
 import { index, integer, jsonb, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { auditColumns, id, tenantRef } from '@appkit/db'
+import type { ResourceAssignment } from './assignment'
 
 /**
  * Procedures are the governed form of company doctrine: versioned SOPs that
@@ -8,19 +9,11 @@ import { auditColumns, id, tenantRef } from '@appkit/db'
  */
 export const procedureStatus = pgEnum('procedure_status', ['draft', 'active', 'retired'])
 
-export type ProcedureAssignment = {
-  /** Role-pack slugs this procedure binds to (every agent hired from the pack). */
-  rolePacks?: string[]
-  /** Specific people (agents) it binds to. */
-  personIds?: string[]
-  /** True = binds to every agent in the company. */
-  everyone?: boolean
-}
-
 export type ProcedureSource =
   | { type: 'authored' }
   | { type: 'upload'; fileId: string }
-  | { type: 'role-pack'; pack: string; procedure: string }
+  /** Installed from a role's starter set — the role it came with, and its slug there. */
+  | { type: 'role'; role: string; procedure: string }
 
 /** One numbered step of a procedure. Detail is markdown. */
 export type ProcedureStep = {
@@ -54,7 +47,7 @@ export const procedures = pgTable(
     title: text('title').notNull(),
     status: procedureStatus('status').notNull().default('draft'),
     currentVersion: integer('current_version').notNull().default(1),
-    assignment: jsonb('assignment').$type<ProcedureAssignment>().notNull().default({}),
+    assignment: jsonb('assignment').$type<ResourceAssignment>().notNull().default({}),
     source: jsonb('source').$type<ProcedureSource>().notNull().default({ type: 'authored' }),
     ...auditColumns,
   },

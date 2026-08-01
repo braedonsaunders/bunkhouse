@@ -2,24 +2,12 @@
 
 import { revalidatePath } from 'next/cache'
 import { and, eq } from 'drizzle-orm'
-import { procedureRevisions, procedures, type ProcedureAssignment } from '../../db/schema'
+import { procedureRevisions, procedures } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId as resolveTenant } from '../../lib/tenant'
 const resolveTenantId = () => resolveTenant('resources.manage')
+import { parseAssignment } from '../../lib/assignment'
 import { parseProcedureContent, renderProcedureBody } from '../../lib/procedures'
-
-function parseAssignment(formData: FormData): ProcedureAssignment {
-  if (String(formData.get('everyone') ?? '') === 'on') return { everyone: true }
-  const rolePacks = String(formData.get('rolePacks') ?? '')
-    .split(',')
-    .map((v) => v.trim())
-    .filter(Boolean)
-  const personIds = String(formData.get('personIds') ?? '')
-    .split(',')
-    .map((v) => v.trim())
-    .filter(Boolean)
-  return { ...(rolePacks.length ? { rolePacks } : {}), ...(personIds.length ? { personIds } : {}) }
-}
 
 /** Author a new procedure: head + revision 1, active immediately. */
 export async function createProcedure(formData: FormData): Promise<void> {

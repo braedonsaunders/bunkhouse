@@ -4,6 +4,7 @@ import type { AgentToolPolicy } from '@appkit/agent-tools'
 import type { SealedSecret } from '@appkit/crypto'
 import type { RawSmsConfig } from '@appkit/sms'
 import type { RawCarrierConfig } from '@appkit/telephony'
+import type { ResourceAssignment } from './assignment'
 
 /**
  * Per-tenant configuration, one row per key — the single source of truth for
@@ -81,6 +82,12 @@ export type McpIntegrationEntry = {
   oauth?: McpOauthGrant
   /** Action category the autonomy dial governs this integration under. */
   category: string
+  /**
+   * Which agents carry this system in their toolbox. A connection to the
+   * accounting package belongs to the people who do the books, the same way
+   * systems access is granted per role on a human onboarding checklist.
+   */
+  assignment: ResourceAssignment
 }
 
 /** An OAuth connection's standing credential: everything needed to mint a

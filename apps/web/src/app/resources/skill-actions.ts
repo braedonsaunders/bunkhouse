@@ -1,9 +1,9 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import type { ProcedureAssignment } from '../../db/schema'
 import { resolveTenantId as resolveTenant } from '../../lib/tenant'
 const resolveTenantId = () => resolveTenant('resources.manage')
+import { parseAssignment } from '../../lib/assignment'
 import { parseRepoInput } from '../../lib/skill-source'
 import { SKILL_LIBRARY } from '../../lib/skill-library'
 import {
@@ -19,20 +19,6 @@ import {
  * throwing: a thrown server-action error reaches the browser as an opaque
  * digest, which tells an operator nothing about why a repository was refused.
  */
-
-/** The same assignment shape procedures use, read off the drawer's form. */
-function parseAssignment(formData: FormData): ProcedureAssignment {
-  if (String(formData.get('everyone') ?? '') === 'on') return { everyone: true }
-  const rolePacks = String(formData.get('rolePacks') ?? '')
-    .split(',')
-    .map((v) => v.trim())
-    .filter(Boolean)
-  const personIds = String(formData.get('personIds') ?? '')
-    .split(',')
-    .map((v) => v.trim())
-    .filter(Boolean)
-  return { ...(rolePacks.length ? { rolePacks } : {}), ...(personIds.length ? { personIds } : {}) }
-}
 
 export type InstallResult =
   | { ok: true; installed: string[]; updated: string[] }

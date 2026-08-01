@@ -6,9 +6,14 @@ import { inboundPolicy } from './people'
  * Tenant-authored role definitions — the same shape as first-party role packs
  * (@bunkhouse/roles), built entirely in the UI. Builtin packs stay code; a
  * tenant can duplicate one here to customize it. Onboarding reads both.
+ *
+ * A role holds no copies of company resources. The procedures it binds, the
+ * skills it draws on, the knowledge it is given and the systems it works in are
+ * all links — recorded once on the resource, as its assignment, and edited from
+ * either end. Duties are the exception and belong here: a duty is this role's
+ * standing work, with its own schedule, not a shared object to point at.
  */
 export type RoleDuty = { slug: string; title: string; instruction: string; cron: string }
-export type RoleProcedure = { slug: string; title: string; body: string }
 export type RoleAutonomyDefaults = Partial<
   Record<
     | 'external_email'
@@ -34,7 +39,6 @@ export const roleDefs = pgTable(
     description: text('description').notNull(),
     personality: jsonb('personality').$type<{ bio: string; tone: string[] }>().notNull(),
     duties: jsonb('duties').$type<RoleDuty[]>().notNull().default([]),
-    procedures: jsonb('procedures').$type<RoleProcedure[]>().notNull().default([]),
     autonomyDefaults: jsonb('autonomy_defaults').$type<RoleAutonomyDefaults>().notNull().default({}),
     inboundPolicy: inboundPolicy('inbound_policy').notNull().default('staff_only'),
     suggestedSalaryUsd: integer('suggested_salary_usd').notNull().default(50),

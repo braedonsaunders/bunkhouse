@@ -1,5 +1,6 @@
 import { boolean, index, integer, jsonb, pgEnum, pgTable, smallint, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { auditColumns, id, tenantRef } from '@appkit/db'
+import type { ResourceAssignment } from './assignment'
 
 /**
  * The Logbook (docs/memory-design.md): human-readable markdown notes are the
@@ -24,6 +25,12 @@ export const memories = pgTable(
     scope: memoryScope('scope').notNull(),
     /** Owning agent; null for company scope. */
     personId: uuid('person_id'),
+    /**
+     * Which agents company knowledge reaches — the whole company, the agents
+     * holding a role, or named people. Meaningless on agent-scope notes: those
+     * belong to one agent by construction, and retrieval ignores it there.
+     */
+    assignment: jsonb('assignment').$type<ResourceAssignment>().notNull().default({}),
     slug: text('slug').notNull(),
     kind: memoryKind('kind').notNull().default('fact'),
     title: text('title').notNull(),

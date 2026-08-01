@@ -52,6 +52,7 @@ import { isWithinWorkingHours } from './working-hours'
 import { getFileBytes, getFileRecord } from './files'
 import { closeBrowserSession } from './browser-use'
 import { readSkillBundle, skillsForAgent, type BoundSkillRow } from './skills'
+import { agentBinding, bindsToAgent, type AgentBinding } from './assignment'
 import { materializeSkillBundle } from './workspace'
 
 
@@ -82,12 +83,12 @@ const MEMORY_CONTEXT_BUDGET = 60_000
 
 export async function runMemories(args: {
   tenantId: string
-  personId: string
+  agent: AgentBinding
   /** What the work is about, in the agent's own terms. */
   query: string
 }): Promise<MemoryNote[]> {
-  const pinned = await pinnedNotes({ tenantId: args.tenantId, personId: args.personId })
-  const retrieved = await retrieveNotes({ tenantId: args.tenantId, personId: args.personId, query: args.query })
+  const pinned = await pinnedNotes({ tenantId: args.tenantId, agent: args.agent })
+  const retrieved = await retrieveNotes({ tenantId: args.tenantId, agent: args.agent, query: args.query })
   const candidates = [...pinned, ...retrieved.filter((r) => !pinned.some((p) => p.id === r.id))]
 
   // Bounded, because a logbook only ever grows and this goes into EVERY step's
@@ -291,12 +292,7 @@ export async function assembleRunFoundation(args: {
 export async function boundProcedures(tenantId: string, person: typeof people.$inferSelect): Promise<BoundProcedure[]> {
   const app = db()
   const heads = await app.db.select().from(procedures).where(eq(procedures.status, 'active'))
-  const applicable = heads.filter((p) => {
-    const a = p.assignment
-    if (a.everyone) return true
-    if (person.rolePackSlug && a.rolePacks?.includes(person.rolePackSlug)) return true
-    return a.personIds?.includes(person.id) ?? false
-  })
+  const applicable = heads.filter((p) => bindsToAgent(p.assignment, agentBinding(person)))
   const out: BoundProcedure[] = []
   for (const head of applicable) {
     const [rev] = await app.db
@@ -322,11 +318,7 @@ export async function boundSkills(
   tenantId: string,
   person: typeof people.$inferSelect,
 ): Promise<{ skills: BoundSkill[]; rows: BoundSkillRow[] }> {
-  const rows = await skillsForAgent({
-    tenantId,
-    personId: person.id,
-    rolePack: person.rolePackSlug ?? null,
-  })
+  const rows = await skillsForAgent({ tenantId, agent: agentBinding(person) })
   return {
     rows,
     skills: rows.map(({ skill, revision, fileCount }) => ({
@@ -609,7 +601,7 @@ export async function executeAgentRun(args: {
                   : args.input.type === 'reply_received'
                     ? args.input.question
                     : args.input.instruction
-    const memories = await runMemories({ tenantId: args.tenantId, personId: person.id, query: retrievalQuery })
+    const memories = await runMemories({ tenantId: args.tenantId, agent: agentBinding(person), query: retrievalQuery })
 
     // Anything a colleague has said since this agent last worked. Read here,
     // once, and marked read in the same breath — a message delivered twice is

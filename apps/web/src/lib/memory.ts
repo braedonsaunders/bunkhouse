@@ -2,6 +2,8 @@ import 'server-only'
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { memories, memoryLinks, memoryProposals, memoryRevisions } from '../db/schema'
 import { db } from '../db/client'
+import type { ResourceAssignment } from '../db/schema'
+import type { AgentBinding } from './assignment'
 
 /**
  * The Logbook engine (docs/memory-design.md). Markdown notes are the source of
@@ -56,6 +58,12 @@ export type CreateNoteInput = {
   importance?: number
   pinned?: boolean
   sourceRunId?: string
+  /**
+   * Which agents company knowledge reaches. Company knowledge is the whole
+   * company's by default — narrowing it to a role is a deliberate act on the
+   * note. Ignored on agent scope, where the note belongs to one agent.
+   */
+  assignment?: ResourceAssignment
 }
 
 export async function createNote(input: CreateNoteInput): Promise<string> {
@@ -77,6 +85,7 @@ export async function createNote(input: CreateNoteInput): Promise<string> {
         importance: Math.min(5, Math.max(1, input.importance ?? 3)),
         pinned: input.pinned ?? false,
         sourceRunId: input.sourceRunId ?? null,
+        assignment: input.scope === 'company' ? (input.assignment ?? { everyone: true }) : {},
       })
       .onConflictDoNothing()
       .returning({ id: memories.id })
@@ -172,6 +181,23 @@ export async function expireNote(tenantId: string, noteId: string): Promise<void
 /** Recency half-lives per kind, in days. Procedures effectively never decay. */
 const HALF_LIFE_DAYS: Record<NoteKind, number> = { episode: 14, fact: 180, reflection: 90, procedure: 3650 }
 
+/**
+ * The notes one agent may read: its own logbook, plus the company knowledge
+ * assigned to it. Company scope no longer implies everybody — a note can be
+ * given to the agents holding a role, so what an agent knows is governed by the
+ * same assignment that governs the procedures it follows.
+ */
+function reachableBy(agent: AgentBinding) {
+  const asJson = (value: string) => sql`${JSON.stringify([value])}::jsonb`
+  const byRole = agent.roleSlug
+    ? sql` or ${memories.assignment} -> 'roles' @> ${asJson(agent.roleSlug)}`
+    : sql``
+  return sql`((${memories.scope} = 'agent' and ${memories.personId} = ${agent.personId})
+    or (${memories.scope} = 'company' and (
+          ${memories.assignment} -> 'everyone' = 'true'::jsonb
+       or ${memories.assignment} -> 'personIds' @> ${asJson(agent.personId)}${byRole})))`
+}
+
 export type RetrievedNote = typeof memories.$inferSelect & { score: number }
 
 /**
@@ -181,7 +207,7 @@ export type RetrievedNote = typeof memories.$inferSelect & { score: number }
  */
 export async function retrieveNotes(args: {
   tenantId: string
-  personId: string
+  agent: AgentBinding
   query: string
   limit?: number
 }): Promise<RetrievedNote[]> {
@@ -210,7 +236,7 @@ export async function retrieveNotes(args: {
         isNull(memories.validUntil),
         eq(memories.status, 'active'),
         eq(memories.pinned, false),
-        sql`(${memories.scope} = 'company' or ${memories.personId} = ${args.personId})`,
+        reachableBy(args.agent),
       ),
     )
     // Ordering by the expression itself — a positional `order by 2` pointed at
@@ -230,7 +256,7 @@ export async function retrieveNotes(args: {
           inArray(memoryLinks.fromNote, ids),
           isNull(memories.validUntil),
           eq(memories.status, 'active'),
-          sql`(${memories.scope} = 'company' or ${memories.personId} = ${args.personId})`,
+          reachableBy(args.agent),
         ),
       )
       .limit(limit)
@@ -251,7 +277,7 @@ export async function retrieveNotes(args: {
 /** The always-in-prompt tier, cut at a hard character budget. */
 export async function pinnedNotes(args: {
   tenantId: string
-  personId: string
+  agent: AgentBinding
   budgetChars?: number
 }): Promise<(typeof memories.$inferSelect)[]> {
   const app = db()
@@ -263,7 +289,7 @@ export async function pinnedNotes(args: {
         eq(memories.pinned, true),
         isNull(memories.validUntil),
         eq(memories.status, 'active'),
-        sql`(${memories.scope} = 'company' or ${memories.personId} = ${args.personId})`,
+        reachableBy(args.agent),
       ),
     )
     .orderBy(desc(memories.importance), desc(memories.updatedAt))
@@ -276,6 +302,19 @@ export async function pinnedNotes(args: {
     out.push(row)
   }
   return out
+}
+
+/** Rebind who a company note reaches. Agent-scope notes have no assignment. */
+export async function setNoteAssignment(args: {
+  tenantId: string
+  noteId: string
+  assignment: ResourceAssignment
+}): Promise<void> {
+  const app = db()
+  await app.db
+    .update(memories)
+    .set({ assignment: args.assignment, updatedAt: new Date() })
+    .where(and(eq(memories.id, args.noteId), eq(memories.scope, 'company')))
 }
 
 /** Backlinks: live notes whose body wikilinks to this one. */

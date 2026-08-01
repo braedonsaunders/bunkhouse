@@ -23,6 +23,7 @@ import {
 } from '../src/db/schema'
 import { assembleAbilities } from '../src/lib/agent-abilities'
 import { autonomyDial, boundProcedures, requestApproval, runMemories } from '../src/lib/agent-runs'
+import { agentBinding } from '../src/lib/assignment'
 import { callTools } from '../src/lib/call-tools'
 import { createCallMailbox, type CallMailbox, type MailboxItem } from '../src/lib/call-mailbox'
 import { createCallTrace, type CallTrace } from '../src/lib/call-trace'
@@ -301,7 +302,7 @@ async function buildInstructions(
   const identity = await getCompanyIdentity(session.tenantId)
   const procedures = await app.withTenantContext(session.tenantId, () => boundProcedures(session.tenantId, person))
   const notes = await app.withTenantContext(session.tenantId, () =>
-    runMemories({ tenantId: session.tenantId, personId: person.id, query: 'phone call' }),
+    runMemories({ tenantId: session.tenantId, agent: agentBinding(person), query: 'phone call' }),
   )
 
   const base = buildSystemPrompt({

@@ -1,6 +1,6 @@
 import { bigint, boolean, index, integer, jsonb, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { auditColumns, id, tenantRef } from '@appkit/db'
-import type { ProcedureAssignment } from './procedures'
+import type { ResourceAssignment } from './assignment'
 
 /**
  * Skills are portable competence: reusable know-how an agent can draw on,
@@ -75,7 +75,7 @@ export const skills = pgTable(
     status: skillStatus('status').notNull().default('active'),
     currentVersion: integer('current_version').notNull().default(1),
     /** Same shape procedures use: everyone, role packs, or named agents. */
-    assignment: jsonb('assignment').$type<ProcedureAssignment>().notNull().default({}),
+    assignment: jsonb('assignment').$type<ResourceAssignment>().notNull().default({}),
     source: jsonb('source').$type<SkillSource>().notNull(),
     /** As declared by the author; shown before an operator installs. */
     license: text('license'),

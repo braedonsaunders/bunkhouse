@@ -1,3 +1,4 @@
+export * from './assignment'
 export * from './people'
 export * from './mail'
 export * from './procedures'

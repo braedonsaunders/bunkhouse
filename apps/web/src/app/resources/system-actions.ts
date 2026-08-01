@@ -8,6 +8,7 @@ import { resolveIntegrationHeaders } from '../../lib/agent-abilities'
 import { beginMcpOauth } from '../../lib/mcp-oauth'
 import { resolveTenantId as resolveTenant } from '../../lib/tenant'
 const resolveTenantId = () => resolveTenant('resources.manage')
+import { parseAssignment } from '../../lib/assignment'
 import { db } from '../../db/client'
 
 /**
@@ -97,6 +98,9 @@ export async function saveMcpIntegrationAction(input: {
       url: url.toString(),
       ...(sealedHeaders ? { sealedHeaders } : {}),
       category: input.category,
+      // A reconnect keeps who the system was granted to; a first connection
+      // starts in every agent's toolbox, and Applies to narrows it from there.
+      assignment: previous?.assignment ?? { everyone: true },
     })
     await saveMcpIntegrations(tenantId, entries)
   })
@@ -199,6 +203,25 @@ export async function listSystemToolsAction(slug: string): Promise<SystemToolsRe
       message: `Could not reach ${entry.label}: ${error instanceof Error ? error.message : String(error)}`,
     }
   }
+}
+
+/** Rebind which agents carry this system in their toolbox. */
+export async function setSystemAssignmentAction(formData: FormData): Promise<void> {
+  const slug = String(formData.get('slug') ?? '')
+  if (!slug) throw new Error('slug is required.')
+  const assignment = parseAssignment(formData)
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    const entries = await listMcpIntegrations(tenantId)
+    if (!entries.some((entry) => entry.slug === slug)) throw new Error('That system is no longer connected.')
+    await saveMcpIntegrations(
+      tenantId,
+      entries.map((entry) => (entry.slug === slug ? { ...entry, assignment } : entry)),
+    )
+  })
+  revalidatePath('/resources')
+  revalidatePath('/roles')
 }
 
 export async function removeMcpIntegrationAction(formData: FormData): Promise<void> {

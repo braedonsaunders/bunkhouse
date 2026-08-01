@@ -7,11 +7,12 @@ import {
   skillFiles,
   skillRevisions,
   skills,
-  type ProcedureAssignment,
+  type ResourceAssignment,
   type SkillSource,
 } from '../db/schema'
 import { db } from '../db/client'
 import { fetchSkills, type FetchedSkill, type SkillRepoRef } from './skill-source'
+import { bindsToAgent, type AgentBinding } from './assignment'
 
 /**
  * Installing, updating, and assigning skills.
@@ -244,7 +245,7 @@ export async function listSkillFiles(tenantId: string): Promise<SkillFileRecord[
 export async function setSkillAssignment(args: {
   tenantId: string
   skillId: string
-  assignment: ProcedureAssignment
+  assignment: ResourceAssignment
 }): Promise<void> {
   const app = db()
   await app.withTenant(args.tenantId, async () => {
@@ -296,9 +297,9 @@ export async function removeSkill(tenantId: string, skillId: string): Promise<vo
 }
 
 /**
- * The skills one agent may draw on: active, and assigned to everyone, to a
- * role pack it was hired from, or to it by name. This is the same resolution
- * procedures use, so an operator's mental model of "applies to" is one model.
+ * The skills one agent may draw on: active, and assigned to everyone, to the
+ * role it holds, or to it by name. Resolved by the shared matcher, so an
+ * operator's mental model of "applies to" is one model across every resource.
  */
 export type BoundSkillRow = {
   skill: SkillRecord
@@ -309,8 +310,7 @@ export type BoundSkillRow = {
 
 export async function skillsForAgent(args: {
   tenantId: string
-  personId: string
-  rolePack?: string | null
+  agent: AgentBinding
 }): Promise<BoundSkillRow[]> {
   const app = db()
   return app.withTenantContext(args.tenantId, async () => {
@@ -319,13 +319,7 @@ export async function skillsForAgent(args: {
       .from(skills)
       .where(and(eq(skills.tenantId, args.tenantId), eq(skills.status, 'active')))
       .orderBy(asc(skills.title))
-    const bound = rows.filter((row) => {
-      const assignment = row.assignment
-      if (assignment.everyone) return true
-      if (assignment.personIds?.includes(args.personId)) return true
-      if (args.rolePack && assignment.rolePacks?.includes(args.rolePack)) return true
-      return false
-    })
+    const bound = rows.filter((row) => bindsToAgent(row.assignment, args.agent))
     if (bound.length === 0) return []
 
     const revisions = await app.db

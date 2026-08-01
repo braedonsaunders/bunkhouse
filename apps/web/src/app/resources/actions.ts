@@ -1,9 +1,10 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createNote, decideProposal } from '../../lib/memory'
+import { createNote, decideProposal, setNoteAssignment } from '../../lib/memory'
 import { resolveTenantId as resolveTenant } from '../../lib/tenant'
 const resolveTenantId = () => resolveTenant('resources.manage')
+import { parseAssignment } from '../../lib/assignment'
 import { db } from '../../db/client'
 
 /** Author a company-knowledge note directly (humans only). */
@@ -16,9 +17,33 @@ export async function addCompanyNote(formData: FormData): Promise<void> {
   const tenantId = await resolveTenantId()
   const app = db()
   await app.withTenant(tenantId, async () => {
-    await createNote({ tenantId, scope: 'company', personId: null, kind, title, body, author: 'human', importance })
+    await createNote({
+      tenantId,
+      scope: 'company',
+      personId: null,
+      kind,
+      title,
+      body,
+      author: 'human',
+      importance,
+      assignment: parseAssignment(formData),
+    })
   })
   revalidatePath('/resources')
+  revalidatePath('/roles')
+}
+
+/** Rebind which agents a piece of company knowledge reaches. */
+export async function setCompanyNoteAssignment(formData: FormData): Promise<void> {
+  const noteId = String(formData.get('memoryId') ?? '')
+  if (!noteId) throw new Error('memoryId is required')
+  const tenantId = await resolveTenantId()
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await setNoteAssignment({ tenantId, noteId, assignment: parseAssignment(formData) })
+  })
+  revalidatePath('/resources')
+  revalidatePath('/roles')
 }
 
 /** Human decision on a memory proposal (promotion etc). */

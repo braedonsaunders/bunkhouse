@@ -3,10 +3,12 @@
 import { revalidatePath } from 'next/cache'
 import { eq } from 'drizzle-orm'
 import { CronExpressionParser } from 'cron-parser'
-import { roleDefs, type RoleAutonomyDefaults, type RoleDuty, type RoleProcedure } from '../../db/schema'
+import { roleDefs, type RoleAutonomyDefaults, type RoleDuty } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId as resolveTenant } from '../../lib/tenant'
 const resolveTenantId = () => resolveTenant('roles.manage')
+import { getRole, installRoleProcedures } from '../../lib/roles'
+import { isRoleResourceKind, setRoleLinks } from '../../lib/role-resources'
 
 const CATEGORIES = ['external_email', 'internal_email', 'record_write', 'money_adjacent', 'file_write', 'computer_use', 'shell'] as const
 const LEVELS = ['forbidden', 'approval', 'notify', 'trusted'] as const
