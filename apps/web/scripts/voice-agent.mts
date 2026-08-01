@@ -894,6 +894,16 @@ export default defineAgent({
     // One compact line per pipeline leg, so a "ten seconds to answer" report
     // against any deployment can be split into turn detection, model, and
     // speech synthesis by reading the service log instead of guessing.
+    //
+    // The same metrics answer a second question the silence watchdog below
+    // cannot answer on its own: whether a silent call was silent because a leg
+    // produced nothing, or because everything produced audio that never
+    // reached the caller. Those are different faults — one is the agent's
+    // configuration, the other is the media plane between the room and the
+    // caller — and a ledger entry that cannot tell them apart sends whoever
+    // reads it to the wrong place.
+    let modelAnswered = false
+    let voiceSynthesized = false
     agentSession.on(voice.AgentSessionEventTypes.MetricsCollected, (event) => {
       const m = event.metrics
       const ms = (v: number) => `${Math.round(v)}ms`
@@ -902,10 +912,15 @@ export default defineAgent({
           `[voice] ${session.id} turn-detect: end-of-utterance ${ms(m.endOfUtteranceDelayMs)}, transcript ${ms(m.transcriptionDelayMs)}`,
         )
       } else if (m.type === 'llm_metrics') {
+        modelAnswered = true
         console.log(`[voice] ${session.id} llm: first token ${ms(m.ttftMs)}, total ${ms(m.durationMs)}`)
       } else if (m.type === 'tts_metrics') {
+        voiceSynthesized = true
         console.log(`[voice] ${session.id} tts: first byte ${ms(m.ttfbMs)}`)
       } else if (m.type === 'realtime_model_metrics') {
+        // One leg on this path: the model is the voice.
+        modelAnswered = true
+        voiceSynthesized = true
         // Named, because which speech-to-speech model is answering is the
         // single biggest lever on how long a caller waits.
         const who = [m.metadata?.modelProvider, m.metadata?.modelName].filter(Boolean).join(' ') || m.label
@@ -1716,10 +1731,23 @@ export default defineAgent({
       // because of it — a false alarm on a working call is worse than none.
       const spokeCheck = setTimeout(() => {
         if (finalized || agentSpoke) return
-        const detail = `${liveConfig.mode === 'cascade' ? `the ${ai?.modelSmart ?? 'assigned'} model` : 'the realtime model'} produced no speech`
+        // Name the model that is actually on the line. The call runs on the
+        // fast model (`modelFast || modelSmart`, as assembled above); naming
+        // the thinking model here blamed a model that was never asked to
+        // speak, and an operator who changed it saw nothing improve.
+        const onTheLine = liveConfig.mode === 'cascade' ? (ai?.modelFast || ai?.modelSmart) : null
+        const detail =
+          voiceSynthesized || (modelAnswered && liveConfig.mode !== 'cascade')
+            ? // Every leg produced what it owes and the caller still heard
+              // nothing: the audio never left the room. That is the media
+              // path, not the agent.
+              'the call was answered and speech was prepared, but no audio reached the caller'
+            : modelAnswered
+              ? `the ${onTheLine ?? 'assigned'} model answered but no speech was synthesized`
+              : `${liveConfig.mode === 'cascade' ? `the ${onTheLine ?? 'assigned'} model` : 'the realtime model'} produced nothing to say`
         console.error(`[voice] room ${roomName}: SILENT — ${detail}, ${GREETING_GRACE_MS}ms after answering`)
         void recordEvent('error', {
-          message: `${person.name} answered but said nothing: ${detail}. The caller heard silence.`,
+          message: `${person.name} answered but the caller heard silence: ${detail}.`,
         }).catch(() => undefined)
       }, GREETING_GRACE_MS)
       ctx.addShutdownCallback(async () => clearTimeout(spokeCheck))
