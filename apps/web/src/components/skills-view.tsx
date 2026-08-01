@@ -13,6 +13,7 @@ import {
   SubtabNav,
   type RecordColumn,
 } from '@appkit/ui'
+import type { ResourceAssignment } from '../db/schema'
 import { SKILL_LIBRARY, SKILL_LIBRARY_GROUPS, type SkillLibraryEntry } from '../lib/skill-library'
 import { AssignmentFields, type AssignOption } from './procedures-view'
 import {
@@ -58,7 +59,7 @@ export type SkillRowView = {
   /** The markdown instructions of the current version. */
   body: string
   files: SkillFileView[]
-  assignment: { everyone?: boolean; rolePacks?: string[]; personIds?: string[] }
+  assignment: ResourceAssignment
 }
 
 const COLUMNS: RecordColumn<SkillRowView>[] = [
@@ -97,13 +98,13 @@ type Panel = { kind: 'library' } | { kind: 'repo' } | { kind: 'record'; id: stri
 
 export function SkillsView({
   rows,
-  rolePackOptions,
+  roleOptions,
   agentOptions,
   /** Whether this deployment can run sandboxed shell commands at all. */
   shellAvailable,
 }: {
   rows: SkillRowView[]
-  rolePackOptions: AssignOption[]
+  roleOptions: AssignOption[]
   agentOptions: AssignOption[]
   shellAvailable: boolean
 }) {
@@ -154,7 +155,7 @@ export function SkillsView({
         <SkillDrawer
           key={selected.id}
           skill={selected}
-          rolePackOptions={rolePackOptions}
+          roleOptions={roleOptions}
           agentOptions={agentOptions}
           shellAvailable={shellAvailable}
           onClose={() => setPanel(null)}
@@ -343,13 +344,13 @@ function RepoDrawer({ onClose }: { onClose: () => void }) {
 /** The record: what it says, what it ships, who may use it, where it came from. */
 function SkillDrawer({
   skill,
-  rolePackOptions,
+  roleOptions,
   agentOptions,
   shellAvailable,
   onClose,
 }: {
   skill: SkillRowView
-  rolePackOptions: AssignOption[]
+  roleOptions: AssignOption[]
   agentOptions: AssignOption[]
   shellAvailable: boolean
   onClose: () => void
@@ -435,7 +436,7 @@ function SkillDrawer({
                 only when it decides one applies.
               </p>
               <AssignmentFields
-                rolePackOptions={rolePackOptions}
+                roleOptions={roleOptions}
                 agentOptions={agentOptions}
                 current={skill.assignment}
               />

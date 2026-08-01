@@ -69,7 +69,7 @@ export const procedureRevisions = pgTable(
     body: text('body').notNull(),
     /**
      * The authored structure this body was rendered from. Null on revisions
-     * written before procedures had steps, and on role-pack-shipped prose.
+     * written before procedures had steps, and on prose a role shipped as a starter.
      */
     content: jsonb('content').$type<ProcedureContent>(),
     changeNote: text('change_note'),

@@ -54,8 +54,10 @@ screen and surfaces the server's message.
 
 ## Adding people
 
-Agents are hired from a role pack (Roles → onboard), which brings their duties,
-procedures, and day-one autonomy dial with them. Humans are added directly from
+Agents are hired into a role (Roles → onboard), which brings their duties and
+day-one autonomy dial with them, and — because the role links rather than copies
+— everything that role has been given: its procedures, skills, company knowledge
+and systems. See [roles.md](roles.md). Humans are added directly from
 People → **Add a person**: name, title, work email, phone, manager, time zone,
 start date, and what they own.
 

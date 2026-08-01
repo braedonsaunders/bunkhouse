@@ -22,7 +22,7 @@ export function ResourcesView({
   systems,
   mcpOauthOutcome,
   mcpOauthRedirectUri,
-  rolePackOptions,
+  roleOptions,
   agentOptions,
   initialTab,
 }: {
@@ -37,7 +37,7 @@ export function ResourcesView({
   mcpOauthOutcome?: McpOauthOutcome | null
   /** The exact address providers must be told to call back to. */
   mcpOauthRedirectUri: string
-  rolePackOptions: AssignOption[]
+  roleOptions: AssignOption[]
   agentOptions: AssignOption[]
   /** Which subtab to open on arrival — the OAuth callback and links deep-link here. */
   initialTab?: string
@@ -56,29 +56,35 @@ export function ResourcesView({
   return (
     <div className="space-y-4">
       <SubtabNav tabs={tabs} active={active} onSelect={setActive} ariaLabel="Resource sections" />
-      {active === 'notes' ? <NotesView scope="company" rows={notes} /> : null}
+      {active === 'notes' ? (
+        <NotesView scope="company" rows={notes} roleOptions={roleOptions} agentOptions={agentOptions} />
+      ) : null}
       {active === 'procedures' ? (
         <div className="space-y-3">
           <p className="text-sm text-fg-muted">
             Versioned company doctrine. Agents follow the active revision and cite it in their work — changes are new
             versions, never edits.
           </p>
-          <ProceduresView rows={procedures} rolePackOptions={rolePackOptions} agentOptions={agentOptions} />
+          <ProceduresView rows={procedures} roleOptions={roleOptions} agentOptions={agentOptions} />
         </div>
       ) : null}
       {active === 'skills' ? (
         <SkillsView
           rows={skills}
-          rolePackOptions={rolePackOptions}
+          roleOptions={roleOptions}
           agentOptions={agentOptions}
           shellAvailable={shellAvailable}
         />
       ) : null}
-      {active === 'systems' ? <SystemsView
+      {active === 'systems' ? (
+        <SystemsView
           systems={systems}
           oauthOutcome={mcpOauthOutcome ?? null}
           oauthRedirectUri={mcpOauthRedirectUri}
-        /> : null}
+          roleOptions={roleOptions}
+          agentOptions={agentOptions}
+        />
+      ) : null}
       {active === 'proposals' ? <ProposalsView rows={proposals} /> : null}
     </div>
   )

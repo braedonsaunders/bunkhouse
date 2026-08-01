@@ -26,6 +26,8 @@ export function isRoleResourceKind(value: string): value is RoleResourceKind {
 export type ResourceEntry = {
   /** What the link action addresses: a row id, or a slug for connected systems. */
   key: string
+  /** The resource's own handle, for matching against a role's starter set. */
+  slug: string
   title: string
   /** One line of context — version, description, kind — for the picker row. */
   detail: string
@@ -55,24 +57,28 @@ export async function listResourceCatalog(tenantId: string): Promise<ResourceCat
     return {
       procedures: procedureRows.map((row) => ({
         key: row.id,
+        slug: row.slug,
         title: row.title,
         detail: `v${row.currentVersion} · ${row.status}`,
         assignment: row.assignment,
       })),
       skills: skillRows.map((row) => ({
         key: row.id,
+        slug: row.slug,
         title: row.title,
         detail: row.description,
         assignment: row.assignment,
       })),
       notes: noteRows.map((row) => ({
         key: row.id,
+        slug: row.slug,
         title: row.title,
         detail: `${row.kind}${row.pinned ? ' · pinned' : ''}`,
         assignment: row.assignment,
       })),
       systems: systems.map((entry) => ({
         key: entry.slug,
+        slug: entry.slug,
         title: entry.label,
         detail: entry.url,
         assignment: entry.assignment,

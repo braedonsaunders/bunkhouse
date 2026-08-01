@@ -74,13 +74,23 @@ SELECT rd.tenant_id,
  WHERE coalesce(p ->> 'slug', '') <> '' AND coalesce(p ->> 'body', '') <> ''
 ON CONFLICT (procedure_id, version) DO NOTHING;
 
--- A procedure that was already installed keeps its own text and history; all
--- it needs is the link to the role that also declared it.
-UPDATE procedures
-   SET assignment = assignment || jsonb_build_object(
-         'roles', coalesce(assignment -> 'roles', '[]'::jsonb) || to_jsonb(source ->> 'role'))
- WHERE source ->> 'type' = 'role'
-   AND coalesce(assignment -> 'everyone', 'false'::jsonb) <> 'true'::jsonb
-   AND NOT (coalesce(assignment -> 'roles', '[]'::jsonb) @> to_jsonb(source ->> 'role'));
+-- A procedure that was already installed keeps its own text and history; all it
+-- needs is the link the dropped column was holding. Matched against the role
+-- definitions being converted, not against every procedure a role ever
+-- installed: one an operator has since narrowed to a single agent was narrowed
+-- deliberately, and re-broadening it here would undo that silently.
+UPDATE procedures pr
+   SET assignment = pr.assignment || jsonb_build_object(
+         'roles', coalesce(pr.assignment -> 'roles', '[]'::jsonb) || to_jsonb(rd.slug))
+  FROM role_defs rd
+  CROSS JOIN LATERAL jsonb_array_elements(rd.procedures) AS p
+ WHERE pr.tenant_id = rd.tenant_id
+   AND pr.slug = rd.slug || '-' || (p ->> 'slug')
+   AND coalesce(pr.assignment -> 'everyone', 'false'::jsonb) <> 'true'::jsonb
+   AND NOT (coalesce(pr.assignment -> 'roles', '[]'::jsonb) @> to_jsonb(rd.slug));
 
 ALTER TABLE role_defs DROP COLUMN IF EXISTS procedures;
+
+-- An agent holds a role, which may be a first-party pack or one built here.
+-- The column has held either since custom roles arrived; now it says so.
+ALTER TABLE people RENAME COLUMN role_pack_slug TO role_slug;

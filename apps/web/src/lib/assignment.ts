@@ -22,8 +22,8 @@ export type AgentBinding = {
  * name, and the role it holds. Built once per caller so procedures, skills,
  * knowledge and systems all resolve against the same agent.
  */
-export function agentBinding(person: { id: string; rolePackSlug: string | null }): AgentBinding {
-  return { personId: person.id, roleSlug: person.rolePackSlug }
+export function agentBinding(person: { id: string; roleSlug: string | null }): AgentBinding {
+  return { personId: person.id, roleSlug: person.roleSlug }
 }
 
 export function bindsToAgent(assignment: ResourceAssignment, agent: AgentBinding): boolean {
@@ -51,7 +51,10 @@ export function withRole(assignment: ResourceAssignment, roleSlug: string): Reso
 export function withoutRole(assignment: ResourceAssignment, roleSlug: string): ResourceAssignment {
   if (!bindsToRole(assignment, roleSlug)) return assignment
   const roles = (assignment.roles ?? []).filter((slug) => slug !== roleSlug)
-  const { roles: _dropped, ...rest } = assignment
+  // The key goes when the last role does: an empty `roles: []` reads as a
+  // deliberate "assigned to no roles" everywhere it is inspected, and it is not.
+  const rest: ResourceAssignment = { ...assignment }
+  delete rest.roles
   return roles.length > 0 ? { ...rest, roles } : rest
 }
 

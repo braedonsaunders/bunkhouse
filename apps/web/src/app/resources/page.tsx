@@ -1,9 +1,10 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
-import { ROLE_PACKS } from '@bunkhouse/roles'
 import { PageContainer, PageHeader } from '@appkit/ui'
 import { memories, memoryProposals, people, procedureRevisions, procedures } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
+import { describeAssignment } from '../../lib/assignment'
+import { roleOptions as listRoleOptions } from '../../lib/roles'
 import { listMcpIntegrations } from '../../lib/mcp-integrations'
 import { mcpOauthRedirectUri } from '../../lib/mcp-oauth'
 import { listCurrentRevisions, listSkillFiles, listSkills } from '../../lib/skills'
@@ -112,20 +113,13 @@ export default async function ResourcesPage({
   })
 
   const agentNames = new Map(data.agents.map((h) => [h.id, h.name]))
-  const packTitles = new Map(ROLE_PACKS.map((p) => [p.slug, p.title]))
-
-  /** "Applies to" reads the same for a skill as for a procedure. */
-  const describeAssignment = (assignment: {
-    everyone?: boolean
-    rolePacks?: string[]
-    personIds?: string[]
-  }): string =>
-    assignment.everyone
-      ? 'Everyone'
-      : [
-          ...(assignment.rolePacks ?? []).map((slug) => packTitles.get(slug) ?? slug),
-          ...(assignment.personIds ?? []).map((id) => agentNames.get(id) ?? 'an agent'),
-        ].join(', ') || 'Nobody yet'
+  // Every role an assignment can name — the builtin packs and the roles this
+  // company built. A custom role that could not be picked here was a role
+  // nothing could ever be assigned to.
+  const roleOptions = await listRoleOptions(tenantId)
+  const names = { roles: new Map(roleOptions.map((r) => [r.value, r.label])), agents: agentNames }
+  /** "Applies to" reads the same for every governed resource. */
+  const appliesTo = (assignment: Parameters<typeof describeAssignment>[0]) => describeAssignment(assignment, names)
 
   const skillRows: SkillRowView[] = data.skillHeads.map((head) => {
     const revision = data.skillRevisions.find((r) => r.skillId === head.id && r.version === head.currentVersion)
@@ -137,7 +131,7 @@ export default async function ResourcesPage({
       description: head.description,
       status: head.status,
       version: head.currentVersion,
-      appliesTo: describeAssignment(head.assignment),
+      appliesTo: appliesTo(head.assignment),
       origin: head.source.path ? `${head.source.repo}/${head.source.path}` : head.source.repo,
       pinned: `${head.source.ref} · ${head.source.commitSha.slice(0, 7)}`,
       licence: head.license ?? 'Not stated by the author',
@@ -151,14 +145,13 @@ export default async function ResourcesPage({
   const procedureRows: ProcedureRow[] = data.procedureHeads.map((head) => {
     const revs = data.revisions.filter((r) => r.procedureId === head.id)
     const current = revs.find((r) => r.version === head.currentVersion)
-    const appliesTo = describeAssignment(head.assignment)
     return {
       id: head.id,
       slug: head.slug,
       title: head.title,
       status: head.status,
       version: head.currentVersion,
-      appliesTo,
+      appliesTo: appliesTo(head.assignment),
       updatedAt: stamp(head.updatedAt),
       body: current?.body ?? '',
       content: current?.content ?? null,
@@ -192,6 +185,8 @@ export default async function ResourcesPage({
           pinned: note.pinned,
           author: note.author,
           updatedAt: stamp(note.updatedAt),
+          appliesTo: appliesTo(note.assignment),
+          assignment: note.assignment,
         }))}
         proposals={data.proposals.map(({ proposal, proposerName }) => {
           const housekeeping = proposal.payload.origin === 'gardener'
@@ -222,10 +217,12 @@ export default async function ResourcesPage({
           hasHeaders: Boolean(entry.sealedHeaders),
           isOauth: Boolean(entry.oauth),
           ...(entry.oauth?.clientId ? { clientId: entry.oauth.clientId } : {}),
+          appliesTo: appliesTo(entry.assignment),
+          assignment: entry.assignment,
         }))}
         mcpOauthOutcome={mcpOauthOutcome}
         mcpOauthRedirectUri={await mcpOauthRedirectUri()}
-        rolePackOptions={ROLE_PACKS.map((p) => ({ value: p.slug, label: p.title }))}
+        roleOptions={roleOptions}
         agentOptions={data.agents.map((h) => ({ value: h.id, label: h.name }))}
         {...(tab ? { initialTab: tab } : {})}
       />

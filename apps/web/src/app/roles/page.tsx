@@ -3,7 +3,8 @@ import { PageContainer, PageHeader } from '@appkit/ui'
 import { people } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
-import { listRoles } from '../../lib/roles'
+import { listRoles, seedProcedureSlug } from '../../lib/roles'
+import { listResourceCatalog } from '../../lib/role-resources'
 import { RolesView } from '../../components/roles-view'
 
 export const dynamic = 'force-dynamic'
@@ -11,8 +12,9 @@ export const dynamic = 'force-dynamic'
 export default async function RolesPage() {
   const tenantId = await resolveTenantId('roles.read')
   const app = db()
-  const [roles, roster] = await Promise.all([
+  const [roles, catalog, roster] = await Promise.all([
     listRoles(tenantId),
+    listResourceCatalog(tenantId),
     app.withTenantContext(tenantId, () =>
       app.db
         .select({ id: people.id, name: people.name, title: people.title })
@@ -22,13 +24,22 @@ export default async function RolesPage() {
     ),
   ])
 
+  // A role's starter procedures are an offer, not a listing: once one is in the
+  // library it is a governed procedure like any other and belongs in the
+  // picker, not in "this role ships these".
+  const installed = new Set(catalog.procedures.map((entry) => entry.slug))
+  const withPendingSeeds = roles.map((role) => ({
+    ...role,
+    seedProcedures: role.seedProcedures.filter((seed) => !installed.has(seedProcedureSlug(role.slug, seed.slug))),
+  }))
+
   return (
     <PageContainer className="space-y-6">
       <PageHeader
         title="Roles"
-        description="The jobs agents can hold. Browse the built-ins, build your own, and onboard an agent from any of them."
+        description="The jobs agents can hold. A role is where the company's procedures, skills, knowledge and systems are handed out — write them once under Company resources, then give them to the roles that need them."
       />
-      <RolesView roles={roles} roster={roster} />
+      <RolesView roles={withPendingSeeds} roster={roster} catalog={catalog} />
     </PageContainer>
   )
 }

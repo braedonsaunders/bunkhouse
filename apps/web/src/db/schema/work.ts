@@ -31,7 +31,7 @@ export const duties = pgTable(
     endsAt: timestamp('ends_at', { withTimezone: true }),
     maxRuns: integer('max_runs'),
     runCount: integer('run_count').notNull().default(0),
-    /** Slug of the role-pack duty this was instantiated from, if any. */
+    /** Slug of the role's duty this was instantiated from, if any. */
     fromRolePackDuty: text('from_role_pack_duty'),
     enabled: text('enabled').$type<'on' | 'off'>().notNull().default('on'),
     lastRunAt: timestamp('last_run_at', { withTimezone: true }),

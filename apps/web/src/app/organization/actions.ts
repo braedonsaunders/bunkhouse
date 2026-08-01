@@ -17,8 +17,6 @@ import {
   meetingLinks,
   memories,
   people,
-  procedures,
-  procedureRevisions,
   type BunkhouseVoiceConfig,
 } from '../../db/schema'
 import { db } from '../../db/client'
@@ -123,10 +121,12 @@ export async function setReportsTo(
 }
 
 /**
- * Hire an agent from a role pack: person + day-one autonomy dial + standing
- * duties + the pack's starter procedures (versioned, assigned to the role),
- * atomically. The agent starts in 'onboarding' — activation happens when a
- * mailbox is connected.
+ * Hire an agent into a role: person + day-one autonomy dial + standing duties,
+ * atomically, plus the role's starter procedures if they are not in the library
+ * yet. Everything else the role carries — procedures, skills, knowledge,
+ * systems — is linked to the role, so this agent picks it up by holding the
+ * role rather than by being given a copy of it. The agent starts in
+ * 'onboarding'; activation happens when a mailbox is connected.
  */
 export async function hireAgent(formData: FormData): Promise<void> {
   const packSlug = String(formData.get('rolePack') ?? '')
@@ -164,7 +164,7 @@ export async function hireAgent(formData: FormData): Promise<void> {
         email,
         timezone,
         reportsToId,
-        rolePackSlug: pack.slug,
+        roleSlug: pack.slug,
         responsibilities: pack.pitch,
         personality: { bio, tone: pack.personality.tone, signoff: `Best,\n${name.split(' ')[0]}` },
         salary: { monthlyUsd: salaryUsd, overagePolicy: 'ask' },

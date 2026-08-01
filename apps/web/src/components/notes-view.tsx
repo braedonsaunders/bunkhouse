@@ -9,8 +9,10 @@ import {
   Label,
   RecordList,
   Select,
+  SubtabNav,
   type RecordColumn,
 } from '@appkit/ui'
+import type { ResourceAssignment } from '../db/schema'
 import {
   addMemoryNote,
   deleteMemoryNote,
@@ -18,7 +20,8 @@ import {
   togglePinNote,
   updateMemoryNote,
 } from '../app/organization/actions'
-import { addCompanyNote, decideMemoryProposal } from '../app/resources/actions'
+import { addCompanyNote, decideMemoryProposal, setCompanyNoteAssignment } from '../app/resources/actions'
+import { AssignmentFields, type AssignOption } from './procedures-view'
 import { MarkdownEditor } from './markdown-editor'
 
 export type NoteRow = {
@@ -31,12 +34,15 @@ export type NoteRow = {
   pinned: boolean
   author: string
   updatedAt: string
+  /** Company knowledge only — an agent's own note reaches the agent it belongs to. */
+  appliesTo?: string
+  assignment?: ResourceAssignment
 }
 
 const KIND_VARIANT = (value: string) =>
   value === 'procedure' ? ('default' as const) : value === 'reflection' ? ('secondary' as const) : ('outline' as const)
 
-const COLUMNS: RecordColumn<NoteRow>[] = [
+const columnsFor = (scope: 'agent' | 'company'): RecordColumn<NoteRow>[] => [
   { key: 'title', label: 'Note', sortable: true },
   { key: 'kind', label: 'Kind', kind: 'status', sortable: true, statusVariant: KIND_VARIANT },
   { key: 'importance', label: 'Importance', align: 'right', sortable: true },
@@ -45,6 +51,7 @@ const COLUMNS: RecordColumn<NoteRow>[] = [
     label: 'Pinned',
     render: (row) => (row.pinned ? <Badge>pinned</Badge> : <span className="text-fg-subtle">—</span>),
   },
+  ...(scope === 'company' ? [{ key: 'appliesTo', label: 'Applies to' } as RecordColumn<NoteRow>] : []),
   { key: 'author', label: 'By', sortable: true },
   { key: 'updatedAt', label: 'Updated', sortable: true },
 ]
@@ -57,12 +64,18 @@ export function NotesView({
   rows,
   scope,
   personId,
+  roleOptions = [],
+  agentOptions = [],
 }: {
   rows: NoteRow[]
   scope: 'agent' | 'company'
   personId?: string
+  /** Company knowledge only: who a note can be given to. */
+  roleOptions?: AssignOption[]
+  agentOptions?: AssignOption[]
 }) {
   const [selected, setSelected] = React.useState<NoteRow | null>(null)
+  const [tab, setTab] = React.useState('note')
   const [creating, setCreating] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [busy, startBusy] = React.useTransition()
@@ -84,11 +97,12 @@ export function NotesView({
   return (
     <>
       <RecordList
-        columns={COLUMNS}
+        columns={columnsFor(scope)}
         rows={rows}
         getRowId={(row) => row.id}
         onRowClick={(row) => {
           setError(null)
+          setTab('note')
           setSelected(row)
         }}
         toolbarActions={
@@ -142,6 +156,15 @@ export function NotesView({
             <Label htmlFor="note-body">Note</Label>
             <MarkdownEditor name="body" placeholder="Something worth remembering. Link with [[slug]]." />
           </div>
+          {scope === 'company' ? (
+            <div className="space-y-2">
+              <Label>Applies to</Label>
+              <AssignmentFields roleOptions={roleOptions} agentOptions={agentOptions} defaultEveryone />
+              <p className="text-xs text-fg-muted">
+                Narrow it to a role and only agents holding that role carry it in their prompt.
+              </p>
+            </div>
+          ) : null}
           <Button type="submit" disabled={busy}>
             {busy ? 'Saving…' : 'Save note'}
           </Button>
@@ -158,13 +181,31 @@ export function NotesView({
       >
         {selected ? (
           <div className="space-y-5">
-            <div className="flex flex-wrap items-center gap-2">
+            <SubtabNav
+              tabs={[
+                { key: 'note', label: 'Note' },
+                scope === 'company'
+                  ? { key: 'applies', label: 'Applies to' }
+                  : { key: 'propose', label: 'Propose' },
+              ]}
+              active={tab}
+              onSelect={(key) => {
+                setTab(key)
+                setError(null)
+              }}
+              ariaLabel="Note sections"
+            />
+
+            <div className={tab === 'note' ? 'flex flex-wrap items-center gap-2' : 'hidden'}>
               <Badge variant={KIND_VARIANT(selected.kind)}>{selected.kind}</Badge>
               <Badge variant="outline">importance {selected.importance}</Badge>
               {selected.pinned ? <Badge>pinned</Badge> : null}
             </div>
 
-            <form action={(form) => act(updateMemoryNote, form, true)} className="space-y-3">
+            <form
+              action={(form) => act(updateMemoryNote, form, true)}
+              className={tab === 'note' ? 'space-y-3' : 'hidden'}
+            >
               <input type="hidden" name="memoryId" value={selected.id} />
               <div className="space-y-2">
                 <Label htmlFor="edit-title">Title</Label>
@@ -213,19 +254,49 @@ export function NotesView({
               </p>
             </form>
 
-            {scope === 'agent' ? (
+            {scope === 'agent' && tab === 'propose' ? (
               <form
                 action={(form) => {
                   form.set('memoryId', selected.id)
                   act(promoteNoteAction, form, true)
                 }}
-                className="space-y-2 rounded-md border border-dashed border-border p-3"
+                className="space-y-2"
               >
                 <Label htmlFor="promote-rationale">Propose for company knowledge</Label>
                 <Input id="promote-rationale" name="rationale" placeholder="Why the whole company should know this" />
                 <Button type="submit" variant="outline" size="sm" disabled={busy}>
                   Send proposal
                 </Button>
+                <p className="text-xs text-fg-muted">
+                  A human decides whether it crosses into company knowledge — and which roles it reaches once it does.
+                </p>
+              </form>
+            ) : null}
+
+            {scope === 'company' && tab === 'applies' ? (
+              <form
+                action={(form) => {
+                  form.set('memoryId', selected.id)
+                  act(setCompanyNoteAssignment, form)
+                }}
+                className="space-y-3"
+              >
+                <div className="space-y-2">
+                  <Label>Who carries this</Label>
+                  <AssignmentFields
+                    key={selected.id}
+                    roleOptions={roleOptions}
+                    agentOptions={agentOptions}
+                    {...(selected.assignment ? { current: selected.assignment } : {})}
+                  />
+                </div>
+                <Button type="submit" variant="outline" size="sm" disabled={busy}>
+                  Save assignment
+                </Button>
+                <p className="text-xs text-fg-muted">
+                  Company knowledge rides in the prompt of every agent it applies to; narrowing it keeps a role&apos;s
+                  context about that role.
+                </p>
               </form>
             ) : null}
             {error ? <p className="text-sm text-danger">{error}</p> : null}

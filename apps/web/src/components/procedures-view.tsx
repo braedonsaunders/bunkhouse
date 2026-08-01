@@ -11,7 +11,7 @@ import {
   SubtabNav,
   type RecordColumn,
 } from '@appkit/ui'
-import type { ProcedureContent } from '../db/schema'
+import type { ProcedureContent, ResourceAssignment } from '../db/schema'
 import { addRevision, createProcedure, setProcedureAssignment, setProcedureStatus } from '../app/resources/procedure-actions'
 import { contentFromLegacyBody } from '../lib/procedures'
 import { ProcedureEditor, emptyDraft } from './procedure-editor'
@@ -37,7 +37,7 @@ export type ProcedureRow = {
   content: ProcedureContent | null
   steps: number
   revisions: ProcedureRevision[]
-  assignment: { everyone?: boolean; rolePacks?: string[]; personIds?: string[] }
+  assignment: ResourceAssignment
 }
 
 export type AssignOption = { value: string; label: string }
@@ -58,21 +58,26 @@ const COLUMNS: RecordColumn<ProcedureRow>[] = [
 ]
 
 /**
- * Who a governed object binds to: everyone, whole role packs, or named agents.
- * Shared with skills so "applies to" means one thing across the app, and the
- * hidden inputs keep it usable as a plain form field.
+ * Who a governed resource applies to: everyone, whole roles, or named agents.
+ * Shared by procedures, skills, company knowledge and systems so "applies to"
+ * means one thing across the app, and the hidden inputs keep it usable as a
+ * plain form field. The role's own screen writes this same field from the
+ * other end — there is one link, with two places to edit it.
  */
 export function AssignmentFields({
-  rolePackOptions,
+  roleOptions,
   agentOptions,
   current,
+  defaultEveryone = false,
 }: {
-  rolePackOptions: AssignOption[]
+  roleOptions: AssignOption[]
   agentOptions: AssignOption[]
-  current?: ProcedureRow['assignment']
+  current?: ResourceAssignment
+  /** What a fresh record starts as — company knowledge is the company's. */
+  defaultEveryone?: boolean
 }) {
-  const [everyone, setEveryone] = React.useState(current?.everyone ?? false)
-  const [rolePacks, setRolePacks] = React.useState<string[]>(current?.rolePacks ?? [])
+  const [everyone, setEveryone] = React.useState(current?.everyone ?? defaultEveryone)
+  const [roles, setRoles] = React.useState<string[]>(current?.roles ?? [])
   const [personIds, setPersonIds] = React.useState<string[]>(current?.personIds ?? [])
   const toggle = (list: string[], set: (v: string[]) => void, value: string) =>
     set(list.includes(value) ? list.filter((v) => v !== value) : [...list, value])
@@ -80,7 +85,7 @@ export function AssignmentFields({
   return (
     <div className="space-y-2">
       <input type="hidden" name="everyone" value={everyone ? 'on' : ''} />
-      <input type="hidden" name="rolePacks" value={rolePacks.join(',')} />
+      <input type="hidden" name="roles" value={roles.join(',')} />
       <input type="hidden" name="personIds" value={personIds.join(',')} />
       <div className="flex flex-wrap gap-1">
         <button
@@ -95,13 +100,13 @@ export function AssignmentFields({
           Everyone
         </button>
         {!everyone
-          ? rolePackOptions.map((option) => (
+          ? roleOptions.map((option) => (
               <button
                 key={option.value}
                 type="button"
-                onClick={() => toggle(rolePacks, setRolePacks, option.value)}
+                onClick={() => toggle(roles, setRoles, option.value)}
                 className={
-                  rolePacks.includes(option.value)
+                  roles.includes(option.value)
                     ? 'rounded-md border border-primary bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary'
                     : 'rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted hover:border-primary/50'
                 }
@@ -142,11 +147,11 @@ type Mode = { kind: 'read' } | { kind: 'edit'; draft: ProcedureContent }
  */
 export function ProceduresView({
   rows,
-  rolePackOptions,
+  roleOptions,
   agentOptions,
 }: {
   rows: ProcedureRow[]
-  rolePackOptions: AssignOption[]
+  roleOptions: AssignOption[]
   agentOptions: AssignOption[]
 }) {
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
@@ -272,7 +277,7 @@ export function ProceduresView({
 
           <div className="space-y-2">
             <Label>Applies to</Label>
-            <AssignmentFields rolePackOptions={rolePackOptions} agentOptions={agentOptions} />
+            <AssignmentFields roleOptions={roleOptions} agentOptions={agentOptions} />
           </div>
 
           <div className="flex items-center gap-2">
@@ -414,7 +419,7 @@ export function ProceduresView({
                 <div className="space-y-2">
                   <Label>Who follows this</Label>
                   <AssignmentFields
-                    rolePackOptions={rolePackOptions}
+                    roleOptions={roleOptions}
                     agentOptions={agentOptions}
                     current={selected.assignment}
                   />

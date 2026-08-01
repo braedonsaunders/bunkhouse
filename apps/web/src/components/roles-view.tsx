@@ -14,40 +14,62 @@ import {
   type RecordColumn,
 } from '@appkit/ui'
 import type { Role } from '../lib/roles'
+import type { ResourceCatalog, ResourceEntry, RoleResourceKind } from '../lib/role-resources'
 import { hireAgent } from '../app/organization/actions'
-import { deleteRoleDef, saveRoleDef } from '../app/roles/actions'
+import { deleteRoleDef, installRoleStarterProcedures, saveRoleDef, setRoleResources } from '../app/roles/actions'
 import { cronToHuman } from '../lib/schedule'
 import {
   ACTION_CATEGORIES,
   AUTONOMY_LEVELS,
   CATEGORY_LABELS,
   DEFAULT_AUTONOMY_LEVEL,
-  isActionCategory,
 } from '../lib/autonomy'
 import { MarkdownEditor } from './markdown-editor'
 import { ScheduleBuilder } from './schedule-builder'
 
 export type RosterOption = { id: string; name: string; title: string }
 
-const COLUMNS: RecordColumn<Role>[] = [
-  { key: 'title', label: 'Role', sortable: true },
+/** The resource kinds a role links, in the order they appear on the record. */
+const RESOURCE_TABS: {
+  kind: RoleResourceKind
+  label: string
+  /** What linking one of these actually does for an agent holding the role. */
+  blurb: string
+  empty: string
+}[] = [
   {
-    key: 'origin',
-    label: 'Origin',
-    kind: 'status',
-    sortable: true,
-    statusVariant: (value) => (value === 'custom' ? 'default' : 'secondary'),
-  },
-  { key: 'pitch', label: 'What they do' },
-  { key: 'duties', label: 'Duties', align: 'right', render: (row) => <span className="tabular-nums">{row.duties.length}</span> },
-  {
-    key: 'procedures',
+    kind: 'procedures',
     label: 'Procedures',
-    align: 'right',
-    render: (row) => <span className="tabular-nums">{row.procedures.length}</span>,
+    blurb:
+      'Company doctrine every agent in this role follows and cites. Write it once under Company resources — this is where you give it to a role.',
+    empty: 'No procedures written yet. Author them under Company resources, then give them to this role here.',
   },
-  { key: 'suggestedSalaryUsd', label: 'Salary', kind: 'amount', sortable: true, format: (v) => `$${v as number}/mo` },
+  {
+    kind: 'skills',
+    label: 'Skills',
+    blurb: 'Competence this role can draw on. Indexed in the agent’s prompt and loaded when it is relevant.',
+    empty: 'No skills installed yet. Install them under Company resources, then give them to this role here.',
+  },
+  {
+    kind: 'notes',
+    label: 'Knowledge',
+    blurb: 'Company knowledge this role is given. Everything else in the company’s notes stays out of its prompt.',
+    empty: 'No company knowledge written yet.',
+  },
+  {
+    kind: 'systems',
+    label: 'Systems',
+    blurb: 'The outside software this role works in. Its tools appear in the toolbox of every agent holding the role.',
+    empty: 'No systems connected yet. Connect them under Company resources, then give them to this role here.',
+  },
 ]
+
+/** Resources reaching a role: the ones linked to it, plus company-wide ones. */
+const reaching = (entries: ResourceEntry[], roleSlug: string) =>
+  entries.filter((entry) => entry.assignment.everyone || (entry.assignment.roles?.includes(roleSlug) ?? false))
+
+const linkedKeys = (entries: ResourceEntry[], roleSlug: string) =>
+  entries.filter((entry) => entry.assignment.roles?.includes(roleSlug) ?? false).map((entry) => entry.key)
 
 type EditorState = {
   roleId?: string
@@ -59,7 +81,6 @@ type EditorState = {
   inboundPolicy: string
   suggestedSalaryUsd: number
   duties: { title: string; instruction: string; cron: string }[]
-  procedures: { title: string; body: string }[]
   autonomy: Record<string, string>
 }
 
@@ -72,7 +93,6 @@ const blankEditor = (): EditorState => ({
   inboundPolicy: 'staff_only',
   suggestedSalaryUsd: 50,
   duties: [],
-  procedures: [],
   autonomy: {},
 })
 
@@ -86,18 +106,66 @@ const editorFromRole = (role: Role, keepId: boolean): EditorState => ({
   inboundPolicy: role.inboundPolicy,
   suggestedSalaryUsd: role.suggestedSalaryUsd,
   duties: role.duties.map((d) => ({ title: d.title, instruction: d.instruction, cron: d.cron })),
-  procedures: role.procedures.map((p) => ({ title: p.title, body: p.body })),
   autonomy: Object.fromEntries(Object.entries(role.autonomyDefaults)),
 })
 
-/** The role catalog: browse, build your own, onboard agents from any role. */
-export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOption[] }) {
-  const [selected, setSelected] = React.useState<Role | null>(null)
+/**
+ * The role catalog: browse, build your own, give a role the company resources
+ * it works from, and onboard agents into it.
+ *
+ * A role links resources rather than restating them. The toggles on the record
+ * write the resource's own "applies to" — the same field the Company resources
+ * screens write — so doctrine is authored once and given out from either end.
+ */
+export function RolesView({
+  roles,
+  roster,
+  catalog,
+}: {
+  roles: Role[]
+  roster: RosterOption[]
+  catalog: ResourceCatalog
+}) {
+  const [selectedSlug, setSelectedSlug] = React.useState<string | null>(null)
+  const [recordTab, setRecordTab] = React.useState('overview')
   const [onboarding, setOnboarding] = React.useState<Role | null>(null)
   const [editor, setEditor] = React.useState<EditorState | null>(null)
   const [editorTab, setEditorTab] = React.useState('basics')
   const [error, setError] = React.useState<string | null>(null)
   const [busy, startBusy] = React.useTransition()
+  /** The picker's working set, per kind, for the role currently open. */
+  const [draft, setDraft] = React.useState<Record<string, string[]>>({})
+
+  const selected = roles.find((role) => role.slug === selectedSlug) ?? null
+
+  const columns: RecordColumn<Role>[] = [
+    { key: 'title', label: 'Role', sortable: true },
+    {
+      key: 'origin',
+      label: 'Origin',
+      kind: 'status',
+      sortable: true,
+      statusVariant: (value) => (value === 'custom' ? 'default' : 'secondary'),
+    },
+    { key: 'pitch', label: 'What they do' },
+    {
+      key: 'duties',
+      label: 'Duties',
+      align: 'right',
+      render: (row) => <span className="tabular-nums">{row.duties.length}</span>,
+    },
+    {
+      key: 'resources',
+      label: 'Resources',
+      align: 'right',
+      render: (row) => (
+        <span className="tabular-nums">
+          {RESOURCE_TABS.reduce((total, tab) => total + reaching(catalog[tab.kind], row.slug).length, 0)}
+        </span>
+      ),
+    },
+    { key: 'suggestedSalaryUsd', label: 'Salary', kind: 'amount', sortable: true, format: (v) => `$${v as number}/mo` },
+  ]
 
   const act = (action: (form: FormData) => Promise<void>, form: FormData, onDone?: () => void) =>
     startBusy(async () => {
@@ -111,16 +179,24 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
       }
     })
 
+  const openRecord = (role: Role) => {
+    setError(null)
+    setRecordTab('overview')
+    setDraft(Object.fromEntries(RESOURCE_TABS.map((tab) => [tab.kind, linkedKeys(catalog[tab.kind], role.slug)])))
+    setSelectedSlug(role.slug)
+  }
+
+  // Already filtered to what is not in the library yet — the page resolves that
+  // against real procedure slugs rather than guessing from titles here.
+  const uninstalledSeeds = selected?.seedProcedures ?? []
+
   return (
     <>
       <RecordList
-        columns={COLUMNS}
+        columns={columns}
         rows={roles}
         getRowId={(row) => row.slug}
-        onRowClick={(row) => {
-          setError(null)
-          setSelected(row)
-        }}
+        onRowClick={openRecord}
         toolbarActions={
           <Button size="sm" onClick={() => { setEditorTab('basics'); setEditor(blankEditor()) }}>
             New role
@@ -129,13 +205,13 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
         empty={{ title: 'No roles', description: 'Build a role — it defines the job an agent is onboarded into.' }}
       />
 
-      {/* Role detail */}
+      {/* Role record */}
       <Drawer
         open={selected !== null && editor === null && onboarding === null}
-        onClose={() => setSelected(null)}
+        onClose={() => setSelectedSlug(null)}
         title={selected?.title ?? ''}
         description={selected?.pitch}
-        size="lg"
+        size="2xl"
         headerActions={
           selected ? (
             <span className="flex items-center gap-2">
@@ -156,48 +232,185 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
         }
       >
         {selected ? (
-          <div className="space-y-5 text-sm">
-            <p className="text-fg-muted">{selected.description}</p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Standing duties</p>
+          <div className="space-y-4">
+            <SubtabNav
+              tabs={[
+                { key: 'overview', label: 'Overview' },
+                { key: 'duties', label: 'Duties', count: selected.duties.length },
+                ...RESOURCE_TABS.map((tab) => ({
+                  key: tab.kind,
+                  label: tab.label,
+                  count: reaching(catalog[tab.kind], selected.slug).length,
+                })),
+              ]}
+              active={recordTab}
+              onSelect={(key) => {
+                setRecordTab(key)
+                setError(null)
+              }}
+              ariaLabel="Role sections"
+            />
+
+            {recordTab === 'overview' ? (
+              <div className="space-y-4 text-sm">
+                <p className="text-fg-muted">{selected.description}</p>
+                <p className="text-fg-muted">{selected.personality.bio}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">inbound: {selected.inboundPolicy.replace('_', ' ')}</Badge>
+                  <Badge variant="outline">${selected.suggestedSalaryUsd}/mo suggested</Badge>
+                  {selected.personality.tone.map((tone) => (
+                    <Badge key={tone} variant="secondary">
+                      {tone}
+                    </Badge>
+                  ))}
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Day-one autonomy</p>
+                  <div className="flex flex-wrap gap-2">
+                    {ACTION_CATEGORIES.map((category) => (
+                      <Badge key={category} variant="outline">
+                        {CATEGORY_LABELS[category]}: {selected.autonomyDefaults[category] ?? DEFAULT_AUTONOMY_LEVEL}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {recordTab === 'duties' ? (
+              <div className="space-y-2 text-sm">
+                <p className="text-fg-muted">
+                  Standing work this role does on a schedule. Each agent onboarded into the role gets its own copy, on
+                  its own clock — duties belong to the job, not to a shared library.
+                </p>
                 {selected.duties.length === 0 ? (
-                  <p className="text-fg-muted">None — reactive role.</p>
+                  <p className="text-fg-muted">None — this role works reactively.</p>
                 ) : (
                   <ul className="space-y-1">
                     {selected.duties.map((duty) => (
-                      <li key={duty.slug} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
-                        <span>{duty.title}</span>
-                        <Badge variant="outline">{cronToHuman(duty.cron)}</Badge>
+                      <li key={duty.slug} className="rounded-md border border-border px-3 py-2">
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="font-medium">{duty.title}</span>
+                          <Badge variant="outline">{cronToHuman(duty.cron)}</Badge>
+                        </span>
+                        <span className="mt-0.5 block text-xs text-fg-muted">{duty.instruction}</span>
                       </li>
                     ))}
                   </ul>
                 )}
               </div>
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Binding procedures</p>
-                {selected.procedures.length === 0 ? (
-                  <p className="text-fg-muted">None.</p>
-                ) : (
-                  <ul className="space-y-1">
-                    {selected.procedures.map((procedure) => (
-                      <li key={procedure.slug} className="rounded-md border border-border px-3 py-2">
-                        {procedure.title}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">inbound: {selected.inboundPolicy.replace('_', ' ')}</Badge>
-              <Badge variant="outline">${selected.suggestedSalaryUsd}/mo suggested</Badge>
-              {Object.entries(selected.autonomyDefaults).map(([category, level]) => (
-                <Badge key={category} variant="secondary">
-                  {isActionCategory(category) ? CATEGORY_LABELS[category] : category}: {level}
-                </Badge>
-              ))}
-            </div>
+            ) : null}
+
+            {RESOURCE_TABS.filter((tab) => tab.kind === recordTab).map((tab) => {
+              const entries = catalog[tab.kind]
+              const picked = draft[tab.kind] ?? []
+              const saved = linkedKeys(entries, selected.slug)
+              const dirty =
+                picked.length !== saved.length || picked.some((key) => !saved.includes(key))
+              return (
+                <div key={tab.kind} className="space-y-3">
+                  <p className="text-sm text-fg-muted">{tab.blurb}</p>
+
+                  {tab.kind === 'procedures' && uninstalledSeeds.length > 0 ? (
+                    <div className="space-y-2 rounded-md border border-dashed border-border p-3">
+                      <p className="text-sm">
+                        This role ships {uninstalledSeeds.length}{' '}
+                        {uninstalledSeeds.length === 1 ? 'procedure' : 'procedures'} you can add to the company&apos;s
+                        library: {uninstalledSeeds.map((seed) => seed.title).join(', ')}.
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => {
+                          const form = new FormData()
+                          form.set('roleSlug', selected.slug)
+                          act(installRoleStarterProcedures, form)
+                        }}
+                      >
+                        {busy ? 'Adding…' : 'Add them to the library'}
+                      </Button>
+                      <p className="text-xs text-fg-muted">
+                        They arrive as version 1, assigned to this role, and are yours to revise from there.
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {entries.length === 0 ? (
+                    <p className="text-sm text-fg-muted">{tab.empty}</p>
+                  ) : (
+                    <ul className="divide-y divide-border rounded-lg border border-border">
+                      {entries.map((entry) => {
+                        const everyone = entry.assignment.everyone ?? false
+                        const on = everyone || picked.includes(entry.key)
+                        return (
+                          <li key={entry.key} className="flex items-center justify-between gap-3 px-3 py-2">
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium">{entry.title}</span>
+                              <span className="block truncate text-xs text-fg-muted">{entry.detail}</span>
+                            </span>
+                            {everyone ? (
+                              <Badge variant="secondary">Everyone</Badge>
+                            ) : (
+                              <button
+                                type="button"
+                                aria-pressed={on}
+                                onClick={() =>
+                                  setDraft({
+                                    ...draft,
+                                    [tab.kind]: on
+                                      ? picked.filter((key) => key !== entry.key)
+                                      : [...picked, entry.key],
+                                  })
+                                }
+                                className={
+                                  on
+                                    ? 'shrink-0 rounded-md border border-primary bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary'
+                                    : 'shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted hover:border-primary/50'
+                                }
+                              >
+                                {on ? 'Given' : 'Give'}
+                              </button>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      disabled={busy || !dirty}
+                      onClick={() => {
+                        const form = new FormData()
+                        form.set('roleSlug', selected.slug)
+                        form.set('kind', tab.kind)
+                        form.set('keys', picked.join(','))
+                        act(setRoleResources, form)
+                      }}
+                    >
+                      {busy ? 'Saving…' : 'Save'}
+                    </Button>
+                    {dirty ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => setDraft({ ...draft, [tab.kind]: saved })}
+                      >
+                        Discard
+                      </Button>
+                    ) : null}
+                    <span className="text-xs text-fg-muted">
+                      A resource marked Everyone already reaches this role; narrow it on the resource itself.
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+
+            {error ? <p className="text-sm text-danger">{error}</p> : null}
           </div>
         ) : null}
       </Drawer>
@@ -214,7 +427,7 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
           <form
             action={(form) => {
               form.set('rolePack', onboarding.slug)
-              // The zone the hiring operator is sitting in, so the role pack's
+              // The zone the hiring operator is sitting in, so the role's
               // standing duties keep the hours their titles claim rather than
               // resolving against whatever clock the worker happens to run on.
               form.set('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone)
@@ -251,6 +464,9 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
               <Label htmlFor="ob-bio">Personality (the role has a good default)</Label>
               <Textarea id="ob-bio" name="bio" rows={3} defaultValue={onboarding.personality.bio} />
             </div>
+            <p className="text-xs text-fg-muted">
+              They pick up everything this role is given — procedures, skills, knowledge and systems — by holding it.
+            </p>
             <Button type="submit" disabled={busy}>
               {busy ? 'Onboarding…' : 'Start onboarding'}
             </Button>
@@ -264,7 +480,7 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
         open={editor !== null}
         onClose={() => setEditor(null)}
         title={editor?.roleId ? 'Edit role' : 'New role'}
-        description="The full job definition: personality, duties, procedures, trust posture."
+        description="The job itself: personality, standing duties, trust posture. Resources are given to the role on its record."
         size="2xl"
       >
         {editor ? (
@@ -273,7 +489,6 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
               tabs={[
                 { key: 'basics', label: 'Basics' },
                 { key: 'duties', label: 'Duties', count: editor.duties.length },
-                { key: 'procedures', label: 'Procedures', count: editor.procedures.length },
                 { key: 'autonomy', label: 'Autonomy' },
               ]}
               active={editorTab}
@@ -388,55 +603,6 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
               </div>
             ) : null}
 
-            {editorTab === 'procedures' ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Binding procedures</p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setEditor({ ...editor, procedures: [...editor.procedures, { title: '', body: '' }] })}
-                  >
-                    Add procedure
-                  </Button>
-                </div>
-                {editor.procedures.map((procedure, index) => (
-                  <div key={index} className="space-y-3 rounded-md border border-border p-3">
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={procedure.title}
-                        onChange={(e) => {
-                          const procedures = [...editor.procedures]
-                          procedures[index] = { ...procedure, title: e.target.value }
-                          setEditor({ ...editor, procedures })
-                        }}
-                        placeholder="Procedure title"
-                        className="flex-1"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setEditor({ ...editor, procedures: editor.procedures.filter((_, i) => i !== index) })}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                    <MarkdownEditor
-                      defaultValue={procedure.body}
-                      placeholder="The rule, written the way you'd write it for a new hire."
-                      onChange={(md) => {
-                        const procedures = [...editor.procedures]
-                        procedures[index] = { ...editor.procedures[index]!, body: md }
-                        setEditor({ ...editor, procedures })
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
             {editorTab === 'autonomy' ? (
               <div className="space-y-2">
                 <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Day-one autonomy defaults</p>
@@ -476,11 +642,10 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
                   form.set('inboundPolicy', editor.inboundPolicy)
                   form.set('suggestedSalaryUsd', String(editor.suggestedSalaryUsd))
                   form.set('duties', JSON.stringify(editor.duties.map((d) => ({ ...d, slug: '' }))))
-                  form.set('procedures', JSON.stringify(editor.procedures.map((p) => ({ ...p, slug: '' }))))
                   form.set('autonomyDefaults', JSON.stringify(editor.autonomy))
                   act(saveRoleDef, form, () => {
                     setEditor(null)
-                    setSelected(null)
+                    setSelectedSlug(null)
                   })
                 }}
               >
@@ -496,7 +661,7 @@ export function RolesView({ roles, roster }: { roles: Role[]; roster: RosterOpti
                     form.set('roleId', editor.roleId!)
                     act(deleteRoleDef, form, () => {
                       setEditor(null)
-                      setSelected(null)
+                      setSelectedSlug(null)
                     })
                   }}
                 >

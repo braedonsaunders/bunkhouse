@@ -92,8 +92,8 @@ bytes are the truth.
 
 Mirrors the procedures shape, so "applies to" means one thing across the app.
 
-- `skills` — slug, title, description, status, current version, `assignment` (everyone / role
-  packs / named agents), `source` (repo, ref, **commit SHA**, path), licence, `has_scripts`.
+- `skills` — slug, title, description, status, current version, `assignment` (everyone / roles
+  / named agents), `source` (repo, ref, **commit SHA**, path), licence, `has_scripts`.
 - `skill_revisions` — append-only. Body, front matter, and the commit each version came from.
 - `skill_files` — the bundle manifest; bytes in object storage, like the file ledger.
 

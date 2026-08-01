@@ -13,6 +13,7 @@ import {
   Textarea,
   type RecordColumn,
 } from '@appkit/ui'
+import type { ResourceAssignment } from '../db/schema'
 import {
   AVAILABILITY_LABELS,
   INTEGRATION_LIBRARY,
@@ -24,8 +25,10 @@ import {
   listSystemToolsAction,
   removeMcpIntegrationAction,
   saveMcpIntegrationAction,
+  setSystemAssignmentAction,
   type SystemTool,
 } from '../app/resources/system-actions'
+import { AssignmentFields, type AssignOption } from './procedures-view'
 
 /**
  * Systems: the outside software an agent is given access to, connected over
@@ -53,6 +56,9 @@ export type SystemRowView = {
    * a new application, which the providers that need one will refuse.
    */
   clientId?: string
+  /** Which agents carry this system, rendered for the list column. */
+  appliesTo: string
+  assignment: ResourceAssignment
 }
 
 const CATEGORY_OPTIONS = [
@@ -110,6 +116,7 @@ const COLUMNS: RecordColumn<SystemRowView>[] = [
     sortable: true,
     render: (row) => <Badge variant="secondary">{categoryLabel(row.category)}</Badge>,
   },
+  { key: 'appliesTo', label: 'Applies to' },
   {
     key: 'credentials',
     label: 'Credentials',
@@ -157,11 +164,15 @@ export function SystemsView({
   systems,
   oauthOutcome,
   oauthRedirectUri,
+  roleOptions,
+  agentOptions,
 }: {
   systems: SystemRowView[]
   oauthOutcome?: McpOauthOutcome | null
   /** The exact address providers must be told to call back to. */
   oauthRedirectUri: string
+  roleOptions: AssignOption[]
+  agentOptions: AssignOption[]
 }) {
   const [panel, setPanel] = React.useState<SystemsPanel | null>(null)
   const [query, setQuery] = React.useState('')
@@ -177,8 +188,8 @@ export function SystemsView({
     <div className="space-y-3">
       <p className="text-sm text-fg-muted">
         The outside software your agents work in, connected over MCP — accounting, CRM, ticketing, anything that speaks
-        it. Each system&apos;s tools appear in every agent&apos;s toolbox, on calls and in runs, governed by the autonomy
-        dial under the action category you choose.
+        it. A system&apos;s tools appear in the toolbox of the agents it applies to, on calls and in runs, governed by
+        the autonomy dial under the action category you choose.
       </p>
 
       {outcome ? (
@@ -222,6 +233,8 @@ export function SystemsView({
           entry={panel.kind === 'edit' ? panel.entry : null}
           prefill={panel.kind === 'new' ? (panel.prefill ?? null) : null}
           oauthRedirectUri={oauthRedirectUri}
+          roleOptions={roleOptions}
+          agentOptions={agentOptions}
           onClose={() => setPanel(null)}
         />
       ) : null}
@@ -309,11 +322,15 @@ function SystemDrawer({
   entry,
   prefill,
   oauthRedirectUri,
+  roleOptions,
+  agentOptions,
   onClose,
 }: {
   entry: SystemRowView | null
   prefill?: IntegrationLibraryEntry | null
   oauthRedirectUri: string
+  roleOptions: AssignOption[]
+  agentOptions: AssignOption[]
   onClose: () => void
 }) {
   const [label, setLabel] = React.useState(entry?.label ?? prefill?.label ?? '')
@@ -349,12 +366,43 @@ function SystemDrawer({
             onSelect={setTab}
             tabs={[
               { key: 'connection', label: 'Connection' },
+              { key: 'applies', label: 'Applies to' },
               { key: 'tools', label: 'Tools' },
             ]}
           />
         ) : null}
 
         {entry && tab === 'tools' ? <SystemTools slug={entry.slug} category={entry.category} /> : null}
+
+        {entry && tab === 'applies' ? (
+          <form
+            action={async (form) => {
+              form.set('slug', entry.slug)
+              setError(null)
+              try {
+                await setSystemAssignmentAction(form)
+                setNotice('Saved — the agents this applies to pick it up on their next run.')
+              } catch (err) {
+                setError(err instanceof Error ? err.message : String(err))
+              }
+            }}
+            className="space-y-3"
+          >
+            <div className="space-y-2">
+              <Label>Which agents work in this system</Label>
+              <AssignmentFields roleOptions={roleOptions} agentOptions={agentOptions} current={entry.assignment} />
+            </div>
+            <Button type="submit" variant="outline" size="sm" disabled={busy}>
+              Save assignment
+            </Button>
+            <p className="text-xs text-fg-muted">
+              An agent this does not apply to never sees the system&apos;s tools — the connection is not made for it at
+              all.
+            </p>
+            {notice ? <p className="text-sm text-fg-muted">{notice}</p> : null}
+            {error ? <p className="text-sm text-danger">{error}</p> : null}
+          </form>
+        ) : null}
 
         <div className={entry && tab !== 'connection' ? 'hidden' : 'grid gap-3 sm:grid-cols-2'}>
           <div className="space-y-1">

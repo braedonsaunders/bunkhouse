@@ -20,7 +20,10 @@ record; "you"/"the coding agent" means whoever is editing this repo. Do not conf
    employee, not a configuration: never surface temperature, system prompts, or "agent
    settings" where personality, duties, salary, and the autonomy dial belong.
 3. **Procedures are governed objects.** Versioned, assignable, cited in output. An agent that
-   can't show which procedure it followed is a bug. Skill/role packs may ship procedures.
+   can't show which procedure it followed is a bug. Skill/role packs may ship procedures as
+   seeds, installed into the governed library on adoption — never as a second live copy.
+   A role *links* resources (procedures, skills, knowledge, systems) through the one
+   `assignment` edge; it never restates them (`docs/roles.md`).
 4. **Autonomy is a dial, per agent × action category** (external email, money-adjacent,
    record changes, computer use, shell). Enforcement lives in the runtime, not in prompts.
 5. **Salary = token budget.** Per-agent monthly budget against the company's own provider
@@ -139,6 +142,8 @@ After changing AppKit: `pnpm build:packages` there, re-pack with
   autonomy enforcement, budget metering. Publishable; keep it free of web coupling.
 - `packages/roles` — role-pack format + first-party packs (MIT).
 - `docs/organization.md` — the roster, the reporting hierarchy, and the tree invariant.
+- `docs/roles.md` — a role links company resources instead of copying them: the one
+  `assignment` edge, edited from either end, and why duties are the exception.
 - `docs/cost-accounting.md` — where every figure in the spend ledger comes from: reported
   cost beats calculated cost, and what each provider will and will not tell you.
 - `docs/skills.md` — portable competence in the public `SKILL.md` format: why a skill is not

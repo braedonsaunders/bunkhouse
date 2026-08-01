@@ -103,7 +103,12 @@ export const people = pgTable(
     userId: uuid('user_id'),
     avatarFileId: uuid('avatar_file_id'),
     /** Agents only ------------------------------------------------------- */
-    rolePackSlug: text('role_pack_slug'),
+    /**
+     * The role this agent holds — a first-party pack's slug or a role built
+     * here. Every resource assigned to that role reaches this agent, so this is
+     * the one field a role link resolves against.
+     */
+    roleSlug: text('role_slug'),
     personality: jsonb('personality').$type<AgentPersonality>(),
     modelConfig: jsonb('model_config').$type<AgentModelConfig>(),
     salary: jsonb('salary').$type<AgentSalary>(),

@@ -4,6 +4,13 @@
  * posture a sensible employer would start the role at. Packs are data — the
  * community can publish them from git repos; these first-party ones are the
  * reference set.
+ *
+ * A pack ships procedure *text* because it is distributable data with no
+ * company behind it. In a company that text is a seed: it is installed into the
+ * governed procedure library as version 1, assigned to the role, and from then
+ * on the company's record is the doctrine. A pack cannot ship skills, knowledge
+ * or systems for the same reason — those are links to things a company already
+ * has, made on the role's own screen.
  */
 export type ActionCategory =
   | 'external_email'
@@ -42,6 +49,7 @@ export type RolePack = {
     tone: string[]
   }
   duties: RolePackDuty[]
+  /** Starter doctrine, installed into the company's procedure library on adoption. */
   procedures: RolePackProcedure[]
   /** Sensible day-one dial. Anything omitted defaults to 'approval'. */
   autonomyDefaults: Partial<Record<ActionCategory, AutonomyLevel>>

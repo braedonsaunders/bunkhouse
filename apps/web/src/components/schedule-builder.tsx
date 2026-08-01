@@ -44,7 +44,7 @@ export function ScheduleBuilder({
   idPrefix: string
   bounds?: { endsAt: string; maxRuns: string }
   onBoundsChange?: (next: { endsAt: string; maxRuns: string }) => void
-  /** Off for role-pack templates, where every duty is by nature standing. */
+  /** Off for role templates, where every duty is by nature standing. */
   allowOnce?: boolean
 }) {
   const [spec, setSpec] = React.useState<ScheduleSpec>(() => scheduleToSpec(value))
