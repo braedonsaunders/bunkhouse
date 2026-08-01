@@ -1,6 +1,7 @@
 'use server'
 
-import { resolveTenantId } from '../../lib/tenant'
+import { resolveTenantId as resolveTenant } from '../../lib/tenant'
+const resolveTenantId = () => resolveTenant('people.manage')
 import { resolveRealtimeCredential, resolveSpeechCredential } from '../../lib/voice'
 
 /**

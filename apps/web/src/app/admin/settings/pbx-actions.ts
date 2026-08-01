@@ -32,7 +32,8 @@ import { placeTestCall, type TestCallResult } from '../../../lib/outbound-call'
 import { people } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { and, asc, eq } from 'drizzle-orm'
-import { resolveTenantId } from '../../../lib/tenant'
+import { resolveTenantId as resolveTenant } from '../../../lib/tenant'
+const resolveTenantId = () => resolveTenant('settings.manage')
 
 export type SipTrunkFormInput = {
   id?: string

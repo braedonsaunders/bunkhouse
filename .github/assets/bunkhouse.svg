@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 250" role="img" aria-labelledby="title desc">
+  <title id="title">Bunkhouse</title>
+  <desc id="desc">The Bunkhouse wordmark beneath an animated roof, chimney, attic light, and drifting smoke.</desc>
+  <style>
+    :root { color-scheme: light dark; }
+    .ink { fill: #18233b; stroke: #18233b; }
+    .roof { fill: none; stroke-width: 12; stroke-linecap: square; stroke-linejoin: round; }
+    .smoke { fill: none; stroke-width: 7; stroke-linecap: round; opacity: .58; }
+    .light { fill: #f5a623; transform-origin: 585px 80px; animation: breathe 3.2s ease-in-out infinite; }
+    .smoke-a { animation: drift 3.8s ease-in-out infinite; }
+    .smoke-b { animation: drift 3.8s .9s ease-in-out infinite; }
+    .roof, .chimney { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 1.5s cubic-bezier(.2,.8,.2,1) forwards; }
+    .word { font: 500 108px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: -5px; }
+    .tag { font: 500 23px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 2px; opacity: .58; }
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+    @keyframes breathe { 50% { transform: scale(1.22); opacity: .74; } }
+    @keyframes drift { 0%,100% { transform: translate(0,0); opacity: .25; } 50% { transform: translate(8px,-12px); opacity: .72; } }
+    @media (prefers-color-scheme: dark) { .ink { fill: #edf2f7; stroke: #edf2f7; } }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; stroke-dashoffset: 0 !important; } }
+  </style>
+  <g class="ink">
+    <path class="roof" pathLength="1" d="M390 116V96L585 20L775 96V116"/>
+    <path class="roof chimney" pathLength="1" d="M704 64V15M739 78V15M692 15H751"/>
+    <path class="smoke smoke-a" d="M716 1c22-17-18-29 3-49"/>
+    <path class="smoke smoke-b" d="M744-6c19-15-15-26 4-44"/>
+    <text class="word" x="78" y="173">bunkhouse</text>
+    <text class="tag" x="460" y="226" text-anchor="middle">AI EMPLOYEES · IN YOUR INBOX</text>
+  </g>
+  <circle class="light" cx="585" cy="80" r="12"/>
+  <circle cx="803" cy="151" r="10" fill="#f5a623"/>
+</svg>
+

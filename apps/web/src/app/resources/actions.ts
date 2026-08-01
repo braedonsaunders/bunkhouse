@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { createNote, decideProposal } from '../../lib/memory'
-import { resolveTenantId } from '../../lib/tenant'
+import { resolveTenantId as resolveTenant } from '../../lib/tenant'
+const resolveTenantId = () => resolveTenant('resources.manage')
 import { db } from '../../db/client'
 
 /** Author a company-knowledge note directly (humans only). */

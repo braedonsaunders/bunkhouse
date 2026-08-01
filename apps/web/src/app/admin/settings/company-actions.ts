@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { db } from '../../../db/client'
-import { resolveTenantId } from '../../../lib/tenant'
+import { resolveTenantId as resolveTenant } from '../../../lib/tenant'
+const resolveTenantId = () => resolveTenant('settings.manage')
 import {
   captureCompanyIdentity,
   saveCompanyIdentity,

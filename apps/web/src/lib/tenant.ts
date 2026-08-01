@@ -4,8 +4,10 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { schema as identity } from '@appkit/db'
+import { assertCan, createMembershipAccessResolver, type RoleScope } from '@appkit/tenant'
 import { db } from '../db/client'
 import { getSessionUser, requireUser, type SessionUser } from './auth'
+import { PERMISSION_CATALOGUE, type TenantPermission } from './permissions'
 
 /**
  * Membership-based tenant resolution. Every request path resolves the current
@@ -85,11 +87,62 @@ export const getTenantSelection = cache(async (user: SessionUser): Promise<Tenan
  * here, so an unauthenticated request never touches tenant data. A user with
  * no workspace is sent to a clear explanation screen instead of an error.
  */
-export async function resolveTenantId(): Promise<string> {
+export async function resolveTenantId(permission?: TenantPermission): Promise<string> {
+  if (permission) return (await requireTenantPermission(permission)).tenantId
   const user = await requireUser()
   const { current } = await getTenantSelection(user)
   if (!current) redirect('/no-workspace')
   return current.id
+}
+
+const resolveAccess = createMembershipAccessResolver({ permissionCatalogue: PERMISSION_CATALOGUE })
+
+export type TenantAccess = {
+  tenantId: string
+  user: SessionUser
+  membershipId: string | null
+  permissions: Set<string>
+  scopes: RoleScope[]
+}
+
+/** Resolve the active membership and its AppKit RBAC grants for this request. */
+export async function getTenantAccess(): Promise<TenantAccess> {
+  const user = await requireUser()
+  const { current } = await getTenantSelection(user)
+  if (!current) redirect('/no-workspace')
+  const tenantId = current.id
+  const app = db()
+  const [membership] = await app.withTenantContext(tenantId, () =>
+    app.db
+      .select({ id: identity.memberships.id })
+      .from(identity.memberships)
+      .where(
+        and(
+          eq(identity.memberships.tenantId, tenantId),
+          eq(identity.memberships.userId, user.id),
+          eq(identity.memberships.status, 'active'),
+        ),
+      )
+      .limit(1),
+  )
+  if (!membership && !user.isSuperAdmin) throw new Error('An active workspace membership is required.')
+  const access = membership
+    ? await app.withTenantContext(tenantId, () => resolveAccess(app.db, membership.id))
+    : { permissions: new Set<string>(), scopes: [] }
+  return {
+    tenantId,
+    user,
+    membershipId: membership?.id ?? null,
+    permissions: access.permissions,
+    scopes: access.scopes,
+  }
+}
+
+/** Server-side mutation gate. UI visibility is never the authorization check. */
+export async function requireTenantPermission(permission: TenantPermission): Promise<TenantAccess> {
+  const access = await getTenantAccess()
+  assertCan({ isSuperAdmin: access.user.isSuperAdmin, permissions: access.permissions, scopes: access.scopes }, permission)
+  return access
 }
 
 /**
@@ -173,4 +226,27 @@ export async function provisionTenant(tenantId: string): Promise<void> {
       .limit(1),
   )
   if (!tenant) throw new Error(`Cannot provision missing tenant: ${tenantId}`)
+  await app.withSuperAdmin(async (superDb) => {
+    await superDb
+      .insert(identity.roles)
+      .values([
+        {
+          tenantId,
+          key: 'administrator',
+          name: 'Administrator',
+          description: 'Full company access, including roles and permissions.',
+          isBuiltIn: true,
+          permissions: [...PERMISSION_CATALOGUE],
+        },
+        {
+          tenantId,
+          key: 'viewer',
+          name: 'Viewer',
+          description: 'Read-only access to the company, work, and audit surfaces.',
+          isBuiltIn: true,
+          permissions: PERMISSION_CATALOGUE.filter((permission) => permission.endsWith('.read')),
+        },
+      ])
+      .onConflictDoNothing()
+  })
 }

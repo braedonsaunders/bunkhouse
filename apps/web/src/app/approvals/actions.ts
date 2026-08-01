@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { and, eq } from 'drizzle-orm'
 import { approvals, runs } from '../../db/schema'
 import { db } from '../../db/client'
-import { resolveTenantId } from '../../lib/tenant'
+import { requireTenantPermission } from '../../lib/tenant'
 
 /**
  * Record a human decision on a pending approval. Decisions are final rows —
@@ -17,12 +17,13 @@ async function decide(formData: FormData, status: 'approved' | 'rejected'): Prom
   const note = String(formData.get('note') ?? '').trim() || null
   if (!approvalId) throw new Error('approvalId is required')
 
-  const tenantId = await resolveTenantId()
+  const access = await requireTenantPermission('approvals.decide')
+  const tenantId = access.tenantId
   const app = db()
   await app.withTenant(tenantId, async () => {
     const [row] = await app.db
       .update(approvals)
-      .set({ status, decidedAt: new Date(), decisionNote: note })
+      .set({ status, decidedById: access.user.id, decidedAt: new Date(), decisionNote: note })
       .where(and(eq(approvals.id, approvalId), eq(approvals.status, 'pending')))
       .returning({ runId: approvals.runId })
     if (!row) throw new Error('Approval already decided or not found.')

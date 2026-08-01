@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET(_request: Request, { params }: { params: Promise<{ fileId: string }> }) {
   const { fileId } = await params
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('work.read')
   const record = await getFileRecord(tenantId, fileId)
   if (!record) return new Response('Not found', { status: 404 })
   const { stream, contentLength } = await getFileStream(record)

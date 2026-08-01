@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET(_request: Request, { params }: { params: Promise<{ partId: string }> }) {
   const { partId } = await params
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('people.read')
   const app = db()
   const row = await app.withTenantContext(tenantId, async () => {
     const [part] = await app.db

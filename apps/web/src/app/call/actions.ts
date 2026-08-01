@@ -5,7 +5,8 @@ import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import { mintLiveKitToken } from '@appkit/voice'
 import { browserSessions, browserSteps, callSessions, callTurns, people, runEvents, runs, type BrowserStepDetail } from '../../db/schema'
 import { db } from '../../db/client'
-import { resolveTenantId } from '../../lib/tenant'
+import { resolveTenantId as resolveTenant } from '../../lib/tenant'
+const resolveTenantId = () => resolveTenant('calls.manage')
 import { requireUser } from '../../lib/auth'
 import type { CallActivityEvent } from '../../lib/call-activity'
 

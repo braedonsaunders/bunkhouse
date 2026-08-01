@@ -29,7 +29,7 @@ export async function GET(request: Request): Promise<Response> {
   const driveId = params.get('driveId') ?? ''
 
   await requireUser()
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('settings.manage')
 
   if (!isFilingOauthProvider(provider)) {
     return await backToFiling('That storage provider is not available.')

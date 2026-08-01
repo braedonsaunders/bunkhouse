@@ -1,4 +1,4 @@
-import { index, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { auditColumns, id, tenantRef } from '@appkit/db'
 
 /**
@@ -34,6 +34,7 @@ export const autonomySettings = pgTable(
 )
 
 export const approvalStatus = pgEnum('approval_status', ['pending', 'approved', 'rejected', 'expired'])
+export const approvalExecutionStatus = pgEnum('approval_execution_status', ['pending', 'leased', 'succeeded', 'failed'])
 
 export type ApprovalPayload = {
   /** Human-readable rendering of exactly what will happen if approved. */
@@ -64,9 +65,17 @@ export const approvals = pgTable(
      * decision is acted on exactly once, whatever state its run is in.
      */
     executedAt: timestamp('executed_at', { withTimezone: true }),
+    /** Recoverable worker claim. Expired leases are eligible for replay. */
+    executionStatus: approvalExecutionStatus('execution_status').notNull().default('pending'),
+    executionLeaseUntil: timestamp('execution_lease_until', { withTimezone: true }),
+    executionAttempts: integer('execution_attempts').notNull().default(0),
+    executionError: text('execution_error'),
     ...auditColumns,
   },
-  (t) => [index('approvals_pending_idx').on(t.tenantId, t.status, t.createdAt)],
+  (t) => [
+    index('approvals_pending_idx').on(t.tenantId, t.status, t.createdAt),
+    index('approvals_execution_idx').on(t.tenantId, t.executionStatus, t.executionLeaseUntil),
+  ],
 )
 
 export const GOVERNANCE_TENANT_TABLES = ['autonomy_settings', 'approvals'] as const

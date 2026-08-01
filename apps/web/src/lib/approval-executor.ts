@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, eq, isNull, or, sql } from 'drizzle-orm'
+import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import type { Ability } from '@bunkhouse/runtime'
 import { approvals, people, runEvents, runs } from '../db/schema'
 import { db } from '../db/client'
@@ -24,7 +24,17 @@ export async function decidedApprovalIds(tenantId: string): Promise<string[]> {
     const rows = await app.db
       .select({ id: approvals.id })
       .from(approvals)
-      .where(and(or(eq(approvals.status, 'approved'), eq(approvals.status, 'rejected')), isNull(approvals.executedAt)))
+      .where(
+        and(
+          or(eq(approvals.status, 'approved'), eq(approvals.status, 'rejected')),
+          isNull(approvals.executedAt),
+          or(
+            eq(approvals.executionStatus, 'pending'),
+            eq(approvals.executionStatus, 'failed'),
+            and(eq(approvals.executionStatus, 'leased'), lt(approvals.executionLeaseUntil, new Date())),
+          ),
+        ),
+      )
     return rows.map((r) => r.id)
   })
 }
@@ -32,16 +42,30 @@ export async function decidedApprovalIds(tenantId: string): Promise<string[]> {
 export async function executeDecidedApproval(tenantId: string, approvalId: string): Promise<void> {
   const app = db()
 
-  // Claim first: whichever job stamps executed_at acts; every other tick skips.
+  // Lease first, but only stamp executed_at after the complete action +
+  // continuation succeeds. A process crash becomes eligible for recovery
+  // instead of permanently consuming the approval.
   const claimed = await app.withTenant(tenantId, async () => {
+    const now = new Date()
+    const leaseUntil = new Date(now.getTime() + 5 * 60_000)
     const [row] = await app.db
       .update(approvals)
-      .set({ executedAt: new Date() })
+      .set({
+        executionStatus: 'leased',
+        executionLeaseUntil: leaseUntil,
+        executionAttempts: sql`${approvals.executionAttempts} + 1`,
+        executionError: null,
+      })
       .where(
         and(
           eq(approvals.id, approvalId),
           isNull(approvals.executedAt),
           or(eq(approvals.status, 'approved'), eq(approvals.status, 'rejected')),
+          or(
+            eq(approvals.executionStatus, 'pending'),
+            eq(approvals.executionStatus, 'failed'),
+            and(eq(approvals.executionStatus, 'leased'), lt(approvals.executionLeaseUntil, now)),
+          ),
         ),
       )
       .returning()
@@ -53,7 +77,10 @@ export async function executeDecidedApproval(tenantId: string, approvalId: strin
     const [row] = await app.db.select().from(runs).where(eq(runs.id, claimed.runId))
     return row ?? null
   })
-  if (!run) return
+  if (!run) {
+    await markExecutionFailed(tenantId, claimed.id, 'The originating run no longer exists.')
+    return
+  }
 
   const action = claimed.payload.action as { toolName?: string; input?: unknown }
   const description = claimed.payload.description
@@ -121,12 +148,8 @@ export async function executeDecidedApproval(tenantId: string, approvalId: strin
       ...(run.trigger.type === 'assignment' ? { maxSteps: ASSIGNMENT_MAX_STEPS } : {}),
     }))
   } catch (error) {
-    // The approval is already claimed, so nothing will pick this run up again.
-    // Leaving it parked on `waiting_approval` is the worst of both worlds: the
-    // queue reads as clear, the ledger says the decision was executed, and the
-    // run waits for a sign-off that has already been given and can never come
-    // twice. Land it somewhere terminal and say why.
     const message = error instanceof Error ? error.message : String(error)
+    await markExecutionFailed(tenantId, claimed.id, message)
     await app.withTenant(tenantId, async () => {
       await app.db
         .update(runs)
@@ -148,4 +171,26 @@ export async function executeDecidedApproval(tenantId: string, approvalId: strin
   if (run.trigger.type === 'assignment') {
     await finalizeAssignmentRun(tenantId, run.trigger.assignmentId, continuedRunId, outcome)
   }
+
+  await app.withTenant(tenantId, async () => {
+    await app.db
+      .update(approvals)
+      .set({
+        executionStatus: 'succeeded',
+        executionLeaseUntil: null,
+        executionError: null,
+        executedAt: new Date(),
+      })
+      .where(and(eq(approvals.id, claimed.id), eq(approvals.executionStatus, 'leased')))
+  })
+}
+
+async function markExecutionFailed(tenantId: string, approvalId: string, message: string): Promise<void> {
+  const app = db()
+  await app.withTenant(tenantId, async () => {
+    await app.db
+      .update(approvals)
+      .set({ executionStatus: 'failed', executionLeaseUntil: null, executionError: message.slice(0, 2_000) })
+      .where(eq(approvals.id, approvalId))
+  })
 }

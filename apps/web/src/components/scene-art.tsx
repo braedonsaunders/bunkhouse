@@ -3,7 +3,7 @@
 // The room names live outside this module: a server component importing a
 // value from a 'use client' file gets a proxy, not the value.
 export { SCENE_KINDS, SCENE_LABELS, type SceneKind } from './scene-kinds'
-import { SCENE_KINDS, SCENE_LABELS, type SceneKind } from './scene-kinds'
+import { SCENE_KINDS, type SceneKind } from './scene-kinds'
 
 import * as React from 'react'
 import type { SceneGroundConfig } from '@appkit/scene'

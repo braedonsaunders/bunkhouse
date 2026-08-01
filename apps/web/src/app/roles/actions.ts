@@ -5,7 +5,8 @@ import { eq } from 'drizzle-orm'
 import { CronExpressionParser } from 'cron-parser'
 import { roleDefs, type RoleAutonomyDefaults, type RoleDuty, type RoleProcedure } from '../../db/schema'
 import { db } from '../../db/client'
-import { resolveTenantId } from '../../lib/tenant'
+import { resolveTenantId as resolveTenant } from '../../lib/tenant'
+const resolveTenantId = () => resolveTenant('roles.manage')
 
 const CATEGORIES = ['external_email', 'internal_email', 'record_write', 'money_adjacent', 'file_write', 'computer_use', 'shell'] as const
 const LEVELS = ['forbidden', 'approval', 'notify', 'trusted'] as const

@@ -889,7 +889,25 @@ function senderPermitted(policy: 'staff_only' | 'known_contacts' | 'anyone', tru
  * policy, then start a run — or record an auditable declined run so the
  * message is never silently reprocessed.
  */
-export async function startRunsForNewInbound(tenantId: string): Promise<number> {
+export async function pendingInboundMessageIds(tenantId: string): Promise<string[]> {
+  const app = db()
+  const rows = await app.withTenantContext(tenantId, () =>
+    app.db
+      .select({ id: mailMessages.id })
+      .from(mailMessages)
+      .where(
+        and(
+          eq(mailMessages.direction, 'inbound'),
+          sql`not exists (select 1 from runs r where r.trigger->>'messageId' = ${mailMessages.id}::text)`,
+          sql`not exists (select 1 from runs r where ${mailMessages.id} = any(r.consumed_message_ids))`,
+        ),
+      )
+      .limit(100),
+  )
+  return rows.map((row) => row.id)
+}
+
+export async function startRunsForNewInbound(tenantId: string, onlyMessageId?: string): Promise<number> {
   const app = db()
   const pending = await app.withTenantContext(tenantId, () =>
     app.db
@@ -906,6 +924,7 @@ export async function startRunsForNewInbound(tenantId: string): Promise<number> 
       .where(
         and(
           eq(mailMessages.direction, 'inbound'),
+          ...(onlyMessageId ? [eq(mailMessages.id, onlyMessageId)] : []),
           sql`not exists (select 1 from runs r where r.trigger->>'messageId' = ${mailMessages.id}::text)`,
           sql`not exists (select 1 from runs r where ${mailMessages.id} = any(r.consumed_message_ids))`,
         ),

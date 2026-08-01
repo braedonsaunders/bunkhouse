@@ -4,14 +4,13 @@ import { schema as identity } from '@appkit/db'
 import { db } from '../src/db/client'
 import { ASSIGNMENT_MAX_STEPS } from '../src/lib/agent-runs'
 import { retireContradictedBeliefs } from '../src/lib/stale-beliefs'
-import { dutyIsSelfDirected, selfDirectedBudget } from '../src/lib/work-budget'
 import { consolidateMemories } from '../src/lib/memory-consolidation'
 import { MAX_SELF_SCHEDULED_REPEATS } from '../src/lib/agent-abilities'
 import { approvals, assignments, mailboxAccounts, mailMessages, people, runs, tokenSpend } from '../src/db/schema'
 import { sendNewMail, sendReplyInThread, syncPersonMailbox } from '../src/lib/mailbox'
-import { dueDuties, executeAgentRun, markDutyRun, startRunsForNewInbound } from '../src/lib/agent-runs'
+import { dueDuties, executeAgentRun, pendingInboundMessageIds, startRunsForNewInbound } from '../src/lib/agent-runs'
 import { finalizeAssignmentRun } from '../src/lib/assignments'
-import { nextOccurrence } from '../src/lib/duties'
+import { executeDueDuty } from '../src/lib/duty-execution'
 import { gardenerPass as gardenTenant, journalPass as journalTenant, reflectionPass as reflectTenant } from '../src/lib/consolidation'
 import { pendingAssignmentIds, runAssignment } from '../src/lib/assignments'
 import { decidedApprovalIds, executeDecidedApproval } from '../src/lib/approval-executor'
@@ -65,48 +64,22 @@ async function mailboxPass(): Promise<void> {
         console.error(`[mailbox] ${account.address}:`, (error as Error).message)
       }
     }
-    const started = await startRunsForNewInbound(tenantId)
-    if (started > 0) console.log(`[runs] started ${started} inbound run(s)`)
+    for (const messageId of await pendingInboundMessageIds(tenantId)) {
+      await deepWork.add('inbound', { kind: 'inbound', tenantId, id: messageId }, { jobId: `inbound-${tenantId}-${messageId}` })
+    }
   }
 }
 
 async function dutiesPass(): Promise<void> {
   for (const tenantId of await activeTenantIds()) {
     for (const duty of await dueDuties(tenantId)) {
-      // First sighting of a recurring duty just anchors its schedule; it runs
-      // from the next real occurrence rather than firing on scheduler boot. A
-      // one-shot is pinned to an instant at creation and always fires.
-      const anchoring = !duty.nextDueAt && duty.scheduleKind !== 'once'
-      let next: Date | null
-      try {
-        next = nextOccurrence(duty)
-      } catch (error) {
-        // An unreadable schedule would otherwise stay permanently due and
-        // re-fire every tick. Park it instead, leaving it visible and fixable.
-        console.error(`[duty] ${duty.title}: ${(error as Error).message} — pausing`)
-        await markDutyRun(tenantId, duty.id, null, false)
-        continue
-      }
-      await markDutyRun(tenantId, duty.id, next, !anchoring)
-      if (anchoring) continue
-      // A schedule an agent wrote for itself is work nobody asked for, and it
-      // shares one small daily allowance with everything else in that
-      // category. The schedule is still advanced above, so it retires on its
-      // own timetable rather than queueing up to fire twice tomorrow.
-      if (await app.withTenant(tenantId, () => dutyIsSelfDirected(duty.id))) {
-        const budget = await app.withTenant(tenantId, () => selfDirectedBudget(duty.personId))
-        if (budget.exhausted) {
-          console.warn(`[duty] ${duty.title}: skipped — ${budget.reason}`)
-          continue
-        }
-      }
-      const { outcome } = await executeAgentRun({
-        tenantId,
-        personId: duty.personId,
-        trigger: { type: 'duty', dutyId: duty.id },
-        input: { type: 'duty', dutyTitle: duty.title, instruction: duty.instruction },
-      })
-      console.log(`[duty] ${duty.title}: ${outcome.status}${next ? '' : ' (final run — duty retired)'}`)
+      const scheduledAt = duty.nextDueAt?.toISOString() ?? null
+      const occurrence = duty.nextDueAt?.getTime() ?? 0
+      await deepWork.add(
+        'duty',
+        { kind: 'duty', tenantId, id: duty.id, scheduledAt },
+        { jobId: `duty-${tenantId}-${duty.id}-${occurrence}` },
+      )
     }
   }
 }
@@ -638,7 +611,9 @@ type HeartbeatPass =
   | 'trunks'
   | 'money'
   | 'tools'
-type DeepWorkJob = { kind: 'assignment' | 'approval'; tenantId: string; id: string }
+type DeepWorkJob =
+  | { kind: 'assignment' | 'approval' | 'inbound'; tenantId: string; id: string }
+  | { kind: 'duty'; tenantId: string; id: string; scheduledAt: string | null }
 
 // Deep work — assignment runs and approval continuations — gets its own queue
 // and worker so a multi-minute deliverable never blocks the heartbeat.
@@ -695,8 +670,12 @@ const deepWorker = jobs.createWorker<DeepWorkJob>(
   async (job) => {
     if (job.data.kind === 'assignment') {
       await runAssignment(job.data.tenantId, job.data.id)
-    } else {
+    } else if (job.data.kind === 'approval') {
       await executeDecidedApproval(job.data.tenantId, job.data.id)
+    } else if (job.data.kind === 'inbound') {
+      await startRunsForNewInbound(job.data.tenantId, job.data.id)
+    } else if (job.data.kind === 'duty') {
+      await executeDueDuty(job.data.tenantId, job.data.id, job.data.scheduledAt)
     }
   },
   { concurrency: 2 },

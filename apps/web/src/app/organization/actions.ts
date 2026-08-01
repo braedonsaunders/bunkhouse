@@ -2,14 +2,19 @@
 
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
-import { eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
+import { schema as identity } from '@appkit/db'
 import { listRealtimeCapableProviders } from '../../lib/voice'
 import { getRole } from '../../lib/roles'
 import {
   autonomySettings,
+  approvals,
+  assignments,
+  callSessions,
   departments,
   duties,
   mailboxAccounts,
+  meetingLinks,
   memories,
   people,
   procedures,
@@ -17,7 +22,8 @@ import {
   type BunkhouseVoiceConfig,
 } from '../../db/schema'
 import { db } from '../../db/client'
-import { resolveTenantId } from '../../lib/tenant'
+import { requireTenantPermission, resolveTenantId as resolveTenant } from '../../lib/tenant'
+const resolveTenantId = () => resolveTenant('people.manage')
 import { connectMailbox, syncPersonMailbox } from '../../lib/mailbox'
 import { listAiProviders } from '../../lib/ai'
 import { firstOccurrence } from '../../lib/duties'
@@ -526,7 +532,8 @@ export async function updatePerson(formData: FormData): Promise<PersonUpdateResu
   if (!personId || !name || !title || !email) return { ok: false, message: 'Name, title, and email are required.' }
   if (!['onboarding', 'active', 'offboarded'].includes(status)) return { ok: false, message: 'Invalid status.' }
 
-  const tenantId = await resolveTenantId()
+  const access = await requireTenantPermission('people.manage')
+  const tenantId = access.tenantId
   const app = db()
   // The desk is a field of the record now, so moving somebody also redraws the
   // floor they were on and the headcount beside their department.
@@ -539,6 +546,16 @@ export async function updatePerson(formData: FormData): Promise<PersonUpdateResu
       assertValidManager(roster, personId, reportsToId)
       const [person] = await app.db.select().from(people).where(eq(people.id, personId))
       if (!person) throw new Error('Person not found.')
+
+      if (status !== person.status) {
+        const allowed =
+          (person.status === 'onboarding' && (status === 'active' || status === 'offboarded')) ||
+          (person.status === 'active' && status === 'offboarded') ||
+          (person.status === 'offboarded' && status === 'onboarding')
+        if (!allowed) {
+          throw new Error(`Status cannot move directly from ${person.status} to ${status}.`)
+        }
+      }
 
       const update: Partial<typeof people.$inferInsert> = {
         name, title, email, status, reportsToId, responsibilities, updatedAt: new Date(),
@@ -616,7 +633,62 @@ export async function updatePerson(formData: FormData): Promise<PersonUpdateResu
           }
         }
       }
+      if (status === 'offboarded' && person.status !== 'offboarded') {
+        const now = new Date()
+        update.endedOn = String(formData.get('endedOn') ?? '').trim() || now.toISOString().slice(0, 10)
+        if (person.kind === 'agent') {
+          await Promise.all([
+            app.db
+              .update(mailboxAccounts)
+              .set({ status: 'disabled', lastError: null, updatedAt: now })
+              .where(eq(mailboxAccounts.personId, person.id)),
+            app.db
+              .update(duties)
+              .set({ enabled: 'off', nextDueAt: null, updatedAt: now })
+              .where(eq(duties.personId, person.id)),
+            app.db
+              .update(autonomySettings)
+              .set({ level: 'forbidden', updatedAt: now })
+              .where(eq(autonomySettings.personId, person.id)),
+            app.db
+              .update(assignments)
+              .set({ status: 'cancelled', lastError: 'Cancelled when the agent was offboarded.', updatedAt: now })
+              .where(
+                and(
+                  eq(assignments.personId, person.id),
+                  inArray(assignments.status, ['pending', 'working', 'waiting_approval']),
+                ),
+              ),
+            app.db
+              .update(approvals)
+              .set({ status: 'expired', decidedById: access.user.id, decidedAt: now, decisionNote: 'Expired when the agent was offboarded.' })
+              .where(and(eq(approvals.personId, person.id), eq(approvals.status, 'pending'))),
+            app.db
+              .update(callSessions)
+              .set({ status: 'ended', endedAt: now, updatedAt: now })
+              .where(and(eq(callSessions.personId, person.id), eq(callSessions.status, 'active'))),
+            app.db
+              .update(meetingLinks)
+              .set({ expiresAt: now, updatedAt: now })
+              .where(eq(meetingLinks.createdByPersonId, person.id)),
+          ])
+        }
+      }
+
       await app.db.update(people).set(update).where(eq(people.id, personId))
+      if (status !== person.status) {
+        await app.db.insert(identity.auditLog).values({
+          tenantId,
+          actorUserId: access.user.id,
+          action: 'status_transition',
+          entityType: 'person',
+          entityId: person.id,
+          summary: `${person.name}: ${person.status} → ${status}`,
+          before: { status: person.status, endedOn: person.endedOn },
+          after: { status, endedOn: update.endedOn ?? person.endedOn },
+          metadata: { kind: person.kind },
+        })
+      }
     })
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }

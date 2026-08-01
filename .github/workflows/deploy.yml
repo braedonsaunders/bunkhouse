@@ -31,6 +31,19 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bunkhouse_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d bunkhouse_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -39,8 +52,44 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Dependency security gate
+        run: pnpm audit --prod --audit-level high
       - name: Typecheck
-        run: pnpm --filter web run typecheck
+        run: pnpm typecheck
+      - name: Lint
+        run: pnpm lint
+      - name: Test
+        run: pnpm test
+      - name: Migration and RLS canary
+        env:
+          BUNKHOUSE_DB_URL: postgresql://postgres:postgres@localhost:5432/bunkhouse_ci
+          BUNKHOUSE_SUPER_URL: postgresql://postgres:postgres@localhost:5432/bunkhouse_ci
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql "$BUNKHOUSE_DB_URL" -v ON_ERROR_STOP=1 -c "create role bunkhouse_super login bypassrls"
+          pnpm --filter web db:migrate
+          pnpm --filter web db:migrate
+          psql "$BUNKHOUSE_DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          create role bunkhouse_rls_test login;
+          grant usage on schema public to bunkhouse_rls_test;
+          grant select, insert, update, delete on all tables in schema public to bunkhouse_rls_test;
+          grant usage, select on all sequences in schema public to bunkhouse_rls_test;
+          insert into tenants (id, name, slug) values
+            ('00000000-0000-0000-0000-000000000001', 'One', 'one'),
+            ('00000000-0000-0000-0000-000000000002', 'Two', 'two');
+          insert into people (tenant_id, kind, status, name, title, email) values
+            ('00000000-0000-0000-0000-000000000001', 'human', 'active', 'One', 'Owner', 'one@example.test'),
+            ('00000000-0000-0000-0000-000000000002', 'human', 'active', 'Two', 'Owner', 'two@example.test');
+          set role bunkhouse_rls_test;
+          set app.tenant_id = '00000000-0000-0000-0000-000000000001';
+          do $$ begin
+            if (select count(*) from people) <> 1 then
+              raise exception 'RLS tenant isolation failed';
+            end if;
+          end $$;
+          reset role;
+          SQL
 
   build:
     needs: check

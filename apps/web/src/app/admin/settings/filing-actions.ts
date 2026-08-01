@@ -1,7 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { resolveTenantId } from '../../../lib/tenant'
+import { resolveTenantId as resolveTenant } from '../../../lib/tenant'
+const resolveTenantId = () => resolveTenant('settings.manage')
 import {
   disconnectFilingTarget,
   removeFilingApp,

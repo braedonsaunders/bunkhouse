@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import {
   Activity, DoorOpen, Boxes, Brain, Building2, FileText, FolderCog, Globe, ImageIcon, Mail, MessageSquare,
-  MessagesSquare, Phone, Shield } from 'lucide-react'
+  MessagesSquare, Phone, Shield, UserRoundCog } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -46,6 +46,8 @@ import { VoiceCostSettings, type VoiceCostSettingsView } from './voice-cost-sett
 import { DocumentTemplatesView, type TemplateRowView } from './document-templates-view'
 import { FilingSection, type FilingActivityRow, type FilingSettingsView } from './filing-settings'
 import { ChatSettingsSection, type ChatAgentOption, type ChatChannelRouteRowView, type ChatConnectionsView } from './chat-settings'
+import { AccessSettings } from './access-settings'
+import type { ScopeOptions } from '@appkit/iam'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
   <Link href={href} className={className} title={title}>
@@ -134,7 +136,10 @@ const NAV: SettingsNavGroup[] = [
   },
   {
     label: 'Trust',
-    items: [{ key: 'autonomy', label: 'Autonomy', icon: <Shield /> }],
+    items: [
+      { key: 'autonomy', label: 'Autonomy', icon: <Shield /> },
+      { key: 'access', label: 'Access', icon: <UserRoundCog /> },
+    ],
   },
   {
     label: 'Intelligence',
@@ -261,6 +266,7 @@ export function SettingsView({
   avatarParts,
   avatarPartCategories,
   avatarPartLibrary,
+  accessScopes,
 }: {
   providers: ProviderSummary[]
   /** Which agent works on which provider, so removing one shows its cost. */
@@ -319,6 +325,7 @@ export function SettingsView({
   avatarPartCategories: AvatarPartCategory[]
   /** The same parts shaped for the composer and the previews. */
   avatarPartLibrary: AvatarPart[]
+  accessScopes: ScopeOptions
 }) {
   const arrival = React.useMemo(() => resolveSection(initialSection), [initialSection])
   const [active, setActive] = React.useState(arrival.section)
@@ -372,6 +379,8 @@ export function SettingsView({
           <AutonomySettings agents={agentDials} linkRender={nextLink} />
         </SettingsSection>
       ) : null}
+
+      {active === 'access' ? <AccessSettings scopeOptions={accessScopes} /> : null}
 
       {active === 'ai' ? (
         <ModelSettings

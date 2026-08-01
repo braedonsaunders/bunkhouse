@@ -45,7 +45,7 @@ export default async function SettingsPage({
   // Connected systems moved to Resources; a bookmarked deep link follows them
   // there rather than landing on a section that no longer exists.
   if (section === 'integrations') redirect('/resources?tab=systems')
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('settings.read')
   const app = db()
   const [providers, prices, imageSetting, voiceProviders, trunks, agentExtensions, mailboxData, agentDials, partRows, partLibrary] = await Promise.all([
     listAiProviders(tenantId),
@@ -370,6 +370,10 @@ export default async function SettingsPage({
       }))}
       avatarPartCategories={AVATAR_PART_CATEGORIES}
       avatarPartLibrary={partLibrary}
+      accessScopes={{
+        departments: departmentList.map((department) => ({ value: department.id, label: department.name })),
+        people: activeAgents.map((person) => ({ value: person.id, label: person.name })),
+      }}
     />
   )
 }

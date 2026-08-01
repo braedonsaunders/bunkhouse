@@ -6,7 +6,8 @@ import { isSmsProvider } from '@appkit/sms/providers'
 import { unsealSecret } from '@appkit/crypto'
 import { addAiProvider, listAiProviders, removeAiProvider, resolveProviderAiConfig, updateAiProvider } from '../../../lib/ai'
 import { listTenantElevenLabsVoices, removeSpeechProvider, setSpeechProviderKey, type SpeechProvider } from '../../../lib/voice'
-import { resolveTenantId } from '../../../lib/tenant'
+import { resolveTenantId as resolveTenant } from '../../../lib/tenant'
+const resolveTenantId = () => resolveTenant('settings.manage')
 import { refreshPricesFromOpenRouter, setManualPrice } from '../../../lib/pricing'
 import {
   isReconcilableProvider,

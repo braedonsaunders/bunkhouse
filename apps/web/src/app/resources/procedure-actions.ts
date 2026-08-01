@@ -4,7 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { and, eq } from 'drizzle-orm'
 import { procedureRevisions, procedures, type ProcedureAssignment } from '../../db/schema'
 import { db } from '../../db/client'
-import { resolveTenantId } from '../../lib/tenant'
+import { resolveTenantId as resolveTenant } from '../../lib/tenant'
+const resolveTenantId = () => resolveTenant('resources.manage')
 import { parseProcedureContent, renderProcedureBody } from '../../lib/procedures'
 
 function parseAssignment(formData: FormData): ProcedureAssignment {

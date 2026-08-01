@@ -30,7 +30,7 @@ export async function GET(request: Request): Promise<Response> {
   const provider = params.get('provider') ?? ''
 
   await requireUser()
-  const tenantId = await resolveTenantId()
+  const tenantId = await resolveTenantId('mail.manage')
 
   if (!personId) return await backToAgent('', 'Choose an agent before connecting a mailbox.')
   if (!isMailOauthProvider(provider)) {

@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "runs": [
+    {
+      "at": "2026-08-01T01:13:01.552Z",
+      "sha": "1eb199c94c7ed75ecd4ef0c4b4cbe54c05b44bac",
+      "pr": null,
+      "actor": "braedonsaunders",
+      "files": 670,
+      "functions": 2044,
+      "loc": 204520,
+      "languages": 12,
+      "topLanguages": [
+        {
+          "ext": "ts",
+          "pct": 31,
+          "lines": 62624
+        },
+        {
+          "ext": "json",
+          "pct": 26,
+          "lines": 53373
+        },
+        {
+          "ext": "tsx",
+          "pct": 24,
+          "lines": 48063
+        },
+        {
+          "ext": "yaml",
+          "pct": 15,
+          "lines": 30309
+        },
+        {
+          "ext": "sql",
+          "pct": 3,
+          "lines": 5250
+        }
+      ],
+      "dead": 52,
+      "deadPct": 2.5,
+      "circular": 0,
+      "godObjects": 1,
+      "avgCoupling": 2.3,
+      "securityIssues": 52,
+      "patterns": 7,
+      "duplicates": 148,
+      "layerViolations": 83,
+      "connections": 1523,
+      "avgFnLines": 15.6,
+      "longestFn": 16,
+      "testFiles": 0,
+      "testRatio": 0,
+      "topFolders": [
+        {
+          "name": ".claude",
+          "count": 311
+        },
+        {
+          "name": "apps",
+          "count": 273
+        },
+        {
+          "name": "migrations",
+          "count": 47
+        },
+        {
+          "name": "packages",
+          "count": 19
+        },
+        {
+          "name": "root",
+          "count": 11
+        }
+      ],
+      "folders": 5,
+      "grade": "C",
+      "score": 74,
+      "topBlast": {
+        "path": "apps/web/src/db/client.ts",
+        "direct": 80,
+        "transitive": 142,
+        "total": 222
+      },
+      "fragility": [
+        {
+          "path": "apps/web/src/db/client.ts",
+          "direct": 80,
+          "transitive": 142,
+          "total": 222
+        },
+        {
+          "path": ".claude/worktrees/sleepy-hawking-7c9d63/apps/web/src/db/client.ts",
+          "direct": 70,
+          "transitive": 126,
+          "total": 196
+        },
+        {
+          "path": "apps/web/src/lib/tenant.ts",
+          "direct": 41,
+          "transitive": 79,
+          "total": 120
+        }
+      ]
+    }
+  ]
+}

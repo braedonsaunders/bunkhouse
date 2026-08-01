@@ -6,7 +6,8 @@ import { connectMcpServers } from '@bunkhouse/runtime'
 import { listMcpIntegrations, saveMcpIntegrations } from '../../lib/mcp-integrations'
 import { resolveIntegrationHeaders } from '../../lib/agent-abilities'
 import { beginMcpOauth } from '../../lib/mcp-oauth'
-import { resolveTenantId } from '../../lib/tenant'
+import { resolveTenantId as resolveTenant } from '../../lib/tenant'
+const resolveTenantId = () => resolveTenant('resources.manage')
 import { db } from '../../db/client'
 
 /**

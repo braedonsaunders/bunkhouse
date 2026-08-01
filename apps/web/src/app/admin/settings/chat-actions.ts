@@ -13,7 +13,8 @@ import {
   testSlackConnection,
   testTeamsWebhook,
 } from '../../../lib/chat-bridge'
-import { resolveTenantId } from '../../../lib/tenant'
+import { resolveTenantId as resolveTenant } from '../../../lib/tenant'
+const resolveTenantId = () => resolveTenant('settings.manage')
 
 // --- Slack --------------------------------------------------------------
 

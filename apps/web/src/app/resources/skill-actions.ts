@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import type { ProcedureAssignment } from '../../db/schema'
-import { resolveTenantId } from '../../lib/tenant'
+import { resolveTenantId as resolveTenant } from '../../lib/tenant'
+const resolveTenantId = () => resolveTenant('resources.manage')
 import { parseRepoInput } from '../../lib/skill-source'
 import { SKILL_LIBRARY } from '../../lib/skill-library'
 import {
