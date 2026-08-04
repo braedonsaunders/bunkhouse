@@ -5,7 +5,7 @@ import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
 import { describeAssignment } from '../../lib/assignment'
 import { roleOptions as listRoleOptions } from '../../lib/roles'
-import { listMcpIntegrations } from '../../lib/mcp-integrations'
+import { listMcpIntegrations, readMcpHealth } from '../../lib/mcp-integrations'
 import { mcpOauthRedirectUri } from '../../lib/mcp-oauth'
 import { listCurrentRevisions, listSkillFiles, listSkills } from '../../lib/skills'
 import { shellSupported } from '../../lib/workspace'
@@ -95,6 +95,7 @@ export default async function ResourcesPage({
       .where(eq(people.kind, 'agent'))
       .orderBy(asc(people.name))
     const systems = await listMcpIntegrations(tenantId)
+    const systemHealth = await readMcpHealth(tenantId)
     const skillHeads = await listSkills(tenantId)
     const skillRevisions = await listCurrentRevisions(tenantId)
     const skillFileRows = await listSkillFiles(tenantId)
@@ -106,6 +107,7 @@ export default async function ResourcesPage({
       revisions,
       agents,
       systems,
+      systemHealth,
       skillHeads,
       skillRevisions,
       skillFileRows,
@@ -216,7 +218,16 @@ export default async function ResourcesPage({
           category: entry.category,
           hasHeaders: Boolean(entry.sealedHeaders),
           isOauth: Boolean(entry.oauth),
-          ...(entry.oauth?.clientId ? { clientId: entry.oauth.clientId } : {}),
+          isM2m: Boolean(entry.m2m),
+          // Never the key itself — only what the operator has to recognise the
+          // connection by, so reconnecting does not mean re-entering all of it.
+          ...(entry.m2m?.clientId ?? entry.oauth?.clientId
+            ? { clientId: entry.m2m?.clientId ?? entry.oauth!.clientId }
+            : {}),
+          ...(entry.m2m?.keyId ? { keyId: entry.m2m.keyId } : {}),
+          ...(entry.m2m?.algorithm ? { algorithm: entry.m2m.algorithm } : {}),
+          ...(entry.m2m?.scope ? { scope: entry.m2m.scope } : {}),
+          ...(data.systemHealth[entry.slug] ? { health: data.systemHealth[entry.slug]! } : {}),
           appliesTo: appliesTo(entry.assignment),
           assignment: entry.assignment,
         }))}

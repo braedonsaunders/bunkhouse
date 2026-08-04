@@ -80,6 +80,8 @@ export type McpIntegrationEntry = {
   sealedHeaders?: SealedSecret
   /** Present when the connection signed in with OAuth instead of headers. */
   oauth?: McpOauthGrant
+  /** Present when the connection authenticates as itself, with a certificate. */
+  m2m?: McpM2mGrant
   /** Action category the autonomy dial governs this integration under. */
   category: string
   /**
@@ -104,7 +106,53 @@ export type McpOauthGrant = {
   sealedTokens: SealedSecret
 }
 
+/**
+ * A machine-to-machine connection's standing credential: a key pair the
+ * company holds, whose certificate the provider has on file.
+ *
+ * Nothing minted is stored. The client-credentials grant issues no refresh
+ * token, so unlike `McpOauthGrant` there is no rotating secret to write back
+ * after every use — which is the whole reason to prefer this shape for a
+ * system agents work in daily. A refresh token is destroyed by its own use and
+ * lapses on the provider's schedule; a certificate is replaced on ours.
+ */
+export type McpM2mGrant = {
+  tokenEndpoint: string
+  /** RFC 8707 resource indicator tokens are minted for. */
+  resource: string
+  /** The application the company registered with the provider. */
+  clientId: string
+  /** JWS algorithm the client assertion is signed with (NetSuite: PS256). */
+  algorithm: string
+  /** The assertion's `kid`, when the provider names the certificate by one. */
+  keyId?: string
+  /** Space-delimited scope minted tokens are requested for. */
+  scope?: string
+  /** Sealed PEM private key. The provider holds only the certificate. */
+  sealedPrivateKey: SealedSecret
+}
+
 export const MCP_INTEGRATIONS_KEY = 'integrations.mcp'
+
+/** settings key: 'integrations.mcp.health' — whether each connected system was
+ *  answering when it was last asked, keyed by slug.
+ *
+ *  Deliberately a separate setting from the connections themselves. Health is
+ *  written often and by whoever happened to check; a credential is written
+ *  rarely and must never be lost. Keeping them in one row would put a routine
+ *  status update on the same read-modify-write as a rotating token, which is
+ *  the exact hazard the refresh path takes an advisory lock to avoid. */
+export type McpSystemHealth = {
+  status: 'ok' | 'failed'
+  /** Epoch milliseconds of the last check, successful or not. */
+  checkedAt: number
+  /** Tools the server offered when it last answered. */
+  toolCount?: number
+  /** Why the last check failed, in the provider's own words. */
+  error?: string
+}
+
+export const MCP_HEALTH_KEY = 'integrations.mcp.health'
 
 /** settings key: 'integrations.mcp.pending' — OAuth sign-ins in flight. Each
  *  entry holds one authorization round-trip's context between the redirect

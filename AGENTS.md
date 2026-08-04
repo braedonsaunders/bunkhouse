@@ -148,6 +148,8 @@ After changing AppKit: `pnpm build:packages` there, re-pack with
   cost beats calculated cost, and what each provider will and will not tell you.
 - `docs/skills.md` — portable competence in the public `SKILL.md` format: why a skill is not
   a procedure, progressive disclosure, the commit pin, and why scripts need no new gate.
+- `docs/systems.md` — how an MCP connection proves who it is: why a certificate outlasts a
+  refresh token, what is checked before a connection saves, and where each piece lives.
 - `vendor/appkit` — pinned AppKit tarballs (36 packages).
 
 ## Validation gates (green before "done")

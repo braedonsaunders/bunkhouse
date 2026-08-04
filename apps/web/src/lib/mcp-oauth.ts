@@ -1,12 +1,14 @@
 import 'server-only'
-import { randomBytes } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
+import { createHash, randomBytes } from 'node:crypto'
+import { and, eq, sql } from 'drizzle-orm'
 import { sealSecret, unsealSecret, type SealedSecret } from '@appkit/crypto'
 import {
   buildAuthorizationUrl,
   createPkce,
   discoverAuthorization,
   exchangeAuthorizationCode,
+  isClientAssertionAlgorithm,
+  mintClientCredentialsToken,
   refreshTokens,
   registerClient,
   type OAuthTokens,
@@ -16,6 +18,7 @@ import {
   tenantSettings,
   MCP_OAUTH_PENDING_KEY,
   type McpIntegrationEntry,
+  type McpM2mGrant,
   type McpOauthGrant,
   type McpOauthPending,
 } from '../db/schema'
@@ -306,60 +309,292 @@ function sealTokens(tokens: OAuthTokens): SealedSecret {
   return sealSecret(JSON.stringify(stored))
 }
 
-/**
- * The Authorization header for one OAuth-connected integration, minting a
- * fresh access token first when the stored one is about to lapse. Call inside
- * an existing tenant scope; a rotated token set is written back in its OWN
- * transaction (the same discipline as mailbox refresh tokens) so it survives
- * even when the surrounding run later fails.
- */
-export async function mcpOauthHeaders(tenantId: string, entry: McpIntegrationEntry): Promise<Record<string, string>> {
-  const grant = entry.oauth
-  if (!grant) throw new Error('this connection has no OAuth grant — reconnect it in Settings → Integrations.')
+function isStale(tokens: StoredTokens, slackMs: number = EXPIRY_SLACK_MS): boolean {
+  return typeof tokens.expiresAt === 'number' && tokens.expiresAt - Date.now() < slackMs
+}
+
+function readStoredTokens(grant: McpOauthGrant): StoredTokens {
   const plain = unsealSecret(grant.sealedTokens)
   if (plain === null) {
-    throw new Error('its sign-in tokens cannot be unsealed (APPKIT_SECRET changed?) — reconnect it in Settings → Integrations.')
+    throw new Error('its sign-in tokens cannot be unsealed (APPKIT_SECRET changed?) — reconnect it under Resources → Systems.')
   }
-  let tokens = JSON.parse(plain) as StoredTokens
-
-  const stale = typeof tokens.expiresAt === 'number' && tokens.expiresAt - Date.now() < EXPIRY_SLACK_MS
-  if (stale) {
-    if (!tokens.refreshToken) {
-      throw new Error('its sign-in has expired and the server issued no refresh token — reconnect it in Settings → Integrations.')
-    }
-    const clientSecret = grant.sealedClientSecret ? unsealSecret(grant.sealedClientSecret) : null
-    const refreshed = await refreshTokens({
-      authorization: { tokenEndpoint: grant.tokenEndpoint, resource: grant.resource },
-      client: { clientId: grant.clientId, ...(clientSecret ? { clientSecret } : {}) },
-      refreshToken: tokens.refreshToken,
-    })
-    await persistRotatedTokens(tenantId, entry.slug, sealTokens(refreshed))
-    tokens = {
-      accessToken: refreshed.accessToken,
-      tokenType: refreshed.tokenType,
-      ...(refreshed.refreshToken ? { refreshToken: refreshed.refreshToken } : {}),
-      ...(refreshed.expiresAt ? { expiresAt: refreshed.expiresAt } : {}),
-    }
-  }
-  return { Authorization: `${tokens.tokenType} ${tokens.accessToken}` }
+  return JSON.parse(plain) as StoredTokens
 }
 
 /**
- * Write a rotated token set in an independent transaction — servers may
- * rotate the refresh token on every mint and expect the old one dropped, so
- * losing this write would lock the integration out.
+ * The Authorization header for one OAuth-connected integration, minting a
+ * fresh access token first when the stored one is about to lapse. Call inside
+ * an existing tenant scope.
  */
-async function persistRotatedTokens(tenantId: string, slug: string, sealedTokens: SealedSecret): Promise<void> {
-  const app = db()
-  await app.withTenant(tenantId, async () => {
-    const entries = await listMcpIntegrations(tenantId)
-    const next = entries.map((entry) =>
-      entry.slug === slug && entry.oauth ? { ...entry, oauth: { ...entry.oauth, sealedTokens } } : entry,
-    )
-    await saveMcpIntegrations(tenantId, next)
-  })
+export async function mcpOauthHeaders(tenantId: string, entry: McpIntegrationEntry): Promise<Record<string, string>> {
+  const grant = entry.oauth
+  if (!grant) throw new Error('this connection has no OAuth grant — reconnect it under Resources → Systems.')
+  const stored = readStoredTokens(grant)
+  const tokens = isStale(stored) ? await refreshSharedTokens(tenantId, entry.slug, grant, EXPIRY_SLACK_MS) : stored
+  return { Authorization: `${tokens.tokenType} ${tokens.accessToken}` }
+}
+
+/** In-flight refreshes in THIS process, so concurrent runs mint once between them. */
+const refreshInFlight = new Map<string, Promise<StoredTokens>>()
+
+/**
+ * Advisory-lock namespace for MCP credential writes. Paired with a hash of the
+ * connection's key so two features cannot collide on the same lock id.
+ */
+const MCP_LOCK_NAMESPACE = 0x6d63
+
+/**
+ * Refresh one grant, once, however many runs want it at the same moment.
+ *
+ * A rotating refresh token cannot be minted from twice. Providers that rotate —
+ * NetSuite among them — invalidate the old token the instant a new one is
+ * issued, so two concurrent refreshes do not merely race to write: the second
+ * mint presents a token the first already destroyed, and whichever write lands
+ * last can leave a dead credential behind. Serialising the write alone is not
+ * enough; the *mint* is what has to be exclusive.
+ *
+ * Two layers, because concurrency arrives from two directions. A promise map
+ * collapses the common case — several runs in one worker starting together. A
+ * Postgres advisory lock covers the rest, and the re-read inside it means a
+ * process that waited for the lock uses the token the winner just stored rather
+ * than spending a second mint on the same work.
+ *
+ * The lock is held across the token request. That is deliberate: releasing it
+ * earlier would reopen exactly the window it exists to close. The hold is
+ * bounded by the OAuth egress timeout and happens about once an hour per
+ * connection, which is a cheap price for a credential that cannot be corrupted.
+ */
+async function refreshSharedTokens(
+  tenantId: string,
+  slug: string,
+  fallback: McpOauthGrant,
+  /** How much life left still counts as spent — wider when renewing early. */
+  slackMs: number,
+): Promise<StoredTokens> {
+  const key = `${tenantId}:${slug}`
+  const existing = refreshInFlight.get(key)
+  if (existing) return existing
+
+  const work = (async (): Promise<StoredTokens> => {
+    const app = db()
+    return app.withTenant(tenantId, async () => {
+      await app.db.execute(sql`select pg_advisory_xact_lock(${MCP_LOCK_NAMESPACE}, hashtext(${key}))`)
+
+      // Re-read under the lock: another process may have refreshed while we
+      // queued, and its token set is the only valid one now.
+      const entries = await listMcpIntegrations(tenantId)
+      const grant = entries.find((entry) => entry.slug === slug)?.oauth ?? fallback
+      const stored = readStoredTokens(grant)
+      if (!isStale(stored, slackMs)) return stored
+
+      if (!stored.refreshToken) {
+        throw new Error(
+          'its sign-in has expired and the server issued no refresh token — reconnect it under Resources → Systems.',
+        )
+      }
+      const clientSecret = grant.sealedClientSecret ? unsealSecret(grant.sealedClientSecret) : null
+      const refreshed = await refreshTokens({
+        authorization: { tokenEndpoint: grant.tokenEndpoint, resource: grant.resource },
+        client: { clientId: grant.clientId, ...(clientSecret ? { clientSecret } : {}) },
+        refreshToken: stored.refreshToken,
+      })
+
+      const sealed = sealTokens(refreshed)
+      await saveMcpIntegrations(
+        tenantId,
+        entries.map((entry) =>
+          entry.slug === slug && entry.oauth ? { ...entry, oauth: { ...entry.oauth, sealedTokens: sealed } } : entry,
+        ),
+      )
+      return {
+        accessToken: refreshed.accessToken,
+        tokenType: refreshed.tokenType,
+        ...(refreshed.refreshToken ? { refreshToken: refreshed.refreshToken } : {}),
+        ...(refreshed.expiresAt ? { expiresAt: refreshed.expiresAt } : {}),
+      }
+    })
+  })()
+
+  refreshInFlight.set(key, work)
+  try {
+    return await work
+  } finally {
+    refreshInFlight.delete(key)
+  }
+}
+
+/**
+ * How long before expiry the housekeeping pass renews a grant. Comfortably
+ * wider than the pass interval, so a token is replaced by the scheduler rather
+ * than by whichever duty happens to need it first — and so a refresh token that
+ * lapses from disuse never gets the chance.
+ */
+const REFRESH_AHEAD_MS = 30 * 60 * 1000
+
+/**
+ * Renew a grant early, outside any run. Returns false when nothing was due.
+ * Errors are the caller's to record — this is called from housekeeping, where a
+ * provider refusing is the news, not an exception to swallow.
+ */
+export async function refreshGrantIfDue(tenantId: string, entry: McpIntegrationEntry): Promise<boolean> {
+  const grant = entry.oauth
+  if (!grant) return false
+  if (!isStale(readStoredTokens(grant), REFRESH_AHEAD_MS)) return false
+  await refreshSharedTokens(tenantId, entry.slug, grant, REFRESH_AHEAD_MS)
+  return true
 }
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+// --- Machine-to-machine tokens ------------------------------------------------
+
+/**
+ * Minted access tokens, held in memory only.
+ *
+ * There is nothing to persist — the client-credentials grant returns no
+ * refresh token — so this is a cache, not a store: losing it costs one token
+ * request. That is also why it can be a plain map with no locking, where the
+ * authorization-code path needs a database write it must not race.
+ *
+ * Keyed by tenant, slug, and a fingerprint of the sealed key, so replacing a
+ * certificate cannot be served a token minted under the old one.
+ */
+const mintedTokens = new Map<string, { header: string; expiresAt: number }>()
+
+/** Mint again this long before expiry, so a slow MCP dial cannot outlive it. */
+const M2M_EXPIRY_SLACK_MS = 60 * 1000
+
+/** Assume the provider's shortest plausible lifetime when none is reported. */
+const M2M_ASSUMED_LIFETIME_MS = 5 * 60 * 1000
+
+function m2mCacheKey(tenantId: string, slug: string, grant: McpM2mGrant): string {
+  const fingerprint = createHash('sha256')
+    .update(grant.sealedPrivateKey.ciphertext)
+    .update(grant.clientId)
+    .update(grant.keyId ?? '')
+    .digest('base64url')
+    .slice(0, 16)
+  return `${tenantId}:${slug}:${fingerprint}`
+}
+
+/**
+ * The Authorization header for one machine-to-machine connection.
+ *
+ * Every token is minted from the sealed key on demand and nothing is written
+ * back, so two runs connecting at the same moment cannot corrupt each other's
+ * credential — the failure mode that a rotating refresh token has, and the
+ * reason a system agents depend on daily belongs on this flow.
+ */
+export async function mcpM2mHeaders(tenantId: string, entry: McpIntegrationEntry): Promise<Record<string, string>> {
+  const grant = entry.m2m
+  if (!grant) throw new Error('this connection has no certificate — reconnect it under Resources → Systems.')
+
+  const cacheKey = m2mCacheKey(tenantId, entry.slug, grant)
+  const cached = mintedTokens.get(cacheKey)
+  if (cached && cached.expiresAt - Date.now() > M2M_EXPIRY_SLACK_MS) return { Authorization: cached.header }
+
+  const privateKey = unsealSecret(grant.sealedPrivateKey)
+  if (privateKey === null) {
+    throw new Error(
+      'its private key cannot be unsealed (APPKIT_SECRET changed?) — reconnect it under Resources → Systems.',
+    )
+  }
+  if (!isClientAssertionAlgorithm(grant.algorithm)) {
+    throw new Error(`${grant.algorithm} is not a signing algorithm this can use — reconnect it under Resources → Systems.`)
+  }
+
+  const tokens = await mintClientCredentialsToken({
+    authorization: { tokenEndpoint: grant.tokenEndpoint, resource: grant.resource },
+    client: {
+      clientId: grant.clientId,
+      privateKey,
+      algorithm: grant.algorithm,
+      ...(grant.keyId ? { keyId: grant.keyId } : {}),
+    },
+    ...(grant.scope ? { scope: grant.scope } : {}),
+  })
+
+  const header = `${tokens.tokenType} ${tokens.accessToken}`
+  mintedTokens.set(cacheKey, {
+    header,
+    expiresAt: tokens.expiresAt ?? Date.now() + M2M_ASSUMED_LIFETIME_MS,
+  })
+  return { Authorization: header }
+}
+
+/**
+ * Forget any token minted for this connection. Called when its credential
+ * changes, so a reconnect takes effect on the next run rather than whenever
+ * the previous hour happened to run out.
+ */
+export function forgetMintedTokens(tenantId: string, slug: string): void {
+  const prefix = `${tenantId}:${slug}:`
+  for (const key of mintedTokens.keys()) {
+    if (key.startsWith(prefix)) mintedTokens.delete(key)
+  }
+}
+
+/**
+ * Everything needed to reach a server as ourselves, worked out from the
+ * server's own metadata and proved against it before an operator is told the
+ * connection is good.
+ *
+ * The check is deliberately end to end: discovery says the flow exists, the
+ * mint says the certificate is actually mapped to an entity and role at the
+ * provider, and the caller then dials MCP with the token. A connection that
+ * saves without all three reads as healthy until the first duty needs it.
+ */
+export async function verifyM2mGrant(input: {
+  url: string
+  clientId: string
+  privateKey: string
+  algorithm: string
+  keyId?: string
+  scope?: string
+}): Promise<{ grant: Omit<McpM2mGrant, 'sealedPrivateKey'>; headers: Record<string, string> }> {
+  if (!isClientAssertionAlgorithm(input.algorithm)) {
+    throw new Error(`${input.algorithm} is not a signing algorithm this can use.`)
+  }
+  const authorization = await discoverAuthorization(input.url)
+  const grants = authorization.grantTypesSupported
+  if (grants && !grants.includes('client_credentials')) {
+    throw new Error(
+      `${new URL(authorization.issuer).hostname} does not offer the client-credentials flow (it advertises ${grants.join(', ')}). Sign in with the provider instead.`,
+    )
+  }
+  const algorithms = authorization.tokenEndpointAuthSigningAlgValuesSupported
+  if (algorithms && !algorithms.includes(input.algorithm)) {
+    throw new Error(
+      `${new URL(authorization.issuer).hostname} does not accept ${input.algorithm}-signed assertions — it accepts ${algorithms.join(', ')}.`,
+    )
+  }
+  // The scope the resource itself asks for, unless the operator named one.
+  // Providers reject a token minted for the wrong audience with the same
+  // opaque error they use for a bad key, so guessing here is expensive.
+  const scope = input.scope?.trim() || authorization.scopesSupported?.join(' ')
+
+  const tokens = await mintClientCredentialsToken({
+    authorization,
+    client: {
+      clientId: input.clientId,
+      privateKey: input.privateKey,
+      algorithm: input.algorithm,
+      ...(input.keyId ? { keyId: input.keyId } : {}),
+    },
+    ...(scope ? { scope } : {}),
+  })
+
+  return {
+    grant: {
+      tokenEndpoint: authorization.tokenEndpoint,
+      resource: authorization.resource,
+      clientId: input.clientId,
+      algorithm: input.algorithm,
+      ...(input.keyId ? { keyId: input.keyId } : {}),
+      ...(scope ? { scope } : {}),
+    },
+    headers: { Authorization: `${tokens.tokenType} ${tokens.accessToken}` },
+  }
 }

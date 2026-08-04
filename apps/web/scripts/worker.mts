@@ -16,6 +16,7 @@ import { pendingAssignmentIds, runAssignment } from '../src/lib/assignments'
 import { decidedApprovalIds, executeDecidedApproval } from '../src/lib/approval-executor'
 import { tidyWorkspaces } from '../src/lib/workspace'
 import { syncToolCatalogue, toolHousekeeping, toolsSupported } from '../src/lib/tools'
+import { systemsHousekeeping } from '../src/lib/mcp-health'
 import { probeAllTrunks, refreshBridgeRegistrations } from '../src/lib/pbx'
 import { sweepExpiredRecordings } from '../src/lib/voice-recording'
 import { refreshPricesFromOpenRouter } from '../src/lib/pricing'
@@ -371,6 +372,30 @@ async function toolsPass(): Promise<void> {
   }
 }
 
+/**
+ * The outside systems, kept signed in and watched.
+ *
+ * An OAuth grant is renewed before it lapses rather than when a duty trips over
+ * it: a rotating refresh token is spent by its own use and expires from disuse,
+ * so a system nobody touched over a long weekend is a system that cannot sign
+ * itself back in. The health check that follows is what makes a dead connection
+ * visible on the Systems screen instead of only in the run that needed it.
+ */
+async function systemsPass(): Promise<void> {
+  for (const tenantId of await activeTenantIds()) {
+    try {
+      const { renewed, checked, failing } = await systemsHousekeeping(tenantId)
+      for (const label of renewed) console.log(`[systems] tenant ${tenantId}: renewed ${label} ahead of expiry`)
+      for (const failure of failing) console.error(`[systems] tenant ${tenantId}: ${failure}`)
+      if (checked > 0 && failing.length === 0) {
+        console.log(`[systems] tenant ${tenantId}: ${checked} system(s) answering`)
+      }
+    } catch (error) {
+      console.error(`[systems] tenant ${tenantId}:`, (error as Error).message)
+    }
+  }
+}
+
 /** Nightly journal: episodes + fact candidates from yesterday's runs. The
  *  pass itself skips any run already journaled (episode with its sourceRunId),
  *  so a 6-hour tick only ever adds what the last one missed. */
@@ -611,6 +636,7 @@ type HeartbeatPass =
   | 'trunks'
   | 'money'
   | 'tools'
+  | 'systems'
 type DeepWorkJob =
   | { kind: 'assignment' | 'approval' | 'inbound'; tenantId: string; id: string }
   | { kind: 'duty'; tenantId: string; id: string; scheduledAt: string | null }
@@ -629,6 +655,11 @@ await heartbeat.upsertJobScheduler('waits', { every: 3_600_000 }, { name: 'tick'
 await heartbeat.upsertJobScheduler('reports', { every: 21_600_000 }, { name: 'tick', data: { pass: 'reports' } })
 await heartbeat.upsertJobScheduler('workspace', { every: 86_400_000 }, { name: 'tick', data: { pass: 'workspace' } })
 await heartbeat.upsertJobScheduler('tools', { every: 3_600_000 }, { name: 'tick', data: { pass: 'tools' } })
+// Ten minutes: often enough that a one-hour access token is renewed by this
+// pass rather than by the duty that needed it, and that a provider refusing is
+// news within minutes. The pass itself only calls out when a grant is close to
+// expiry or a health reading has gone stale, so most ticks do nothing.
+await heartbeat.upsertJobScheduler('systems', { every: 600_000 }, { name: 'tick', data: { pass: 'systems' } })
 await heartbeat.upsertJobScheduler('gardener', { every: 86_400_000 }, { name: 'tick', data: { pass: 'gardener' } })
 await heartbeat.upsertJobScheduler('trunks', { every: 300_000 }, { name: 'tick', data: { pass: 'trunks' } })
 await heartbeat.upsertJobScheduler('journal', { every: 21_600_000 }, { name: 'tick', data: { pass: 'journal' } })
@@ -651,6 +682,7 @@ const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
     else if (job.data.pass === 'reports') await weeklyReportPass()
     else if (job.data.pass === 'workspace') await workspacePass()
     else if (job.data.pass === 'tools') await toolsPass()
+    else if (job.data.pass === 'systems') await systemsPass()
     else if (job.data.pass === 'gardener') {
       await gardenerPassAll()
       await staleBeliefsPass()
@@ -690,8 +722,11 @@ await heartbeat.add('tick', { pass: 'assignments' })
 // correcting when a deploy lands rather than up to a day later. The gardener it
 // rides with is period-gated internally, so this costs nothing extra.
 await heartbeat.add('tick', { pass: 'gardener' })
+// A deploy is exactly when a grant may have been sitting unused; check on boot
+// rather than up to ten minutes later.
+await heartbeat.add('tick', { pass: 'systems' })
 console.log(
-  'bunkhouse worker up — mailbox 2m, duties 1m, approvals 30s, assignments 30s, call sweep 5m, journal 6h, reflection 12h, money 24h; deep-work queue ×2 (initial passes queued)',
+  'bunkhouse worker up — mailbox 2m, duties 1m, approvals 30s, assignments 30s, call sweep 5m, systems 10m, journal 6h, reflection 12h, money 24h; deep-work queue ×2 (initial passes queued)',
 )
 
 async function shutdown(): Promise<void> {

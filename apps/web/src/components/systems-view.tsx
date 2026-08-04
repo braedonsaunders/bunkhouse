@@ -13,7 +13,7 @@ import {
   Textarea,
   type RecordColumn,
 } from '@appkit/ui'
-import type { ResourceAssignment } from '../db/schema'
+import type { McpSystemHealth, ResourceAssignment } from '../db/schema'
 import {
   AVAILABILITY_LABELS,
   INTEGRATION_LIBRARY,
@@ -25,6 +25,7 @@ import {
   listSystemToolsAction,
   removeMcpIntegrationAction,
   saveMcpIntegrationAction,
+  saveMcpM2mAction,
   setSystemAssignmentAction,
   type SystemTool,
 } from '../app/resources/system-actions'
@@ -49,6 +50,8 @@ export type SystemRowView = {
   hasHeaders: boolean
   /** Signed in with OAuth; tokens are minted fresh on every connection. */
   isOauth: boolean
+  /** Authenticates as itself with a certificate; no sign-in, no refresh token. */
+  isM2m: boolean
   /**
    * The application this connection signed in as, when it has one. Carried
    * back into the form so signing in again reuses the same registration —
@@ -56,9 +59,29 @@ export type SystemRowView = {
    * a new application, which the providers that need one will refuse.
    */
   clientId?: string
+  /** The provider's id for the certificate; the private key is never sent here. */
+  keyId?: string
+  algorithm?: string
+  scope?: string
+  /** Whether it answered when last asked. Absent until something has checked. */
+  health?: McpSystemHealth
   /** Which agents carry this system, rendered for the list column. */
   appliesTo: string
   assignment: ResourceAssignment
+}
+
+/**
+ * How long ago, in the coarsest unit that still says something useful. An
+ * operator reading a status column wants "is this current" and nothing finer.
+ */
+function sinceLabel(at: number): string {
+  const seconds = Math.max(0, Math.round((Date.now() - at) / 1000))
+  if (seconds < 90) return 'just now'
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 48) return `${hours}h ago`
+  return `${Math.round(hours / 24)}d ago`
 }
 
 const CATEGORY_OPTIONS = [
@@ -91,6 +114,33 @@ const NO_AUTOFILL = {
   'data-form-type': 'other',
 } as const
 
+/** How a connection proves who it is. */
+type ConnectMethod = 'headers' | 'oauth' | 'm2m'
+
+const isConnectMethod = (value: string): value is ConnectMethod =>
+  value === 'headers' || value === 'oauth' || value === 'm2m'
+
+/**
+ * The JWS algorithms a client assertion can be signed with. The provider says
+ * which it accepts in its own metadata and the connection is checked against
+ * that before saving, so a wrong choice here is caught rather than stored.
+ */
+const ALGORITHM_OPTIONS = [
+  { value: 'PS256', label: 'PS256 — RSA-PSS (NetSuite)' },
+  { value: 'RS256', label: 'RS256 — RSA' },
+  { value: 'ES256', label: 'ES256 — P-256' },
+  { value: 'ES384', label: 'ES384 — P-384' },
+  { value: 'ES512', label: 'ES512 — P-521' },
+]
+
+const METHOD_HELP: Record<ConnectMethod, string> = {
+  headers: 'For servers that accept a standing token — paste it as a request header below.',
+  oauth:
+    'You sign in at the provider and land back here. The connection keeps a refresh token, sealed at rest, and mints a fresh access token whenever an agent works.',
+  m2m:
+    'The company registers a certificate with the provider once, and this connection signs in as itself from then on. Nobody has to sign in, and there is no refresh token to expire — the certificate is replaced on your schedule, not the provider’s. Prefer this for a system your agents use every day.',
+}
+
 const categoryLabel = (value: string) => CATEGORY_OPTIONS.find((c) => c.value === value)?.label ?? value
 
 const COLUMNS: RecordColumn<SystemRowView>[] = [
@@ -116,12 +166,30 @@ const COLUMNS: RecordColumn<SystemRowView>[] = [
     sortable: true,
     render: (row) => <Badge variant="secondary">{categoryLabel(row.category)}</Badge>,
   },
+  {
+    key: 'status',
+    label: 'Status',
+    sortable: true,
+    render: (row) =>
+      row.health ? (
+        <span className="min-w-0">
+          <Badge variant={row.health.status === 'ok' ? 'default' : 'destructive'}>
+            {row.health.status === 'ok' ? 'answering' : 'not answering'}
+          </Badge>
+          <span className="mt-0.5 block truncate text-xs text-fg-muted">{sinceLabel(row.health.checkedAt)}</span>
+        </span>
+      ) : (
+        <Badge variant="outline">not checked yet</Badge>
+      ),
+  },
   { key: 'appliesTo', label: 'Applies to' },
   {
     key: 'credentials',
     label: 'Credentials',
     render: (row) =>
-      row.isOauth ? (
+      row.isM2m ? (
+        <Badge variant="secondary">certificate</Badge>
+      ) : row.isOauth ? (
         <Badge variant="secondary">signed in</Badge>
       ) : row.hasHeaders ? (
         <Badge variant="outline">sealed</Badge>
@@ -296,6 +364,7 @@ function LibraryDrawer({
                       <span className="font-medium text-primary">{entry.label}</span>
                       <Badge variant="outline">{AVAILABILITY_LABELS[entry.availability]}</Badge>
                       {entry.auth === 'oauth' ? <Badge variant="outline">sign-in</Badge> : null}
+                      {entry.auth === 'm2m' ? <Badge variant="outline">certificate</Badge> : null}
                       {connectedSlugs.has(entry.slug) ? <Badge variant="secondary">connected</Badge> : null}
                     </span>
                     <span className="mt-0.5 block text-sm text-fg-muted">{entry.description}</span>
@@ -338,11 +407,15 @@ function SystemDrawer({
   const [url, setUrl] = React.useState(entry?.url ?? prefill?.url ?? '')
   const [headersText, setHeadersText] = React.useState('')
   const [category, setCategory] = React.useState(entry?.category ?? prefill?.defaultCategory ?? 'record_write')
-  const [method, setMethod] = React.useState<'headers' | 'oauth'>(
-    entry?.isOauth ? 'oauth' : (prefill?.auth ?? 'headers'),
+  const [method, setMethod] = React.useState<ConnectMethod>(
+    entry?.isM2m ? 'm2m' : entry?.isOauth ? 'oauth' : (prefill?.auth ?? 'headers'),
   )
   const [clientId, setClientId] = React.useState(entry?.clientId ?? '')
   const [clientSecret, setClientSecret] = React.useState('')
+  const [keyId, setKeyId] = React.useState(entry?.keyId ?? '')
+  const [algorithm, setAlgorithm] = React.useState(entry?.algorithm ?? 'PS256')
+  const [scope, setScope] = React.useState(entry?.scope ?? '')
+  const [privateKey, setPrivateKey] = React.useState('')
   const [notice, setNotice] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [busy, startBusy] = React.useTransition()
@@ -404,6 +477,29 @@ function SystemDrawer({
           </form>
         ) : null}
 
+        {entry && tab === 'connection' && entry.health ? (
+          <div className="rounded-md border border-border bg-surface p-3">
+            <p className="flex flex-wrap items-center gap-2 text-sm">
+              <Badge variant={entry.health.status === 'ok' ? 'default' : 'destructive'}>
+                {entry.health.status === 'ok' ? 'answering' : 'not answering'}
+              </Badge>
+              <span className="text-fg-muted">
+                Last checked {sinceLabel(entry.health.checkedAt)}
+                {entry.health.status === 'ok' && typeof entry.health.toolCount === 'number'
+                  ? ` — ${entry.health.toolCount} tool${entry.health.toolCount === 1 ? '' : 's'} offered`
+                  : ''}
+              </span>
+            </p>
+            {entry.health.error ? <p className="mt-1 text-sm text-danger">{entry.health.error}</p> : null}
+            {entry.health.status === 'ok' ? null : (
+              <p className="mt-1 text-xs text-fg-muted">
+                Your agents hit the same failure. Until it answers, this system contributes nothing to their toolbox —
+                the rest of their work carries on unaffected.
+              </p>
+            )}
+          </div>
+        ) : null}
+
         <div className={entry && tab !== 'connection' ? 'hidden' : 'grid gap-3 sm:grid-cols-2'}>
           <div className="space-y-1">
             <Label htmlFor="mcp-label">Name</Label>
@@ -429,18 +525,80 @@ function SystemDrawer({
             <Select
               id="mcp-auth"
               value={method}
-              onChange={(e) => setMethod(e.target.value === 'oauth' ? 'oauth' : 'headers')}
+              onChange={(e) => setMethod(isConnectMethod(e.target.value) ? e.target.value : 'headers')}
             >
               <option value="headers">A token or API key you paste</option>
               <option value="oauth">Sign in with the provider (OAuth)</option>
+              <option value="m2m">A certificate the provider holds (no sign-in)</option>
             </Select>
-            <p className="text-xs text-fg-muted">
-              {method === 'oauth'
-                ? 'You sign in at the provider and land back here. The connection keeps a refresh token, sealed at rest, and mints a fresh access token whenever an agent works.'
-                : 'For servers that accept a standing token — paste it as a request header below.'}
-            </p>
+            <p className="text-xs text-fg-muted">{METHOD_HELP[method]}</p>
           </div>
-          {method === 'headers' ? (
+          {method === 'm2m' ? (
+            <>
+              {prefill?.authHint ? (
+                <p className="rounded-md border border-border bg-surface p-3 text-xs text-fg-muted sm:col-span-2">
+                  {prefill.authHint}
+                </p>
+              ) : null}
+              <div className="space-y-1">
+                <Label htmlFor="mcp-m2m-client-id">Client ID</Label>
+                <Input
+                  id="mcp-m2m-client-id"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value)}
+                  placeholder="From the provider's integration record"
+                  {...NO_AUTOFILL}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="mcp-m2m-key-id">Certificate ID</Label>
+                <Input
+                  id="mcp-m2m-key-id"
+                  value={keyId}
+                  onChange={(e) => setKeyId(e.target.value)}
+                  placeholder="Issued when you upload the certificate"
+                  {...NO_AUTOFILL}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="mcp-m2m-alg">Signing algorithm</Label>
+                <Select id="mcp-m2m-alg" value={algorithm} onChange={(e) => setAlgorithm(e.target.value)}>
+                  {ALGORITHM_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+                <p className="text-xs text-fg-muted">Must match the key you generated.</p>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="mcp-m2m-scope">Scope (optional)</Label>
+                <Input
+                  id="mcp-m2m-scope"
+                  value={scope}
+                  onChange={(e) => setScope(e.target.value)}
+                  placeholder="Left blank, the server's own is used"
+                  {...NO_AUTOFILL}
+                />
+              </div>
+              <div className="space-y-1 sm:col-span-2">
+                <Label htmlFor="mcp-m2m-key">Private key (PEM, sealed at rest)</Label>
+                <Textarea
+                  id="mcp-m2m-key"
+                  value={privateKey}
+                  onChange={(e) => setPrivateKey(e.target.value)}
+                  rows={4}
+                  placeholder={'-----BEGIN PRIVATE KEY-----\n…\n-----END PRIVATE KEY-----'}
+                  {...NO_AUTOFILL}
+                />
+                <p className="text-xs text-fg-muted">
+                  Only the certificate goes to the provider; the private key stays here, sealed, and is never shown
+                  again.
+                  {entry?.isM2m ? ' Leave this blank to keep the key already stored.' : ''}
+                </p>
+              </div>
+            </>
+          ) : method === 'headers' ? (
             <div className="space-y-1 sm:col-span-2">
               <Label htmlFor="mcp-headers">Headers (optional, sealed at rest)</Label>
               <Textarea
@@ -527,6 +685,26 @@ function SystemDrawer({
               startBusy(async () => {
                 setError(null)
                 setNotice(null)
+                if (method === 'm2m') {
+                  const saved = await saveMcpM2mAction({
+                    slug: slug || label,
+                    label,
+                    url,
+                    category,
+                    clientId,
+                    privateKey,
+                    algorithm,
+                    ...(keyId.trim() ? { keyId } : {}),
+                    ...(scope.trim() ? { scope } : {}),
+                  })
+                  if (!saved.ok) {
+                    setError(saved.message)
+                    return
+                  }
+                  setNotice(`Connected — ${saved.toolCount} tool${saved.toolCount === 1 ? '' : 's'} available.`)
+                  onClose()
+                  return
+                }
                 if (method === 'oauth') {
                   const started = await beginMcpOauthAction({
                     slug: slug || label,
@@ -561,7 +739,13 @@ function SystemDrawer({
               })
             }
           >
-            {busy ? (method === 'oauth' ? 'Starting…' : 'Testing…') : method === 'oauth' ? 'Sign in & connect' : 'Test & save'}
+            {busy
+              ? method === 'oauth'
+                ? 'Starting…'
+                : 'Testing…'
+              : method === 'oauth'
+                ? 'Sign in & connect'
+                : 'Test & save'}
           </Button>
           {entry ? (
             <Button

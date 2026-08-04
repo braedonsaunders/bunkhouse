@@ -28,8 +28,14 @@ export type IntegrationLibraryEntry = {
   description: string
   group: string
   availability: LibraryAvailability
-  /** How this server expects to be authenticated; defaults to pasted headers. */
-  auth?: 'headers' | 'oauth'
+  /**
+   * How this server expects to be authenticated; defaults to pasted headers.
+   * 'm2m' is the client-credentials flow: the company registers a certificate
+   * once and the connection authenticates as itself, with no operator sign-in
+   * and no refresh token to lapse. Prefer it wherever a vendor offers it for a
+   * system agents work in daily.
+   */
+  auth?: 'headers' | 'oauth' | 'm2m'
   /** Prefilled server URL, when the vendor hosts one at a stable address. */
   url?: string
   /** Guidance when the URL is per-account or the server runs elsewhere. */
@@ -84,11 +90,11 @@ export const INTEGRATION_LIBRARY: IntegrationLibraryEntry[] = [
     description: 'Records, transactions, and saved searches in Oracle NetSuite.',
     group: 'Accounting & ERP',
     availability: 'hosted',
-    auth: 'oauth',
+    auth: 'm2m',
     urlHint:
       'NetSuite’s endpoint is per-account, from the AI Connector Service. Install the MCP Standard Tools SuiteApp, enable OAuth 2.0, then paste your account’s URL.',
     authHint:
-      'NetSuite needs the application made first — it will not register one on its own. Under Setup → Integration → Manage Integrations, create an integration with Authorization Code Grant, Public Client, and the AI Connector Service scope, and put the redirect URI shown below in the OAuth 2.0 section’s own Redirect URI field. Leave Token-Based Authentication off: its Callback URL is a different scheme and stays greyed out. Copy the Client ID shown on save — NetSuite displays it once — and paste it above. Then sign in as a role that carries the “Log in using OAuth 2.0 Access Tokens” permission: Administrator is locked and can never hold it, so this needs a custom role — which is the right shape anyway, since it scopes exactly what the agent may reach.',
+      'NetSuite needs the application made first — it will not register one on its own. Under Setup → Integration → Manage Integrations, create an integration with the Client Credentials (Machine to Machine) Grant ticked, and copy the Client ID shown on save — NetSuite displays it once. Generate an RSA-PSS key pair (openssl req -x509 -newkey rsa-pss -keyout private.pem -out public.pem -nodes -sha256), then under Setup → Integration → Manage Authentication → OAuth 2.0 Client Credentials (M2M) Setup, map that application to an entity and role and upload public.pem. NetSuite hands back a Certificate ID for the field above. Choose the role carefully: it decides exactly what your agents can reach, and Administrator is the wrong answer. Paste private.pem below — it is sealed at rest and never leaves the server.',
     defaultCategory: 'money_adjacent',
   },
   {

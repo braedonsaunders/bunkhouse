@@ -14,7 +14,7 @@ import { db } from '../db/client'
 import { agentBinding, bindsToAgent, type AgentBinding } from './assignment'
 import { findColleague, postToColleague } from './colleague-post'
 import { listMcpIntegrations } from './mcp-integrations'
-import { mcpOauthHeaders } from './mcp-oauth'
+import { mcpM2mHeaders, mcpOauthHeaders } from './mcp-oauth'
 import { sendNewMail } from './mailbox'
 import { createNote, retrieveNotes, supersedeNote } from './memory'
 import { firstOccurrence, gapMinutes } from './duties'
@@ -717,6 +717,10 @@ export async function resolveIntegrationHeaders(
   tenantId: string,
   entry: McpIntegrationEntry,
 ): Promise<Record<string, string> | undefined> {
+  // Before the OAuth grant: a connection that holds a certificate authenticates
+  // as itself, and never falls back to a stored token set even if an older
+  // sign-in left one behind.
+  if (entry.m2m) return mcpM2mHeaders(tenantId, entry)
   if (entry.oauth) return mcpOauthHeaders(tenantId, entry)
   if (entry.sealedHeaders) {
     const raw = unsealSecret(entry.sealedHeaders)

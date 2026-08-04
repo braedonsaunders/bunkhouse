@@ -725,7 +725,7 @@ packages:
         optional: true
 
   '@appkit/oauth@file:vendor/appkit/appkit-oauth-0.1.0.tgz':
-    resolution: {integrity: sha512-xm8fYJqSnx7c5c0U8jPIGgibNLt988Gy5sdlLqb/z1rC347gvMWVuINYKwKUkTKKV8BqEYP6wxxG06e4vHZeMQ==, tarball: file:vendor/appkit/appkit-oauth-0.1.0.tgz}
+    resolution: {integrity: sha512-hVBgpfThQ7iDC2tcr7sMuYIspzROge3yFL0OnPnnc0TLAnhZnwx1CMVuGP8bKdTRvsxZzDfcNFy2tdOan3P2Qg==, tarball: file:vendor/appkit/appkit-oauth-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=22'}
 
