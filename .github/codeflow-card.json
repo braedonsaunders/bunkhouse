@@ -2,108 +2,6 @@
   "version": 1,
   "runs": [
     {
-      "at": "2026-08-01T01:13:01.552Z",
-      "sha": "1eb199c94c7ed75ecd4ef0c4b4cbe54c05b44bac",
-      "pr": null,
-      "actor": "braedonsaunders",
-      "files": 670,
-      "functions": 2044,
-      "loc": 204520,
-      "languages": 12,
-      "topLanguages": [
-        {
-          "ext": "ts",
-          "pct": 31,
-          "lines": 62624
-        },
-        {
-          "ext": "json",
-          "pct": 26,
-          "lines": 53373
-        },
-        {
-          "ext": "tsx",
-          "pct": 24,
-          "lines": 48063
-        },
-        {
-          "ext": "yaml",
-          "pct": 15,
-          "lines": 30309
-        },
-        {
-          "ext": "sql",
-          "pct": 3,
-          "lines": 5250
-        }
-      ],
-      "dead": 52,
-      "deadPct": 2.5,
-      "circular": 0,
-      "godObjects": 1,
-      "avgCoupling": 2.3,
-      "securityIssues": 52,
-      "patterns": 7,
-      "duplicates": 148,
-      "layerViolations": 83,
-      "connections": 1523,
-      "avgFnLines": 15.6,
-      "longestFn": 16,
-      "testFiles": 0,
-      "testRatio": 0,
-      "topFolders": [
-        {
-          "name": ".claude",
-          "count": 311
-        },
-        {
-          "name": "apps",
-          "count": 273
-        },
-        {
-          "name": "migrations",
-          "count": 47
-        },
-        {
-          "name": "packages",
-          "count": 19
-        },
-        {
-          "name": "root",
-          "count": 11
-        }
-      ],
-      "folders": 5,
-      "grade": "C",
-      "score": 74,
-      "topBlast": {
-        "path": "apps/web/src/db/client.ts",
-        "direct": 80,
-        "transitive": 142,
-        "total": 222
-      },
-      "fragility": [
-        {
-          "path": "apps/web/src/db/client.ts",
-          "direct": 80,
-          "transitive": 142,
-          "total": 222
-        },
-        {
-          "path": ".claude/worktrees/sleepy-hawking-7c9d63/apps/web/src/db/client.ts",
-          "direct": 70,
-          "transitive": 126,
-          "total": 196
-        },
-        {
-          "path": "apps/web/src/lib/tenant.ts",
-          "direct": 41,
-          "transitive": 79,
-          "total": 120
-        }
-      ]
-    },
-    {
       "at": "2026-08-01T01:14:56.053Z",
       "sha": "59a6655235fb6a69f561b20933076ad9f488489c",
       "pr": null,
@@ -2967,6 +2865,108 @@
       "files": 381,
       "functions": 1129,
       "loc": 110184,
+      "languages": 12,
+      "topLanguages": [
+        {
+          "ext": "ts",
+          "pct": 33,
+          "lines": 36410
+        },
+        {
+          "ext": "json",
+          "pct": 24,
+          "lines": 26699
+        },
+        {
+          "ext": "tsx",
+          "pct": 23,
+          "lines": 25808
+        },
+        {
+          "ext": "yaml",
+          "pct": 14,
+          "lines": 15288
+        },
+        {
+          "ext": "sql",
+          "pct": 3,
+          "lines": 2957
+        }
+      ],
+      "dead": 32,
+      "deadPct": 2.8,
+      "circular": 1,
+      "godObjects": 1,
+      "avgCoupling": 2.6,
+      "securityIssues": 40,
+      "patterns": 7,
+      "duplicates": 12,
+      "layerViolations": 205,
+      "connections": 975,
+      "avgFnLines": 15.6,
+      "longestFn": 16,
+      "testFiles": 1,
+      "testRatio": 0.3,
+      "topFolders": [
+        {
+          "name": "apps",
+          "count": 287
+        },
+        {
+          "name": "migrations",
+          "count": 49
+        },
+        {
+          "name": "packages",
+          "count": 20
+        },
+        {
+          "name": "root",
+          "count": 12
+        },
+        {
+          "name": "docs",
+          "count": 8
+        }
+      ],
+      "folders": 5,
+      "grade": "D",
+      "score": 69,
+      "topBlast": {
+        "path": "apps/web/src/db/client.ts",
+        "direct": 83,
+        "transitive": 156,
+        "total": 239
+      },
+      "fragility": [
+        {
+          "path": "apps/web/src/db/client.ts",
+          "direct": 83,
+          "transitive": 156,
+          "total": 239
+        },
+        {
+          "path": "apps/web/src/lib/tenant.ts",
+          "direct": 45,
+          "transitive": 98,
+          "total": 143
+        },
+        {
+          "path": "apps/web/src/lib/auth.ts",
+          "direct": 5,
+          "transitive": 91,
+          "total": 96
+        }
+      ]
+    },
+    {
+      "at": "2026-08-04T23:49:49.715Z",
+      "sha": "dff07f1bfe3379d5447bf12d20dac286a98ef132",
+      "pr": null,
+      "actor": "braedonsaunders",
+      "files": 381,
+      "functions": 1129,
+      "loc": 110196,
       "languages": 12,
       "topLanguages": [
         {
