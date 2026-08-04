@@ -70,6 +70,10 @@ on:
         description: 'From the web container, resolve and call these origins (comma-separated) — read-only'
         type: string
         default: ''
+      setComposeEnv:
+        description: 'Upsert ONE variable on the bunkhouse compose as KEY=VALUE, then redeploy (leave blank to skip)'
+        type: string
+        default: ''
 
 # Where this deployment's durable storage lives. Repository variables rather
 # than literals: this file is written to be public, and one company's NFS
@@ -414,6 +418,59 @@ jobs:
               }
             })();
           '
+
+      # The panel is LAN-internal — reachable from this runner over
+      # dokploy-network and from nowhere else — so a deployment variable that
+      # needs changing outside a deploy has no other auditable route. One
+      # variable per run, named in the input and echoed into the log, because
+      # the whole point of doing it here rather than by hand is that Actions
+      # keeps the record of who changed what and when.
+      #
+      # The compose FILE is read back and returned verbatim rather than sent
+      # from this checkout: an ops run is not a deploy, and it must not quietly
+      # move the deployed compose to whatever main happens to hold.
+      - name: Set one compose variable and redeploy
+        if: ${{ inputs.setComposeEnv != '' }}
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
+          COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+          PAIR: ${{ inputs.setComposeEnv }}
+        run: |
+          set -euo pipefail
+          : "${DOKPLOY_URL:?DOKPLOY_URL secret is not set}"
+          : "${COMPOSE_ID:?DOKPLOY_COMPOSE_ID secret is not set}"
+          key="${PAIR%%=*}"
+          value="${PAIR#*=}"
+          case "$key" in ''|*[!A-Z0-9_]*) echo "::error::KEY must be A-Z, 0-9 and underscores"; exit 1 ;; esac
+          case "$value" in ''|*'|'*) echo "::error::VALUE must be non-empty and contain no '|'"; exit 1 ;; esac
+
+          base="${DOKPLOY_URL%/}"
+          current="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+            -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID")"
+          new_env="$(echo "$current" | jq -r '.env // ""')"
+          compose_file="$(echo "$current" | jq -r '.composeFile // ""')"
+          if [ -z "$compose_file" ]; then echo "::error::Dokploy returned no composeFile — refusing to write"; exit 1; fi
+
+          before="$(printf '%s\n' "$new_env" | grep "^$key=" || echo '(not set)')"
+          if printf '%s\n' "$new_env" | grep -q "^$key="; then
+            new_env="$(printf '%s\n' "$new_env" | sed "s|^$key=.*|$key=$value|")"
+          else
+            new_env="$(printf '%s\n%s=%s\n' "$new_env" "$key" "$value")"
+          fi
+          echo "$key"
+          echo "  before: $before"
+          echo "  after : $key=$value"
+
+          jq -n --arg id "$COMPOSE_ID" --arg env "$new_env" --arg composeFile "$compose_file" \
+            '{composeId:$id, env:$env, composeFile:$composeFile}' \
+            | curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+                -H 'content-type: application/json' \
+                -X POST "$base/api/compose.update" --data @- > /dev/null
+
+          curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" -H 'content-type: application/json' \
+            -X POST "$base/api/compose.deploy" --data "{\"composeId\":\"$COMPOSE_ID\"}" > /dev/null
+          echo "Redeploy triggered."
 
       - name: Prune images, stopped containers, and build cache
         if: ${{ inputs.prune }}
