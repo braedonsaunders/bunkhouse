@@ -1,0 +1,101 @@
+# Cut a release from a version tag: gate on the same checks main runs, publish
+# the image to ghcr under the version, and open a GitHub Release with notes.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# The tag is the single source of the version — nothing here reads package.json,
+# so a release can never disagree with the ref it was cut from. `latest` still
+# tracks main via deploy.yml; releases add immutable version tags beside it.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/braedonsaunders/bunkhouse
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bunkhouse_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d bunkhouse_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Test
+        run: pnpm test
+      - name: Migrate and run database claims suite
+        env:
+          BUNKHOUSE_DB_URL: postgresql://postgres:postgres@localhost:5432/bunkhouse_ci
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql "$BUNKHOUSE_DB_URL" -v ON_ERROR_STOP=1 -c "create role bunkhouse_super login bypassrls"
+          pnpm --filter web db:migrate
+          BUNKHOUSE_TEST_DB_URL="$BUNKHOUSE_DB_URL" pnpm --filter web test:db
+
+  publish:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max,ignore-error=true
+
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Bunkhouse $GITHUB_REF_NAME" \
+            --generate-notes \
+            --notes "Image: \`${IMAGE_NAME}:${GITHUB_REF_NAME}\`
+
+          Bunkhouse is alpha software: evaluate with synthetic or parallel data, keep autonomy conservative, and read SECURITY.md before exposing a deployment."
