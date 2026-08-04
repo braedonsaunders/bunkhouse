@@ -1,4 +1,4 @@
-// Wire an agent into the local mail lab through the REAL connect path.
+// Wire an agent into the mail lab through the REAL connect path.
 // Usage: pnpm tsx --env-file=.env.local scripts/dev-mail-lab.mts [address ...]
 // With no arguments every agent in the directory is connected, so a fresh
 // dev database gets a working inbox for the whole roster in one pass.
@@ -11,6 +11,19 @@ import { connectMailbox } from '../src/lib/mailbox'
 // greenmail runs with -Dgreenmail.auth.disabled, so the mailbox is created on
 // first use and the password is a placeholder the lab never checks.
 const LAB_PASSWORD = 'dev'
+
+// Where the lab servers answer FROM THE APP'S POINT OF VIEW, which is not
+// always where they answer from here. Compose publishes both to the host, so
+// localhost is right when the app runs on this machine; in the deployed stack
+// they are services on the same network and the app must be told their names.
+// Pointing a deployment at localhost writes mailboxes that can never connect —
+// the app's localhost is the app — and the failure surfaces days later as mail
+// that silently never sent. Defaults suit the local compose file; override for
+// anything else.
+const IMAP_HOST = process.env.BUNKHOUSE_LAB_IMAP_HOST ?? 'localhost'
+const SMTP_HOST = process.env.BUNKHOUSE_LAB_SMTP_HOST ?? 'localhost'
+const IMAP_PORT = Number(process.env.BUNKHOUSE_LAB_IMAP_PORT ?? 3143)
+const SMTP_PORT = Number(process.env.BUNKHOUSE_LAB_SMTP_PORT ?? 1025)
 
 const app = db()
 // Resolved here rather than through lib/tenant: that module reaches for the
@@ -56,14 +69,16 @@ for (const person of targets) {
     address: person.email,
     username: person.email,
     password: LAB_PASSWORD,
-    imapHost: 'localhost',
-    imapPort: 3143,
+    imapHost: IMAP_HOST,
+    imapPort: IMAP_PORT,
     imapSecure: false,
-    smtpHost: 'localhost',
-    smtpPort: 1025,
+    smtpHost: SMTP_HOST,
+    smtpPort: SMTP_PORT,
     smtpSecure: false,
   })
-  console.log(`${person.name} connected: ${person.email} — IMAP greenmail:3143, SMTP mailpit:1025`)
+  console.log(
+    `${person.name} connected: ${person.email} — IMAP ${IMAP_HOST}:${IMAP_PORT}, SMTP ${SMTP_HOST}:${SMTP_PORT}`,
+  )
 }
 
 await app.pool.end()
