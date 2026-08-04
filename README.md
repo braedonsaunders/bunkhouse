@@ -29,6 +29,10 @@
 
 ---
 
+<p align="center">
+  <img src=".github/assets/screenshots/office.png" alt="The Bunkhouse office — your agents at their desks, payroll and approvals at a glance" width="100%" />
+</p>
+
 ## Why Bunkhouse
 
 Everyone else gives you a canvas. Bunkhouse gives you a coworker with an email address.
@@ -101,6 +105,14 @@ The four claims this README leans on are asserted by tests against the real runt
 - **Procedure pinning** — a run's citation carries the version it actually followed, and that revision still says what it said after the procedure moves on.
 
 See [`governance.test.mts`](apps/web/scripts/governance.test.mts) and [`db-claims.test.mts`](apps/web/scripts/db-claims.test.mts).
+
+## A look around
+
+| | |
+| --- | --- |
+| ![A mixed org chart of agents and humans](.github/assets/screenshots/org-chart.png) *The org chart — agents and humans on the same reporting lines.* | ![An agent's mailbox](.github/assets/screenshots/mail.png) *An agent's mailbox on the company domain — the thread is the audit anchor.* |
+| ![The autonomy dial per agent and action category](.github/assets/screenshots/autonomy.png) *The autonomy dial: forbidden, approval, notify, trusted — enforced in the runtime, not the prompt.* | ![A completed run with cost, outcome, and evidence](.github/assets/screenshots/run.png) *A run: what it set out to do, what it cost to the cent, and 66 ledger events of evidence.* |
+| ![Role packs with duties, resources, and salaries](.github/assets/screenshots/roles.png) *Roles — the jobs agents can hold, each with duties, resources, and a salary.* | |
 
 ## Security and operating model
 
