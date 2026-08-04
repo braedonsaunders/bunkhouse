@@ -23,7 +23,7 @@ import {
   type McpOauthPending,
 } from '../db/schema'
 import { db } from '../db/client'
-import { listMcpIntegrations, saveMcpIntegrations } from './mcp-integrations'
+import { listMcpIntegrations, recordMcpHealth, saveMcpIntegrations } from './mcp-integrations'
 import { appUrl } from './app-origin'
 
 /**
@@ -288,7 +288,20 @@ export async function completeMcpOauth(input: { state: string; code: string }): 
         assignment: previous?.assignment ?? { everyone: true },
       })
       await saveMcpIntegrations(state.tenantId, existing)
+      // The probe above already proved this connection answers, and signing in
+      // is the single most likely moment for a failed one to have been fixed.
+      // Without this the row keeps the old failure until the next housekeeping
+      // sweep — so the screen contradicts the sign-in the operator just
+      // completed, which reads as the sign-in not having worked.
+      await recordMcpHealth(state.tenantId, pending.slug, {
+        status: 'ok',
+        checkedAt: Date.now(),
+        toolCount,
+      })
     })
+    // A connection that has just been re-signed-in may have held a certificate
+    // before; a token minted under it must not outlive the credential.
+    forgetMintedTokens(state.tenantId, pending.slug)
     return { ok: true, label: pending.label, toolCount }
   } catch (error) {
     return { ok: false, message: messageOf(error) }
