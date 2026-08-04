@@ -31,7 +31,9 @@
 
 ## Why Bunkhouse
 
-Most agent products begin with a chat window and expose prompts, models, and tools as configuration. Bunkhouse begins with the employee record and the company inbox.
+Everyone else gives you a canvas. Bunkhouse gives you a coworker with an email address.
+
+Most agent products begin with a chat window and expose prompts, models, and tools as configuration. Bunkhouse begins with the employee record and the company inbox: humans in the company install nothing and learn nothing new — they email the agent at its address on your domain, and it answers.
 
 - **A real email address.** Agents work from Google Workspace, Microsoft 365, or IMAP/SMTP mailboxes on the company's domain. The mail thread is the primary surface and audit anchor.
 - **A job, not a prompt.** Hire from role packs with duties, personality, procedures, and a conservative day-one autonomy posture.
@@ -67,6 +69,8 @@ pnpm --filter web voice-agent
 
 Open <http://localhost:4810>. The first owner credential comes from `ADMIN_EMAIL` and `ADMIN_PASSWORD`; rotate or remove those bootstrap values after sign-in. See [operations](docs/operations.md) for backup, restore, and upgrades, and [security](SECURITY.md) before exposing a deployment.
 
+Prefer a container? Every release tag publishes `ghcr.io/braedonsaunders/bunkhouse:<version>` — one image that runs the web app (default), the worker, and the voice agent, migrating on start. Point it at your PostgreSQL, Redis, and S3-compatible storage.
+
 ## What is implemented
 
 - Tenant-scoped company directory, mixed org chart, agent hiring, onboarding, lifecycle controls, departments, and avatar composition
@@ -79,7 +83,18 @@ Open <http://localhost:4810>. The first owner credential comes from `ADMIN_EMAIL
 - Browser sessions, shell sessions, real file generation/filing, voice and meeting records, SIP/PBX configuration, SMS, and chat bridges
 - Company settings for models, pricing, identity, mail, phone, documents, storage, retention, research, and access
 
-The first validation wedge is the **AR / Collections Clerk** role pack. Its measurable [pilot protocol](docs/validation/ar-collections-pilot.md) covers invoice accuracy, dunning cadence, dispute handling, promises to pay, approvals, cost, and promotion of autonomy.
+The first validation wedge is the **AR / Collections Clerk** role pack. Its [pilot protocol](docs/validation/ar-collections-pilot.md) defines what a passing pilot must show — invoice accuracy, dunning cadence, dispute handling, promises to pay, approvals, and cost per account. It is a protocol, not customer proof: no real-business pilot has been completed or published yet.
+
+### Verified, not just designed
+
+The four claims this README leans on are asserted by tests against the real runtime and a real, fully migrated PostgreSQL on every CI run:
+
+- **Tenant isolation** — every table carrying a `tenant_id` is under *forced* row-level security; an unqualified query comes back already filtered, and writing into another tenant violates the policy, not just convention.
+- **Append-only evidence** — all eleven ledger tables (`run_events`, `token_spend`, `mail_messages`, `audit_log`, procedure and memory revisions, browser steps, call turns, filings, prices, reconciliations) reject `UPDATE` and `DELETE` at the database boundary, for every role including the bypass handle.
+- **Autonomy enforced in the runtime** — `forbidden` blocks before the tool body runs, `approval` files a request and parks the run, an unconfigured category defaults to `approval`, and the governed category follows what is being asked for rather than which tool the model reached for.
+- **Procedure pinning** — a run's citation carries the version it actually followed, and that revision still says what it said after the procedure moves on.
+
+See [`governance.test.mts`](apps/web/scripts/governance.test.mts) and [`db-claims.test.mts`](apps/web/scripts/db-claims.test.mts).
 
 ## Security and operating model
 
@@ -123,6 +138,8 @@ Bunkhouse is alpha software. The core product is broad and functional, but it ha
 
 ## License
 
-The core is licensed under **[GNU Affero General Public License v3.0](LICENSE)**. `packages/roles` and future skill packs are MIT-licensed so role and skill ecosystems remain portable.
+The core is licensed under **[GNU Affero General Public License v3.0](LICENSE)**. `packages/roles` and future skill packs are MIT-licensed.
+
+The split is deliberate. AGPL on the core means anyone can run, inspect, and modify Bunkhouse — including offering it as a service — but improvements to the platform itself stay open. MIT on role and skill packs means the things *you* author on top of it — job descriptions, procedures, competences — are portable: yours to publish, sell, or move to another system without a license question attached. The platform stays open; the ecosystem stays yours.
 
 Copyright © 2026 Bunkhouse contributors.

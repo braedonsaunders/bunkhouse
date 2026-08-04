@@ -20,5 +20,20 @@ pnpm test
 pnpm build
 ```
 
+Database-boundary claims (forced RLS, append-only ledgers, procedure pinning) have their own suite that runs only against a disposable, migrated database — never your development one:
+
+```bash
+docker run -d --name bunkhouse-test-pg -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=bunkhouse_test -p 55437:5432 postgres:16
+psql postgresql://postgres:postgres@localhost:55437/bunkhouse_test \
+  -c "create role bunkhouse_super login bypassrls"
+BUNKHOUSE_DB_URL=postgresql://postgres:postgres@localhost:55437/bunkhouse_test \
+  pnpm --filter web db:migrate
+BUNKHOUSE_TEST_DB_URL=postgresql://postgres:postgres@localhost:55437/bunkhouse_test \
+  pnpm --filter web test:db
+```
+
+CI runs it on every push and on every release tag.
+
 Changes to tenant data need an additive migration, RLS coverage, server-side permission enforcement, lifecycle validation, actor-attributed before/after audit evidence, and tests proportional to the risk. Never modify an applied migration or weaken a gate to make a change pass.
 
