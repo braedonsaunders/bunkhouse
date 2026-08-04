@@ -38,6 +38,23 @@ acts *as a person* — the provider scopes access to that user's own grants. Whe
 it acts as the company, the certificate is both more durable and more honest
 about what is happening.
 
+### Where a provider offers one is narrower than it looks
+
+Read the capability at the resource, not the authorization server. An
+authorization server advertises `grant_types_supported` across everything it
+protects; an individual scope may still refuse most of them. NetSuite is the
+case in point: its metadata lists `client_credentials` and `private_key_jwt`,
+and both are real — for REST web services. The AI Connector Service scope that
+the MCP endpoint requires accepts only authorization code with PKCE, and
+NetSuite rejects an integration record that asks for that scope and the
+machine-to-machine grant together.
+
+So metadata saying yes is necessary, not sufficient. The connect flow proves it
+by minting a token before saving, which is the only check that distinguishes
+"the server can do this" from "the server will do this for me, here". Where the
+answer is no, the connection stays on a refresh token — and everything below is
+what keeps that survivable.
+
 ## What is checked before a connection saves
 
 Discovery, mint, and dial — in that order, because all three fail as the same

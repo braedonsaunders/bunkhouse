@@ -90,11 +90,11 @@ export const INTEGRATION_LIBRARY: IntegrationLibraryEntry[] = [
     description: 'Records, transactions, and saved searches in Oracle NetSuite.',
     group: 'Accounting & ERP',
     availability: 'hosted',
-    auth: 'm2m',
+    auth: 'oauth',
     urlHint:
       'NetSuite’s endpoint is per-account, from the AI Connector Service. Install the MCP Standard Tools SuiteApp, enable OAuth 2.0, then paste your account’s URL.',
     authHint:
-      'NetSuite needs the application made first — it will not register one on its own. Under Setup → Integration → Manage Integrations, create an integration with the Client Credentials (Machine to Machine) Grant ticked, and copy the Client ID shown on save — NetSuite displays it once. Generate an RSA-PSS key pair (openssl req -x509 -newkey rsa-pss -keyout private.pem -out public.pem -nodes -sha256), then under Setup → Integration → Manage Authentication → OAuth 2.0 Client Credentials (M2M) Setup, map that application to an entity and role and upload public.pem. NetSuite hands back a Certificate ID for the field above. Choose the role carefully: it decides exactly what your agents can reach, and Administrator is the wrong answer. Paste private.pem below — it is sealed at rest and never leaves the server.',
+      'Sign-in is the only option here: the AI Connector Service scope does not accept the client-credentials flow, and NetSuite refuses an integration record that asks for both. Under Setup → Integration → Manage Integrations, create an integration with Authorization Code Grant, Public Client, and the AI Connector Service scope — and clear Token-Based Authentication, User Credentials, and Client Credentials (Machine to Machine), all of which that scope requires empty. Put the redirect URI shown below in the OAuth 2.0 section’s own Redirect URI field, character for character. Copy the Client ID shown on save; NetSuite displays it once. Then sign in as a custom role holding both MCP Server Connection and Log in using OAuth 2.0 Access Tokens — Administrator is blocked from the AI Connector outright, so a custom role is required, which is the right shape anyway since it scopes exactly what the agent may reach.',
     defaultCategory: 'money_adjacent',
   },
   {
