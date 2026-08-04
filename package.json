@@ -72,14 +72,17 @@
       "@appkit/oauth": "file:./vendor/appkit/appkit-oauth-0.1.0.tgz",
       "@appkit/agent-tools": "file:./vendor/appkit/appkit-agent-tools-0.1.0.tgz",
       "adm-zip@<0.6.0": "0.6.0",
-      "brace-expansion@<1.1.17": "1.1.17",
+      "brace-expansion@<1.1.18": "1.1.18",
+      "brace-expansion@>=2.0.0 <2.1.4": "2.1.4",
+      "brace-expansion@>=4.0.0 <5.0.9": "5.0.9",
       "esbuild@<0.25.0": "0.25.12",
       "lodash-es@<4.18.0": "4.18.0",
       "nanoid@<5.0.9": "5.1.5",
       "nodemailer@<9.0.1": "9.0.1",
       "postcss@<8.5.18": "8.5.18",
       "sharp@<0.35.0": "0.35.0",
-      "uuid@<11.1.1": "11.1.1"
+      "uuid@<11.1.1": "11.1.1",
+      "fast-uri@>=3.0.0 <3.1.5": "3.1.5"
     }
   }
 }
