@@ -46,13 +46,21 @@ Most agent products begin with a chat window and expose prompts, models, and too
 
 ## Run it
 
-Bunkhouse is currently an operator/developer alpha rather than a packaged one-command release. Use disposable or parallel data.
-
-Requirements: Node 22+, pnpm 10, PostgreSQL 16, Redis 7, S3-compatible storage, and Docker for the local mail/media services.
+One command, Docker only:
 
 ```bash
-git clone https://github.com/braedonsaunders/bunkhouse.git
-cd bunkhouse
+git clone https://github.com/braedonsaunders/bunkhouse.git && cd bunkhouse && docker compose up -d
+```
+
+Open <http://localhost:4810> and sign in as `owner@example.com` / `bunkhouse-first-boot` (override `ADMIN_EMAIL` and `ADMIN_PASSWORD` in your shell to choose your own; rotate the first-boot credential after sign-in). The quickstart brings up PostgreSQL 16 — with the same forced-RLS role posture as a real deployment, not a superuser shortcut — Redis 7, the web app, and the background worker, migrating on start. Bunkhouse is alpha software: use disposable or parallel data.
+
+From there, connect what you want the agents to have: provider keys for models, mailboxes on your domain, and S3-compatible storage (`APPKIT_STORAGE_*`) for real file deliverables. The local mail/media lab and the voice plane live in `docker-compose.dev.yml`. Release tags also publish the image as `ghcr.io/braedonsaunders/bunkhouse:<version>`.
+
+### From source
+
+For hacking on Bunkhouse itself: Node 22+, pnpm 10, PostgreSQL 16, Redis 7, and Docker for the mail/media lab.
+
+```bash
 cp .env.example .env.local
 pnpm install
 pnpm --filter web db:migrate
@@ -67,9 +75,7 @@ pnpm --filter web worker
 pnpm --filter web voice-agent
 ```
 
-Open <http://localhost:4810>. The first owner credential comes from `ADMIN_EMAIL` and `ADMIN_PASSWORD`; rotate or remove those bootstrap values after sign-in. See [operations](docs/operations.md) for backup, restore, and upgrades, and [security](SECURITY.md) before exposing a deployment.
-
-Prefer a container? Every release tag publishes `ghcr.io/braedonsaunders/bunkhouse:<version>` — one image that runs the web app (default), the worker, and the voice agent, migrating on start. Point it at your PostgreSQL, Redis, and S3-compatible storage.
+See [operations](docs/operations.md) for backup, restore, and upgrades, and [security](SECURITY.md) before exposing a deployment.
 
 ## What is implemented
 

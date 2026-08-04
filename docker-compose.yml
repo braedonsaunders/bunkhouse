@@ -1,0 +1,79 @@
+# The quickstart: everything Bunkhouse needs to run, from one command.
+#
+#   docker compose up -d
+#
+# Then open http://localhost:4810 and sign in with ADMIN_EMAIL/ADMIN_PASSWORD
+# (defaults below — override them in your shell or a .env file, and rotate the
+# first-boot credential after sign-in). Data lives in named volumes; `docker
+# compose down -v` erases it, which is the point of a quickstart.
+#
+# This file is for evaluation on one machine. It is NOT the deployment shape:
+# secrets default in plain sight here so that first contact is one command.
+# For anything reachable by another person, see deploy/dokploy.compose.yaml,
+# docs/operations.md, and SECURITY.md.
+#
+# What is bundled: PostgreSQL 16 (with the two-role RLS posture the app is
+# designed for), Redis 7, the web app, and the background worker.
+# What is not: object storage (point APPKIT_STORAGE_* at any S3-compatible
+# service to enable real file deliverables), the mail/media lab
+# (docker-compose.dev.yml), and the voice agent (needs LiveKit — same file).
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bunkhouse
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/quickstart-init.sql:/docker-entrypoint-initdb.d/10-roles.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d bunkhouse']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redisdata:/data
+
+  web:
+    image: bunkhouse:quickstart
+    build: .
+    # Release images are also published as ghcr.io/braedonsaunders/bunkhouse:<version>.
+    ports:
+      - '4810:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment: &app-env
+      APP_URL: http://localhost:4810
+      BUNKHOUSE_DB_URL: postgresql://bunkhouse_app:bunkhouse@postgres:5432/bunkhouse
+      BUNKHOUSE_SUPER_URL: postgresql://bunkhouse_super:bunkhouse@postgres:5432/bunkhouse
+      BUNKHOUSE_REDIS_URL: redis://redis:6379
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-owner@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-bunkhouse-first-boot}
+      # Local-evaluation defaults. Generate real ones for anything shared.
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-quickstart-only-not-a-secret-change-me-1}
+      APPKIT_SECRET: ${APPKIT_SECRET:-quickstart-only-not-a-secret-change-me-2}
+
+  worker:
+    image: bunkhouse:quickstart
+    build: .
+    command: ['apps/web/node_modules/.bin/tsx', 'apps/web/scripts/worker.mts']
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      <<: *app-env
+      NODE_OPTIONS: '--conditions=react-server'
+
+volumes:
+  pgdata:
+  redisdata:
