@@ -290,35 +290,59 @@ jobs:
           # an underscore, which resolves, connects, and is then refused at the
           # HTTP layer. Only a real round trip tells the two apart — and it has
           # to run here, in the container, over the credentials the app uses.
+          # Signed by hand rather than through the SDK: the app image is a Next
+          # standalone build, where @aws-sdk is bundled somewhere `node -e` in
+          # /app cannot require. SigV4 over fetch needs nothing but node, so
+          # this keeps working whatever the bundler does next.
           docker exec "$cid" node -e '
-            const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
-            const client = new S3Client({
-              endpoint: process.env.APPKIT_STORAGE_ENDPOINT,
-              region: process.env.APPKIT_STORAGE_REGION || "us-east-1",
-              forcePathStyle: (process.env.APPKIT_STORAGE_FORCE_PATH_STYLE ?? "true") !== "false",
-              credentials: {
-                accessKeyId: process.env.APPKIT_STORAGE_ACCESS_KEY_ID,
-                secretAccessKey: process.env.APPKIT_STORAGE_SECRET_ACCESS_KEY,
-              },
-            });
-            const Bucket = process.env.APPKIT_STORAGE_BUCKET;
-            const Key = "_ops/roundtrip-check";
+            const { createHash, createHmac } = require("crypto");
+            const sha = (b) => createHash("sha256").update(b).digest("hex");
+            const hmac = (k, s) => createHmac("sha256", k).update(s).digest();
+            async function s3(method, key, body) {
+              const endpoint = process.env.APPKIT_STORAGE_ENDPOINT.replace(/\/$/, "");
+              const region = process.env.APPKIT_STORAGE_REGION || "us-east-1";
+              const url = new URL(endpoint + "/" + process.env.APPKIT_STORAGE_BUCKET + "/" + key);
+              const payload = body || Buffer.alloc(0);
+              const hash = sha(payload);
+              const now = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
+              const date = now.slice(0, 8);
+              const host = url.port ? url.hostname + ":" + url.port : url.hostname;
+              const signed = "host;x-amz-content-sha256;x-amz-date";
+              const canonical = [method, url.pathname, "",
+                "host:" + host + "\nx-amz-content-sha256:" + hash + "\nx-amz-date:" + now + "\n",
+                signed, hash].join("\n");
+              const scope = date + "/" + region + "/s3/aws4_request";
+              const toSign = ["AWS4-HMAC-SHA256", now, scope, sha(canonical)].join("\n");
+              let k = hmac("AWS4" + process.env.APPKIT_STORAGE_SECRET_ACCESS_KEY, date);
+              for (const part of [region, "s3", "aws4_request"]) k = hmac(k, part);
+              const sig = createHmac("sha256", k).update(toSign).digest("hex");
+              const headers = { host, "x-amz-date": now, "x-amz-content-sha256": hash,
+                authorization: "AWS4-HMAC-SHA256 Credential=" + process.env.APPKIT_STORAGE_ACCESS_KEY_ID +
+                  "/" + scope + ", SignedHeaders=" + signed + ", Signature=" + sig };
+              if (method === "PUT") headers["content-length"] = String(payload.length);
+              return fetch(url, { method, headers, body: method === "PUT" ? payload : undefined,
+                signal: AbortSignal.timeout(15000) });
+            }
+            const key = "_ops/roundtrip-check";
             const body = Buffer.alloc(64 * 1024, 0x41);
             (async () => {
               try {
-                await client.send(new PutObjectCommand({ Bucket, Key, Body: body, ContentType: "application/pdf" }));
-                const got = await client.send(new GetObjectCommand({ Bucket, Key }));
-                const back = Buffer.concat(await got.Body.toArray());
-                await client.send(new DeleteObjectCommand({ Bucket, Key }));
-                console.log("round trip     :", back.length === body.length ? `OK (${back.length} bytes back)` : `MISMATCH (${back.length})`);
+                const put = await s3("PUT", key, body);
+                if (!put.ok) throw new Error("PUT " + put.status + " " + (await put.text()).slice(0, 200));
+                const got = await s3("GET", key);
+                if (!got.ok) throw new Error("GET " + got.status);
+                const back = Buffer.from(await got.arrayBuffer());
+                await s3("DELETE", key);
+                console.log("round trip     :", back.length === body.length
+                  ? "OK (" + back.length + " bytes back)" : "MISMATCH (" + back.length + ")");
               } catch (error) {
-                // An empty name here is the signature worth naming: no error
-                // code and no HTTP status means the request never got a reply
-                // it could parse, which is what an agent sees as UnknownError.
+                // No status and no body is itself the diagnosis: the request
+                // never got a reply that could be parsed, which is what reaches
+                // an agent as the bare string UnknownError.
                 console.log("round trip     : FAILED");
-                console.log("  name         :", error.name || "(none)");
-                console.log("  message      :", error.message || "(empty)");
-                console.log("  http status  :", error.$metadata?.httpStatusCode ?? "(none — no HTTP reply was parsed)");
+                console.log("  reason       :", error.message || "(empty)");
+                console.log("  cause        :", (error.cause && (error.cause.code || error.cause.message)) ||
+                  "(none — no HTTP reply was parsed)");
                 process.exitCode = 1;
               }
             })();
