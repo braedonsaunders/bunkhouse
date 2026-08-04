@@ -118,6 +118,13 @@ jobs:
           end $$;
           reset role;
           SQL
+      - name: Database claims suite
+        # The full claim tests: forced RLS on every tenant table, tenant
+        # isolation both directions, all eleven append-only ledgers, and
+        # procedure pinning — against the database the canary just migrated.
+        env:
+          BUNKHOUSE_TEST_DB_URL: postgresql://postgres:postgres@localhost:5432/bunkhouse_ci
+        run: pnpm --filter web test:db
 
   build:
     needs: check
