@@ -335,13 +335,35 @@ function readStoredTokens(grant: McpOauthGrant): StoredTokens {
 }
 
 /**
+ * The grant as it stands now, not as the caller last saw it.
+ *
+ * A caller holds a connection it read at some earlier point — the start of a
+ * housekeeping sweep, the top of a run — and in between, anything else may
+ * have rotated the tokens. That matters more than it sounds, because a
+ * provider may invalidate the OLD access token the moment it issues a new one:
+ * NetSuite does, and the symptom is a 401 with an empty body, which surfaces
+ * as the bare string "Error POSTing to endpoint: " with nothing after the
+ * colon. Measured: a health probe 138ms after a renewal, using the snapshot
+ * from before it, was refused — and the same probe on any pass that did not
+ * renew succeeded.
+ *
+ * So the credential is read here rather than trusted from the argument. One
+ * indexed settings read against an MCP dial is not a cost worth optimising,
+ * and it removes the whole class rather than the instance that was noticed.
+ */
+async function currentGrant(tenantId: string, entry: McpIntegrationEntry): Promise<McpOauthGrant> {
+  const fresh = (await listMcpIntegrations(tenantId)).find((candidate) => candidate.slug === entry.slug)
+  return fresh?.oauth ?? entry.oauth!
+}
+
+/**
  * The Authorization header for one OAuth-connected integration, minting a
  * fresh access token first when the stored one is about to lapse. Call inside
  * an existing tenant scope.
  */
 export async function mcpOauthHeaders(tenantId: string, entry: McpIntegrationEntry): Promise<Record<string, string>> {
-  const grant = entry.oauth
-  if (!grant) throw new Error('this connection has no OAuth grant — reconnect it under Resources → Systems.')
+  if (!entry.oauth) throw new Error('this connection has no OAuth grant — reconnect it under Resources → Systems.')
+  const grant = await currentGrant(tenantId, entry)
   const stored = readStoredTokens(grant)
   const tokens = isStale(stored) ? await refreshSharedTokens(tenantId, entry.slug, grant, EXPIRY_SLACK_MS) : stored
   return { Authorization: `${tokens.tokenType} ${tokens.accessToken}` }
@@ -450,8 +472,11 @@ const REFRESH_AHEAD_MS = 30 * 60 * 1000
  * provider refusing is the news, not an exception to swallow.
  */
 export async function refreshGrantIfDue(tenantId: string, entry: McpIntegrationEntry): Promise<boolean> {
-  const grant = entry.oauth
-  if (!grant) return false
+  if (!entry.oauth) return false
+  // Same reason as the header path: a snapshot may already have been rotated
+  // out from under this caller, and renewing from it would spend a refresh
+  // token that is no longer the current one.
+  const grant = await currentGrant(tenantId, entry)
   if (!isStale(readStoredTokens(grant), REFRESH_AHEAD_MS)) return false
   await refreshSharedTokens(tenantId, entry.slug, grant, REFRESH_AHEAD_MS)
   return true
