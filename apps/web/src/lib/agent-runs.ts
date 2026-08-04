@@ -502,11 +502,30 @@ export async function executeAgentRun(args: {
 }): Promise<{ runId: string; outcome: RunOutcome }> {
   const app = db()
   const live = args.live ?? null
-  // A live run must not sit inside one long transaction: nothing it writes
-  // would be visible until it committed, so the call page would show a blank
-  // activity feed until the work finished, and a browser session held open for
-  // minutes would pin a connection for the length of the call.
-  const scope = live ? app.withTenantContext : app.withTenant
+  // NO run sits inside one long transaction. This was true of live runs first,
+  // for the reason that is obvious on a phone call — nothing a transaction
+  // writes is visible until it commits, so the call page showed a blank
+  // activity feed until the work finished — and it is just as true of the rest
+  // now that a run may legitimately work for hours rather than a couple of
+  // dozen steps.
+  //
+  // Three symptoms, one cause. An offline run was invisible in the observatory
+  // for its entire length, so nobody could watch work in progress. It could not
+  // be stopped, because Stop could not find a row that did not exist yet, and
+  // the loop's own cancellation check could only see its transaction's
+  // uncommitted copy of itself. And it pinned a Postgres connection open, in
+  // transaction, for as long as the work took.
+  //
+  // Measured: a fifty-second duty run was invisible to a second connection for
+  // all fifty of them, appearing only once it was over.
+  //
+  // What the transaction bought was all-or-nothing, and that was the wrong
+  // trade for a ledger. Run events are append-only history; a crash erasing
+  // them is not a clean rollback, it is losing the record of what happened.
+  // The catch below is what replaces it: a failure now leaves the run saying
+  // so, which is also what the abandoned-work sweep has always assumed it would
+  // find.
+  const scope = app.withTenantContext
   return scope(args.tenantId, async () => {
     const [person] = await app.db.select().from(people).where(eq(people.id, args.personId))
     if (!person || person.kind !== 'agent') throw new Error('Run target is not an agent.')
@@ -562,266 +581,278 @@ export async function executeAgentRun(args: {
         })
       })
 
-    const built = await assembleRunFoundation({ tenantId: args.tenantId, person, runId })
-    if (!built.ok) {
-      await recordEvent({ kind: 'error', message: built.reason })
-      if (!live) {
-        await app.db
-          .update(runs)
-          .set({ status: 'failed', finishedAt: new Date(), summary: built.reason.slice(0, 500) })
-          .where(eq(runs.id, runId))
-      }
-      return {
-        runId,
-        outcome: {
-          status: 'failed',
-          error: built.reason,
-          usage: { inputTokens: 0, outputTokens: 0 },
-          messages: [],
-        },
-      }
-    }
-    const foundation = built.foundation
-    const sink: RunSink = { event: recordEvent, spend: foundation.spend }
-
-    // What this task is about — what the Logbook is recalled against.
-    const retrievalQuery =
-      args.input.type === 'email'
-        ? `${args.input.threadSubject} ${args.input.conversation.slice(-400)}`
-        : args.input.type === 'duty'
-          ? `${args.input.dutyTitle} ${args.input.instruction}`
-          : args.input.type === 'chat'
-            ? args.input.message
-            : args.input.type === 'delegation'
-              ? args.input.instruction
-              : args.input.type === 'assignment'
-                ? `${args.input.title} ${args.input.spec.slice(0, 400)}`
-                : args.input.type === 'approval_decision'
-                  ? args.input.description
-                  : args.input.type === 'reply_received'
-                    ? args.input.question
-                    : args.input.instruction
-    const memories = await runMemories({ tenantId: args.tenantId, agent: agentBinding(person), query: retrievalQuery })
-
-    // Anything a colleague has said since this agent last worked. Read here,
-    // once, and marked read in the same breath — a message delivered twice is
-    // how an agent answers the same thing over and over. Deliberately NOT in
-    // the logbook: that is where an agent keeps what it has learned, and a
-    // message is not a lesson.
-    const inbox = live ? [] : await takeInbox({ personId: person.id })
-    const [thisRun] = await app.db.select({ root: runs.rootRunId }).from(runs).where(eq(runs.id, runId))
-    const rootOfThisRun = thisRun?.root ?? null
-    const handoffDepth =
-      args.trigger.type === 'assignment'
-        ? await (async () => {
-            const [row] = await app.db
-              .select({ source: assignments.source })
-              .from(assignments)
-              .where(eq(assignments.id, args.trigger.type === 'assignment' ? args.trigger.assignmentId : ''))
-            return hopsOf(row?.source ?? null)
-          })()
-        : 0
-
-    // The shared capability set. A live run is handed the one its call already
-    // assembled; everything else assembles its own, plus ask_and_wait — an
-    // async run can genuinely pause on a person's answer, a live one cannot.
-    const waitState: GovernanceState = { pendingApprovalId: null, pendingWait: null }
-    const assembled = live
-      ? null
-      : await assembleAbilities({
-          tenantId: args.tenantId,
-          person,
+    // From here the run has a row, and a failure has to leave it saying so.
+    // Nothing rolls back any more: a crash used to erase the run and its whole
+    // ledger, which is the opposite of an append-only history and left the
+    // abandoned-work sweep looking for rows that no longer existed.
+    try {
+      const built = await assembleRunFoundation({ tenantId: args.tenantId, person, runId })
+      if (!built.ok) {
+        await recordEvent({ kind: 'error', message: built.reason })
+        if (!live) {
+          await app.db
+            .update(runs)
+            .set({ status: 'failed', finishedAt: new Date(), summary: built.reason.slice(0, 500) })
+            .where(eq(runs.id, runId))
+        }
+        return {
           runId,
-          assignmentSource:
-            args.trigger.type === 'email' ? { kind: 'mail', threadId: args.trigger.threadId } : { kind: 'manual' },
-          // A run that is itself the ask roots the tree; one derived from an
-          // ask passes the same root on.
-          rootRunId: rootOfThisRun ?? runId,
-          // How far this run already is from the person who asked. Without it
-          // every handoff reported itself as the first, so the depth guard
-          // only ever saw "1" and never stopped anything.
-          handoffDepth,
-          ...(args.counterparty ? { counterparty: args.counterparty } : {}),
-          waitState,
-        })
-    for (const failure of assembled?.integrationFailures ?? []) {
-      await sink.event({ kind: 'message', text: `Integration unavailable — ${failure}` })
-    }
-    const abilities: Ability[] = [...(assembled?.abilities ?? live!.abilities)]
-    if (args.trigger.type === 'email') {
-      abilities.push(replyToThreadAbility({ tenantId: args.tenantId, threadId: args.trigger.threadId, runId }))
-    }
-
-    const outcome = await runAgent({
-      runId,
-      // Read straight from the row the operator's Stop writes, rather than a
-      // flag held in this process: the run may be executing on a worker that
-      // knows nothing about the request until it looks.
-      //
-      // This bites on a LIVE run and not yet on an offline one, and the reason
-      // is `scope` above. A live run is `withTenantContext`, so its row is
-      // committed and both sides see each other. An offline run is
-      // `withTenant` — one transaction around the whole run — so until it
-      // finishes its row does not exist to anyone else: Stop cannot find it,
-      // and this read sees only the transaction's own uncommitted copy. The
-      // check is correct and simply has nothing to observe there.
-      //
-      // What that costs is bigger than cancellation. A run allowed to work for
-      // hours now holds a Postgres transaction open for hours, and is invisible
-      // in the observatory for all of it. Moving offline runs to the same
-      // committed-as-you-go shape as live ones fixes all three together.
-      isCancelled: async () => {
-        const [row] = await app.db.select({ status: runs.status }).from(runs).where(eq(runs.id, runId))
-        return row?.status === 'cancelled'
-      },
-      ...(priorMessages.length ? { priorMessages: priorMessages as ModelMessage[] } : {}),
-      ...(args.maxSteps ? { maxSteps: args.maxSteps } : {}),
-      state: waitState,
-      describeAction: describeToolCall,
-      agent: foundation.agent,
-      company: foundation.company,
-      procedures: foundation.procedures,
-      memories,
-      skills: foundation.skills,
-      materializeSkill: foundation.materializeSkill,
-      abilities,
-      input:
-        inbox.length === 0
-          ? args.input
-          : withInbox(
-              args.input,
-              inbox
-                .map(
-                  (message) =>
-                    `From ${message.from} — ${message.subject}\n${message.body.trim()}`,
-                )
-                .join('\n\n'),
-            ),
-      autonomy: foundation.autonomy,
-      approvals: {
-        request: async (input) => {
-          const { approvalId } = await requestApproval({
-            tenantId: args.tenantId,
-            runId,
-            personId: person.id,
-            category: input.category,
-            description: input.description,
-            action: input.action,
-          })
-          return { approvalId }
-        },
-      },
-      budget: foundation.budget,
-      sink,
-      ...(live ? { abortSignal: live.abortSignal, toolDeadlineMs: LIVE_TOOL_DEADLINE_MS } : {}),
-    }).finally(async () => {
-      // A live run borrows both: the integrations and the browser belong to the
-      // call, which closes them once, when the call ends. Closing them here
-      // would tear them out from under whatever else the caller has running.
-      if (live) return
-      await assembled!.close()
-      // A browser left open by the model is closed with the run, not leaked.
-      await closeBrowserSession(runId)
-    })
-
-    // The completion contract: work that was triggered by a person waiting for
-    // an answer is not "completed" until something actually went back to them.
-    // A cheap model that writes a perfectly good reply as its closing remark
-    // instead of calling reply_to_thread used to finish green, with the sender
-    // never contacted and nothing anywhere saying so — measured on two models,
-    // both of which "completed" having sent nothing at all.
-    let unmetContract: string | null = null
-    if (outcome.status === 'completed' && args.trigger.type === 'email') {
-      const [answered] = await app.db
-        .select({ id: mailMessages.id })
-        .from(mailMessages)
-        .where(and(eq(mailMessages.runId, runId), eq(mailMessages.direction, 'outbound')))
-        .limit(1)
-      const [queued] = await app.db
-        .select({ id: approvals.id })
-        .from(approvals)
-        .where(eq(approvals.runId, runId))
-        .limit(1)
-      if (!answered && !queued) {
-        unmetContract =
-          'Finished without answering the thread: no reply was sent and none was queued for approval. The sender has heard nothing.'
-      }
-    }
-
-    const status =
-      outcome.status === 'completed'
-        ? unmetContract
-          ? ('failed' as const)
-          : ('completed' as const)
-        : outcome.status === 'waiting_approval'
-          ? ('waiting_approval' as const)
-          : outcome.status === 'waiting_reply'
-            ? ('waiting_reply' as const)
-            : outcome.status === 'cancelled'
-              ? ('cancelled' as const)
-              : ('failed' as const)
-    if (unmetContract) await sink.event({ kind: 'error', message: unmetContract })
-    if (outcome.status === 'waiting_approval' && person.reportsToId) {
-      const [manager] = await app.db.select().from(people).where(eq(people.id, person.reportsToId))
-      const [approval] = await app.db.select().from(approvals).where(eq(approvals.id, outcome.approvalId))
-      if (manager && approval) {
-        try {
-          await sendNewMail({
-            tenantId: args.tenantId,
-            personId: person.id,
-            to: [{ name: manager.name, address: manager.email }],
-            subject: `[BH#${approval.id.slice(0, 8)}] Approval needed: ${approval.category.replace('_', ' ')}`,
-            text: `Hi ${manager.name.split(' ')[0]},\n\nI need your sign-off before I act:\n\n${approval.payload.description}\n\nReply to this email with "approve" or "decline" (a short note after the word is kept for the record). You can also decide it in Bunkhouse under Approvals.\n\n${person.personality?.signoff ?? person.name}`,
-            runId,
-          })
-          await sink.event({ kind: 'message', text: `Approval request emailed to ${manager.name} <${manager.email}>.` })
-        } catch (error) {
-          await sink.event({
-            kind: 'message',
-            text: `Could not email the approval request (${error instanceof Error ? error.message : String(error)}); it is waiting in the Approvals queue.`,
-          })
+          outcome: {
+            status: 'failed',
+            error: built.reason,
+            usage: { inputTokens: 0, outputTokens: 0 },
+            messages: [],
+          },
         }
       }
-    }
+      const foundation = built.foundation
+      const sink: RunSink = { event: recordEvent, spend: foundation.spend }
 
-    // A live run does not own the record it wrote into: the call opened it and
-    // the call closes it, with the whole conversation's summary.
-    if (live) return { runId, outcome }
+      // What this task is about — what the Logbook is recalled against.
+      const retrievalQuery =
+        args.input.type === 'email'
+          ? `${args.input.threadSubject} ${args.input.conversation.slice(-400)}`
+          : args.input.type === 'duty'
+            ? `${args.input.dutyTitle} ${args.input.instruction}`
+            : args.input.type === 'chat'
+              ? args.input.message
+              : args.input.type === 'delegation'
+                ? args.input.instruction
+                : args.input.type === 'assignment'
+                  ? `${args.input.title} ${args.input.spec.slice(0, 400)}`
+                  : args.input.type === 'approval_decision'
+                    ? args.input.description
+                    : args.input.type === 'reply_received'
+                      ? args.input.question
+                      : args.input.instruction
+      const memories = await runMemories({ tenantId: args.tenantId, agent: agentBinding(person), query: retrievalQuery })
 
-    const parked = status === 'waiting_approval' || status === 'waiting_reply'
-    await app.db
-      .update(runs)
-      .set({
-        status,
-        finishedAt: parked ? null : new Date(),
-        // The transcript exists to resume a parked run; a finished run keeps
-        // its ledger in run_events, not a copy of the model conversation.
-        transcript: parked ? (outcome.messages as unknown[]) : null,
-        waiting:
-          outcome.status === 'waiting_reply'
-            ? { ...outcome.wait, askedAt: new Date().toISOString() }
-            : null,
-        summary:
-          outcome.status === 'completed'
-            ? unmetContract
-              ? `${unmetContract} What it did instead: ${outcome.summary}`.slice(0, 500)
-              : outcome.summary.slice(0, 500)
-            : outcome.status === 'waiting_approval'
-              ? 'Waiting on an approval.'
-              : outcome.status === 'waiting_reply'
-                ? `Waiting to hear back from ${outcome.wait.to}.`
-                : outcome.status === 'budget_paused'
-                  ? 'Paused: salary budget exhausted.'
-                  : outcome.status === 'cancelled'
-                    ? 'Stopped by an operator.'
-                    : outcome.error.slice(0, 500),
+      // Anything a colleague has said since this agent last worked. Read here,
+      // once, and marked read in the same breath — a message delivered twice is
+      // how an agent answers the same thing over and over. Deliberately NOT in
+      // the logbook: that is where an agent keeps what it has learned, and a
+      // message is not a lesson.
+      const inbox = live ? [] : await takeInbox({ personId: person.id })
+      const [thisRun] = await app.db.select({ root: runs.rootRunId }).from(runs).where(eq(runs.id, runId))
+      const rootOfThisRun = thisRun?.root ?? null
+      const handoffDepth =
+        args.trigger.type === 'assignment'
+          ? await (async () => {
+              const [row] = await app.db
+                .select({ source: assignments.source })
+                .from(assignments)
+                .where(eq(assignments.id, args.trigger.type === 'assignment' ? args.trigger.assignmentId : ''))
+              return hopsOf(row?.source ?? null)
+            })()
+          : 0
+
+      // The shared capability set. A live run is handed the one its call already
+      // assembled; everything else assembles its own, plus ask_and_wait — an
+      // async run can genuinely pause on a person's answer, a live one cannot.
+      const waitState: GovernanceState = { pendingApprovalId: null, pendingWait: null }
+      const assembled = live
+        ? null
+        : await assembleAbilities({
+            tenantId: args.tenantId,
+            person,
+            runId,
+            assignmentSource:
+              args.trigger.type === 'email' ? { kind: 'mail', threadId: args.trigger.threadId } : { kind: 'manual' },
+            // A run that is itself the ask roots the tree; one derived from an
+            // ask passes the same root on.
+            rootRunId: rootOfThisRun ?? runId,
+            // How far this run already is from the person who asked. Without it
+            // every handoff reported itself as the first, so the depth guard
+            // only ever saw "1" and never stopped anything.
+            handoffDepth,
+            ...(args.counterparty ? { counterparty: args.counterparty } : {}),
+            waitState,
+          })
+      for (const failure of assembled?.integrationFailures ?? []) {
+        await sink.event({ kind: 'message', text: `Integration unavailable — ${failure}` })
+      }
+      const abilities: Ability[] = [...(assembled?.abilities ?? live!.abilities)]
+      if (args.trigger.type === 'email') {
+        abilities.push(replyToThreadAbility({ tenantId: args.tenantId, threadId: args.trigger.threadId, runId }))
+      }
+
+      const outcome = await runAgent({
+        runId,
+        // Read straight from the row the operator's Stop writes, rather than a
+        // flag held in this process: the run may be executing on a worker that
+        // knows nothing about the request until it looks.
+        //
+        // This only works because no run is wrapped in a transaction any more
+        // (see `scope` above). While offline runs were, the row did not exist
+        // outside its own transaction until the run was over: Stop could not
+        // find it, and this read saw nothing but the transaction's uncommitted
+        // copy of itself. The check was right and had nothing to observe.
+        isCancelled: async () => {
+          const [row] = await app.db.select({ status: runs.status }).from(runs).where(eq(runs.id, runId))
+          return row?.status === 'cancelled'
+        },
+        ...(priorMessages.length ? { priorMessages: priorMessages as ModelMessage[] } : {}),
+        ...(args.maxSteps ? { maxSteps: args.maxSteps } : {}),
+        state: waitState,
+        describeAction: describeToolCall,
+        agent: foundation.agent,
+        company: foundation.company,
+        procedures: foundation.procedures,
+        memories,
+        skills: foundation.skills,
+        materializeSkill: foundation.materializeSkill,
+        abilities,
+        input:
+          inbox.length === 0
+            ? args.input
+            : withInbox(
+                args.input,
+                inbox
+                  .map(
+                    (message) =>
+                      `From ${message.from} — ${message.subject}\n${message.body.trim()}`,
+                  )
+                  .join('\n\n'),
+              ),
+        autonomy: foundation.autonomy,
+        approvals: {
+          request: async (input) => {
+            const { approvalId } = await requestApproval({
+              tenantId: args.tenantId,
+              runId,
+              personId: person.id,
+              category: input.category,
+              description: input.description,
+              action: input.action,
+            })
+            return { approvalId }
+          },
+        },
+        budget: foundation.budget,
+        sink,
+        ...(live ? { abortSignal: live.abortSignal, toolDeadlineMs: LIVE_TOOL_DEADLINE_MS } : {}),
+      }).finally(async () => {
+        // A live run borrows both: the integrations and the browser belong to the
+        // call, which closes them once, when the call ends. Closing them here
+        // would tear them out from under whatever else the caller has running.
+        if (live) return
+        await assembled!.close()
+        // A browser left open by the model is closed with the run, not leaked.
+        await closeBrowserSession(runId)
       })
-      // A stop already written to the row wins. Without this the loop's own
-      // closing update lands last and a cancelled run reads as completed —
-      // the operator pressed Stop, the screen agreed, and then it changed its
-      // mind a step later.
-      .where(and(eq(runs.id, runId), ne(runs.status, 'cancelled')))
-    return { runId, outcome }
+
+      // The completion contract: work that was triggered by a person waiting for
+      // an answer is not "completed" until something actually went back to them.
+      // A cheap model that writes a perfectly good reply as its closing remark
+      // instead of calling reply_to_thread used to finish green, with the sender
+      // never contacted and nothing anywhere saying so — measured on two models,
+      // both of which "completed" having sent nothing at all.
+      let unmetContract: string | null = null
+      if (outcome.status === 'completed' && args.trigger.type === 'email') {
+        const [answered] = await app.db
+          .select({ id: mailMessages.id })
+          .from(mailMessages)
+          .where(and(eq(mailMessages.runId, runId), eq(mailMessages.direction, 'outbound')))
+          .limit(1)
+        const [queued] = await app.db
+          .select({ id: approvals.id })
+          .from(approvals)
+          .where(eq(approvals.runId, runId))
+          .limit(1)
+        if (!answered && !queued) {
+          unmetContract =
+            'Finished without answering the thread: no reply was sent and none was queued for approval. The sender has heard nothing.'
+        }
+      }
+
+      const status =
+        outcome.status === 'completed'
+          ? unmetContract
+            ? ('failed' as const)
+            : ('completed' as const)
+          : outcome.status === 'waiting_approval'
+            ? ('waiting_approval' as const)
+            : outcome.status === 'waiting_reply'
+              ? ('waiting_reply' as const)
+              : outcome.status === 'cancelled'
+                ? ('cancelled' as const)
+                : ('failed' as const)
+      if (unmetContract) await sink.event({ kind: 'error', message: unmetContract })
+      if (outcome.status === 'waiting_approval' && person.reportsToId) {
+        const [manager] = await app.db.select().from(people).where(eq(people.id, person.reportsToId))
+        const [approval] = await app.db.select().from(approvals).where(eq(approvals.id, outcome.approvalId))
+        if (manager && approval) {
+          try {
+            await sendNewMail({
+              tenantId: args.tenantId,
+              personId: person.id,
+              to: [{ name: manager.name, address: manager.email }],
+              subject: `[BH#${approval.id.slice(0, 8)}] Approval needed: ${approval.category.replace('_', ' ')}`,
+              text: `Hi ${manager.name.split(' ')[0]},\n\nI need your sign-off before I act:\n\n${approval.payload.description}\n\nReply to this email with "approve" or "decline" (a short note after the word is kept for the record). You can also decide it in Bunkhouse under Approvals.\n\n${person.personality?.signoff ?? person.name}`,
+              runId,
+            })
+            await sink.event({ kind: 'message', text: `Approval request emailed to ${manager.name} <${manager.email}>.` })
+          } catch (error) {
+            await sink.event({
+              kind: 'message',
+              text: `Could not email the approval request (${error instanceof Error ? error.message : String(error)}); it is waiting in the Approvals queue.`,
+            })
+          }
+        }
+      }
+
+      // A live run does not own the record it wrote into: the call opened it and
+      // the call closes it, with the whole conversation's summary.
+      if (live) return { runId, outcome }
+
+      const parked = status === 'waiting_approval' || status === 'waiting_reply'
+      await app.db
+        .update(runs)
+        .set({
+          status,
+          finishedAt: parked ? null : new Date(),
+          // The transcript exists to resume a parked run; a finished run keeps
+          // its ledger in run_events, not a copy of the model conversation.
+          transcript: parked ? (outcome.messages as unknown[]) : null,
+          waiting:
+            outcome.status === 'waiting_reply'
+              ? { ...outcome.wait, askedAt: new Date().toISOString() }
+              : null,
+          summary:
+            outcome.status === 'completed'
+              ? unmetContract
+                ? `${unmetContract} What it did instead: ${outcome.summary}`.slice(0, 500)
+                : outcome.summary.slice(0, 500)
+              : outcome.status === 'waiting_approval'
+                ? 'Waiting on an approval.'
+                : outcome.status === 'waiting_reply'
+                  ? `Waiting to hear back from ${outcome.wait.to}.`
+                  : outcome.status === 'budget_paused'
+                    ? 'Paused: salary budget exhausted.'
+                    : outcome.status === 'cancelled'
+                      ? 'Stopped by an operator.'
+                      : outcome.error.slice(0, 500),
+        })
+        // A stop already written to the row wins. Without this the loop's own
+        // closing update lands last and a cancelled run reads as completed —
+        // the operator pressed Stop, the screen agreed, and then it changed its
+        // mind a step later.
+        .where(and(eq(runs.id, runId), ne(runs.status, 'cancelled')))
+      return { runId, outcome }
+    } catch (error) {
+      // A live run does not own its record — the call opened it and the call
+      // closes it — so this marks only what it is responsible for.
+      if (!live) {
+        const reason = error instanceof Error ? error.message : String(error)
+        await recordEvent({ kind: 'error', message: reason }).catch(() => undefined)
+        await app.db
+          .update(runs)
+          .set({ status: 'failed', finishedAt: new Date(), transcript: null, summary: reason.slice(0, 500) })
+          .where(and(eq(runs.id, runId), ne(runs.status, 'cancelled')))
+          .catch(() => undefined)
+      }
+      throw error
+    }
   })
 }
 
