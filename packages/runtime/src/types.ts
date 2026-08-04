@@ -217,4 +217,6 @@ export type RunOutcome =
       messages: ModelMessage[]
     }
   | { status: 'budget_paused'; usage: TokenUsage; messages: ModelMessage[] }
+  /** An operator stopped this run; the work done up to that point is kept. */
+  | { status: 'cancelled'; usage: TokenUsage; messages: ModelMessage[] }
   | { status: 'failed'; error: string; usage: TokenUsage; messages: ModelMessage[] }

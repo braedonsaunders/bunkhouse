@@ -39,6 +39,7 @@ import {
 } from '../../components/run-tables'
 import { RunDrawer, type RunRecordTab } from '../../components/run-drawer'
 import { LiveToggle } from '../../components/live-toggle'
+import { StopRunButton } from '../../components/stop-run-button'
 
 /**
  * The run record, assembled once. The observatory opens it as a flyout from
@@ -613,7 +614,14 @@ export async function runDrawer({
       title={view.title}
       subtitle={view.subtitle}
       badge={runStatusBadge(view.status)}
-      headerActions={view.isOpen ? <LiveToggle defaultOn /> : undefined}
+      headerActions={
+        view.isOpen ? (
+          <span className="flex items-center gap-3">
+            <LiveToggle defaultOn />
+            <StopRunButton runId={view.runId} live={view.status === 'running'} />
+          </span>
+        ) : undefined
+      }
       tabs={view.tabs}
       initialTabKey={tab}
     />

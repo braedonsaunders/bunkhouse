@@ -516,6 +516,8 @@ function replyTextForOutcome(outcome: RunOutcome): string {
       return `I'm waiting to hear back from ${outcome.wait.to} before I can finish this — I'll follow up here.`
     case 'budget_paused':
       return "I've reached my token budget for this month, so I can't take this on right now — please flag it to an operator."
+    case 'cancelled':
+      return 'An operator stopped this before I finished — nothing further is happening on it from my side.'
     case 'failed':
       return `I ran into a problem and couldn't finish that: ${outcome.error}`
   }

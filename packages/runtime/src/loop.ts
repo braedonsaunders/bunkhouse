@@ -63,6 +63,17 @@ export type RunAgentArgs = {
    * signal a suspension (ask-and-wait); the loop creates its own otherwise.
    */
   state?: GovernanceState
+  /**
+   * Asked between steps: has an operator stopped this run?
+   *
+   * Cancellation is cooperative rather than a kill, because a step is not
+   * interruptible without deciding what to do with a tool call already in
+   * flight — an email half sent, a document half written. Stopping at the
+   * boundary means the run ends somewhere it can explain, and everything it
+   * did before is kept. A step is the same granularity the budget governor
+   * uses, and for the same reason.
+   */
+  isCancelled?: () => Promise<boolean>
 }
 
 /**
@@ -212,6 +223,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
   // What lets a run go long: something watching the money, and something that
   // can tell work from a loop. Both are read by `stopWhen` after every step.
   let budgetExhausted = false
+  let cancelled = false
   let stuck = false
   let bloated = false
   let lastCall: string | null = null
@@ -230,7 +242,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
         stepCountIs(args.maxSteps ?? DEFAULT_MAX_STEPS),
         () => state.pendingApprovalId !== null || state.pendingWait !== null,
         // The two governors that let a run go long safely.
-        () => budgetExhausted || stuck || bloated,
+        () => budgetExhausted || cancelled || stuck || bloated,
       ],
       // Evidence the agent has already reasoned over does not need re-buying at
       // full price on every subsequent step. The working set stays verbatim.
@@ -313,6 +325,16 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
             message: `Stopped: one step sent ${stepInput.toLocaleString()} input tokens, past the ${MAX_STEP_INPUT_TOKENS.toLocaleString()} ceiling. The context is carrying far more than this work needs, and every further step would cost more than the last.`,
           })
         }
+        // Asked once per step, like the budget below it. An operator who
+        // stops a run wants it stopped now, not at whatever natural end it
+        // would otherwise reach — which for a long run may be hours away.
+        if (!cancelled && args.isCancelled && (await args.isCancelled().catch(() => false))) {
+          cancelled = true
+          await args.sink.event({
+            kind: 'message',
+            text: 'Stopped by an operator. Ending here; everything done up to this point is kept.',
+          })
+        }
         if (!budgetExhausted && args.budget.overagePolicy === 'pause') {
           const left = await args.budget.remainingUsd().catch(() => 1)
           if (left <= 0) {
@@ -330,6 +352,9 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
     // Out of money is not a failure and not a success: the work that was done
     // is kept, and the outcome says plainly why it stopped where it did.
     if (budgetExhausted) return { status: 'budget_paused', usage, messages: transcript }
+    // Ahead of the suspensions: a run an operator stopped must not come back
+    // as one waiting on them for something.
+    if (cancelled) return { status: 'cancelled', usage, messages: transcript }
     if (state.pendingApprovalId) {
       return { status: 'waiting_approval', approvalId: state.pendingApprovalId, usage, messages: transcript }
     }

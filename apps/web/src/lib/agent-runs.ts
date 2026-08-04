@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, desc, eq, gte, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, ne, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { ModelMessage } from 'ai'
 import {
@@ -654,6 +654,13 @@ export async function executeAgentRun(args: {
 
     const outcome = await runAgent({
       runId,
+      // Read straight from the row the operator's Stop writes, rather than a
+      // flag held in this process: the run may be executing on a worker that
+      // knows nothing about the request until it looks.
+      isCancelled: async () => {
+        const [row] = await app.db.select({ status: runs.status }).from(runs).where(eq(runs.id, runId))
+        return row?.status === 'cancelled'
+      },
       ...(priorMessages.length ? { priorMessages: priorMessages as ModelMessage[] } : {}),
       ...(args.maxSteps ? { maxSteps: args.maxSteps } : {}),
       state: waitState,
@@ -737,7 +744,9 @@ export async function executeAgentRun(args: {
           ? ('waiting_approval' as const)
           : outcome.status === 'waiting_reply'
             ? ('waiting_reply' as const)
-            : ('failed' as const)
+            : outcome.status === 'cancelled'
+              ? ('cancelled' as const)
+              : ('failed' as const)
     if (unmetContract) await sink.event({ kind: 'error', message: unmetContract })
     if (outcome.status === 'waiting_approval' && person.reportsToId) {
       const [manager] = await app.db.select().from(people).where(eq(people.id, person.reportsToId))
@@ -790,9 +799,15 @@ export async function executeAgentRun(args: {
                 ? `Waiting to hear back from ${outcome.wait.to}.`
                 : outcome.status === 'budget_paused'
                   ? 'Paused: salary budget exhausted.'
-                  : outcome.error.slice(0, 500),
+                  : outcome.status === 'cancelled'
+                    ? 'Stopped by an operator.'
+                    : outcome.error.slice(0, 500),
       })
-      .where(eq(runs.id, runId))
+      // A stop already written to the row wins. Without this the loop's own
+      // closing update lands last and a cancelled run reads as completed —
+      // the operator pressed Stop, the screen agreed, and then it changed its
+      // mind a step later.
+      .where(and(eq(runs.id, runId), ne(runs.status, 'cancelled')))
     return { runId, outcome }
   })
 }
