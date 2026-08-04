@@ -66,6 +66,10 @@ on:
         description: 'Print task history and recent logs for every swarm service matching this substring (leave blank to skip)'
         type: string
         default: ''
+      reachFromWeb:
+        description: 'From the web container, resolve and call these origins (comma-separated) — read-only'
+        type: string
+        default: ''
 
 # Where this deployment's durable storage lives. Repository variables rather
 # than literals: this file is written to be public, and one company's NFS
@@ -375,6 +379,41 @@ jobs:
           fi
           docker volume rm "$target"
           echo "Removed $target"
+
+      # Which address the app can actually use, asked from where it matters.
+      # A storage endpoint fails three distinguishable ways and only one of them
+      # is "down": the name may not resolve, it may resolve and refuse the
+      # connection, or it may connect and be rejected at the HTTP layer — which
+      # is what an underscore in a service name does, because Docker DNS
+      # resolves it happily and MinIO then refuses the illegal Host header. The
+      # S3 client reports that last case as an error with no status and no code,
+      # so the difference is invisible from the application side.
+      - name: Reach an origin from the web container
+        if: ${{ inputs.reachFromWeb != '' }}
+        run: |
+          set -uo pipefail
+          case "${{ inputs.reachFromWeb }}" in *[!a-zA-Z0-9_.:/,-]*) echo "::error::Refusing suspicious origin list"; exit 1 ;; esac
+          cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
+          if [ -z "$cid" ]; then echo "::error::No running web container on this node"; exit 1; fi
+          docker exec -e ORIGINS="${{ inputs.reachFromWeb }}" "$cid" node -e '
+            const { lookup } = require("node:dns/promises");
+            (async () => {
+              for (const raw of (process.env.ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean)) {
+                const origin = /^https?:\/\//.test(raw) ? raw : `http://${raw}`;
+                let host = "?";
+                try { host = new URL(origin).hostname } catch { console.log(`${raw}: not a URL`); continue }
+                const legal = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i.test(host);
+                let dns = "-";
+                try { dns = (await lookup(host)).address } catch (e) { dns = `FAILED (${e.code || e.message})` }
+                let http = "-";
+                try {
+                  const res = await fetch(origin, { method: "GET", signal: AbortSignal.timeout(8000) });
+                  http = `HTTP ${res.status}`;
+                } catch (e) { http = `FAILED (${e.cause?.code || e.code || e.message})` }
+                console.log(`${host}\n  legal hostname : ${legal}${legal ? "" : "  <-- MinIO refuses this Host header"}\n  resolves to    : ${dns}\n  responds       : ${http}\n`);
+              }
+            })();
+          '
 
       - name: Prune images, stopped containers, and build cache
         if: ${{ inputs.prune }}
