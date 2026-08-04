@@ -285,6 +285,44 @@ jobs:
             console.log("key id set     :", Boolean(process.env.APPKIT_STORAGE_ACCESS_KEY_ID));
             console.log("secret set     :", Boolean(process.env.APPKIT_STORAGE_SECRET_ACCESS_KEY));
           '
+          # The shape above is necessary and not sufficient: settings that read
+          # perfectly still failed for three days because the endpoint host held
+          # an underscore, which resolves, connects, and is then refused at the
+          # HTTP layer. Only a real round trip tells the two apart — and it has
+          # to run here, in the container, over the credentials the app uses.
+          docker exec "$cid" node -e '
+            const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+            const client = new S3Client({
+              endpoint: process.env.APPKIT_STORAGE_ENDPOINT,
+              region: process.env.APPKIT_STORAGE_REGION || "us-east-1",
+              forcePathStyle: (process.env.APPKIT_STORAGE_FORCE_PATH_STYLE ?? "true") !== "false",
+              credentials: {
+                accessKeyId: process.env.APPKIT_STORAGE_ACCESS_KEY_ID,
+                secretAccessKey: process.env.APPKIT_STORAGE_SECRET_ACCESS_KEY,
+              },
+            });
+            const Bucket = process.env.APPKIT_STORAGE_BUCKET;
+            const Key = "_ops/roundtrip-check";
+            const body = Buffer.alloc(64 * 1024, 0x41);
+            (async () => {
+              try {
+                await client.send(new PutObjectCommand({ Bucket, Key, Body: body, ContentType: "application/pdf" }));
+                const got = await client.send(new GetObjectCommand({ Bucket, Key }));
+                const back = Buffer.concat(await got.Body.toArray());
+                await client.send(new DeleteObjectCommand({ Bucket, Key }));
+                console.log("round trip     :", back.length === body.length ? `OK (${back.length} bytes back)` : `MISMATCH (${back.length})`);
+              } catch (error) {
+                // An empty name here is the signature worth naming: no error
+                // code and no HTTP status means the request never got a reply
+                // it could parse, which is what an agent sees as UnknownError.
+                console.log("round trip     : FAILED");
+                console.log("  name         :", error.name || "(none)");
+                console.log("  message      :", error.message || "(empty)");
+                console.log("  http status  :", error.$metadata?.httpStatusCode ?? "(none — no HTTP reply was parsed)");
+                process.exitCode = 1;
+              }
+            })();
+          '
 
       # The shell sandbox is a separate application on a shared network, so
       # "it works" has three parts: the app can resolve it, the token is
