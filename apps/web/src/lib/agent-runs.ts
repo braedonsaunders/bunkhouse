@@ -657,6 +657,19 @@ export async function executeAgentRun(args: {
       // Read straight from the row the operator's Stop writes, rather than a
       // flag held in this process: the run may be executing on a worker that
       // knows nothing about the request until it looks.
+      //
+      // This bites on a LIVE run and not yet on an offline one, and the reason
+      // is `scope` above. A live run is `withTenantContext`, so its row is
+      // committed and both sides see each other. An offline run is
+      // `withTenant` — one transaction around the whole run — so until it
+      // finishes its row does not exist to anyone else: Stop cannot find it,
+      // and this read sees only the transaction's own uncommitted copy. The
+      // check is correct and simply has nothing to observe there.
+      //
+      // What that costs is bigger than cancellation. A run allowed to work for
+      // hours now holds a Postgres transaction open for hours, and is invisible
+      // in the observatory for all of it. Moving offline runs to the same
+      // committed-as-you-go shape as live ones fixes all three together.
       isCancelled: async () => {
         const [row] = await app.db.select({ status: runs.status }).from(runs).where(eq(runs.id, runId))
         return row?.status === 'cancelled'
