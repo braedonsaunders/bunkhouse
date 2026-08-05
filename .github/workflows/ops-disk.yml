@@ -205,9 +205,13 @@ jobs:
         run: |
           set -euo pipefail
           base="${DOKPLOY_URL%/}"
-          curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+          current="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
             -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID" \
-            | jq -r '.env // ""' \
+          )"
+          echo "::group::Managed domains"
+          echo "$current" | jq '{composeId, name, appName, composeType, domains: ((.domains // []) | map({domainId, host, port, serviceName, https, certificateType}))}'
+          echo "::endgroup::"
+          echo "$current" | jq -r '.env // ""' \
             | awk -F= 'NF>1 {
                 key=$1; val=substr($0, index($0,"=")+1);
                 safe = (key ~ /^(BUNKHOUSE_TAG|LIVEKIT_NODE_IP|LIVEKIT_URL|APPKIT_STORAGE_ENDPOINT|APPKIT_STORAGE_BUCKET|BUNKHOUSE_NFS_ADDR|BUNKHOUSE_NFS_EXPORT|APP_URL|ADMIN_EMAIL)$/);
