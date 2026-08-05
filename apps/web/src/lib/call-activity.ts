@@ -187,6 +187,12 @@ export function describeBrowserStep(action: string, detail: BrowserStepWords): s
 export function toolActivityFromEvents(events: CallActivityEvent[]): ToolActivityItem[] {
   const items: ToolActivityItem[] = []
   const open = new Map<string, ToolActivityItem[]>()
+  // An approval parks a call rather than finishing it. Keep that call by the
+  // approval's durable id so the executor's later result can move the same UI
+  // item to done. Matching only through `open` lost the item the moment the
+  // request was filed, leaving "Queued for approval" on screen after the
+  // action had run successfully.
+  const byApproval = new Map<string, ToolActivityItem>()
   const sorted = [...events].sort((a, b) => a.seq - b.seq)
 
   for (const event of sorted) {
@@ -207,16 +213,31 @@ export function toolActivityFromEvents(events: CallActivityEvent[]): ToolActivit
       continue
     }
 
-    // A result or approval closes the oldest still-open call of that tool.
-    // Older ledgers recorded approval requests without a toolName; fall back
-    // to the most recent still-running item so nothing shows running forever.
+    const approvalId =
+      typeof event.payload.approvedApprovalId === 'string'
+        ? event.payload.approvedApprovalId
+        : typeof event.payload.approvalId === 'string'
+          ? event.payload.approvalId
+          : null
+    // A result ordinarily closes the oldest open call of that tool. Approval
+    // results are different: the request already removed the call from the
+    // open queue, so its durable approval id is authoritative. Older ledgers
+    // lack one or both ids; their safe fallback is the latest queued call of
+    // the same tool (or, for very old nameless requests, the latest live call).
     const item =
+      (approvalId ? byApproval.get(approvalId) : undefined) ??
       open.get(toolName)?.shift() ??
-      (toolName === '' ? [...items].reverse().find((i) => i.status === 'running') : undefined)
+      (event.kind === 'tool_result'
+        ? [...items].reverse().find((candidate) => candidate.toolName === toolName && candidate.status === 'queued')
+        : undefined) ??
+      (toolName === ''
+        ? [...items].reverse().find((candidate) => candidate.status === 'running' || candidate.status === 'queued')
+        : undefined)
     if (!item) continue
     if (event.kind === 'approval_request') {
       item.status = 'queued'
       item.detail = 'Queued for approval — it runs once signed off.'
+      if (approvalId) byApproval.set(approvalId, item)
       continue
     }
     const output =
@@ -236,7 +257,9 @@ export function toolActivityFromEvents(events: CallActivityEvent[]): ToolActivit
       item.detail = 'This action is not enabled for this agent.'
     } else {
       item.status = 'done'
+      item.detail = null
     }
+    if (approvalId) byApproval.delete(approvalId)
   }
   return items
 }

@@ -79,7 +79,14 @@ export type TurnExpectation = {
    * came out"; both are silence on the line, and whoever asked for the speech
    * needs to know which it got.
    */
-  release: () => { spoke: boolean }
+  release: (options?: {
+    /**
+     * False when the caller will immediately use a deterministic speech
+     * fallback. The expectation is still released, but silence is not written
+     * as a fault unless that final route is silent too.
+     */
+    recordUnspoken?: boolean
+  }) => { spoke: boolean }
 }
 
 export type CallTrace = {
@@ -201,10 +208,11 @@ export function createCallTrace(sink: TraceSink): CallTrace {
         // agent turn consumes the expectation (`takeCause` clears `live`), so
         // one still live at release is one that produced silence — which the
         // caller in a real call experienced as the agent ignoring them.
-        release: (): { spoke: boolean } => {
+        release: (options): { spoke: boolean } => {
           if (!entry.live) return { spoke: true }
           entry.live = false
           expectations = expectations.filter((held) => held.live)
+          if (options?.recordUnspoken === false) return { spoke: false }
           // A delivery that produced no words at all is worth a line of its
           // own: it is exactly how a caller ends up never hearing that
           // something needs their sign-off, and there is no other trace of it.

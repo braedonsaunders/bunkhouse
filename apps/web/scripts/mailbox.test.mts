@@ -7,6 +7,7 @@ import {
 } from '../src/lib/call-mailbox'
 import { resolvePageAccess, toolsPromisedButAbsent } from '../src/lib/call-reading'
 import { createCallTrace } from '../src/lib/call-trace'
+import { toolActivityFromEvents } from '../src/lib/call-activity'
 
 /**
  * What a call says, and why — the three framework-free modules the talker
@@ -35,6 +36,39 @@ const FAST: MailboxTiming = {
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+// An approved action stays the same activity item from request through
+// execution. This is the event order from a real call: filing approval parks
+// the tool, and the executor later reports success against the approval id.
+{
+  const activity = toolActivityFromEvents([
+    {
+      seq: 150,
+      kind: 'tool_call',
+      atMs: 12_000,
+      payload: { toolName: 'send_email', input: { to: 'bsaunders@rassaun.com' } },
+    },
+    {
+      seq: 151,
+      kind: 'approval_request',
+      atMs: 13_000,
+      payload: { toolName: 'send_email', approvalId: 'approval-1' },
+    },
+    {
+      seq: 158,
+      kind: 'tool_result',
+      atMs: 30_000,
+      payload: {
+        toolName: 'send_email',
+        approvedApprovalId: 'approval-1',
+        output: { sent: true, to: 'bsaunders@rassaun.com' },
+      },
+    },
+  ])
+  assert.equal(activity.length, 1)
+  assert.equal(activity[0]!.status, 'done', 'the approved result completes the item that was parked')
+  assert.equal(activity[0]!.detail, null)
+}
 
 /** A line the mailbox is watching, and what it has been told to say. */
 function harness(timing: Partial<MailboxTiming> = {}) {
@@ -520,6 +554,29 @@ function harness(timing: Partial<MailboxTiming> = {}) {
   trace.agentTurn({ itemId: 'item-1', text: 'Anyway, where were we?' })
   const turn = written.find((row) => row.payload.trace === 'turn')!
   assert.equal(turn.payload.cause, 'spontaneous')
+}
+
+// A silent model route followed immediately by deterministic TTS is not an
+// unspoken delivery. Only the final route gets to write that fault.
+{
+  const written: { kind: string; payload: Record<string, unknown> }[] = []
+  const trace = createCallTrace((kind, payload) => written.push({ kind, payload }))
+  const modelRoute = trace.expectTurn({
+    cause: 'mailbox_delivery',
+    workIds: ['work-1'],
+    deliveryKinds: ['needs_approval'],
+  })
+  assert.equal(modelRoute.release({ recordUnspoken: false }).spoke, false)
+  assert.equal(written.length, 0, 'the fallback still has a chance to tell the caller')
+
+  const directRoute = trace.expectTurn({
+    cause: 'mailbox_delivery',
+    workIds: ['work-1'],
+    deliveryKinds: ['needs_approval'],
+  })
+  trace.agentTurn({ itemId: 'direct-tts-1', text: 'That email needs your sign-off before it can be sent.' })
+  assert.equal(directRoute.release().spoke, true)
+  assert.ok(!written.some((row) => row.payload.trace === 'delivery_unspoken'))
 }
 
 // No picture ever reaches the ledger: one base-64 frame in a payload makes the

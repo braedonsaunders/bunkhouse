@@ -340,10 +340,16 @@ async function buildInstructions(
   })
 
   const caller = session.counterparty.name ?? 'the caller'
+  const verifiedCallerEmail = session.counterparty.email?.trim().toLowerCase() ?? null
   const voiceAddendum = [
     posture.meeting
       ? `You are in a live video meeting with ${caller}.`
       : `You are on a live voice call with ${caller}.`,
+    ...(verifiedCallerEmail
+      ? [
+          `The verified email address for the person on this line is exactly ${verifiedCallerEmail}. This live call identity outranks company-directory entries and old notes. If they ask you to email them, repeat their address, or identify their email, use exactly this address unless they explicitly give you a different one during this call.`,
+        ]
+      : []),
     'Talk like the colleague you are, not like a system. Warm, engaged, specific: react to what they actually said, use their name sometimes, carry context forward, and have opinions where your job gives you standing to. Contractions are normal speech. Plain spoken words only: no markdown, no lists, no headings, nothing that only works on a screen.',
     'Keep your turns SHORT — a sentence or two, five to ten seconds of speech, then stop and let them back in. This is a phone call, not a briefing: nobody listens to fifteen seconds of you without a turn. Give the headline first and offer the rest ("I found four that fit — want me to run through them?") rather than delivering all four unasked. Go longer only when they explicitly ask for detail, and even then come up for air.',
     'Never answer with a bare fact when a colleague would add the sentence of judgment that makes it useful. And never pad with filler phrases a human would not say on the phone.',
@@ -1378,6 +1384,7 @@ export default defineAgent({
       if (agentState === 'speaking' || agentState === 'thinking' || agentState === 'initializing') return false
       return agentSession.userState !== 'speaking'
     }
+    let mailboxDeliveryInFlight = false
     mailbox = createCallMailbox({
       isQuiet: lineIsQuiet,
       deliver: async ({ text, items }) => {
@@ -1390,22 +1397,28 @@ export default defineAgent({
           workIds: [...new Set(items.map((item) => item.workId))],
           deliveryKinds: [...new Set(items.map((item) => item.kind))],
         })
-        const handle = agentSession.generateReply({
-          instructions: deliveryBriefing(text, items),
-          // A status note is not an instruction to do more work. Without this
-          // the model answers its own progress line by handing the same thing
-          // over again.
-          toolChoice: 'none',
-        })
+        mailboxDeliveryInFlight = true
         let giveUp: ReturnType<typeof setTimeout> | undefined
         let outcome: { spoke: boolean } = { spoke: false }
         try {
+          const handle = agentSession.generateReply({
+            instructions: deliveryBriefing(text, items),
+            // A status note is not an instruction to do more work. Without this
+            // the model answers its own progress line by handing the same thing
+            // over again.
+            toolChoice: 'none',
+          })
           await Promise.race([
             handle.waitForPlayout(),
             new Promise<void>((resolve) => {
               giveUp = setTimeout(resolve, DELIVERY_PLAYOUT_LIMIT_MS)
             }),
           ])
+        } catch (error) {
+          // The deterministic route below still has a healthy TTS leg when it
+          // is the conversational model that failed, so do not reject the
+          // mailbox delivery before it gets that route.
+          console.error(`[voice] room ${roomName}: model status speech failed — ${describeError(error)}`)
         } finally {
           // Cleared on the ordinary path too: a long call makes one of these
           // per delivery, and a pile of pending timers holds the job process
@@ -1417,7 +1430,37 @@ export default defineAgent({
           // twice, on one call) and from here that looks exactly like a
           // delivery that finished, so the mailbox is told which it was and
           // puts an unsaid line back in the queue.
-          outcome = expected.release()
+          outcome = expected.release({ recordUnspoken: false })
+          if (!outcome.spoke) {
+            // A model failure must not turn into a dead line. The words here
+            // are already plain, governed status from the worker, so the TTS
+            // can say them directly without asking the failed model another
+            // time. This is especially important for approvals: silence makes
+            // the caller believe the action is still running or already done.
+            const fallbackExpected = callTrace.expectTurn({
+              cause: 'mailbox_delivery',
+              workIds: [...new Set(items.map((item) => item.workId))],
+              deliveryKinds: [...new Set(items.map((item) => item.kind))],
+            })
+            try {
+              const fallback = agentSession.say(text.replace(/\n+/g, '. '), {
+                allowInterruptions: true,
+                addToChatCtx: true,
+              })
+              await Promise.race([
+                fallback.waitForPlayout(),
+                new Promise<void>((resolve) => {
+                  giveUp = setTimeout(resolve, DELIVERY_PLAYOUT_LIMIT_MS)
+                }),
+              ])
+            } catch (error) {
+              console.error(`[voice] room ${roomName}: direct status speech failed — ${describeError(error)}`)
+            } finally {
+              clearTimeout(giveUp)
+              outcome = fallbackExpected.release()
+            }
+          }
+          mailboxDeliveryInFlight = false
         }
         return outcome
       },
@@ -1674,6 +1717,7 @@ export default defineAgent({
       // is exactly how a call ends up silent with no explanation anywhere. The
       // leg is named, because "the model refused" and "the voice would not
       // synthesize" are different problems with different fixes.
+      let lastModelFailureFallbackAt = Number.NEGATIVE_INFINITY
       agentSession.on(voice.AgentSessionEventTypes.Error, (event) => {
         const leg =
           event.source === cascadeLlm
@@ -1689,6 +1733,29 @@ export default defineAgent({
         const message = event.error === undefined || event.error === null ? 'no detail given' : describeError(event.error)
         console.error(`[voice] ${session.id} ${leg} error: ${message}`)
         void recordEvent('error', { message: `The ${leg} leg of this call failed: ${message}` }).catch(() => undefined)
+        // Work is deliberately non-blocking, so a failed conversational model
+        // turn must not sound like the agent vanished while it continues in
+        // the background. Status deliveries have their own exact fallback
+        // above; this covers a caller speaking to the agent between them.
+        const workIsLive = callWorker
+          .checkWork()
+          .some((report) => report.status === 'working' || report.status === 'needs_approval')
+        if (cascadeLlm && event.source === cascadeLlm && workIsLive && !mailboxDeliveryInFlight) {
+          const now = Date.now()
+          if (now - lastModelFailureFallbackAt >= 10_000) {
+            lastModelFailureFallbackAt = now
+            try {
+              agentSession.say("I'm still here. Give me a moment while I finish that.", {
+                allowInterruptions: true,
+                addToChatCtx: true,
+              })
+            } catch (fallbackError) {
+              console.error(
+                `[voice] room ${roomName}: model-failure speech fallback failed — ${describeError(fallbackError)}`,
+              )
+            }
+          }
+        }
         // A cascade agent's text model may simply be refusing the picture; that
         // surfaces as an error on the LLM leg and nowhere else, which is why
         // the instance is kept — an STT or TTS hiccup must never read as
