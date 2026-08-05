@@ -86,6 +86,10 @@ on:
         description: 'From the web container, send a STUN binding request to host:port (e.g. 10.0.0.101:7882)'
         type: string
         default: ''
+      forceRecreateService:
+        description: 'Force-recreate every swarm service matching this substring (brief restart, rebuilds its port bindings)'
+        type: string
+        default: ''
       clearOrphanMediaNat:
         description: 'Remove DNAT rules on 7881/7882 that point at an address no running container holds'
         type: boolean
@@ -280,6 +284,26 @@ jobs:
             printf '  %-14s udp/7882 ' "$target"
             docker run --rm --net=host python:3-alpine python3 -c "import socket,struct,os;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.settimeout(5);s.sendto(struct.pack('>HHI',1,0,0x2112A442)+os.urandom(12),('$target',7882));d,a=s.recvfrom(2048);print('REPLIED',len(d),'bytes')" 2>/dev/null || echo "NO RESPONSE"
           done
+
+      # Rebuilding a service's port bindings from scratch. Docker keeps host
+      # port state per task, and a task that outlived a change in publish mode
+      # leaves bindings that no longer match the service — the port answers,
+      # but not from the process that is supposed to own it. Recreating the
+      # task is what makes the daemon tear the old state down.
+      - name: Force-recreate a service
+        if: ${{ inputs.forceRecreateService != '' }}
+        run: |
+          set -uo pipefail
+          match="${{ inputs.forceRecreateService }}"
+          case "$match" in *[!a-zA-Z0-9_.-]*) echo "::error::Refusing suspicious service name"; exit 1 ;; esac
+          found=0
+          for svc in $(docker service ls --format '{{.Name}}' | grep -i -- "$match" || true); do
+            found=1
+            echo "recreating $svc"
+            docker service update --force --detach=false "$svc" 2>&1 | tail -3
+            docker service ps --no-trunc "$svc" 2>&1 | head -4
+          done
+          [ "$found" = 1 ] || echo "No service matched '$match'."
 
       - name: Read the newest Dokploy deployment log
         if: ${{ inputs.dokployLogFor != '' }}
