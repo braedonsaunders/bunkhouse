@@ -1,7 +1,7 @@
 import 'server-only'
 import { mkdir, readdir, readFile, rm, rmdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
-import { and, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { runSandbox } from '@appkit/sandbox'
 import { isProcessSandboxSupported } from '@appkit/process-sandbox'
@@ -14,7 +14,14 @@ import {
   type WorkspacePolicySettings,
 } from '../db/schema'
 import { db } from '../db/client'
-import { configuredRunner, runSandboxedShell, runShellRemotely } from './shell-sandbox'
+import {
+  configuredRunner,
+  resolveShellExecutionPolicy,
+  runSandboxedShell,
+  runShellRemotely,
+  shellRuntimeStatus,
+  type ShellRuntimeStatus,
+} from './shell-sandbox'
 import { saveFile } from './files'
 
 /**
@@ -110,7 +117,11 @@ export async function getWorkspacePolicy(tenantId: string): Promise<WorkspacePol
       .from(tenantSettings)
       .where(and(eq(tenantSettings.tenantId, tenantId), eq(tenantSettings.key, WORKSPACE_POLICY_KEY))),
   )
-  return (row?.value as WorkspacePolicySettings | undefined) ?? { retentionDays: null }
+  const stored = row?.value as Partial<WorkspacePolicySettings> | undefined
+  return {
+    retentionDays: typeof stored?.retentionDays === 'number' ? stored.retentionDays : null,
+    shell: resolveShellExecutionPolicy(stored?.shell),
+  }
 }
 
 export async function saveWorkspacePolicy(tenantId: string, value: WorkspacePolicySettings): Promise<void> {
@@ -124,6 +135,60 @@ export async function saveWorkspacePolicy(tenantId: string, value: WorkspacePoli
         set: { value, updatedAt: new Date() },
       })
   })
+}
+
+export type ShellSessionView = {
+  id: string
+  executionId: string | null
+  personName: string
+  command: string
+  cwd: string
+  status: 'completed' | 'failed' | 'timeout'
+  exitCode: number | null
+  output: string
+  outputTruncated: boolean
+  durationMs: number
+  startedAt: string
+  finishedAt: string | null
+}
+
+export async function workspaceRuntimeView(tenantId: string): Promise<{
+  runtime: ShellRuntimeStatus
+  sessions: ShellSessionView[]
+}> {
+  const app = db()
+  const [runtime, sessions] = await Promise.all([
+    shellRuntimeStatus(),
+    app.withTenantContext(tenantId, () =>
+      app.db
+        .select({
+          id: shellSessions.id,
+          executionId: shellSessions.executionId,
+          personName: people.name,
+          command: shellSessions.command,
+          cwd: shellSessions.cwd,
+          status: shellSessions.status,
+          exitCode: shellSessions.exitCode,
+          output: shellSessions.output,
+          outputTruncated: shellSessions.outputTruncated,
+          durationMs: shellSessions.durationMs,
+          startedAt: shellSessions.startedAt,
+          finishedAt: shellSessions.finishedAt,
+        })
+        .from(shellSessions)
+        .innerJoin(people, eq(people.id, shellSessions.personId))
+        .orderBy(desc(shellSessions.startedAt))
+        .limit(25),
+    ),
+  ])
+  return {
+    runtime,
+    sessions: sessions.map((session) => ({
+      ...session,
+      startedAt: session.startedAt.toISOString(),
+      finishedAt: session.finishedAt?.toISOString() ?? null,
+    })),
+  }
 }
 
 /**
@@ -179,7 +244,7 @@ async function runShell(args: {
 }): Promise<{ status: 'completed' | 'failed' | 'timeout'; exitCode: number | null; output: string }> {
   const home = await agentHomePath(args.tenantId, args.person.id)
   const cwd = insideHome(home, args.cwd)
-  const startedAt = new Date()
+  const policy = (await getWorkspacePolicy(args.tenantId)).shell
 
   // Where this actually runs is a deployment question, not an agent-facing one
   // — see shell-sandbox.ts. With a runner configured the command goes to the
@@ -188,8 +253,11 @@ async function runShell(args: {
   // written the same way either way, so the ledger does not know or care.
   const runner = configuredRunner()
   const result = runner
-    ? await runShellRemotely(runner, { home, cwd, command: args.command })
-    : await runSandboxedShell({ home, cwd, command: args.command })
+    ? await runShellRemotely(runner, { home, cwd, command: args.command, policy })
+    : await runSandboxedShell({ home, cwd, command: args.command, policy })
+
+  const startedAt = new Date(result.startedAt)
+  const finishedAt = new Date(result.finishedAt)
 
   const app = db()
   await app.withTenant(args.tenantId, async () => {
@@ -197,13 +265,18 @@ async function runShell(args: {
       tenantId: args.tenantId,
       personId: args.person.id,
       runId: args.runId,
+      executionId: result.executionId,
       command: args.command,
       cwd: args.cwd,
       status: result.status,
       exitCode: result.exitCode,
       output: result.output,
-      durationMs: Date.now() - startedAt.getTime(),
+      outputTruncated: result.outputTruncated,
+      durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
       startedAt,
+      finishedAt,
+    }).onConflictDoNothing({
+      target: [shellSessions.tenantId, shellSessions.executionId],
     })
   })
 

@@ -52,7 +52,7 @@
       "@appkit/notifications": "file:./vendor/appkit/appkit-notifications-1.0.0.tgz",
       "@appkit/pdf": "file:./vendor/appkit/appkit-pdf-0.1.1.tgz",
       "@appkit/reports": "file:./vendor/appkit/appkit-reports-0.2.1.tgz",
-      "@appkit/process-sandbox": "file:./vendor/appkit/appkit-process-sandbox-0.2.0.tgz",
+      "@appkit/process-sandbox": "file:./vendor/appkit/appkit-process-sandbox-0.3.0.tgz",
       "@appkit/sandbox": "file:./vendor/appkit/appkit-sandbox-0.1.0.tgz",
       "@appkit/scheduling": "file:./vendor/appkit/appkit-scheduling-0.2.0.tgz",
       "@appkit/scripts": "file:./vendor/appkit/appkit-scripts-1.0.0.tgz",

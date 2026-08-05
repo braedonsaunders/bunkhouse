@@ -1,132 +1,195 @@
 import 'server-only'
+import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
-import { DEFAULT_PROCESS_PATH, spawnBubblewrappedProcess } from '@appkit/process-sandbox'
+import {
+  DEFAULT_PROCESS_PATH,
+  ProcessSandboxSupervisor,
+  isProcessSandboxSupported,
+  type ProcessSandboxExecutionResult,
+  type ProcessSandboxExecutionSnapshot,
+  type ProcessSandboxNetwork,
+  type ProcessSandboxSupervisorStats,
+} from '@appkit/process-sandbox'
 
 /**
  * Running a shell command in an agent's workspace — and where that happens.
  *
- * Bubblewrap has to build a sandbox before anything can run in it, and building
- * one needs a user namespace and the mount that follows. Measured on the
- * deployment host, one combination at a time, that needs all three of
- * CAP_SYS_ADMIN, `seccomp=unconfined` and `apparmor=unconfined` — and Docker
- * Swarm has never supported `security_opt` on a service (moby#47545, open since
- * 2017), so a stack-deployed container cannot have them. Every `run_shell` an
- * agent tried failed at that first step, and the agents worked around it by
- * leaving each other notes.
- *
- * Granting all three to `web`, `worker` and `voice-agent` would have fixed it
- * and was the wrong trade: those are the containers that execute
- * model-directed code and drive a browser across the open web, on a host that
- * runs other applications too. Removing the outer confinement from the most
- * exposed containers in order to enable an inner sandbox is backwards.
- *
- * So the shell gets its own container instead — one small service that does
- * nothing but this, deployed outside the swarm stack where the security options
- * actually apply, reachable only on the internal network. The blast radius of
- * those privileges is a process whose entire job is to run one sandboxed
- * command and hand back what it printed.
- *
- * This module is the one implementation both ends share: the runner executes
- * it, and a deployment with no runner configured executes the same thing
- * locally (a developer machine, where bubblewrap works unaided). The behaviour
- * an agent sees is identical either way.
+ * The privileged runner owns the bubblewrap launch, while AppKit's supervisor
+ * owns execution identity, timeout/cancellation, bounded evidence, and
+ * reattachment. A web request can disappear without taking the command or its
+ * result with it; retrying the same ID attaches to the existing execution.
  */
 
-/** How long one command may run before it is killed. */
-export const SHELL_TIMEOUT_MS = 120_000
+export type ShellExecutionPolicy = {
+  network: ProcessSandboxNetwork
+  timeoutSeconds: number
+  replayRetentionMinutes: number
+  outputLimitKb: number
+  cpuSeconds: number
+  memoryMb: number
+  fileSizeMb: number
+  processes: number
+  openFiles: number
+}
 
-/** How much of what it printed is kept. */
-export const OUTPUT_CAP_BYTES = 64 * 1024
+export const DEFAULT_SHELL_EXECUTION_POLICY: ShellExecutionPolicy = {
+  network: 'host',
+  timeoutSeconds: 120,
+  replayRetentionMinutes: 15,
+  outputLimitKb: 64,
+  cpuSeconds: 120,
+  memoryMb: 2_048,
+  fileSizeMb: 512,
+  processes: 64,
+  openFiles: 256,
+}
+
+export const SHELL_TIMEOUT_MS = DEFAULT_SHELL_EXECUTION_POLICY.timeoutSeconds * 1_000
+export const OUTPUT_CAP_BYTES = DEFAULT_SHELL_EXECUTION_POLICY.outputLimitKb * 1_024
 
 export type ShellOutcome = {
+  executionId: string
   status: 'completed' | 'failed' | 'timeout'
   exitCode: number | null
   output: string
+  outputTruncated: boolean
+  startedAt: string
+  finishedAt: string
 }
 
-/**
- * Is this path inside that root? Used by the runner to refuse a request to
- * make something else writable.
- *
- * Both sides are resolved first, and the comparison is on a separator boundary
- * so `/data/homes-evil` is not treated as living inside `/data/homes`.
- */
+export type ShellRuntimeStatus = {
+  mode: 'remote' | 'local' | 'unavailable'
+  available: boolean
+  protocol: 'supervised-v1' | null
+  active: number
+  retained: number
+  lastStartedAt: string | null
+  lastFinishedAt: string | null
+  lastError: string | null
+}
+
+const supervisor = new ProcessSandboxSupervisor({
+  defaultTimeoutMs: SHELL_TIMEOUT_MS,
+  defaultRetentionMs: DEFAULT_SHELL_EXECUTION_POLICY.replayRetentionMinutes * 60_000,
+  maxOutputBytes: OUTPUT_CAP_BYTES,
+  maxExecutions: 256,
+})
+
+/** Resolve a partial/backward-compatible tenant policy and reject unsafe values. */
+export function resolveShellExecutionPolicy(
+  value: Partial<ShellExecutionPolicy> | null | undefined,
+): ShellExecutionPolicy {
+  const policy = { ...DEFAULT_SHELL_EXECUTION_POLICY, ...(value ?? {}) }
+  if (policy.network !== 'host' && policy.network !== 'none') {
+    throw new Error('Shell network policy must be host or none.')
+  }
+  return {
+    network: policy.network,
+    timeoutSeconds: boundedInteger(policy.timeoutSeconds, 10, 600, 'Shell timeout'),
+    replayRetentionMinutes: boundedInteger(
+      policy.replayRetentionMinutes,
+      1,
+      1_440,
+      'Shell replay retention',
+    ),
+    outputLimitKb: boundedInteger(policy.outputLimitKb, 16, 1_024, 'Shell output limit'),
+    cpuSeconds: boundedInteger(policy.cpuSeconds, 10, 600, 'Shell CPU limit'),
+    memoryMb: boundedInteger(policy.memoryMb, 256, 8_192, 'Shell memory limit'),
+    fileSizeMb: boundedInteger(policy.fileSizeMb, 16, 2_048, 'Shell file size limit'),
+    processes: boundedInteger(policy.processes, 8, 512, 'Shell process limit'),
+    openFiles: boundedInteger(policy.openFiles, 32, 2_048, 'Shell open-file limit'),
+  }
+}
+
+/** Is this path inside that root, on a separator boundary? */
 export function insideRoot(root: string, candidate: string): boolean {
   const base = resolve(root)
   const target = resolve(candidate)
   return target === base || target.startsWith(base.endsWith(sep) ? base : base + sep)
 }
 
-/**
- * Run one command with the agent's home as the only writable place.
- *
- * Pure execution: no database, no tenant scope, nothing that would stop it
- * running in a container that holds neither.
- */
-export async function runSandboxedShell(args: {
-  /** The agent's home — the one writable path, and the value of $HOME. */
+export async function startSandboxedShell(args: {
+  executionId?: string
   home: string
-  /** Where to run, already resolved to somewhere inside the home. */
   cwd: string
-  /** The command line, run with `/bin/sh -lc`. */
   command: string
-  timeoutMs?: number
-}): Promise<ShellOutcome> {
+  policy?: Partial<ShellExecutionPolicy>
+}): Promise<ProcessSandboxExecutionSnapshot> {
   await mkdir(args.cwd, { recursive: true })
-  const limit = args.timeoutMs ?? SHELL_TIMEOUT_MS
-
-  const child = spawnBubblewrappedProcess({
-    // /usr/bin/sh, not /bin/sh, and it matters. The sandbox read-only-binds
-    // the command's own directory when that directory is not already covered,
-    // and then symlinks /bin -> usr/bin. Ask for /bin/sh and it binds /bin
-    // first, so the symlink collides: "Can't make symlink at /bin: File
-    // exists", every time, on a correctly privileged host. /usr/bin is already
-    // inside the default read-only set, so nothing extra is bound and the
-    // layout it expects is the layout it gets. Same shell either way — on a
-    // merged-/usr image /bin IS usr/bin.
-    command: '/usr/bin/sh',
-    args: ['-lc', args.command],
-    cwd: args.cwd,
-    writablePaths: [args.home],
-    environment: {
-      HOME: args.home,
-      PATH: DEFAULT_PROCESS_PATH,
-      LANG: 'C.UTF-8',
-      TMPDIR: '/tmp',
+  const policy = resolveShellExecutionPolicy(args.policy)
+  return supervisor.start({
+    executionId: args.executionId,
+    timeoutMs: policy.timeoutSeconds * 1_000,
+    retentionMs: policy.replayRetentionMinutes * 60_000,
+    maxOutputBytes: policy.outputLimitKb * 1_024,
+    process: {
+      // `/usr/bin/sh` avoids colliding with bubblewrap's merged-/usr symlink.
+      command: '/usr/bin/sh',
+      args: ['-lc', args.command],
+      cwd: args.cwd,
+      writablePaths: [args.home],
+      network: policy.network,
+      limits: {
+        cpuSeconds: policy.cpuSeconds,
+        addressSpaceBytes: policy.memoryMb * 1_024 * 1_024,
+        fileSizeBytes: policy.fileSizeMb * 1_024 * 1_024,
+        processes: policy.processes,
+        openFiles: policy.openFiles,
+      },
+      environment: {
+        HOME: args.home,
+        PATH: DEFAULT_PROCESS_PATH,
+        LANG: 'C.UTF-8',
+        TMPDIR: '/tmp',
+      },
     },
   })
+}
 
-  let output = ''
-  let truncated = false
-  const append = (chunk: Buffer) => {
-    if (output.length >= OUTPUT_CAP_BYTES) {
-      truncated = true
-      return
-    }
-    output += chunk.toString('utf8').slice(0, OUTPUT_CAP_BYTES - output.length)
-  }
-  child.stdout?.on('data', append)
-  child.stderr?.on('data', append)
+export function shellExecutionSnapshot(
+  executionId: string,
+  afterSequence = 0,
+): ProcessSandboxExecutionSnapshot | null {
+  return supervisor.snapshot(executionId, afterSequence)
+}
 
-  const result = await new Promise<{ status: ShellOutcome['status']; exitCode: number | null }>((settle) => {
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL')
-      settle({ status: 'timeout', exitCode: null })
-    }, limit)
-    child.on('error', () => {
-      clearTimeout(timer)
-      settle({ status: 'failed', exitCode: null })
-    })
-    child.on('exit', (code) => {
-      clearTimeout(timer)
-      settle({ status: code === 0 ? 'completed' : 'failed', exitCode: code })
-    })
+export function waitForShellExecution(
+  executionId: string,
+  afterSequence = 0,
+  options?: { timeoutMs?: number; signal?: AbortSignal },
+): Promise<ProcessSandboxExecutionSnapshot | null> {
+  return supervisor.waitForUpdate(executionId, afterSequence, options)
+}
+
+export function cancelShellExecution(executionId: string): boolean {
+  return supervisor.cancel(executionId)
+}
+
+export function disposeShellExecution(executionId: string): Promise<boolean> {
+  return supervisor.dispose(executionId)
+}
+
+export function shellSupervisorStats(): ProcessSandboxSupervisorStats {
+  return supervisor.stats()
+}
+
+export async function runSandboxedShell(args: {
+  executionId?: string
+  home: string
+  cwd: string
+  command: string
+  policy?: Partial<ShellExecutionPolicy>
+  /** Compatibility for startup probes; tenant policy otherwise owns this. */
+  timeoutMs?: number
+}): Promise<ShellOutcome> {
+  const policy = resolveShellExecutionPolicy({
+    ...args.policy,
+    ...(args.timeoutMs ? { timeoutSeconds: Math.max(10, Math.ceil(args.timeoutMs / 1_000)) } : {}),
   })
-
-  if (truncated) output += '\n[output truncated]'
-  if (result.status === 'timeout') output += `\n[killed after ${Math.round(limit / 1000)}s]`
-  return { ...result, output }
+  const started = await startSandboxedShell({ ...args, policy })
+  const result = started.result ?? await supervisor.result(started.executionId)
+  return shellOutcome(result, policy)
 }
 
 /** Where the shell runs, when it does not run here. */
@@ -139,41 +202,189 @@ export function configuredRunner(): ShellRunner {
   return { url: url.replace(/\/$/, ''), token }
 }
 
-/**
- * Ask the runner to do it. Any failure to reach it is reported as the command
- * failing, in words an agent can act on — never as a silent empty result,
- * which is how an agent concludes its workspace is broken and stops trying.
- */
-export async function runShellRemotely(
-  runner: { url: string; token: string },
-  body: { home: string; cwd: string; command: string },
-): Promise<ShellOutcome> {
-  try {
-    const response = await fetch(`${runner.url}/run`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${runner.token}` },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(SHELL_TIMEOUT_MS + 15_000),
-    })
-    if (!response.ok) {
-      const detail = (await response.text().catch(() => '')).slice(0, 300)
-      return {
-        status: 'failed',
-        exitCode: null,
-        output: `The workspace shell refused this: ${response.status} ${detail}`.trim(),
-      }
-    }
-    const parsed = (await response.json()) as Partial<ShellOutcome>
+/** Fetch runner health for the operator-facing settings surface. */
+export async function shellRuntimeStatus(): Promise<ShellRuntimeStatus> {
+  const runner = configuredRunner()
+  if (!runner) {
+    const available = isProcessSandboxSupported()
+    const stats = supervisor.stats()
     return {
-      status: parsed.status === 'completed' || parsed.status === 'timeout' ? parsed.status : 'failed',
-      exitCode: typeof parsed.exitCode === 'number' ? parsed.exitCode : null,
-      output: typeof parsed.output === 'string' ? parsed.output : '',
+      mode: available ? 'local' : 'unavailable',
+      available,
+      protocol: available ? 'supervised-v1' : null,
+      ...stats,
+    }
+  }
+  try {
+    const response = await fetch(`${runner.url}/health`, { signal: AbortSignal.timeout(5_000) })
+    if (!response.ok) throw new Error(`health check returned ${response.status}`)
+    const body = await response.json() as Partial<ProcessSandboxSupervisorStats> & {
+      protocol?: unknown
+      ok?: unknown
+    }
+    if (body.ok !== true || body.protocol !== 'supervised-v1') {
+      throw new Error('runner does not support the supervised execution protocol')
+    }
+    return {
+      mode: 'remote',
+      available: true,
+      protocol: 'supervised-v1',
+      active: integerOr(body.active, 0),
+      retained: integerOr(body.retained, 0),
+      lastStartedAt: stringOrNull(body.lastStartedAt),
+      lastFinishedAt: stringOrNull(body.lastFinishedAt),
+      lastError: stringOrNull(body.lastError),
     }
   } catch (error) {
     return {
-      status: 'failed',
-      exitCode: null,
-      output: `The workspace shell could not be reached: ${error instanceof Error ? error.message : String(error)}`,
+      mode: 'remote',
+      available: false,
+      protocol: null,
+      active: 0,
+      retained: 0,
+      lastStartedAt: null,
+      lastFinishedAt: null,
+      lastError: errorMessage(error),
     }
   }
+}
+
+/**
+ * Start remotely, then long-poll by execution ID. Transient disconnects only
+ * repeat an idempotent start or resume after the last observed sequence; they
+ * never launch a duplicate command or lose the retained final result.
+ */
+export async function runShellRemotely(
+  runner: { url: string; token: string },
+  body: {
+    home: string
+    cwd: string
+    command: string
+    policy?: Partial<ShellExecutionPolicy>
+    executionId?: string
+  },
+  dependencies: { fetch?: typeof fetch; now?: () => number } = {},
+): Promise<ShellOutcome> {
+  const request = dependencies.fetch ?? fetch
+  const now = dependencies.now ?? Date.now
+  const policy = resolveShellExecutionPolicy(body.policy)
+  const executionId = body.executionId ?? randomUUID()
+  const headers = {
+    'content-type': 'application/json',
+    authorization: `Bearer ${runner.token}`,
+  }
+  const deadline = now() + policy.timeoutSeconds * 1_000 + 45_000
+  let started: ProcessSandboxExecutionSnapshot | null = null
+
+  for (let attempt = 0; attempt < 3 && !started; attempt += 1) {
+    try {
+      const response = await request(`${runner.url}/executions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ ...body, executionId, policy }),
+        signal: AbortSignal.timeout(10_000),
+      })
+      if (!response.ok) return refusedOutcome(executionId, response)
+      started = await response.json() as ProcessSandboxExecutionSnapshot
+    } catch (error) {
+      if (attempt === 2) return unreachableOutcome(executionId, error)
+    }
+  }
+  if (!started) return unreachableOutcome(executionId, 'No start response.')
+
+  let sequence = started.latestSequence
+  if (started.result) return shellOutcome(started.result, policy)
+  while (now() < deadline) {
+    try {
+      const response = await request(
+        `${runner.url}/executions/${encodeURIComponent(executionId)}?after=${sequence}`,
+        { headers, signal: AbortSignal.timeout(30_000) },
+      )
+      if (response.status === 404) {
+        return failedOutcome(executionId, 'The workspace shell result expired before it was collected.')
+      }
+      if (!response.ok) return refusedOutcome(executionId, response)
+      const update = await response.json() as ProcessSandboxExecutionSnapshot
+      sequence = Math.max(sequence, update.latestSequence)
+      if (update.result) return shellOutcome(update.result, policy)
+    } catch {
+      // The execution is independent from this request. Reattach until the
+      // command's timeout plus collection grace has elapsed.
+      await delay(250)
+    }
+  }
+
+  await request(`${runner.url}/executions/${encodeURIComponent(executionId)}`, {
+    method: 'DELETE',
+    headers,
+    signal: AbortSignal.timeout(5_000),
+  }).catch(() => undefined)
+  return failedOutcome(executionId, 'The workspace shell stopped responding after its execution deadline.')
+}
+
+function shellOutcome(
+  result: ProcessSandboxExecutionResult,
+  policy: ShellExecutionPolicy,
+): ShellOutcome {
+  const timedOut = result.status === 'timed_out'
+  return {
+    executionId: result.executionId,
+    status: result.status === 'completed' ? 'completed' : timedOut ? 'timeout' : 'failed',
+    exitCode: result.exitCode,
+    output: result.output + (timedOut ? `\n[killed after ${policy.timeoutSeconds}s]` : ''),
+    outputTruncated: result.outputTruncated,
+    startedAt: result.startedAt,
+    finishedAt: result.finishedAt,
+  }
+}
+
+async function refusedOutcome(executionId: string, response: Response): Promise<ShellOutcome> {
+  const detail = (await response.text().catch(() => '')).slice(0, 300)
+  return failedOutcome(
+    executionId,
+    `The workspace shell refused this: ${response.status} ${detail}`.trim(),
+  )
+}
+
+function unreachableOutcome(executionId: string, error: unknown): ShellOutcome {
+  return failedOutcome(
+    executionId,
+    `The workspace shell could not be reached: ${errorMessage(error)}`,
+  )
+}
+
+function failedOutcome(executionId: string, output: string): ShellOutcome {
+  const timestamp = new Date().toISOString()
+  return {
+    executionId,
+    status: 'failed',
+    exitCode: null,
+    output,
+    outputTruncated: false,
+    startedAt: timestamp,
+    finishedAt: timestamp,
+  }
+}
+
+function boundedInteger(value: number, minimum: number, maximum: number, label: string): number {
+  if (!Number.isInteger(value) || value < minimum || value > maximum) {
+    throw new Error(`${label} must be a whole number from ${minimum} to ${maximum}.`)
+  }
+  return value
+}
+
+function integerOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isInteger(value) ? value : fallback
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds))
 }

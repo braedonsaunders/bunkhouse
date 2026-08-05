@@ -33,7 +33,7 @@ overrides:
   '@appkit/notifications': file:./vendor/appkit/appkit-notifications-1.0.0.tgz
   '@appkit/pdf': file:./vendor/appkit/appkit-pdf-0.1.1.tgz
   '@appkit/reports': file:./vendor/appkit/appkit-reports-0.2.1.tgz
-  '@appkit/process-sandbox': file:./vendor/appkit/appkit-process-sandbox-0.2.0.tgz
+  '@appkit/process-sandbox': file:./vendor/appkit/appkit-process-sandbox-0.3.0.tgz
   '@appkit/sandbox': file:./vendor/appkit/appkit-sandbox-0.1.0.tgz
   '@appkit/scheduling': file:./vendor/appkit/appkit-scheduling-0.2.0.tgz
   '@appkit/scripts': file:./vendor/appkit/appkit-scripts-1.0.0.tgz
@@ -153,8 +153,8 @@ importers:
         specifier: file:../../vendor/appkit/appkit-pdf-0.1.1.tgz
         version: file:vendor/appkit/appkit-pdf-0.1.1.tgz(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)
       '@appkit/process-sandbox':
-        specifier: file:../../vendor/appkit/appkit-process-sandbox-0.2.0.tgz
-        version: file:vendor/appkit/appkit-process-sandbox-0.2.0.tgz
+        specifier: file:../../vendor/appkit/appkit-process-sandbox-0.3.0.tgz
+        version: file:vendor/appkit/appkit-process-sandbox-0.3.0.tgz
       '@appkit/sandbox':
         specifier: file:../../vendor/appkit/appkit-sandbox-0.1.0.tgz
         version: file:vendor/appkit/appkit-sandbox-0.1.0.tgz
@@ -755,9 +755,9 @@ packages:
       puppeteer-core:
         optional: true
 
-  '@appkit/process-sandbox@file:vendor/appkit/appkit-process-sandbox-0.2.0.tgz':
-    resolution: {integrity: sha512-0e8Rsblq7wXiPt9fiViHBZrDAk6ey4+gQRXq3XasElQoiYDX4uln2VRpMfYY1UdIPTFIajzQ0e+eGn2GPrajYA==, tarball: file:vendor/appkit/appkit-process-sandbox-0.2.0.tgz}
-    version: 0.2.0
+  '@appkit/process-sandbox@file:vendor/appkit/appkit-process-sandbox-0.3.0.tgz':
+    resolution: {integrity: sha512-RMrwvEIw7iqxc1WjJUfoCXz+rvW6Z9IyUyfuERJz5Cebxy14XyKTOMA+MLaz+9yzGzPc1RbYKlsN+W1/B6Dslw==, tarball: file:vendor/appkit/appkit-process-sandbox-0.3.0.tgz}
+    version: 0.3.0
     engines: {node: '>=22'}
 
   '@appkit/sandbox@file:vendor/appkit/appkit-sandbox-0.1.0.tgz':
@@ -7279,7 +7279,7 @@ snapshots:
 
   '@appkit/agent-tools@file:vendor/appkit/appkit-agent-tools-0.1.0.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))':
     dependencies:
-      '@appkit/process-sandbox': file:vendor/appkit/appkit-process-sandbox-0.2.0.tgz
+      '@appkit/process-sandbox': file:vendor/appkit/appkit-process-sandbox-0.3.0.tgz
       zod: 4.4.3
     optionalDependencies:
       '@appkit/db': file:vendor/appkit/appkit-db-0.2.0.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
@@ -7696,7 +7696,7 @@ snapshots:
     transitivePeerDependencies:
       - tailwindcss
 
-  '@appkit/process-sandbox@file:vendor/appkit/appkit-process-sandbox-0.2.0.tgz': {}
+  '@appkit/process-sandbox@file:vendor/appkit/appkit-process-sandbox-0.3.0.tgz': {}
 
   '@appkit/sandbox@file:vendor/appkit/appkit-sandbox-0.1.0.tgz':
     dependencies:

@@ -7,9 +7,11 @@ import {
   Drawer,
   Input,
   Label,
+  RecordList,
   Select,
   SettingsRow,
   SettingsSection,
+  SubtabNav,
 } from '@appkit/ui'
 import { isSmsProvider, smsProviderSpec, SMS_PROVIDER_SPECS, type SmsProvider } from '@appkit/sms/providers'
 import {
@@ -238,7 +240,44 @@ export function DocumentsSection({
   )
 }
 
-export type WorkspacePolicyView = { retentionDays: number | null }
+export type WorkspacePolicyView = {
+  retentionDays: number | null
+  shell: {
+    network: 'none' | 'host'
+    timeoutSeconds: number
+    replayRetentionMinutes: number
+    outputLimitKb: number
+    cpuSeconds: number
+    memoryMb: number
+    fileSizeMb: number
+    processes: number
+    openFiles: number
+  }
+  runtime: {
+    mode: 'remote' | 'local' | 'unavailable'
+    available: boolean
+    protocol: 'supervised-v1' | null
+    active: number
+    retained: number
+    lastStartedAt: string | null
+    lastFinishedAt: string | null
+    lastError: string | null
+  }
+  sessions: {
+    id: string
+    executionId: string | null
+    personName: string
+    command: string
+    cwd: string
+    status: 'completed' | 'failed' | 'timeout'
+    exitCode: number | null
+    output: string
+    outputTruncated: boolean
+    durationMs: number
+    startedAt: string
+    finishedAt: string | null
+  }[]
+}
 
 /**
  * Housekeeping for agents' persistent workspaces. Retention is off by default:
@@ -248,6 +287,19 @@ export type WorkspacePolicyView = { retentionDays: number | null }
 export function WorkspaceSection({ policy }: { policy: WorkspacePolicyView }) {
   const [enabled, setEnabled] = React.useState(policy.retentionDays !== null)
   const [days, setDays] = React.useState(String(policy.retentionDays ?? 90))
+  const [shell, setShell] = React.useState({
+    network: policy.shell.network,
+    timeoutSeconds: String(policy.shell.timeoutSeconds),
+    replayRetentionMinutes: String(policy.shell.replayRetentionMinutes),
+    outputLimitKb: String(policy.shell.outputLimitKb),
+    cpuSeconds: String(policy.shell.cpuSeconds),
+    memoryMb: String(policy.shell.memoryMb),
+    fileSizeMb: String(policy.shell.fileSizeMb),
+    processes: String(policy.shell.processes),
+    openFiles: String(policy.shell.openFiles),
+  })
+  const [selected, setSelected] = React.useState<WorkspacePolicyView['sessions'][number] | null>(null)
+  const [sessionTab, setSessionTab] = React.useState('overview')
   const [notice, setNotice] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [busy, startBusy] = React.useTransition()
@@ -257,6 +309,79 @@ export function WorkspaceSection({ policy }: { policy: WorkspacePolicyView }) {
       title="Workspace"
       description="Each agent has a persistent workspace — its own desk. Files it saves there stay across runs and calls; shell work inside it is sandboxed and recorded. Retention keeps the desk tidy by retiring files that have not been touched in a while."
     >
+      <SettingsRow
+        title="Shell runtime"
+        description={
+          policy.runtime.available
+            ? `${policy.runtime.mode === 'remote' ? 'Dedicated runner' : 'Local runner'} · supervised execution and replay ready.`
+            : 'The sandbox runner is unavailable. Agents cannot start shell work until it is healthy.'
+        }
+        control={
+          <span className="flex items-center gap-2">
+            <Badge variant={policy.runtime.available ? 'success' : 'destructive'}>
+              {policy.runtime.available ? 'ready' : 'unavailable'}
+            </Badge>
+            {policy.runtime.available ? (
+              <Badge variant="outline">{policy.runtime.active} active · {policy.runtime.retained} retained</Badge>
+            ) : null}
+          </span>
+        }
+      />
+      <SettingsRow
+        title="Last runner activity"
+        description={
+          policy.runtime.lastFinishedAt
+            ? new Date(policy.runtime.lastFinishedAt).toLocaleString()
+            : 'No execution has finished since this runner started.'
+        }
+        control={policy.runtime.lastError ? <Badge variant="destructive">last execution failed</Badge> : undefined}
+      />
+      {policy.runtime.lastError ? (
+        <SettingsRow title="Last runner error" description={policy.runtime.lastError} />
+      ) : null}
+      <SettingsRow title="Shell execution policy" stacked>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="space-y-1">
+            <Label htmlFor="workspace-shell-network">Network access</Label>
+            <Select
+              id="workspace-shell-network"
+              value={shell.network}
+              onChange={(event) => setShell((current) => ({
+                ...current,
+                network: event.target.value === 'none' ? 'none' : 'host',
+              }))}
+            >
+              <option value="host">Allow internet and connected systems</option>
+              <option value="none">No network access</option>
+            </Select>
+          </div>
+          {([
+            ['timeoutSeconds', 'Wall time (seconds)', 10, 600],
+            ['cpuSeconds', 'CPU time (seconds)', 10, 600],
+            ['memoryMb', 'Memory (MB)', 256, 8192],
+            ['fileSizeMb', 'Largest file (MB)', 16, 2048],
+            ['processes', 'Processes and threads', 8, 512],
+            ['openFiles', 'Open files', 32, 2048],
+            ['outputLimitKb', 'Recorded output (KB)', 16, 1024],
+            ['replayRetentionMinutes', 'Replay retention (minutes)', 1, 1440],
+          ] as const).map(([key, label, min, max]) => (
+            <div key={key} className="space-y-1">
+              <Label htmlFor={`workspace-shell-${key}`}>{label}</Label>
+              <Input
+                id={`workspace-shell-${key}`}
+                type="number"
+                min={min}
+                max={max}
+                value={shell[key]}
+                onChange={(event) => setShell((current) => ({ ...current, [key]: event.target.value }))}
+              />
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-fg-muted">
+          Limits apply to each command and every process it starts. Completed output stays reattachable for the replay window and is then kept in the append-only company record.
+        </p>
+      </SettingsRow>
       <SettingsRow
         title="Keep everything"
         description="With retention off, workspace files are never deleted."
@@ -301,6 +426,17 @@ export function WorkspaceSection({ policy }: { policy: WorkspacePolicyView }) {
                 const result = await saveWorkspacePolicyAction({
                   retentionEnabled: enabled,
                   retentionDays: Number(days),
+                  shell: {
+                    network: shell.network,
+                    timeoutSeconds: Number(shell.timeoutSeconds),
+                    replayRetentionMinutes: Number(shell.replayRetentionMinutes),
+                    outputLimitKb: Number(shell.outputLimitKb),
+                    cpuSeconds: Number(shell.cpuSeconds),
+                    memoryMb: Number(shell.memoryMb),
+                    fileSizeMb: Number(shell.fileSizeMb),
+                    processes: Number(shell.processes),
+                    openFiles: Number(shell.openFiles),
+                  },
                 })
                 if (!result.ok) setError(result.message)
                 else setNotice(enabled ? `Saved — files untouched for ${days} days are retired daily.` : 'Saved — nothing is deleted.')
@@ -313,6 +449,89 @@ export function WorkspaceSection({ policy }: { policy: WorkspacePolicyView }) {
           {error ? <p className="text-sm text-danger">{error}</p> : null}
         </div>
       </SettingsRow>
+      <SettingsRow
+        title="Recent shell sessions"
+        description="Every completed command is retained with its agent, execution identity, result, and captured output."
+        stacked
+      >
+        <RecordList
+          rows={policy.sessions}
+          getRowId={(session) => session.id}
+          onRowClick={(session) => {
+            setSelected(session)
+            setSessionTab('overview')
+          }}
+          activeRowId={selected?.id ?? null}
+          columns={[
+            { key: 'personName', label: 'Agent' },
+            {
+              key: 'command',
+              label: 'Command',
+              render: (session) => <span className="line-clamp-1 font-mono text-xs">{session.command}</span>,
+            },
+            {
+              key: 'status',
+              label: 'Status',
+              kind: 'status',
+              statusVariant: (status) => status === 'completed' ? 'success' : status === 'timeout' ? 'warning' : 'destructive',
+            },
+            {
+              key: 'startedAt',
+              label: 'Started',
+              format: (value) => new Date(String(value)).toLocaleString(),
+            },
+          ]}
+          empty={{
+            title: 'No shell sessions yet',
+            description: 'Commands agents run in their workspaces will appear here.',
+          }}
+        />
+      </SettingsRow>
+      <Drawer
+        open={selected !== null}
+        onClose={() => setSelected(null)}
+        title={selected ? `${selected.personName} · shell session` : 'Shell session'}
+        description={selected ? new Date(selected.startedAt).toLocaleString() : undefined}
+        size="lg"
+        subtabs={
+          <SubtabNav
+            tabs={[
+              { key: 'overview', label: 'Overview' },
+              { key: 'output', label: 'Recorded output' },
+            ]}
+            active={sessionTab}
+            onSelect={setSessionTab}
+            ariaLabel="Shell session sections"
+          />
+        }
+      >
+        {selected ? (
+          <div className="space-y-4">
+            {sessionTab === 'overview' ? (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={selected.status === 'completed' ? 'success' : selected.status === 'timeout' ? 'warning' : 'destructive'}>
+                    {selected.status}
+                  </Badge>
+                  <Badge variant="outline">exit {selected.exitCode ?? 'none'}</Badge>
+                  <Badge variant="outline">{Math.round(selected.durationMs / 100) / 10}s</Badge>
+                  {selected.outputTruncated ? <Badge variant="warning">output capped</Badge> : null}
+                </div>
+                <div className="grid gap-3 text-sm sm:grid-cols-2">
+                  <div><span className="text-fg-muted">Working folder</span><p className="font-mono">{selected.cwd}</p></div>
+                  <div><span className="text-fg-muted">Execution ID</span><p className="break-all font-mono">{selected.executionId ?? 'Legacy session'}</p></div>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Command</p>
+                  <pre className="overflow-x-auto rounded-md border border-border bg-bg-subtle p-3 text-xs whitespace-pre-wrap">{selected.command}</pre>
+                </div>
+              </>
+            ) : (
+              <pre className="max-h-[32rem] overflow-auto rounded-md border border-border bg-bg-subtle p-3 text-xs whitespace-pre-wrap">{selected.output || 'No output.'}</pre>
+            )}
+          </div>
+        ) : null}
+      </Drawer>
     </SettingsSection>
   )
 }

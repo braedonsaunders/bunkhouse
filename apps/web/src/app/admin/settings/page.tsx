@@ -16,7 +16,7 @@ import { getResearchSettings } from '../../../lib/research'
 import { getDocumentBranding } from '../../../lib/documents'
 import { getCompanyIdentity } from '../../../lib/company-identity'
 import { getSmsSettings } from '../../../lib/sms'
-import { getWorkspacePolicy } from '../../../lib/workspace'
+import { getWorkspacePolicy, workspaceRuntimeView } from '../../../lib/workspace'
 import { chatWebhookUrls, listChatChannelRoutes, listChatConnections } from '../../../lib/chat-bridge'
 import { getVoiceRetention } from '../../../lib/voice-recording'
 import { getVoicePricing } from '../../../lib/voice-pricing'
@@ -115,6 +115,7 @@ export default async function SettingsPage({
   const branding = await getDocumentBranding(tenantId)
   const identity = await getCompanyIdentity(tenantId)
   const workspacePolicy = await getWorkspacePolicy(tenantId)
+  const workspaceRuntime = await workspaceRuntimeView(tenantId)
   const [voiceRetention, voicePricing, templates, filingSettings, filingActivity] = await Promise.all([
     getVoiceRetention(tenantId),
     getVoicePricing(tenantId),
@@ -280,7 +281,12 @@ export default async function SettingsPage({
         notes: identity.notes,
         ...(identity.capture ? { capture: identity.capture } : {}),
       }}
-      workspace={{ retentionDays: workspacePolicy.retentionDays }}
+      workspace={{
+        retentionDays: workspacePolicy.retentionDays,
+        shell: workspacePolicy.shell,
+        runtime: workspaceRuntime.runtime,
+        sessions: workspaceRuntime.sessions,
+      }}
       callCosts={{
         recordingDays: voiceRetention.recordingDays,
         deepgramUsdPerMinute: voicePricing.deepgramUsdPerMinute ?? null,

@@ -280,6 +280,17 @@ export const MAIL_SIGNATURE_KEY = 'mail.signature'
  *  nothing is ever deleted unless an operator turns retention on). */
 export type WorkspacePolicySettings = {
   retentionDays: number | null
+  shell: {
+    network: 'none' | 'host'
+    timeoutSeconds: number
+    replayRetentionMinutes: number
+    outputLimitKb: number
+    cpuSeconds: number
+    memoryMb: number
+    fileSizeMb: number
+    processes: number
+    openFiles: number
+  }
 }
 
 export const WORKSPACE_POLICY_KEY = 'workspace.policy'

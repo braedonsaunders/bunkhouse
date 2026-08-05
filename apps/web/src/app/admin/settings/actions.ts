@@ -21,6 +21,7 @@ import { saveDocumentBranding } from '../../../lib/documents'
 import { compileMailSignature, saveMailSignature } from '../../../lib/mail-signature'
 import { removeSmsSettings, saveSmsSettings } from '../../../lib/sms'
 import { saveWorkspacePolicy } from '../../../lib/workspace'
+import { resolveShellExecutionPolicy, type ShellExecutionPolicy } from '../../../lib/shell-sandbox'
 import { isMailOauthProvider, removeMailOauthApp, saveMailOauthApp } from '../../../lib/mail-oauth'
 import { db } from '../../../db/client'
 import { listImageModels, type ImageModelId } from '@appkit/avatars'
@@ -388,13 +389,21 @@ export async function saveMailSignatureAction(input: {
 export async function saveWorkspacePolicyAction(input: {
   retentionEnabled: boolean
   retentionDays: number
+  shell: ShellExecutionPolicy
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   if (input.retentionEnabled && (!Number.isInteger(input.retentionDays) || input.retentionDays < 7)) {
     return { ok: false, message: 'Retention must be a whole number of days, 7 or more.' }
   }
+  let shell: ShellExecutionPolicy
+  try {
+    shell = resolveShellExecutionPolicy(input.shell)
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
   const tenantId = await resolveTenantId()
   await saveWorkspacePolicy(tenantId, {
     retentionDays: input.retentionEnabled ? input.retentionDays : null,
+    shell,
   })
   revalidatePath('/admin/settings')
   return { ok: true }
