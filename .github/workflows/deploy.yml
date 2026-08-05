@@ -202,12 +202,11 @@ jobs:
                 -X POST "$base/api/compose.update" --data @- > /dev/null
           echo "Dokploy compose source is current and BUNKHOUSE_TAG=${NEW_TAG}"
 
-      # The LAN/public edge in front of Dokploy learns hostnames from Dokploy's
-      # managed-domain registry. A Traefik label alone creates the inner TCP
-      # router but leaves that first hop returning 404, so TURN never reaches
-      # Traefik. Keep the registry entry alongside the compose source and make
-      # the write idempotent so every deployment repairs drift safely.
-      - name: Register the TURN domain with Dokploy
+      # TURN is a raw TCP protocol after TLS termination, not HTTP. The HA edge
+      # owns its SNI route and forwards to LiveKit's dedicated host port. An
+      # inner Dokploy HTTP domain for the same host only starts a failing ACME
+      # order and can never carry TURN, so remove the obsolete entry safely.
+      - name: Remove the obsolete inner TURN HTTP domain
         env:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
           DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
@@ -224,20 +223,19 @@ jobs:
           domains="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
             -G "$base/api/domain.byComposeId" --data-urlencode "composeId=$COMPOSE_ID")"
 
-          if echo "$domains" | jq -e --arg host "$turn_host" \
-            'any(.[]; .host == $host)' > /dev/null; then
-            echo "TURN domain already registered: $turn_host"
+          domain_ids="$(echo "$domains" | jq -r --arg host "$turn_host" '.[] | select(.host == $host) | .domainId')"
+          if [ -z "$domain_ids" ]; then
+            echo "No obsolete Dokploy TURN domain remains: $turn_host"
             exit 0
           fi
 
-          jq -n \
-            --arg host "$turn_host" \
-            --arg composeId "$COMPOSE_ID" \
-            '{host:$host, port:443, https:true, certificateType:"none", composeId:$composeId, serviceName:"livekit", domainType:"compose"}' \
-            | curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
-                -H 'content-type: application/json' \
-                -X POST "$base/api/domain.create" --data @- > /dev/null
-          echo "Registered TURN domain: $turn_host"
+          while IFS= read -r domain_id; do
+            jq -n --arg domainId "$domain_id" '{domainId:$domainId}' \
+              | curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+                  -H 'content-type: application/json' \
+                  -X POST "$base/api/domain.delete" --data @- > /dev/null
+          done <<< "$domain_ids"
+          echo "Removed obsolete Dokploy HTTP route: $turn_host"
 
       # The agent shell sandbox is a second application, deployed as plain
       # Compose because swarm silently drops the security options bubblewrap
