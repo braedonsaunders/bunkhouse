@@ -339,9 +339,65 @@ jobs:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
           DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
           COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+          NEW_TAG: ${{ needs.build.outputs.tag }}
+          PUBLIC_URL: ${{ vars.BUNKHOUSE_PUBLIC_URL }}
         run: |
           set -euo pipefail
           base="${DOKPLOY_URL%/}"
+
+          # Dokploy's queue worker has occasionally recorded an error (or left
+          # a job queued forever) after Swarm has already accepted the stack.
+          # A status row is not the deployment: the authoritative proof is the
+          # exact image on every Bunkhouse process, all desired replicas
+          # running, and the public app serving. Never accept an old healthy
+          # version as success for a new deployment.
+          deployment_is_live() {
+            local compose app_name expected service image desired running code
+            compose="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+              -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID")" || return 1
+            app_name="$(printf '%s' "$compose" | jq -r '.appName // empty')"
+            [ -n "$app_name" ] || return 1
+            expected="${IMAGE_NAME}:${NEW_TAG}"
+            for unit in web worker voice-agent; do
+              service="${app_name}_${unit}"
+              image="$(docker service inspect --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}' "$service" 2>/dev/null)" || return 1
+              image="${image%%@*}"
+              [ "$image" = "$expected" ] || return 1
+              desired="$(docker service inspect --format '{{.Spec.Mode.Replicated.Replicas}}' "$service" 2>/dev/null)" || return 1
+              running="$(docker service ps --filter desired-state=running --format '{{.CurrentState}}' "$service" 2>/dev/null \
+                | grep -c '^Running' || true)"
+              [ "$running" -ge "$desired" ] || return 1
+            done
+            if [ -n "${PUBLIC_URL:-}" ]; then
+              code="$(curl -s -o /dev/null -w '%{http_code}' "${PUBLIC_URL%/}/login" || true)"
+              [ "$code" = "200" ] || return 1
+            fi
+          }
+
+          # Narrow fallback for this compose only. Output is suppressed because
+          # Dokploy's thrown command text contains the base64-encoded env file;
+          # even encoded credentials never belong in CI logs. A non-zero return
+          # is tolerated here only long enough to run the authoritative checks
+          # above — Swarm can recover a transient task after deployCompose exits.
+          deploy_compose_directly() {
+            local dokploy_container
+            dokploy_container="$(docker ps --filter 'ancestor=dokploy/dokploy' --format '{{.ID}}' | head -n 1)"
+            [ -n "$dokploy_container" ] || return 1
+            docker exec -e DOKPLOY_TARGET_COMPOSE_ID="$COMPOSE_ID" "$dokploy_container" \
+              node --input-type=module -e '
+                const { deployCompose } = await import("/app/node_modules/@dokploy/server/dist/services/compose.js");
+                try {
+                  await deployCompose({
+                    composeId: process.env.DOKPLOY_TARGET_COMPOSE_ID,
+                    titleLog: "CI direct fallback",
+                    descriptionLog: "Dokploy queue did not complete",
+                  });
+                } catch {
+                  process.exitCode = 1;
+                }
+              ' >/dev/null 2>&1
+          }
+
           for i in $(seq 1 60); do
             sleep 10
             latest="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
@@ -350,12 +406,33 @@ jobs:
                 '[.[] | select(.createdAt > $baseline)] | sort_by(.createdAt) | last | .status // "queued"')"
             echo "current deployment status: $latest"
             if [ "$latest" = "done" ]; then exit 0; fi
+            if deployment_is_live; then
+              echo "::warning::Dokploy status is $latest, but the exact Bunkhouse image and all live gates are healthy."
+              exit 0
+            fi
             if [ "$latest" = "error" ]; then
-              echo "::error::Dokploy deployment failed"
-              exit 1
+              echo "::warning::Dokploy queue reported an error; trying the compose-scoped fallback."
+              break
+            fi
+            if [ "$latest" = "queued" ] && [ "$i" -ge 6 ]; then
+              echo "::warning::Dokploy queue has not started after one minute; trying the compose-scoped fallback."
+              break
             fi
           done
-          echo "::error::Dokploy deployment did not finish within 10 minutes."
+
+          if deploy_compose_directly; then
+            echo "Compose-scoped fallback returned successfully."
+          else
+            echo "::warning::Compose-scoped fallback returned non-zero; checking whether Swarm recovered the tasks."
+          fi
+          for _ in $(seq 1 60); do
+            sleep 5
+            if deployment_is_live; then
+              echo "Exact Bunkhouse image, replicas, and public health verified."
+              exit 0
+            fi
+          done
+          echo "::error::The exact Bunkhouse image did not become healthy after the compose-scoped fallback."
           exit 1
 
       - name: Production health gate
