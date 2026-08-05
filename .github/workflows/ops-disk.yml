@@ -156,7 +156,7 @@ jobs:
           set -uo pipefail
           echo "::group::Swarm node addresses"
           docker node ls --format '{{.Hostname}}  status={{.Status}}  manager={{.ManagerStatus}}' 2>&1 || true
-          docker node inspect self --format 'self: hostname={{.Description.Hostname}} advertised={{.Status.Addr}}' 2>&1 || true
+          docker node inspect $(docker node ls -q) --format 'node: hostname={{.Description.Hostname}} advertised={{.Status.Addr}}' 2>&1 || true
           echo "::endgroup::"
           echo "::group::Host interfaces and media port bindings"
           docker run --rm --net=host alpine:3 sh -c \
