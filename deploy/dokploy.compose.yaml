@@ -223,6 +223,10 @@ services:
           tls_port: 443
           external_tls: true
           ttl_seconds: 300
+          # A bounded pool keeps Swarm's host-published port set operable while
+          # still allowing many simultaneous bundled WebRTC transports.
+          relay_range_start: 30000
+          relay_range_end: 30049
           # LiveKit blocks TURN relays to private targets by default. Permit
           # only the configured SFU node, not the rest of the private network.
           allow_restricted_peer_cidrs:
@@ -250,6 +254,10 @@ services:
         published: 5349
         protocol: tcp
         mode: host
+      # TURN advertises the node address for relay candidates. Publish the
+      # matching relay sockets or ICE checks reach the host and die before the
+      # embedded TURN server can receive them.
+      - "30000-30049:30000-30049/udp"
     deploy:
       replicas: 1
       placement:
