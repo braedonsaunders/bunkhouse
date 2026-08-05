@@ -235,6 +235,18 @@ services:
           level: info
     networks:
       - dokploy-network
+    # Dokploy injects its managed signalling-domain labels at this level. Keep
+    # the TURN router in the same label source: Traefik's Swarm provider skips
+    # a service entirely when both container and deploy labels are present.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=dokploy-network"
+      - "traefik.tcp.routers.bunkhouse-turn.rule=HostSNI(`${LIVEKIT_TURN_DOMAIN:-bunkhouse-turn.cloud.rassaun.com}`)"
+      - "traefik.tcp.routers.bunkhouse-turn.entrypoints=websecure"
+      - "traefik.tcp.routers.bunkhouse-turn.service=bunkhouse-turn"
+      - "traefik.tcp.routers.bunkhouse-turn.tls=true"
+      - "traefik.tcp.routers.bunkhouse-turn.tls.certresolver=letsencrypt"
+      - "traefik.tcp.services.bunkhouse-turn.loadbalancer.server.port=443"
     ports:
       - target: 7881
         published: 7881
@@ -246,23 +258,6 @@ services:
         mode: host
     deploy:
       replicas: 1
-      labels:
-        - "traefik.enable=true"
-        - "traefik.docker.network=dokploy-network"
-        # Manual TCP labels make this service Traefik-managed, so keep the
-        # signalling router explicit as part of the same single route set.
-        - "traefik.http.routers.bunkhouse-livekit.rule=Host(`${LIVEKIT_SIGNAL_DOMAIN:-bunkhouse-livekit.cloud.rassaun.com}`)"
-        - "traefik.http.routers.bunkhouse-livekit.entrypoints=websecure"
-        - "traefik.http.routers.bunkhouse-livekit.service=bunkhouse-livekit"
-        - "traefik.http.routers.bunkhouse-livekit.tls=true"
-        - "traefik.http.routers.bunkhouse-livekit.tls.certresolver=letsencrypt"
-        - "traefik.http.services.bunkhouse-livekit.loadbalancer.server.port=7880"
-        - "traefik.tcp.routers.bunkhouse-turn.rule=HostSNI(`${LIVEKIT_TURN_DOMAIN:-bunkhouse-turn.cloud.rassaun.com}`)"
-        - "traefik.tcp.routers.bunkhouse-turn.entrypoints=websecure"
-        - "traefik.tcp.routers.bunkhouse-turn.service=bunkhouse-turn"
-        - "traefik.tcp.routers.bunkhouse-turn.tls=true"
-        - "traefik.tcp.routers.bunkhouse-turn.tls.certresolver=letsencrypt"
-        - "traefik.tcp.services.bunkhouse-turn.loadbalancer.server.port=443"
       placement:
         constraints:
           - node.hostname==dokploy-mgr
