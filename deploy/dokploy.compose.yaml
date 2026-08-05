@@ -245,7 +245,8 @@ services:
       - "traefik.tcp.routers.bunkhouse-turn.entrypoints=websecure"
       - "traefik.tcp.routers.bunkhouse-turn.service=bunkhouse-turn"
       - "traefik.tcp.routers.bunkhouse-turn.tls=true"
-      - "traefik.tcp.routers.bunkhouse-turn.tls.certresolver=letsencrypt"
+      # Dokploy's default store already carries the valid wildcard certificate
+      # for this domain. Do not start a second ACME order for the TURN SNI.
       - "traefik.tcp.services.bunkhouse-turn.loadbalancer.server.port=443"
     ports:
       - target: 7881
