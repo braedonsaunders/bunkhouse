@@ -149,8 +149,8 @@ jobs:
           echo "::group::Host interfaces and media port bindings"
           docker run --rm --net=host alpine:3 sh -c \
             "ip -4 -o addr show | awk '{print \"  iface \"\$2\" \"\$4}'; \
-             echo '--- listening on the media ports ---'; \
-             (netstat -lntu 2>/dev/null || ss -lntu 2>/dev/null) | grep -E ':(7881|7882)' || echo '  NOTHING bound to 7881/7882'"
+             echo '--- listening on the media ports, with the owning process ---'; \
+             (netstat -lntup 2>/dev/null || ss -lntup 2>/dev/null) | grep -E ':(7881|7882)' || echo '  NOTHING bound to 7881/7882'"
           echo "::endgroup::"
           # Bound is not the same as reachable. If loopback answers and the LAN
           # address does not, the socket is fine and something between them is
