@@ -82,6 +82,10 @@ on:
         description: 'Print the bunkhouse compose environment — keys always, values only for known non-secret settings'
         type: boolean
         default: false
+      clearOrphanMediaNat:
+        description: 'Remove DNAT rules on 7881/7882 that point at an address no running container holds'
+        type: boolean
+        default: false
       updateRunners:
         description: 'Pull the newest runner image and recreate EVERY shared GitHub runner on this host (interrupts any job they are running)'
         type: boolean
@@ -198,6 +202,36 @@ jobs:
                 if (safe) printf "  %-32s = %s\n", key, val;
                 else printf "  %-32s = <set, %d chars>\n", key, length(val);
               }'
+
+      # Host-mode publishing binds the host directly and creates no NAT. A DNAT
+      # rule for the same port is therefore a leftover from when the port was
+      # published in bridge mode, and it wins: traffic arriving from off the
+      # host is rewritten to an address that no longer exists and dropped, while
+      # loopback still answers because it never traverses that path. From the
+      # outside it is indistinguishable from a firewall, and from the
+      # application it is "wait_pc_connection timed out".
+      #
+      # Only rules whose destination belongs to no running container are
+      # touched, so a live bridge publish is never disturbed.
+      - name: Clear orphaned media NAT
+        if: ${{ inputs.clearOrphanMediaNat }}
+        run: |
+          set -uo pipefail
+          live="$(docker ps -q | xargs -r docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' 2>/dev/null | tr ' ' '\n' | sort -u)"
+          rules="$(docker run --rm --net=host --privileged alpine:3 sh -c "apk add -q --no-cache iptables >/dev/null 2>&1; iptables -t nat -S DOCKER | grep -E 'dport (7881|7882) .*DNAT'" || true)"
+          if [ -z "$rules" ]; then echo "No DNAT rules on the media ports — nothing to do."; exit 0; fi
+          echo "$rules" | while read -r rule; do
+            target="$(echo "$rule" | sed -n 's/.*--to-destination \([0-9.]*\):.*/\1/p')"
+            if echo "$live" | grep -qx "$target"; then
+              echo "KEEPING (live container at $target): $rule"
+              continue
+            fi
+            echo "REMOVING (no container at $target): $rule"
+            del="$(echo "$rule" | sed 's/^-A /-D /')"
+            docker run --rm --net=host --privileged alpine:3 sh -c "apk add -q --no-cache iptables >/dev/null 2>&1; iptables -t nat $del" && echo "  removed" || echo "  FAILED"
+          done
+          echo "--- NAT on the media ports after ---"
+          docker run --rm --net=host --privileged alpine:3 sh -c "apk add -q --no-cache iptables >/dev/null 2>&1; iptables -t nat -S | grep -E '7881|7882' || echo '  none remain'"
 
       - name: Read the newest Dokploy deployment log
         if: ${{ inputs.dokployLogFor != '' }}
