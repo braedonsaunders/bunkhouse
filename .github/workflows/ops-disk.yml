@@ -392,7 +392,10 @@ jobs:
           set -uo pipefail
           cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
           if [ -z "$cid" ]; then echo "::error::No running web container"; exit 1; fi
-          docker exec "$cid" node -e '
+          livekit_cid="$(docker ps --filter 'name=_livekit.' --filter 'status=running' --format '{{.ID}}' | head -1)"
+          if [ -z "$livekit_cid" ]; then echo "::error::No running LiveKit container"; exit 1; fi
+          backend="$(docker inspect "$livekit_cid" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')"
+          docker exec -e TURN_BACKEND="$backend" "$cid" node -e '
             const net = require("node:net");
             const tls = require("node:tls");
             const crypto = require("node:crypto");
@@ -433,13 +436,14 @@ jobs:
 
             (async () => {
               const direct = await probe("livekit:443 plaintext", () => net.connect(443, "livekit"));
+              const task = await probe("LiveKit task IP plaintext", () => net.connect(443, process.env.TURN_BACKEND));
               const routed = await probe("public TURN/TLS", () => tls.connect({
                 host: "bunkhouse-turn.cloud.rassaun.com",
                 port: 443,
                 servername: "bunkhouse-turn.cloud.rassaun.com",
                 rejectUnauthorized: true,
               }));
-              if (!direct || !routed) process.exitCode = 1;
+              if (!direct || !task || !routed) process.exitCode = 1;
             })();
           '
 
