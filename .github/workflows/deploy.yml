@@ -194,6 +194,31 @@ jobs:
           upsert BUNKHOUSE_NFS_ADDR "$NFS_ADDR"
           upsert BUNKHOUSE_NFS_EXPORT "$NFS_EXPORT"
 
+          # LiveKit, SIP, and egress use the same HA Redis deployment already
+          # configured for Bunkhouse. Their config schema needs separate
+          # address/password/database fields, so derive those fields from the
+          # authoritative URL without emitting the credential to the log.
+          redis_url="$(printf '%s\n' "$new_env" \
+            | awk -F= '$1 == "BUNKHOUSE_REDIS_URL" { print substr($0, index($0, "=") + 1) }' \
+            | tail -1)"
+          : "${redis_url:?BUNKHOUSE_REDIS_URL is not set in Dokploy}"
+          redis_parts="$(REDIS_URL="$redis_url" node -e '
+            const url = new URL(process.env.REDIS_URL);
+            const db = url.pathname.replace(/^\//, "") || "0";
+            process.stdout.write([
+              `${url.hostname}:${url.port || "6379"}`,
+              decodeURIComponent(url.password),
+              db,
+            ].join("\t"));
+          ')"
+          IFS=$'\t' read -r redis_address redis_password redis_db <<< "$redis_parts"
+          : "${redis_address:?could not derive the HA Redis address}"
+          : "${redis_password:?could not derive the HA Redis password}"
+          : "${redis_db:?could not derive the HA Redis database}"
+          upsert BUNKHOUSE_MEDIA_REDIS_ADDRESS "$redis_address"
+          upsert BUNKHOUSE_MEDIA_REDIS_PASSWORD "$redis_password"
+          upsert BUNKHOUSE_MEDIA_REDIS_DB "$redis_db"
+
           compose_file="$(cat deploy/dokploy.compose.yaml)"
           jq -n --arg id "$COMPOSE_ID" --arg env "$new_env" --arg composeFile "$compose_file" \
             '{composeId:$id, env:$env, composeFile:$composeFile}' \

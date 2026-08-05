@@ -4,17 +4,17 @@
 # placement puts every service beside dokploy-traefik, and ingress is wired by
 # Dokploy managed domains (Traefik file provider) — one hostname to web:3000,
 # one to livekit:7880 over wss. The site's HA edge Traefik pair terminates
-# TURN/TLS for LIVEKIT_TURN_DOMAIN and sends plaintext to this stack's
-# dedicated host port 5349, which maps to LiveKit's embedded TURN listener.
+# TURN/TLS for LIVEKIT_TURN_DOMAIN, re-encrypts it to Dokploy on 443, and the
+# inner TCP router forwards plaintext to LiveKit's embedded TURN listener.
 # The GitHub deploy workflow bumps BUNKHOUSE_TAG and triggers compose.deploy.
 #
 # Database, app Redis, and object storage are EXISTING shared services, never
 # bundled containers — point BUNKHOUSE_DB_URL, BUNKHOUSE_REDIS_URL, and the
 # APPKIT_STORAGE_* variables at whatever your infrastructure already runs. The
-# media plane (LiveKit + SIP) runs here with its own private Redis, exactly as
-# in local dev, but with real API keys and the public address announced to SIP
-# peers. SIP/RTP ports publish in host mode on the manager — the public ingress
-# a carrier or PBX points at.
+# media plane (LiveKit + SIP) uses that same external HA Redis service, with
+# real API keys and the public address announced to SIP peers. SIP/RTP ports
+# publish in host mode on the manager — the public ingress a carrier or PBX
+# points at.
 
 networks:
   dokploy-network:
@@ -201,8 +201,8 @@ services:
   livekit:
     image: livekit/livekit-server:latest
     # Signalling enters through Dokploy. Direct TCP/UDP media stays published
-    # in host mode for the fast path. The HA edge Traefik pair handles TURN/TLS
-    # on public 443 and forwards the decrypted stream to host port 5349 below.
+    # in host mode for the fast path. The HA edge and Dokploy TCP routers carry
+    # TURN/TLS over the only cross-node port the infrastructure exposes: 443.
     environment:
       # One config body rather than flags plus environment: the media settings
       # below have no flag equivalents, and splitting the configuration across
@@ -218,8 +218,8 @@ services:
         turn:
           enabled: true
           domain: ${LIVEKIT_TURN_DOMAIN:-bunkhouse-turn.cloud.rassaun.com}
-          # The HA edge terminates TLS and maps public 443 to host 5349, which
-          # maps to this listener. external_tls keeps the advertised URI on 443.
+          # Both edge layers terminate TLS before this listener. external_tls
+          # keeps the client-facing URI on turns:443.
           tls_port: 443
           external_tls: true
           ttl_seconds: 300
@@ -232,7 +232,9 @@ services:
           allow_restricted_peer_cidrs:
             - "${LIVEKIT_NODE_IP:-10.0.0.101}/32"
         redis:
-          address: media-redis:6379
+          address: ${BUNKHOUSE_MEDIA_REDIS_ADDRESS}
+          password: ${BUNKHOUSE_MEDIA_REDIS_PASSWORD}
+          db: ${BUNKHOUSE_MEDIA_REDIS_DB}
         keys:
           ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
         logging:
@@ -248,31 +250,23 @@ services:
         published: 7882
         protocol: udp
         mode: host
-      # Plaintext TURN after TLS termination at the HA edge. This is not a
-      # public listener: only the edge routes bunkhouse-turn SNI to it.
-      - target: 443
-        published: 5349
-        protocol: tcp
-        mode: host
       # TURN advertises the node address for relay candidates. Publish the
       # matching relay sockets or ICE checks reach the host and die before the
       # embedded TURN server can receive them.
       - "30000-30049:30000-30049/udp"
     deploy:
       replicas: 1
-      placement:
-        constraints:
-          - node.hostname==dokploy-mgr
-      restart_policy:
-        condition: any
-        delay: 5s
-
-  media-redis:
-    image: redis:7-alpine
-    networks:
-      - dokploy-network
-    deploy:
-      replicas: 1
+      # The global edge re-encrypts TURN to the Dokploy workers on 443 using
+      # this SNI. Dokploy terminates that inner TLS hop and forwards plaintext
+      # over the overlay to LiveKit's external-TLS listener.
+      labels:
+        - "traefik.enable=true"
+        - "traefik.swarm.network=dokploy-network"
+        - "traefik.tcp.routers.bunkhouse-turn.rule=HostSNI(`${LIVEKIT_TURN_DOMAIN:-bunkhouse-turn.cloud.rassaun.com}`)"
+        - "traefik.tcp.routers.bunkhouse-turn.entrypoints=websecure"
+        - "traefik.tcp.routers.bunkhouse-turn.service=bunkhouse-turn"
+        - "traefik.tcp.routers.bunkhouse-turn.tls=true"
+        - "traefik.tcp.services.bunkhouse-turn.loadbalancer.server.port=443"
       placement:
         constraints:
           - node.hostname==dokploy-mgr
@@ -288,15 +282,17 @@ services:
   # existed. Nothing needs configuring on the application side; the worker
   # simply had to exist.
   #
-  # It joins the same Redis the media server and SIP use — that is how LiveKit
-  # dispatches an egress to a worker — and writes straight to the company's
+  # It joins the same HA Redis service the media server and SIP use — that is
+  # how LiveKit dispatches an egress to a worker — and writes to the company's
   # object storage from here, so the bytes never touch the application.
   livekit-egress:
     image: livekit/egress:latest
     environment:
       EGRESS_CONFIG_BODY: |
         redis:
-          address: media-redis:6379
+          address: ${BUNKHOUSE_MEDIA_REDIS_ADDRESS}
+          password: ${BUNKHOUSE_MEDIA_REDIS_PASSWORD}
+          db: ${BUNKHOUSE_MEDIA_REDIS_DB}
         api_key: ${LIVEKIT_API_KEY}
         api_secret: ${LIVEKIT_API_SECRET}
         ws_url: ws://livekit:7880
@@ -326,7 +322,9 @@ services:
         api_secret: ${LIVEKIT_API_SECRET}
         ws_url: ws://livekit:7880
         redis:
-          address: media-redis:6379
+          address: ${BUNKHOUSE_MEDIA_REDIS_ADDRESS}
+          password: ${BUNKHOUSE_MEDIA_REDIS_PASSWORD}
+          db: ${BUNKHOUSE_MEDIA_REDIS_DB}
         sip_port: 5060
         rtp_port: 10000-10019
         use_external_ip: true
