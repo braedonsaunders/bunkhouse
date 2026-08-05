@@ -76,7 +76,19 @@ const PROVIDERS: Record<MailOauthProvider, ProviderSpec> = {
     smtp: { host: 'smtp.office365.com', port: 587, secure: false },
     authorizeUrl: (directory) => `https://login.microsoftonline.com/${directory}/oauth2/v2.0/authorize`,
     tokenUrl: (directory) => `https://login.microsoftonline.com/${directory}/oauth2/v2.0/token`,
-    authorizeParams: { prompt: 'consent' },
+    // NOT prompt=consent, which Google needs and Microsoft is actively harmed
+    // by. It forces a fresh consent prompt on every authorization and ignores
+    // consent that already exists — so in a tenant that disallows user consent
+    // (a common, sensible setting) an agent signing into its own mailbox is
+    // told "Need admin approval" no matter how complete the tenant-wide admin
+    // grant is. The grant is there; the app was refusing to use it.
+    //
+    // Microsoft returns a refresh token whenever `offline_access` is granted,
+    // so nothing is lost by dropping it. `select_account` is what this flow
+    // actually wants: each agent signs into a DIFFERENT mailbox, and without it
+    // the browser's existing session is reused silently and the operator
+    // connects the same account twice over.
+    authorizeParams: { prompt: 'select_account' },
   },
 }
 
