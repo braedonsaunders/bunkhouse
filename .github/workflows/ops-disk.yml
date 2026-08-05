@@ -74,6 +74,10 @@ on:
         description: 'Upsert ONE variable on the bunkhouse compose as KEY=VALUE, then redeploy (leave blank to skip)'
         type: string
         default: ''
+      checkMedia:
+        description: 'Whether LiveKit media is reachable: node address, host interfaces, and what is bound to 7881/7882'
+        type: boolean
+        default: false
       updateRunners:
         description: 'Pull the newest runner image and recreate EVERY shared GitHub runner on this host (interrupts any job they are running)'
         type: boolean
@@ -113,6 +117,28 @@ jobs:
           echo "::endgroup::"
           echo "::group::Largest images"
           docker images --format '{{.Size}}\t{{.Repository}}:{{.Tag}}' | sort -hr | head -20 || true
+          echo "::endgroup::"
+
+      # A call fails in two indistinguishable ways and only one is a bug in the
+      # app: the agent answers and nobody hears anything either because the
+      # caller is off the network the media address serves, or because that
+      # address is not the node's at all. LiveKit advertises ONE address for
+      # media and every candidate pair uses it, so if it is wrong, everyone
+      # fails identically — including an agent on the same host, which is the
+      # tell that separates the two.
+      - name: Check LiveKit media reachability
+        if: ${{ inputs.checkMedia }}
+        run: |
+          set -uo pipefail
+          echo "::group::Swarm node addresses"
+          docker node ls --format '{{.Hostname}}  status={{.Status}}  manager={{.ManagerStatus}}' 2>&1 || true
+          docker node inspect self --format 'self: hostname={{.Description.Hostname}} advertised={{.Status.Addr}}' 2>&1 || true
+          echo "::endgroup::"
+          echo "::group::Host interfaces and media port bindings"
+          docker run --rm --net=host alpine:3 sh -c \
+            "ip -4 -o addr show | awk '{print \"  iface \"\$2\" \"\$4}'; \
+             echo '--- listening on the media ports ---'; \
+             (netstat -lntu 2>/dev/null || ss -lntu 2>/dev/null) | grep -E ':(7881|7882)' || echo '  NOTHING bound to 7881/7882'"
           echo "::endgroup::"
 
       - name: Read the newest Dokploy deployment log
