@@ -166,7 +166,14 @@ jobs:
           done
           echo "::endgroup::"
           echo "::group::Firewall"
-          docker run --rm --net=host --privileged alpine:3 sh -c "apk add -q --no-cache iptables ip6tables nftables >/dev/null 2>&1; echo '--- INPUT policy and rules ---'; iptables -S INPUT || echo 'iptables unavailable'; echo '--- nftables input chains ---'; nft list ruleset 2>/dev/null | grep -A6 -E 'chain input' | head -40 || echo 'no nftables ruleset'; echo '--- anything mentioning the media ports ---'; iptables -S | grep -E '7881|7882' || echo 'no iptables rule mentions 7881/7882'"
+          docker run --rm --net=host --privileged alpine:3 sh -c "apk add -q --no-cache iptables ip6tables nftables >/dev/null 2>&1; echo '--- INPUT policy and rules ---'; iptables -S INPUT || echo 'iptables unavailable'; echo '--- nftables input chains ---'; nft list ruleset 2>/dev/null | grep -A6 -E 'chain input' | head -40 || echo 'no nftables ruleset'; echo '--- anything mentioning the media ports ---'; iptables -S | grep -E '7881|7882' || echo 'no rule'; echo '--- NAT: what rewrites the media ports ---'; iptables -t nat -S | grep -E '7881|7882' || echo 'no NAT rule'"
+          echo "::endgroup::"
+          echo "::group::Which container holds the address the NAT points at"
+          docker ps --format '{{.Names}}' | while read c; do
+            addr=$(docker inspect "$c" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' 2>/dev/null)
+            case "$addr" in *172.18.0.27*) echo "  172.18.0.27 -> $c" ;; esac
+          done
+          echo "  (nothing listed means the address belongs to no running container)"
           echo "::endgroup::"
 
       # What the deployment actually carries, as opposed to what the compose
