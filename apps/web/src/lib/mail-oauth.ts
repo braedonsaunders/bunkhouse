@@ -2,7 +2,7 @@ import 'server-only'
 import { createHash, randomBytes } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { BlockList, isIP } from 'node:net'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, ne, sql } from 'drizzle-orm'
 import { sealSecret, unsealSecret, type SealedSecret } from '@appkit/crypto'
 import { verifyImap, verifySmtp, type MailboxConnection } from '@appkit/mailbox'
 import {
@@ -455,7 +455,7 @@ function addressFromIdToken(idToken: string, clientId: string): string {
 // --- Completion -------------------------------------------------------------
 
 export type CompleteMailOauthResult =
-  | { ok: true; personId: string; address: string; provider: MailOauthProvider }
+  | { ok: true; tenantId: string; personId: string; address: string; provider: MailOauthProvider }
   | { ok: false; personId: string | null; message: string }
 
 /**
@@ -512,7 +512,7 @@ export async function completeMailOauth(input: {
       spec: resolved.spec,
       refreshToken: tokens.refresh_token,
     })
-    return { ok: true, personId: state.personId, address, provider: state.provider }
+    return { ok: true, tenantId: state.tenantId, personId: state.personId, address, provider: state.provider }
   } catch (error) {
     return { ok: false, personId: state.personId, message: messageOf(error) }
   }
@@ -609,7 +609,25 @@ async function linkMailbox(input: {
     } else {
       await app.db.insert(mailboxAccounts).values({ tenantId: input.tenantId, personId: input.personId, ...values })
     }
-    await app.db.update(people).set({ status: 'active' }).where(eq(people.id, input.personId))
+    // The agent's own address follows the mailbox it was just given.
+    //
+    // These are one fact, not two. Colleagues reach an agent at `people.email`
+    // and the internal-versus-external dial is decided by whether an address is
+    // in the staff set, which is built from the same column. Leave them
+    // disagreeing and mail addressed to the agent goes to an address with no
+    // mailbox behind it, while the agent's real replies read as external and
+    // stop for approval — neither of which announces itself.
+    const [clash] = await app.db
+      .select({ id: people.id, name: people.name })
+      .from(people)
+      .where(and(sql`lower(${people.email}) = ${input.address.toLowerCase()}`, ne(people.id, input.personId)))
+    if (clash) {
+      throw new Error(`${input.address} is already ${clash.name}'s address in the directory.`)
+    }
+    await app.db
+      .update(people)
+      .set({ status: 'active', email: input.address })
+      .where(eq(people.id, input.personId))
   })
 }
 

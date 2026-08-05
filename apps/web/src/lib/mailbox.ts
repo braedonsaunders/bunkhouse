@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, ne, sql } from 'drizzle-orm'
 import { sealSecret, unsealSecret, type SealedSecret } from '@appkit/crypto'
 import {
   sendMail,
@@ -135,7 +135,19 @@ export async function connectMailbox(input: ConnectMailboxInput): Promise<string
       })
       .returning({ id: mailboxAccounts.id })
     if (!account) throw new Error('Mailbox account could not be created.')
-    await app.db.update(people).set({ status: 'active' }).where(eq(people.id, input.personId))
+    // The agent's own address follows the mailbox, for the reason spelled out
+    // in `linkMailbox`: colleagues reach an agent at `people.email`, and the
+    // internal-versus-external dial reads the same column. Two names for one
+    // fact silently misroute mail in both directions.
+    const [clash] = await app.db
+      .select({ name: people.name })
+      .from(people)
+      .where(and(sql`lower(${people.email}) = ${input.address.toLowerCase()}`, ne(people.id, input.personId)))
+    if (clash) throw new Error(`${input.address} is already ${clash.name}'s address in the directory.`)
+    await app.db
+      .update(people)
+      .set({ status: 'active', email: input.address })
+      .where(eq(people.id, input.personId))
     return account.id
   })
 }

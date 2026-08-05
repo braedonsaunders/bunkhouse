@@ -337,8 +337,19 @@ export async function connectMailboxAction(formData: FormData): Promise<void> {
     smtpPort,
     smtpSecure: smtpPort === 465,
   })
+  // Fetch once now, for the same reason the OAuth callback does: a mailbox that
+  // has just been connected should not read as empty while the scheduled sweep
+  // catches up, with a refresh that cannot help because nothing has been
+  // fetched yet. Bounded, and the sweep finishes whatever is left.
+  await Promise.race([
+    syncPersonMailbox(tenantId, personId).catch(() => undefined),
+    new Promise((resolve) => setTimeout(resolve, FIRST_SYNC_BUDGET_MS)),
+  ])
   revalidatePath('/organization')
 }
+
+/** How long a connect waits on the first fetch before returning. */
+const FIRST_SYNC_BUDGET_MS = 20_000
 
 /** Pull new mail for an agent right now (the worker also does this on schedule). */
 export async function syncMailboxAction(formData: FormData): Promise<void> {
