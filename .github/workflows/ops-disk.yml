@@ -82,6 +82,10 @@ on:
         description: 'Print the bunkhouse compose environment — keys always, values only for known non-secret settings'
         type: boolean
         default: false
+      stunFromWeb:
+        description: 'From the web container, send a STUN binding request to host:port (e.g. 10.0.0.101:7882)'
+        type: string
+        default: ''
       clearOrphanMediaNat:
         description: 'Remove DNAT rules on 7881/7882 that point at an address no running container holds'
         type: boolean
@@ -232,6 +236,34 @@ jobs:
           done
           echo "--- NAT on the media ports after ---"
           docker run --rm --net=host --privileged alpine:3 sh -c "apk add -q --no-cache iptables >/dev/null 2>&1; iptables -t nat -S | grep -E '7881|7882' || echo '  none remain'"
+
+      # Whether a container can reach the media port on the host's own address.
+      # LiveKit advertises one address for media; a container reaching it goes
+      # out over the gateway bridge and back into the host, and that hairpin is
+      # not guaranteed for UDP. If it fails, the agent can never complete ICE
+      # even though it runs on the same machine — which is invisible from the
+      # application, and looks exactly like a caller-side network problem.
+      - name: STUN from the web container
+        if: ${{ inputs.stunFromWeb != '' }}
+        run: |
+          set -uo pipefail
+          case "${{ inputs.stunFromWeb }}" in *[!0-9.:,]*) echo "::error::Refusing suspicious target"; exit 1 ;; esac
+          cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
+          if [ -z "$cid" ]; then echo "::error::No running web container"; exit 1; fi
+          docker exec -e TARGETS="${{ inputs.stunFromWeb }}" "$cid" node -e '
+            const dgram = require("node:dgram");
+            const probe = (hostport) => new Promise((resolve) => {
+              const [host, port] = hostport.split(":");
+              const sock = dgram.createSocket("udp4");
+              const msg = Buffer.concat([Buffer.from([0,1,0,0,0x21,0x12,0xa4,0x42]), require("node:crypto").randomBytes(12)]);
+              const done = (text) => { try { sock.close() } catch {} ; console.log("  " + hostport.padEnd(22) + text); resolve() };
+              const timer = setTimeout(() => done("NO RESPONSE (timed out)"), 6000);
+              sock.on("message", (d) => { clearTimeout(timer); done("REPLIED " + d.length + " bytes") });
+              sock.on("error", (e) => { clearTimeout(timer); done("FAILED (" + e.code + ")") });
+              sock.send(msg, Number(port), host);
+            });
+            (async () => { for (const t of (process.env.TARGETS || "").split(",")) if (t.trim()) await probe(t.trim()) })();
+          '
 
       - name: Read the newest Dokploy deployment log
         if: ${{ inputs.dokployLogFor != '' }}
