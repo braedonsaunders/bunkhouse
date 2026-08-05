@@ -210,6 +210,17 @@ services:
     # Signalling enters through Dokploy. Direct TCP/UDP media stays published
     # in host mode for the fast path. The HA edge terminates TURN/TLS on public
     # 443 and forwards the decrypted stream to the dedicated host port below.
+    # LiveKit and its embedded TURN server must advertise an address they can
+    # both reach inside Swarm. Resolve the stable service VIP at startup;
+    # using the manager's LAN address forces an unsupported same-container NAT
+    # hairpin and breaks every relayed call.
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        node_ip=$$(getent ahostsv4 livekit | awk 'NR == 1 { print $$1 }')
+        test -n "$$node_ip"
+        export LIVEKIT_CONFIG=$$(printf '%s' "$$LIVEKIT_CONFIG" | sed "s/__LIVEKIT_NODE_IP__/$$node_ip/g")
+        exec /livekit-server
     environment:
       # One config body rather than flags plus environment: the media settings
       # below have no flag equivalents, and splitting the configuration across
@@ -221,7 +232,7 @@ services:
         rtc:
           tcp_port: 7881
           udp_port: 7882
-          node_ip: ${LIVEKIT_NODE_IP:-10.0.0.101}
+          node_ip: __LIVEKIT_NODE_IP__
         turn:
           enabled: true
           domain: ${LIVEKIT_TURN_DOMAIN:-bunkhouse-turn.cloud.rassaun.com}
@@ -235,9 +246,9 @@ services:
           relay_range_start: 30000
           relay_range_end: 30049
           # LiveKit blocks TURN relays to private targets by default. Permit
-          # only the configured SFU node, not the rest of the private network.
+          # only this task's SFU address, not the rest of the private network.
           allow_restricted_peer_cidrs:
-            - "${LIVEKIT_NODE_IP:-10.0.0.101}/32"
+            - "__LIVEKIT_NODE_IP__/32"
         redis:
           address: ${BUNKHOUSE_MEDIA_REDIS_ADDRESS}
           password: ${BUNKHOUSE_MEDIA_REDIS_PASSWORD}
