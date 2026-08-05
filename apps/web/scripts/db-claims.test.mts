@@ -174,6 +174,51 @@ await asApp(T1, async (c) => {
   )
 })
 
+// A login maps to at most one human in each tenant. The same global account
+// may legitimately represent a person in another workspace, while an agent
+// can never be mistaken for an authenticated human.
+{
+  const USER = crypto.randomUUID()
+  await su.query(
+    `insert into users (id, name, email) values ($1, 'Claims Human', $2)`,
+    [USER, `claims-human-${USER.slice(0, 8)}@example.test`],
+  )
+  await asApp(T1, (c) =>
+    c.query(
+      `insert into people (tenant_id, kind, status, name, title, email, user_id)
+       values ($1, 'human', 'active', 'Linked Human', 'Owner', $2, $3)`,
+      [T1, `linked-${USER.slice(0, 8)}@example.test`, USER],
+    ),
+  )
+  await asApp(T1, async (c) => {
+    await assert.rejects(
+      c.query(
+        `insert into people (tenant_id, kind, status, name, title, email, user_id)
+         values ($1, 'human', 'active', 'Duplicate Human', 'Owner', $2, $3)`,
+        [T1, `duplicate-${USER.slice(0, 8)}@example.test`, USER],
+      ),
+      (e: { code?: string }) => e.code === '23505',
+      'one workspace account cannot link to two People records',
+    )
+    await assert.rejects(
+      c.query(
+        `insert into people (tenant_id, kind, status, name, title, email, user_id)
+         values ($1, 'agent', 'active', 'Not Human', 'Agent', $2, $3)`,
+        [T1, `agent-${USER.slice(0, 8)}@example.test`, USER],
+      ),
+      (e: { code?: string }) => e.code === '23514',
+      'an agent cannot link to a login account',
+    )
+  })
+  await asApp(T2, (c) =>
+    c.query(
+      `insert into people (tenant_id, kind, status, name, title, email, user_id)
+       values ($1, 'human', 'active', 'Other Workspace Human', 'Owner', $2, $3)`,
+      [T2, `other-${USER.slice(0, 8)}@example.test`, USER],
+    ),
+  )
+}
+
 // --- append-only ledgers -----------------------------------------------------
 
 // Evidence tables reject UPDATE and DELETE at the database boundary (SQLSTATE
@@ -254,6 +299,84 @@ await assert.rejects(
   })
 }
 
+// --- membership → People reconciliation ------------------------------------
+
+// The production repair path is tested against PostgreSQL too: it must adopt
+// the seeded manager in place, retain every report pointing at that row,
+// suspend the obsolete credentialless membership, and be idempotent.
+{
+  const TENANT = crypto.randomUUID()
+  const LEGACY_USER = crypto.randomUUID()
+  const OWNER_USER = crypto.randomUUID()
+  const LEGACY_PERSON = crypto.randomUUID()
+  const REPORT = crypto.randomUUID()
+  const ownerEmail = `real-owner-${OWNER_USER.slice(0, 8)}@example.test`
+  await su.query(`insert into tenants (id, name, slug) values ($1, 'Reconcile Co', $2)`, [
+    TENANT,
+    `reconcile-${TENANT.slice(0, 8)}`,
+  ])
+  await su.query(
+    `insert into users (id, name, email, is_super_admin)
+     values ($1, 'Demo Owner', 'owner@bunkhouse.local', false), ($2, 'Owner', $3, true)`,
+    [LEGACY_USER, OWNER_USER, ownerEmail],
+  )
+  await su.query(
+    `insert into accounts (user_id, account_id, provider_id, password)
+     values ($1, $2, 'credential', 'test-only')`,
+    [OWNER_USER, OWNER_USER],
+  )
+  await su.query(
+    `insert into tenant_users (tenant_id, user_id, display_name, status, joined_at)
+     values ($1, $2, 'Demo Owner', 'active', now()), ($1, $3, 'Owner', 'active', now())`,
+    [TENANT, LEGACY_USER, OWNER_USER],
+  )
+  await su.query(
+    `insert into people (id, tenant_id, kind, status, name, title, email)
+     values ($1, $2, 'human', 'active', 'Demo Owner', 'Owner', 'owner@bunkhouse.local')`,
+    [LEGACY_PERSON, TENANT],
+  )
+  await su.query(
+    `insert into people (id, tenant_id, kind, status, name, title, email, reports_to_id)
+     values ($1, $2, 'agent', 'active', 'Marla', 'Assistant', $3, $4)`,
+    [REPORT, TENANT, `marla-${REPORT.slice(0, 8)}@example.test`, LEGACY_PERSON],
+  )
+
+  process.env.BUNKHOUSE_DB_URL = url
+  process.env.BUNKHOUSE_SUPER_URL = url
+  const { ensurePersonForMembership } = await import('../src/lib/person-accounts.ts')
+  const first = await ensurePersonForMembership({ tenantId: TENANT, userId: OWNER_USER, adoptLegacyOwner: true })
+  const second = await ensurePersonForMembership({ tenantId: TENANT, userId: OWNER_USER, adoptLegacyOwner: true })
+  assert.equal(first.personId, LEGACY_PERSON, 'the seeded manager row is adopted in place')
+  assert.equal(second.personId, LEGACY_PERSON, 'reconciliation is idempotent')
+
+  const linked = await su.query(
+    `select name, email, user_id from people where id = $1`,
+    [LEGACY_PERSON],
+  )
+  assert.deepEqual(
+    linked.rows[0],
+    { name: 'Owner', email: ownerEmail, user_id: OWNER_USER },
+    'the manager now carries the real owner identity',
+  )
+  const report = await su.query(`select reports_to_id from people where id = $1`, [REPORT])
+  assert.equal(report.rows[0].reports_to_id, LEGACY_PERSON, 'existing reporting lines survive adoption')
+  const oldMembership = await su.query(
+    `select status from tenant_users where tenant_id = $1 and user_id = $2`,
+    [TENANT, LEGACY_USER],
+  )
+  assert.equal(oldMembership.rows[0].status, 'suspended', 'the credentialless demo membership is suspended')
+
+  const { db: testDb } = await import('../src/db/client.ts')
+  await testDb().pool.end()
+  await testDb().superPool.end()
+  await su.query(`delete from people where tenant_id = $1 and id = $2`, [TENANT, REPORT])
+  await su.query(`delete from people where tenant_id = $1`, [TENANT])
+  await su.query(`delete from tenant_users where tenant_id = $1`, [TENANT])
+  await su.query(`delete from accounts where user_id in ($1, $2)`, [LEGACY_USER, OWNER_USER])
+  await su.query(`delete from users where id in ($1, $2)`, [LEGACY_USER, OWNER_USER])
+  await su.query(`delete from tenants where id = $1`, [TENANT])
+}
+
 await reset()
 await su.end()
-console.log('db-claims: forced RLS isolation, append-only ledgers, and procedure pinning — verified against PostgreSQL')
+console.log('db-claims: RLS, immutable ledgers, pinned procedures, and person/account reconciliation — verified')

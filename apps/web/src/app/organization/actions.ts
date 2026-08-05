@@ -28,6 +28,7 @@ import { firstOccurrence } from '../../lib/duties'
 import { correctNote, createNote, expireNote, proposePromotion } from '../../lib/memory'
 import { ACTION_CATEGORIES, DEFAULT_AUTONOMY_LEVEL, isActionCategory, isAutonomyLevel } from '../../lib/autonomy'
 import { assertValidManager } from '../../lib/org'
+import { setPersonAccount } from '../../lib/person-accounts'
 
 /** Everything the roster and the org chart re-read after a personnel change. */
 function revalidateOrganization(): void {
@@ -504,6 +505,28 @@ export async function updateDuty(formData: FormData): Promise<void> {
 
 /** Full record edit from the person drawer — every field an operator owns. */
 export type PersonUpdateResult = { ok: true } | { ok: false; message: string }
+
+export type PersonAccountResult = { ok: true } | { ok: false; message: string }
+
+/** Link a human directory record to one login account in this workspace. */
+export async function setPersonAccountAction(formData: FormData): Promise<PersonAccountResult> {
+  const personId = String(formData.get('personId') ?? '')
+  const userId = String(formData.get('userId') ?? '') || null
+  if (!personId) return { ok: false, message: 'Person is required.' }
+  const access = await requireTenantPermission('people.manage')
+  try {
+    await setPersonAccount({
+      tenantId: access.tenantId,
+      personId,
+      userId,
+      actorUserId: access.user.id,
+    })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  revalidateOrganization()
+  return { ok: true }
+}
 
 /**
  * Full record edit from the person drawer — every field an operator owns.

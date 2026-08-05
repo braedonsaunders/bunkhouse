@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
-import { date, foreignKey, index, integer, jsonb, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
-import { auditColumns, id, tenantRef } from '@appkit/db'
+import { check, date, foreignKey, index, integer, jsonb, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { auditColumns, id, tenantRef, users } from '@appkit/db'
 import type { AgentVoiceConfig } from '@appkit/voice'
 
 /**
@@ -136,8 +136,13 @@ export const people = pgTable(
     uniqueIndex('people_tenant_extension_key')
       .on(t.tenantId, t.extension)
       .where(sql`${t.extension} is not null`),
+    uniqueIndex('people_tenant_user_key')
+      .on(t.tenantId, t.userId)
+      .where(sql`${t.userId} is not null`),
     index('people_tenant_kind_idx').on(t.tenantId, t.kind),
     foreignKey({ columns: [t.reportsToId], foreignColumns: [t.id], name: 'people_reports_to_fk' }),
+    foreignKey({ columns: [t.userId], foreignColumns: [users.id], name: 'people_user_fk' }).onDelete('set null'),
+    check('people_agent_user_check', sql`${t.kind} = 'human' or ${t.userId} is null`),
   ],
 )
 

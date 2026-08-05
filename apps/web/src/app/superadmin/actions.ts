@@ -7,6 +7,7 @@ import type { SuperadminService } from '@appkit/superadmin'
 import type { SuperadminActionResult } from '@appkit/superadmin/react'
 import { requireSuperAdmin } from '../../lib/auth'
 import { provisionTenant, resolveTenantId } from '../../lib/tenant'
+import { ensurePersonForMembership } from '../../lib/person-accounts'
 import { db } from '../../db/client'
 
 // Instance-operator actions. Every entry point re-authorizes via
@@ -50,7 +51,8 @@ export async function createPlatformUserAction(input: {
       return { ok: false, message: `${tenant.name} is not active — reactivate it before adding members.` }
     }
     const created = await service.createUser(userInput)
-    await service.addTenantMember(tenantId, { email: created.email })
+    const member = await service.addTenantMember(tenantId, { email: created.email })
+    await ensurePersonForMembership({ tenantId, userId: member.userId, actorUserId: (await requireSuperAdmin()).userId })
     revalidatePath('/superadmin')
     return { ok: true }
   } catch (error) {
@@ -146,7 +148,8 @@ export async function addPlatformTenantMemberAction(
 ): Promise<SuperadminActionResult> {
   try {
     const service = await operatorService()
-    await service.addTenantMember(tenantId, { email })
+    const member = await service.addTenantMember(tenantId, { email })
+    await ensurePersonForMembership({ tenantId, userId: member.userId, actorUserId: (await requireSuperAdmin()).userId })
     revalidatePath('/superadmin')
     return { ok: true }
   } catch (error) {
@@ -161,7 +164,10 @@ export async function setPlatformTenantMemberStatusAction(
 ): Promise<SuperadminActionResult> {
   try {
     const service = await operatorService()
-    await service.setTenantMemberStatus(tenantId, membershipId, status)
+    const member = await service.setTenantMemberStatus(tenantId, membershipId, status)
+    if (status === 'active') {
+      await ensurePersonForMembership({ tenantId, userId: member.userId, actorUserId: (await requireSuperAdmin()).userId })
+    }
     revalidatePath('/superadmin')
     return { ok: true }
   } catch (error) {

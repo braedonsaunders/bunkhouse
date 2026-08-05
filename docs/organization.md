@@ -65,6 +65,28 @@ start date, and what they own.
 every agent's system prompt as the company directory, which is how an agent
 decides that a thread belongs to somebody else and routes it there.
 
+## Login accounts and human records
+
+A workspace membership is access to Bunkhouse; a human `people` row is the
+employee record agents know. They are distinct records with one explicit link:
+`people.user_id`. Each membership is reconciled into People automatically, and
+the human record's **Access** tab shows or changes the linked account. A global
+account may belong to several workspaces, but it can link to only one human per
+tenant. Agents can never carry a user link.
+
+The two email addresses have different jobs and are intentionally not kept in
+lockstep. The account email is the sign-in identity. The person email is their
+work address in the company directory. When an authenticated operator starts a
+call, the linked person supplies the verified name and work email; the login is
+the proof of who is calling. This keeps call delivery and escalation aligned
+with the roster without pretending an SSO address must also be a mailbox.
+
+Membership creation, reactivation, and boot reconciliation are idempotent. A
+matching unlinked human is adopted before a new row is created, and the database
+enforces one `(tenant_id, user_id)` link. Suspending or removing workspace access
+does not delete or unlink the employee record: reporting lines and audit history
+remain intact, while the Access tab shows the effective account state.
+
 ## What the hierarchy does at runtime
 
 `packages/runtime` reads the reporting line, so the chart is operational rather

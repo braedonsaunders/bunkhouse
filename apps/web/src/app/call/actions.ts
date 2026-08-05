@@ -8,6 +8,7 @@ import { db } from '../../db/client'
 import { resolveTenantId as resolveTenant } from '../../lib/tenant'
 const resolveTenantId = () => resolveTenant('calls.manage')
 import { requireUser } from '../../lib/auth'
+import { authenticatedPerson } from '../../lib/person-accounts'
 import type { CallActivityEvent } from '../../lib/call-activity'
 
 export type TranscriptTurn = { seq: number; speaker: 'agent' | 'human'; text: string; atMs: number }
@@ -39,6 +40,7 @@ export type CallBrowserFrame = {
 export async function startCallAction(personId: string): Promise<{ sessionId: string; token: string }> {
   const tenantId = await resolveTenantId()
   const user = await requireUser()
+  const caller = await authenticatedPerson(tenantId, user)
   const app = db()
 
   const livekitKey = process.env.LIVEKIT_API_KEY
@@ -49,8 +51,8 @@ export async function startCallAction(personId: string): Promise<{ sessionId: st
 
   const sessionId = randomUUID()
   const room = `call-${sessionId}`
-  const callerName = user.name || user.email
-  const counterparty = { name: callerName, identity: `human:${user.id}`, email: user.email }
+  const callerName = caller.name
+  const counterparty = { name: callerName, identity: `human:${user.id}`, email: caller.email }
 
   await app.withTenant(tenantId, async () => {
     const [person] = await app.db.select().from(people).where(eq(people.id, personId))
@@ -71,7 +73,7 @@ export async function startCallAction(personId: string): Promise<{ sessionId: st
       runId: run!.id,
       seq: 0,
       kind: 'message',
-      payload: { text: `Web call started with ${callerName} <${user.email}>. Room ${room}.` },
+      payload: { text: `Web call started with ${callerName} <${caller.email}>. Room ${room}.` },
     })
     await app.db.insert(callSessions).values({
       id: sessionId,

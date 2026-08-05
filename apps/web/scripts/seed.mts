@@ -18,27 +18,34 @@ const COMPANY = 'Bunkhouse Demo Co'
 const SLUG = 'bunkhouse-demo'
 const OWNER_EMAIL = 'owner@bunkhouse.local'
 
-const tenantId = await app.withSuperAdmin(async (superDb) => {
+const seeded = await app.withSuperAdmin(async (superDb) => {
   const existing = await superDb
     .select({ id: identity.tenants.id })
     .from(identity.tenants)
     .where(eq(identity.tenants.slug, SLUG))
   if (existing.length > 0) {
     console.log(`tenant exists: ${COMPANY} (${existing[0]!.id})`)
-    return existing[0]!.id
+    const [owner] = await superDb
+      .select({ id: identity.users.id })
+      .from(identity.users)
+      .where(eq(identity.users.email, OWNER_EMAIL))
+      .limit(1)
+    return { tenantId: existing[0]!.id, ownerUserId: owner?.id ?? null }
   }
   const tenant = await createTenant(superDb, { name: COMPANY, slug: SLUG })
   const user = await createUser(superDb, { email: OWNER_EMAIL, name: 'Demo Owner' })
   await addMembership(superDb, { tenantId: tenant.id, userId: user.id, displayName: 'Demo Owner' })
   console.log(`tenant created: ${COMPANY} (${tenant.id}); owner ${OWNER_EMAIL} (no credential until auth ships)`)
-  return tenant.id
+  return { tenantId: tenant.id, ownerUserId: user.id }
 })
+const tenantId = seeded.tenantId
 
 const humans = [
   {
     name: 'Demo Owner',
     title: 'Owner',
     email: OWNER_EMAIL,
+    userId: seeded.ownerUserId,
     responsibilities: 'Final say on money, pricing, legal, and anything an agent escalates.',
   },
   {

@@ -20,4 +20,13 @@ export async function register() {
   } catch (error) {
     console.error('[tenant] membership backfill failed:', error)
   }
+  // A workspace member is also a human in Bunkhouse's mixed directory. Keep
+  // the two records linked after membership backfill so caller identity,
+  // reporting lines, and approval routing all resolve to the same colleague.
+  try {
+    const { ensureMembershipPeopleBackfill } = await import('./lib/person-accounts')
+    await ensureMembershipPeopleBackfill()
+  } catch (error) {
+    console.error('[people] membership reconciliation failed:', error)
+  }
 }

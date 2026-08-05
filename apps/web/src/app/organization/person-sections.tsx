@@ -11,6 +11,8 @@ import {
   Input,
   Progress,
   Select,
+  SettingsRow,
+  SettingsSection,
   Textarea,
 } from '@appkit/ui'
 import type { ReactNode } from 'react'
@@ -27,8 +29,59 @@ import {
 } from '../../lib/autonomy'
 import { assignedModelsSummary } from '../../lib/model-assignment'
 import { setAutonomy } from './actions'
+import { PersonAccountForm } from '../../components/person-account-form'
+import type { PersonAccountAccess } from '../../lib/person-accounts'
 
 type Person = typeof people.$inferSelect
+
+/** The human record's link to the platform account that can sign in. */
+export function AccountSection({ person, access }: { person: Person; access: PersonAccountAccess }) {
+  const status = !access.current
+    ? 'Not linked'
+    : !access.current.isActive
+      ? 'Account inactive'
+      : access.current.membershipStatus === 'active'
+        ? 'Active'
+        : access.current.membershipStatus === 'invited'
+          ? 'Invited'
+          : access.current.membershipStatus === 'suspended'
+            ? 'Workspace access suspended'
+            : 'No workspace access'
+
+  return (
+    <div className="space-y-4">
+      <SettingsSection
+        title="Login access"
+        description="Connect this employee record to the account they use to sign in to Bunkhouse."
+      >
+        <SettingsRow
+          title="Status"
+          description={access.current ? status : 'This person cannot sign in as this employee record.'}
+          control={<Badge>{status}</Badge>}
+        />
+        <SettingsRow
+          title="Work email"
+          description="Agents use this address to reach the person."
+          control={<span className="text-sm text-fg">{person.email}</span>}
+        />
+        {access.current ? (
+          <SettingsRow
+            title="Sign-in email"
+            description={`Platform account for ${access.current.name}.`}
+            control={<span className="text-sm text-fg">{access.current.email}</span>}
+          />
+        ) : null}
+        <SettingsRow title="Linked account" stacked>
+          <PersonAccountForm
+            personId={person.id}
+            currentUserId={access.current?.userId ?? null}
+            accounts={access.options}
+          />
+        </SettingsRow>
+      </SettingsSection>
+    </div>
+  )
+}
 
 /** Overview: every field an operator owns, editable in place. */
 export function OverviewSection({

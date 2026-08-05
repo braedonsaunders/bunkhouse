@@ -17,6 +17,7 @@ import { getVoiceProviders, listRealtimeCapableProviders } from '../../lib/voice
 import { createEmptyComposition, getAvatarComposition, loadAvatarPartLibrary } from '../../lib/avatars'
 import { AVATAR_PART_CATEGORIES } from '../../lib/avatar-parts'
 import { scheduleToHuman } from '../../lib/schedule'
+import { personAccountAccess } from '../../lib/person-accounts'
 import { resolveCallAction } from '../../lib/call-action'
 import { PersonDrawer, type PersonDrawerTab } from '../../components/person-drawer'
 import { CallActionButton } from '../../components/call-action-button'
@@ -25,7 +26,7 @@ import { VoiceConfigForm } from '../../components/voice-config-form'
 import { DutiesCard } from '../../components/duties-card'
 import { MailboxSection } from './mailbox-section'
 import { AssignmentsSection } from './assignments-section'
-import { AutonomySection, MemorySection, ModelSection, OverviewSection, PayrollSection } from './person-sections'
+import { AccountSection, AutonomySection, MemorySection, ModelSection, OverviewSection, PayrollSection } from './person-sections'
 
 type Person = typeof people.$inferSelect
 
@@ -171,6 +172,7 @@ export async function personDrawer({
     ? await getVoiceProviders(tenantId)
     : {}
   const realtimeProviders = isAgent ? await listRealtimeCapableProviders(tenantId) : []
+  const accountAccess = isAgent ? null : await personAccountAccess(tenantId, selected.id)
   // Only somebody still here can be named as a manager — except the manager
   // already on the record, which stays selectable so the form round-trips.
   const rosterOptions = roster
@@ -203,6 +205,15 @@ export async function personDrawer({
         />
       ),
     },
+    ...(!isAgent && accountAccess
+      ? [
+          {
+            key: 'access',
+            label: 'Access',
+            content: <AccountSection person={selected} access={accountAccess} />,
+          },
+        ]
+      : []),
     ...(isAgent
       ? [
           {
