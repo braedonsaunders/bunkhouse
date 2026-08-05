@@ -45,6 +45,30 @@ export const hostOf = (value: unknown): string | null => {
   }
 }
 
+const INTEGRATION_NAMES: Record<string, string> = {
+  netsuite: 'NetSuite',
+  salesforce: 'Salesforce',
+  hubspot: 'HubSpot',
+  microsoft: 'Microsoft',
+  google: 'Google',
+  quickbooks: 'QuickBooks',
+}
+
+/**
+ * MCP tools are namespaced for machines (`netsuite_ns_runCustomSuiteQL`). The
+ * namespace is useful in a ledger but not something a caller or operator
+ * should have read back to them as prose.
+ */
+function describeIntegrationTool(toolName: string): string {
+  const [namespace = '', ...rest] = toolName.split('_')
+  const integration = INTEGRATION_NAMES[namespace.toLowerCase()] ??
+    `${namespace.slice(0, 1).toUpperCase()}${namespace.slice(1) || 'connected system'}`
+  const operation = rest.join('_').toLowerCase()
+  if (/send|email|message|notify/.test(operation)) return `Sending through ${integration}`
+  if (/create|add|update|edit|write|delete|remove/.test(operation)) return `Updating ${integration}`
+  return `Checking ${integration}`
+}
+
 /** Human label for a tool call, from its name and arguments. */
 export function describeToolCall(toolName: string, input: unknown): string {
   const args = input !== null && typeof input === 'object' ? (input as Record<string, unknown>) : {}
@@ -146,8 +170,7 @@ export function describeToolCall(toolName: string, input: unknown): string {
       return to ? `Inviting ${to} to a video meeting` : 'Sending a meeting link'
     }
     default:
-      // Integration tools keep their own names, made readable.
-      return `Using ${toolName.replace(/[_-]+/g, ' ')}`
+      return describeIntegrationTool(toolName)
   }
 }
 

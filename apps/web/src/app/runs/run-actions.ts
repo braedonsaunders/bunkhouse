@@ -1,10 +1,11 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { and, eq, inArray, sql } from 'drizzle-orm'
-import { approvals, runEvents, runs } from '../../db/schema'
+import { and, eq, inArray } from 'drizzle-orm'
+import { approvals, runs } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId as resolveTenant } from '../../lib/tenant'
+import { appendRunEventInTransaction } from '../../lib/run-events'
 
 /**
  * Stopping a run an operator no longer wants.
@@ -39,14 +40,9 @@ export async function stopRunAction(
 
     // Said on the timeline before the row changes, so the record explains
     // itself to whoever reads it later rather than just ending mid-sentence.
-    const [{ next } = { next: 0 }] = await app.db
-      .select({ next: sql<number>`coalesce(max(${runEvents.seq}), -1) + 1`.mapWith(Number) })
-      .from(runEvents)
-      .where(eq(runEvents.runId, runId))
-    await app.db.insert(runEvents).values({
+    await appendRunEventInTransaction(app.db, {
       tenantId,
       runId,
-      seq: next,
       kind: 'message',
       payload: { text: 'Stopped by an operator. Everything done up to this point is kept.' },
     })

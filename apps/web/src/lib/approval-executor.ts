@@ -1,11 +1,12 @@
 import 'server-only'
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import type { Ability } from '@bunkhouse/runtime'
-import { approvals, people, runEvents, runs } from '../db/schema'
+import { approvals, people, runs } from '../db/schema'
 import { db } from '../db/client'
 import { assembleAbilities } from './agent-abilities'
 import { ASSIGNMENT_MAX_STEPS, executeAgentRun, replyToThreadAbility } from './agent-runs'
 import { finalizeAssignmentRun } from './assignments'
+import { appendRunEvent } from './run-events'
 
 /**
  * The generic approval executor. Every decided approval is acted on exactly
@@ -112,19 +113,14 @@ export async function executeDecidedApproval(tenantId: string, approvalId: strin
       }
     })
     // The executed action joins the run's append-only record.
-    await app.withTenant(tenantId, async () => {
-      const [last] = await app.db
-        .select({ seq: sql<number>`coalesce(max(${runEvents.seq}), -1)` })
-        .from(runEvents)
-        .where(eq(runEvents.runId, run.id))
-      await app.db.insert(runEvents).values({
+    await app.withTenantContext(tenantId, () =>
+      appendRunEvent(app.db, {
         tenantId,
         runId: run.id,
-        seq: (last?.seq ?? -1) + 1,
         kind: 'tool_result',
         payload: { toolName: action.toolName, output: result, approvedApprovalId: claimed.id },
-      })
-    })
+      }),
+    )
   }
 
   const decisionInput = {

@@ -44,7 +44,7 @@
     "@appkit/mailbox": "file:../../vendor/appkit/appkit-mailbox-0.5.1.tgz",
     "@appkit/notifications": "file:../../vendor/appkit/appkit-notifications-1.0.0.tgz",
     "@appkit/pdf": "file:../../vendor/appkit/appkit-pdf-0.1.1.tgz",
-    "@appkit/office": "file:../../vendor/appkit/appkit-office-0.1.0.tgz",
+    "@appkit/office": "file:../../vendor/appkit/appkit-office-0.2.0.tgz",
     "@appkit/process-sandbox": "file:../../vendor/appkit/appkit-process-sandbox-0.2.0.tgz",
     "@appkit/sandbox": "file:../../vendor/appkit/appkit-sandbox-0.1.0.tgz",
     "@appkit/scripts": "file:../../vendor/appkit/appkit-scripts-1.0.0.tgz",

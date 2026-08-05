@@ -5,6 +5,7 @@ import type { Ability, ActionCategory, AutonomyLevel } from '@bunkhouse/runtime'
 import { describeToolCall } from './call-activity'
 import { soundsLikeGoodbye } from './call-echo'
 import type { CallMailbox } from './call-mailbox'
+import { settledWorkPost } from './call-speech'
 import type { CallTrace } from './call-trace'
 import { describeError, type CallWorker, type WorkReport } from './call-worker'
 
@@ -299,7 +300,8 @@ export function callTools(args: {
       // Returning null is the framework's "no deferred reply". Deliberately
       // not a note asking the model to keep quiet: a note leaves the decision
       // with the model, and a model holding an answer says it.
-      mailbox.post({ kind: 'result', workId: work.id, text: settled.detail })
+      const post = settledWorkPost(settled)
+      if (post) mailbox.post(post)
     },
   })
 

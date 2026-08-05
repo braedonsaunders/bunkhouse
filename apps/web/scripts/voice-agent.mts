@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { and, desc, eq, ne } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, ne } from 'drizzle-orm'
 import { cli, defineAgent, voice, ServerOptions, type JobContext, type JobProcess } from '@livekit/agents'
 import { RoomEvent } from '@livekit/rtc-node'
 import * as deepgram from '@livekit/agents-plugin-deepgram'
@@ -26,6 +26,7 @@ import { autonomyDial, boundProcedures, requestApproval, runMemories } from '../
 import { agentBinding } from '../src/lib/assignment'
 import { callTools } from '../src/lib/call-tools'
 import { createCallMailbox, type CallMailbox, type MailboxItem } from '../src/lib/call-mailbox'
+import { approvalCompletion } from '../src/lib/call-speech'
 import { createCallTrace, type CallTrace } from '../src/lib/call-trace'
 import { createCallWorker, describeError, type CallWorker } from '../src/lib/call-worker'
 import { openAgentEyes, type AgentEyes } from '../src/lib/call-vision'
@@ -46,6 +47,7 @@ import { isWithinWorkingHours } from '../src/lib/working-hours'
 import { callMinutesBudget } from '../src/lib/call-budget'
 import { finishCallRecording, startCallRecording, type CallRecordingHandle } from '../src/lib/voice-recording'
 import { meterSpeechMinutes } from '../src/lib/voice-pricing'
+import { appendRunEvent, appendRunEventInTransaction } from '../src/lib/run-events'
 import {
   callerLabel,
   deliverVoicemail,
@@ -254,10 +256,9 @@ async function markFailed(session: SessionRow, message: string): Promise<void> {
       .set({ status: 'failed', endedAt: now, updatedAt: now })
       .where(eq(callSessions.id, session.id))
     if (session.runId) {
-      await app.db.insert(runEvents).values({
+      await appendRunEventInTransaction(app.db, {
         tenantId: session.tenantId,
         runId: session.runId,
-        seq: 1,
         kind: 'error',
         payload: { message },
       })
@@ -452,8 +453,8 @@ const TURN_HANDLING = {
     // their sentence. Waiting longer before calling the turn over is what
     // makes those fragments one thing said once; the ceiling stays where the
     // framework put it, because a genuinely long pause still has to end.
-    minDelay: 900,
-    maxDelay: 3_000,
+    minDelay: 1_800,
+    maxDelay: 4_000,
   },
 } as const
 
@@ -651,11 +652,10 @@ async function buildSpeechPipeline(args: {
           model: cascade.ttsModel,
           ...(config.language ? { language: config.language } : {}),
         }),
-        // The framework already generates the reply preemptively on the
-        // stable partial transcript; speaking it preemptively too takes TTS
-        // off the critical path as well. The cost is resynthesizing the odd
-        // discarded turn — characters, not conversations.
-        turnHandling: { ...TURN_HANDLING, preemptiveGeneration: { preemptiveTts: true } },
+        // A discarded partial response is audible as a restart or a repeated
+        // phrase. Keep generation speculative, but do not synthesize it until
+        // the caller's turn has actually been committed.
+        turnHandling: { ...TURN_HANDLING, preemptiveGeneration: { preemptiveTts: false } },
       }),
       ai,
       cascadeLlm,
@@ -987,33 +987,19 @@ export default defineAgent({
     }
 
     // --- Run events: tool activity, evidence, and anything worth an audit ---
-    // Seq starts high above the fixed rows the session setup writes. A call the
-    // agent placed itself anchors to the run that placed it, which already has
-    // events of its own — (run_id, seq) is unique, so continue past the last.
-    let eventSeq = 100
-    if (session.runId) {
-      const [last] = await app.withTenantContext(session.tenantId, () =>
-        app.db
-          .select({ seq: runEvents.seq })
-          .from(runEvents)
-          .where(eq(runEvents.runId, session.runId!))
-          .orderBy(desc(runEvents.seq))
-          .limit(1),
-      )
-      if (last) eventSeq = Math.max(eventSeq, last.seq + 1)
-    }
+    // More than one process can append to a call run: the voice worker, the
+    // approval executor, and an operator stopping it. Numbering therefore
+    // belongs to the database serialization boundary, not this process.
     const recordEvent = async (kind: string, payload: Record<string, unknown>) => {
       if (!session.runId) return
-      const mySeq = eventSeq++
-      await app.withTenant(session.tenantId, async () => {
-        await app.db.insert(runEvents).values({
+      await app.withTenantContext(session.tenantId, () =>
+        appendRunEvent(app.db, {
           tenantId: session.tenantId,
           runId: session.runId!,
-          seq: mySeq,
           kind: kind as (typeof runEvents.$inferInsert)['kind'],
           payload,
-        })
-      })
+        }),
+      )
     }
 
     // --- Why: the call's operational record ---------------------------------
@@ -1401,13 +1387,24 @@ export default defineAgent({
         let giveUp: ReturnType<typeof setTimeout> | undefined
         let outcome: { spoke: boolean } = { spoke: false }
         try {
-          const handle = agentSession.generateReply({
-            instructions: deliveryBriefing(text, items),
-            // A status note is not an instruction to do more work. Without this
-            // the model answers its own progress line by handing the same thing
-            // over again.
-            toolChoice: 'none',
-          })
+          // In cascade mode these are already caller-ready words from the
+          // governed worker. Asking the conversational model to paraphrase
+          // while its async tool call is still open fails on some providers
+          // and needlessly creates another place to repeat or embellish them.
+          // Realtime sessions own their voice inside the model, so they still
+          // take the generated route.
+          const handle = cascadeLlm
+            ? agentSession.say(text.replace(/\n+/g, '. '), {
+                allowInterruptions: true,
+                addToChatCtx: true,
+              })
+            : agentSession.generateReply({
+                instructions: deliveryBriefing(text, items),
+                // A status note is not an instruction to do more work. Without
+                // this the model answers its own progress line by handing the
+                // same thing over again.
+                toolChoice: 'none',
+              })
           await Promise.race([
             handle.waitForPlayout(),
             new Promise<void>((resolve) => {
@@ -1461,6 +1458,16 @@ export default defineAgent({
             }
           }
           mailboxDeliveryInFlight = false
+        }
+        if (outcome.spoke) {
+          for (const item of items) {
+            if (item.kind === 'result') {
+              callTrace.answerAlreadySpoken({
+                workId: item.workId,
+                route: 'the mailbox said the result at a quiet boundary',
+              })
+            }
+          }
         }
         return outcome
       },
@@ -1566,6 +1573,73 @@ export default defineAgent({
     })
 
     const callWorker = worker
+
+    // An approved action is executed by a different process. The durable run
+    // event is the hand-off back to this live room: without watching it, the
+    // UI can show "sent" while the caller hears silence until the call times
+    // out. Start at the current tail so only decisions made during this call
+    // are announced, and serialize polling so a slow database read cannot
+    // deliver one result twice.
+    if (session.runId) {
+      const runId = session.runId
+      const [tail] = await app.withTenantContext(session.tenantId, () =>
+        app.db
+          .select({ seq: runEvents.seq })
+          .from(runEvents)
+          .where(eq(runEvents.runId, runId))
+          .orderBy(desc(runEvents.seq))
+          .limit(1),
+      )
+      let approvalCursor = tail?.seq ?? -1
+      let pollingApprovals = false
+      let approvalWatcherClosed = false
+      const seenApprovals = new Set<string>()
+      const pollApprovals = async () => {
+        if (pollingApprovals || approvalWatcherClosed) return
+        pollingApprovals = true
+        try {
+          const events = await app.withTenantContext(session.tenantId, () =>
+            app.db
+              .select({ seq: runEvents.seq, kind: runEvents.kind, payload: runEvents.payload })
+              .from(runEvents)
+              .where(and(eq(runEvents.runId, runId), gt(runEvents.seq, approvalCursor)))
+              .orderBy(asc(runEvents.seq)),
+          )
+          for (const event of events) {
+            approvalCursor = Math.max(approvalCursor, event.seq)
+            if (event.kind !== 'tool_result') continue
+            const approvalId = event.payload.approvedApprovalId
+            if (typeof approvalId !== 'string' || seenApprovals.has(approvalId)) continue
+            const completion = approvalCompletion(
+              typeof event.payload.toolName === 'string' ? event.payload.toolName : '',
+              event.payload.output,
+            )
+            const resolved = callWorker.resolveApproval({
+              approvalId,
+              detail: completion.text,
+              failed: completion.failed,
+            })
+            if (!resolved) continue
+            seenApprovals.add(approvalId)
+            deliveryMailbox.post({
+              kind: resolved.status === 'failed' ? 'failed' : 'result',
+              workId: resolved.id,
+              text: resolved.detail,
+            })
+          }
+        } catch (error) {
+          console.error(`[voice] room ${roomName}: approval completion could not be checked — ${describeError(error)}`)
+        } finally {
+          pollingApprovals = false
+        }
+      }
+      const approvalWatcher = setInterval(() => void pollApprovals(), 1_000)
+      ctx.addShutdownCallback(async () => {
+        approvalWatcherClosed = true
+        clearInterval(approvalWatcher)
+      })
+    }
+
     const tools = callTools({
       lastAgentLine: () => lastAgentLine,
       worker,

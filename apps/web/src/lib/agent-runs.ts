@@ -53,6 +53,7 @@ import { getFileBytes, getFileRecord } from './files'
 import { closeBrowserSession } from './browser-use'
 import { readSkillBundle, skillsForAgent, type BoundSkillRow } from './skills'
 import { agentBinding, bindsToAgent, type AgentBinding } from './assignment'
+import { appendRunEvent } from './run-events'
 import { materializeSkillBundle } from './workspace'
 
 
@@ -531,7 +532,6 @@ export async function executeAgentRun(args: {
     if (!person || person.kind !== 'agent') throw new Error('Run target is not an agent.')
 
     let runId: string
-    let seq = 0
     let priorMessages: unknown[] = []
     if (live) {
       runId = live.runId
@@ -540,11 +540,6 @@ export async function executeAgentRun(args: {
       if (!existing || existing.personId !== person.id) throw new Error('Run to resume not found.')
       runId = existing.id
       priorMessages = existing.transcript ?? []
-      const [last] = await app.db
-        .select({ seq: sql<number>`coalesce(max(${runEvents.seq}), -1)` })
-        .from(runEvents)
-        .where(eq(runEvents.runId, runId))
-      seq = (last?.seq ?? -1) + 1
       await app.db
         .update(runs)
         .set({ status: 'running', finishedAt: null, waiting: null })
@@ -572,10 +567,9 @@ export async function executeAgentRun(args: {
       live?.event ??
       (async (event) => {
         const { kind, ...payload } = event
-        await app.db.insert(runEvents).values({
+        await appendRunEvent(app.db, {
           tenantId: args.tenantId,
           runId,
-          seq: seq++,
           kind: kind as (typeof runEvents.$inferInsert)['kind'],
           payload,
         })

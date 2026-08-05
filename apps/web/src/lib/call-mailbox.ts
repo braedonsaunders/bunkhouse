@@ -247,6 +247,12 @@ export function createCallMailbox(options: CallMailboxOptions): CallMailbox {
   const queue: MailboxItem[] = []
   /** Every line already said, by this mailbox or by any other route. */
   const said = new Set<string>()
+  /**
+   * Lines currently being spoken. They have left the queue but are not yet in
+   * `said`; without this middle state, the same approval arriving again during
+   * playout is accepted and spoken a second time at the next boundary.
+   */
+  const inFlight = new Set<string>()
   /** Work whose answer has landed. Nothing older about it is worth saying. */
   const finished = new Set<string>()
 
@@ -371,6 +377,7 @@ export function createCallMailbox(options: CallMailboxOptions): CallMailbox {
     // earned the interruption, and everything else may as well be said in the
     // same breath rather than earning one of its own.
     const going = queue.splice(0, queue.length)
+    for (const item of going) inFlight.add(identity(item))
     if (going.some((item) => item.kind === 'progress')) lastProgressAt = now
     delivering = true
     // One message, not a burst — the point of coalescing. One line each,
@@ -405,6 +412,7 @@ export function createCallMailbox(options: CallMailboxOptions): CallMailbox {
       } catch (error) {
         fail(`a delivery was not made: ${String(error)}`)
       } finally {
+        for (const item of going) inFlight.delete(identity(item))
         // Stamped when the delivery is over rather than when it started, so
         // the floor is measured from the words actually being out of the way.
         lastDeliveryAt = Date.now()
@@ -448,6 +456,10 @@ export function createCallMailbox(options: CallMailboxOptions): CallMailbox {
       decide('dropped', item, 'the caller has already been told this')
       return
     }
+    if (inFlight.has(key)) {
+      decide('dropped', item, 'the same words are already being said')
+      return
+    }
     const waiting = queue.findIndex((queued) => identity(queued) === key)
     if (waiting >= 0) {
       if (!alreadySaid) {
@@ -479,11 +491,16 @@ export function createCallMailbox(options: CallMailboxOptions): CallMailbox {
       }
     } else {
       // An answer, an approval or a failure is the current state of that work.
-      // "Still reading the site" behind it would be a lie. These never
-      // supersede each other, and they are never dropped.
+      // "Still reading the site" behind it would be a lie. A final answer or
+      // failure also retires a queued approval: once the sanctioned action has
+      // run, saying it still needs sign-off is stale and contradictory.
       for (let index = queue.length - 1; index >= 0; index -= 1) {
         const queued = queue[index]!
-        if (queued.kind === 'progress' && queued.workId === item.workId) {
+        const superseded =
+          queued.workId === item.workId &&
+          (queued.kind === 'progress' ||
+            ((item.kind === 'result' || item.kind === 'failed') && queued.kind === 'needs_approval'))
+        if (superseded) {
           decide('coalesced', queued, `superseded by the ${item.kind} for the same work`)
           queue.splice(index, 1)
         }

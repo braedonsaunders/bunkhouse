@@ -7,7 +7,8 @@ import {
 } from '../src/lib/call-mailbox'
 import { resolvePageAccess, toolsPromisedButAbsent } from '../src/lib/call-reading'
 import { createCallTrace } from '../src/lib/call-trace'
-import { toolActivityFromEvents } from '../src/lib/call-activity'
+import { describeToolCall, toolActivityFromEvents } from '../src/lib/call-activity'
+import { approvalCompletion, settledWorkPost, spokenWorkResult } from '../src/lib/call-speech'
 
 /**
  * What a call says, and why — the three framework-free modules the talker
@@ -68,6 +69,55 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
   assert.equal(activity.length, 1)
   assert.equal(activity[0]!.status, 'done', 'the approved result completes the item that was parked')
   assert.equal(activity[0]!.detail, null)
+}
+
+// Machine-facing integration names never leak into speech or the operator's
+// live activity list.
+assert.equal(describeToolCall('netsuite_ns_runCustomSuiteQL', {}), 'Checking NetSuite')
+
+// A long written report becomes its final spoken conclusion, not a markdown
+// table read cell-by-cell or an unbounded monologue.
+{
+  const report = [
+    '# Deposit detail',
+    '',
+    '| Customer | Amount |',
+    '| --- | ---: |',
+    '| Acme | $12.00 |',
+    '',
+    'I created the August 4 deposit-detail PDF and sent it to bsaunders@rassaun.com and ksaunders@rassaun.com. Both messages include the finished attachment.',
+  ].join('\n')
+  const spoken = spokenWorkResult(report)
+  assert.ok(!spoken.includes('|'), 'tables stay on the screen')
+  assert.match(spoken, /^I created/)
+  assert.ok(spoken.split(/\s+/).length <= 55, 'one call turn stays bounded')
+
+  assert.equal(
+    settledWorkPost({
+      id: 'work-1',
+      intent: 'send the report',
+      status: 'needs_approval',
+      detail: 'Approval request emailed.',
+      runningForSeconds: 12,
+    }),
+    null,
+    'the worker does not post a queued approval again as a finished result',
+  )
+  assert.deepEqual(
+    approvalCompletion('send_email', {
+      sent: true,
+      to: 'bsaunders@rassaun.com, ksaunders@rassaun.com',
+      attachedFiles: 1,
+    }),
+    {
+      text: 'The email to bsaunders@rassaun.com, ksaunders@rassaun.com has been approved and sent with the attachment. Is there anything else you need?',
+      failed: false,
+    },
+  )
+  assert.deepEqual(approvalCompletion('send_email', { sent: false, reason: 'The mailbox rejected it.' }), {
+    text: 'That was approved, but it still could not be completed: The mailbox rejected it.',
+    failed: true,
+  })
 }
 
 /** A line the mailbox is watching, and what it has been told to say. */
@@ -312,6 +362,36 @@ function harness(timing: Partial<MailboxTiming> = {}) {
   mailbox.close()
 }
 
+// A repeated approval that arrives while the first copy is physically being
+// spoken is not waiting in the queue and is not yet in the said set. The
+// in-flight identity is the only thing preventing a second utterance.
+{
+  const decisions: MailboxDecision[] = []
+  let release = () => {}
+  const playout = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const mailbox = createCallMailbox({
+    isQuiet: () => true,
+    deliver: async () => playout,
+    onDecision: (decision) => decisions.push(decision),
+    timing: FAST,
+  })
+  const approval = { kind: 'needs_approval' as const, workId: 'work-1', text: 'The email needs a sign-off.' }
+  mailbox.post(approval)
+  await sleep(20)
+  mailbox.post(approval)
+  assert.equal(mailbox.pending().length, 0)
+  assert.ok(
+    decisions.some(
+      (decision) => decision.text === approval.text && decision.reason === 'the same words are already being said',
+    ),
+  )
+  release()
+  await sleep(20)
+  mailbox.close()
+}
+
 // --- check_work, and the end of the call ------------------------------------
 // A model that has just asked where things stand is handed everything waiting,
 // and is not then interrupted with what it has already read.
@@ -419,6 +499,7 @@ function harness(timing: Partial<MailboxTiming> = {}) {
   const heard = line.heard()
   assert.equal(heard.length, 1, 'everything waiting at one boundary is said once, together')
   assert.ok(heard[0]!.includes(answer), 'the answer is said')
+  assert.ok(!heard[0]!.includes(parked), 'the completed action supersedes the stale approval line')
 
   // Posting the same answer again — a retry, a second settle, any route at all
   // — cannot produce a second utterance.

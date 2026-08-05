@@ -79,9 +79,9 @@ export type StartedWork = {
  * whether it is still worth saying by the time the line is quiet, and coalesces
  * it with whatever else is waiting.
  *
- * A result is not among the kinds a worker emits: the answer travels back as
- * `do_work`'s own return value, which the framework already speaks at the turn
- * tail in the agent's words.
+ * A result is not among the incremental notes a worker emits. The settled
+ * answer is posted once by `do_work` after it has been reduced to a bounded
+ * spoken turn.
  */
 export type WorkNote = {
   /** The handle the talker was given when it handed the work over. */
@@ -105,6 +105,8 @@ export type CallWorker = {
   startWork: (intent: string, hooks?: WorkHooks) => StartedWork
   /** Every piece of work this call has handed over, in the order it was. */
   checkWork: () => WorkReport[]
+  /** Move the parked work behind an approval to its executed outcome. */
+  resolveApproval: (input: { approvalId: string; detail: string; failed: boolean }) => WorkReport | null
   /** True while a piece of work the caller is waiting on is still running. */
   working: () => boolean
   /**
@@ -252,7 +254,7 @@ export function createCallWorker(args: {
   autonomy: AutonomyResolver
   /** Who is on the line, for the work's own sense of what it is doing. */
   caller: string
-  /** Append to the call's run ledger. The voice agent owns the numbering. */
+  /** Append to the call's run ledger. The shared event appender owns numbering. */
   record: (kind: string, payload: Record<string, unknown>) => Promise<void>
   /** The call's operational record: what was handed over, and what became of it. */
   trace: CallTrace
@@ -279,6 +281,7 @@ export function createCallWorker(args: {
     startedAt: number
   }
   const items: Item[] = []
+  const approvalItems = new Map<string, Item>()
   const stopping = new AbortController()
   let stopped = false
   let counter = 0
@@ -437,6 +440,7 @@ export function createCallWorker(args: {
         case 'approval_request':
           // The description is rendered by `describeToolCall`, so it is already
           // the same human label a tool call gets.
+          approvalItems.set(raw.approvalId, item)
           post('needs_approval', `${raw.description} — it needs a manager's sign-off before it can happen.`)
           return
         case 'message': {
@@ -558,6 +562,21 @@ export function createCallWorker(args: {
       return { id: item.id, settled }
     },
     checkWork: () => items.map(report),
+    resolveApproval: ({ approvalId, detail, failed }) => {
+      const item = approvalItems.get(approvalId)
+      if (!item) return null
+      approvalItems.delete(approvalId)
+      item.status = failed ? 'failed' : 'done'
+      item.detail = detail
+      const settled = report(item)
+      trace.settled({
+        workId: item.id,
+        status: settled.status,
+        answer: settled.detail,
+        seconds: settled.runningForSeconds,
+      })
+      return settled
+    },
     working: () => items.some((item) => item.status === 'working'),
     stop: async (reason) => {
       if (stopped) return
