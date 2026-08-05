@@ -265,6 +265,30 @@ jobs:
             (async () => { for (const t of (process.env.TARGETS || "").split(",")) if (t.trim()) await probe(t.trim()) })();
           '
 
+      # The last thing that separates a network problem from a LiveKit problem.
+      # If the media port will not answer a STUN binding request from the node
+      # itself, nothing about the network is at fault and the socket is not
+      # serving ICE at all.
+      - name: STUN the media port from the node
+        if: ${{ inputs.checkMedia }}
+        run: |
+          set -uo pipefail
+          cat > /tmp/stun.js <<'STUNJS'
+          const dgram = require('node:dgram')
+          const crypto = require('node:crypto')
+          const probe = (host, port) => new Promise((resolve) => {
+            const sock = dgram.createSocket('udp4')
+            const msg = Buffer.concat([Buffer.from([0, 1, 0, 0, 0x21, 0x12, 0xa4, 0x42]), crypto.randomBytes(12)])
+            const done = (text) => { try { sock.close() } catch {} ; console.log('  ' + (host + ':' + port).padEnd(22) + text); resolve() }
+            const timer = setTimeout(() => done('NO RESPONSE'), 6000)
+            sock.on('message', (d) => { clearTimeout(timer); done('REPLIED ' + d.length + ' bytes') })
+            sock.on('error', (e) => { clearTimeout(timer); done('FAILED ' + e.code) })
+            sock.send(msg, port, host)
+          })
+          ;(async () => { for (const h of ['127.0.0.1', '10.0.0.101']) await probe(h, 7882) })()
+          STUNJS
+          docker run --rm --net=host -v /tmp/stun.js:/stun.js:ro node:22-alpine node /stun.js 2>&1 || true
+
       - name: Read the newest Dokploy deployment log
         if: ${{ inputs.dokployLogFor != '' }}
         run: |
