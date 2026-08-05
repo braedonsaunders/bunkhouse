@@ -394,7 +394,7 @@ jobs:
           if [ -z "$cid" ]; then echo "::error::No running web container"; exit 1; fi
           livekit_cid="$(docker ps --filter 'name=_livekit.' --filter 'status=running' --format '{{.ID}}' | head -1)"
           if [ -z "$livekit_cid" ]; then echo "::error::No running LiveKit container"; exit 1; fi
-          backend="$(docker inspect "$livekit_cid" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')"
+          backend="$(docker inspect "$livekit_cid" --format '{{with index .NetworkSettings.Networks "dokploy-network"}}{{.IPAddress}}{{end}}')"
           docker exec -e TURN_BACKEND="$backend" "$cid" node -e '
             const net = require("node:net");
             const tls = require("node:tls");
