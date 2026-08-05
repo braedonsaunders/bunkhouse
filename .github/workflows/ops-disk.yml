@@ -395,7 +395,10 @@ jobs:
           livekit_cid="$(docker ps --filter 'name=_livekit.' --filter 'status=running' --format '{{.ID}}' | head -1)"
           if [ -z "$livekit_cid" ]; then echo "::error::No running LiveKit container"; exit 1; fi
           backend="$(docker inspect "$livekit_cid" --format '{{with index .NetworkSettings.Networks "dokploy-network"}}{{.IPAddress}}{{end}}')"
-          docker exec -e TURN_BACKEND="$backend" "$cid" node -e '
+          traefik_cid="$(docker ps --filter 'name=traefik' --filter 'status=running' --format '{{.ID}}' | head -1)"
+          if [ -z "$traefik_cid" ]; then echo "::error::No running Traefik container"; exit 1; fi
+          traefik_backend="$(docker inspect "$traefik_cid" --format '{{with index .NetworkSettings.Networks "dokploy-network"}}{{.IPAddress}}{{end}}')"
+          docker exec -e TURN_BACKEND="$backend" -e TRAEFIK_BACKEND="$traefik_backend" "$cid" node -e '
             const net = require("node:net");
             const tls = require("node:tls");
             const crypto = require("node:crypto");
@@ -435,15 +438,18 @@ jobs:
             }
 
             (async () => {
-              const direct = await probe("livekit:443 plaintext", () => net.connect(443, "livekit"));
-              const task = await probe("LiveKit task IP plaintext", () => net.connect(443, process.env.TURN_BACKEND));
-              const routed = await probe("public TURN/TLS", () => tls.connect({
-                host: "bunkhouse-turn.cloud.rassaun.com",
+              const tlsProbe = (label, host) => probe(label, () => tls.connect({
+                host,
                 port: 443,
                 servername: "bunkhouse-turn.cloud.rassaun.com",
                 rejectUnauthorized: true,
               }));
-              if (!direct || !task || !routed) process.exitCode = 1;
+              const direct = await probe("livekit:443 plaintext", () => net.connect(443, "livekit"));
+              const task = await probe("LiveKit task IP plaintext", () => net.connect(443, process.env.TURN_BACKEND));
+              const traefik = await tlsProbe("Traefik overlay TURN/TLS", process.env.TRAEFIK_BACKEND);
+              const manager = await tlsProbe("manager 443 TURN/TLS", "10.0.0.101");
+              const routed = await tlsProbe("public TURN/TLS", "bunkhouse-turn.cloud.rassaun.com");
+              if (!direct || !task || !traefik || !manager || !routed) process.exitCode = 1;
             })();
           '
 
