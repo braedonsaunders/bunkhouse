@@ -202,6 +202,43 @@ jobs:
                 -X POST "$base/api/compose.update" --data @- > /dev/null
           echo "Dokploy compose source is current and BUNKHOUSE_TAG=${NEW_TAG}"
 
+      # The LAN/public edge in front of Dokploy learns hostnames from Dokploy's
+      # managed-domain registry. A Traefik label alone creates the inner TCP
+      # router but leaves that first hop returning 404, so TURN never reaches
+      # Traefik. Keep the registry entry alongside the compose source and make
+      # the write idempotent so every deployment repairs drift safely.
+      - name: Register the TURN domain with Dokploy
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
+          COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+        run: |
+          set -euo pipefail
+          base="${DOKPLOY_URL%/}"
+          current="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+            -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID")"
+          turn_host="$(echo "$current" | jq -r '.env // ""' \
+            | awk -F= '$1 == "LIVEKIT_TURN_DOMAIN" { print substr($0, index($0, "=") + 1) }' \
+            | tail -1)"
+          turn_host="${turn_host:-bunkhouse-turn.cloud.rassaun.com}"
+          domains="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+            -G "$base/api/domain.byComposeId" --data-urlencode "composeId=$COMPOSE_ID")"
+
+          if echo "$domains" | jq -e --arg host "$turn_host" \
+            'any(.[]; .host == $host)' > /dev/null; then
+            echo "TURN domain already registered: $turn_host"
+            exit 0
+          fi
+
+          jq -n \
+            --arg host "$turn_host" \
+            --arg composeId "$COMPOSE_ID" \
+            '{host:$host, port:443, https:true, certificateType:"none", composeId:$composeId, serviceName:"livekit", domainType:"compose"}' \
+            | curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+                -H 'content-type: application/json' \
+                -X POST "$base/api/domain.create" --data @- > /dev/null
+          echo "Registered TURN domain: $turn_host"
+
       # The agent shell sandbox is a second application, deployed as plain
       # Compose because swarm silently drops the security options bubblewrap
       # needs. It runs the same image, so it has to move with it — pinned to
