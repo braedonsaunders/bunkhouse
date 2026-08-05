@@ -98,6 +98,10 @@ on:
         description: 'Pull the newest runner image and recreate EVERY shared GitHub runner on this host (interrupts any job they are running)'
         type: boolean
         default: false
+      traefikReport:
+        description: 'Show Traefik TCP routers and services from its local read-only API'
+        type: boolean
+        default: false
 
 # Where this deployment's durable storage lives. Repository variables rather
 # than literals: this file is written to be public, and one company's NFS
@@ -354,6 +358,21 @@ jobs:
             echo "::endgroup::"
           done
           [ "$found" = 1 ] || echo "::warning::Nothing here matches '$match'"
+
+      - name: Show Traefik TCP routing state
+        if: ${{ inputs.traefikReport }}
+        run: |
+          set -uo pipefail
+          cid="$(docker ps --filter 'name=traefik' --filter 'status=running' --format '{{.ID}}' | head -1)"
+          if [ -z "$cid" ]; then echo "::error::No running Traefik container"; exit 1; fi
+          for endpoint in tcp/routers tcp/services; do
+            echo "::group::Traefik API — $endpoint"
+            docker run --rm --network "container:$cid" alpine:3 \
+              wget -qO- "http://127.0.0.1:8080/api/$endpoint" 2>&1 \
+              | sed 's/},{/},\n{/g'
+            echo
+            echo "::endgroup::"
+          done
 
       # Answering "what were the agents doing all night, and what did it cost"
       # needs the whole night at once, which the observatory cannot show. The
