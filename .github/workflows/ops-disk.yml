@@ -78,6 +78,10 @@ on:
         description: 'Whether LiveKit media is reachable: node address, host interfaces, and what is bound to 7881/7882'
         type: boolean
         default: false
+      showComposeEnv:
+        description: 'Print the bunkhouse compose environment — keys always, values only for known non-secret settings'
+        type: boolean
+        default: false
       updateRunners:
         description: 'Pull the newest runner image and recreate EVERY shared GitHub runner on this host (interrupts any job they are running)'
         type: boolean
@@ -168,6 +172,29 @@ jobs:
              echo '--- rules mentioning the media ports ---'; \
              iptables -S 2>/dev/null | grep -E '7881|7882' || echo '  no rule mentions 7881/7882'"
           echo "::endgroup::"
+
+      # What the deployment actually carries, as opposed to what the compose
+      # file defaults to. A setting that quietly reverted to its default is
+      # invisible from the file and from the application, and reads as a
+      # network problem rather than a configuration one.
+      - name: Show the compose environment
+        if: ${{ inputs.showComposeEnv }}
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
+          COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+        run: |
+          set -euo pipefail
+          base="${DOKPLOY_URL%/}"
+          curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+            -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID" \
+            | jq -r '.env // ""' \
+            | awk -F= 'NF>1 {
+                key=$1; val=substr($0, index($0,"=")+1);
+                safe = (key ~ /^(BUNKHOUSE_TAG|LIVEKIT_NODE_IP|LIVEKIT_URL|APPKIT_STORAGE_ENDPOINT|APPKIT_STORAGE_BUCKET|BUNKHOUSE_NFS_ADDR|BUNKHOUSE_NFS_EXPORT|APP_URL|ADMIN_EMAIL)$/);
+                if (safe) printf "  %-32s = %s\n", key, val;
+                else printf "  %-32s = <set, %d chars>\n", key, length(val);
+              }'
 
       - name: Read the newest Dokploy deployment log
         if: ${{ inputs.dokployLogFor != '' }}
