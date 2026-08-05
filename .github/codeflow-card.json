@@ -2,108 +2,6 @@
   "version": 1,
   "runs": [
     {
-      "at": "2026-08-01T03:13:48.689Z",
-      "sha": "2b5cdf3a2d51956b76d821971e74379fd220222b",
-      "pr": null,
-      "actor": "braedonsaunders",
-      "files": 369,
-      "functions": 1095,
-      "loc": 107801,
-      "languages": 12,
-      "topLanguages": [
-        {
-          "ext": "ts",
-          "pct": 33,
-          "lines": 35116
-        },
-        {
-          "ext": "json",
-          "pct": 25,
-          "lines": 26695
-        },
-        {
-          "ext": "tsx",
-          "pct": 23,
-          "lines": 25221
-        },
-        {
-          "ext": "yaml",
-          "pct": 14,
-          "lines": 15262
-        },
-        {
-          "ext": "sql",
-          "pct": 3,
-          "lines": 2846
-        }
-      ],
-      "dead": 32,
-      "deadPct": 2.9,
-      "circular": 1,
-      "godObjects": 1,
-      "avgCoupling": 2.5,
-      "securityIssues": 39,
-      "patterns": 7,
-      "duplicates": 11,
-      "layerViolations": 193,
-      "connections": 916,
-      "avgFnLines": 15.6,
-      "longestFn": 16,
-      "testFiles": 1,
-      "testRatio": 0.3,
-      "topFolders": [
-        {
-          "name": "apps",
-          "count": 280
-        },
-        {
-          "name": "migrations",
-          "count": 48
-        },
-        {
-          "name": "packages",
-          "count": 20
-        },
-        {
-          "name": "root",
-          "count": 11
-        },
-        {
-          "name": "docs",
-          "count": 6
-        }
-      ],
-      "folders": 5,
-      "grade": "D",
-      "score": 69,
-      "topBlast": {
-        "path": "apps/web/src/db/client.ts",
-        "direct": 80,
-        "transitive": 152,
-        "total": 232
-      },
-      "fragility": [
-        {
-          "path": "apps/web/src/db/client.ts",
-          "direct": 80,
-          "transitive": 152,
-          "total": 232
-        },
-        {
-          "path": "apps/web/src/lib/tenant.ts",
-          "direct": 44,
-          "transitive": 95,
-          "total": 139
-        },
-        {
-          "path": "apps/web/src/lib/auth.ts",
-          "direct": 5,
-          "transitive": 88,
-          "total": 93
-        }
-      ]
-    },
-    {
       "at": "2026-08-01T03:31:05.013Z",
       "sha": "587dded693417b3a3f6dcf86a45861bbfb4bb087",
       "pr": null,
@@ -2962,6 +2860,108 @@
     {
       "at": "2026-08-05T03:30:07.100Z",
       "sha": "607112dbb613bf238fdd0c98e45fcdf9c5312fc0",
+      "pr": null,
+      "actor": "braedonsaunders",
+      "files": 381,
+      "functions": 1129,
+      "loc": 110268,
+      "languages": 12,
+      "topLanguages": [
+        {
+          "ext": "ts",
+          "pct": 33,
+          "lines": 36482
+        },
+        {
+          "ext": "json",
+          "pct": 24,
+          "lines": 26699
+        },
+        {
+          "ext": "tsx",
+          "pct": 23,
+          "lines": 25808
+        },
+        {
+          "ext": "yaml",
+          "pct": 14,
+          "lines": 15288
+        },
+        {
+          "ext": "sql",
+          "pct": 3,
+          "lines": 2957
+        }
+      ],
+      "dead": 32,
+      "deadPct": 2.8,
+      "circular": 1,
+      "godObjects": 1,
+      "avgCoupling": 2.6,
+      "securityIssues": 40,
+      "patterns": 7,
+      "duplicates": 12,
+      "layerViolations": 206,
+      "connections": 976,
+      "avgFnLines": 15.6,
+      "longestFn": 16,
+      "testFiles": 1,
+      "testRatio": 0.3,
+      "topFolders": [
+        {
+          "name": "apps",
+          "count": 287
+        },
+        {
+          "name": "migrations",
+          "count": 49
+        },
+        {
+          "name": "packages",
+          "count": 20
+        },
+        {
+          "name": "root",
+          "count": 12
+        },
+        {
+          "name": "docs",
+          "count": 8
+        }
+      ],
+      "folders": 5,
+      "grade": "D",
+      "score": 69,
+      "topBlast": {
+        "path": "apps/web/src/db/client.ts",
+        "direct": 83,
+        "transitive": 156,
+        "total": 239
+      },
+      "fragility": [
+        {
+          "path": "apps/web/src/db/client.ts",
+          "direct": 83,
+          "transitive": 156,
+          "total": 239
+        },
+        {
+          "path": "apps/web/src/lib/tenant.ts",
+          "direct": 45,
+          "transitive": 98,
+          "total": 143
+        },
+        {
+          "path": "apps/web/src/lib/auth.ts",
+          "direct": 5,
+          "transitive": 91,
+          "total": 96
+        }
+      ]
+    },
+    {
+      "at": "2026-08-05T03:34:32.684Z",
+      "sha": "42b65974a789b9c95f47a6aae9b3b0d73b4e565a",
       "pr": null,
       "actor": "braedonsaunders",
       "files": 381,
