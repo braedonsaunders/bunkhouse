@@ -4,8 +4,8 @@
 # placement puts every service beside dokploy-traefik, and ingress is wired by
 # Dokploy managed domains (Traefik file provider) — one hostname to web:3000,
 # one to livekit:7880 over wss. The site's HA edge Traefik pair terminates
-# TURN/TLS for LIVEKIT_TURN_DOMAIN, re-encrypts it to Dokploy on 443, and the
-# inner TCP router forwards plaintext to LiveKit's embedded TURN listener.
+# TURN/TLS for LIVEKIT_TURN_DOMAIN and forwards plaintext to the manager's
+# dedicated host port, which maps to LiveKit's embedded TURN listener.
 # The GitHub deploy workflow bumps BUNKHOUSE_TAG and triggers compose.deploy.
 #
 # Database, app Redis, and object storage are EXISTING shared services, never
@@ -201,8 +201,8 @@ services:
   livekit:
     image: livekit/livekit-server:latest
     # Signalling enters through Dokploy. Direct TCP/UDP media stays published
-    # in host mode for the fast path. The HA edge and Dokploy TCP routers carry
-    # TURN/TLS over the only cross-node port the infrastructure exposes: 443.
+    # in host mode for the fast path. The HA edge terminates TURN/TLS on public
+    # 443 and forwards the decrypted stream to the dedicated host port below.
     environment:
       # One config body rather than flags plus environment: the media settings
       # below have no flag equivalents, and splitting the configuration across
@@ -218,8 +218,8 @@ services:
         turn:
           enabled: true
           domain: ${LIVEKIT_TURN_DOMAIN:-bunkhouse-turn.cloud.rassaun.com}
-          # Both edge layers terminate TLS before this listener. external_tls
-          # keeps the client-facing URI on turns:443.
+          # The HA edge terminates TLS and maps public 443 to host port 5349.
+          # external_tls keeps the client-facing URI on turns:443.
           tls_port: 443
           external_tls: true
           ttl_seconds: 300
@@ -250,23 +250,18 @@ services:
         published: 7882
         protocol: udp
         mode: host
+      # Plaintext TURN after TLS termination at the HA edge. This is not a
+      # public listener: only the edge routes bunkhouse-turn SNI to it.
+      - target: 443
+        published: 5349
+        protocol: tcp
+        mode: host
       # TURN advertises the node address for relay candidates. Publish the
       # matching relay sockets or ICE checks reach the host and die before the
       # embedded TURN server can receive them.
       - "30000-30049:30000-30049/udp"
     deploy:
       replicas: 1
-      # The global edge re-encrypts TURN to the Dokploy workers on 443 using
-      # this SNI. Dokploy terminates that inner TLS hop and forwards plaintext
-      # over the overlay to LiveKit's external-TLS listener.
-      labels:
-        - "traefik.enable=true"
-        - "traefik.swarm.network=dokploy-network"
-        - "traefik.tcp.routers.bunkhouse-turn.rule=HostSNI(`${LIVEKIT_TURN_DOMAIN:-bunkhouse-turn.cloud.rassaun.com}`)"
-        - "traefik.tcp.routers.bunkhouse-turn.entrypoints=websecure"
-        - "traefik.tcp.routers.bunkhouse-turn.service=bunkhouse-turn"
-        - "traefik.tcp.routers.bunkhouse-turn.tls=true"
-        - "traefik.tcp.services.bunkhouse-turn.loadbalancer.server.port=443"
       placement:
         constraints:
           - node.hostname==dokploy-mgr
