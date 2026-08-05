@@ -320,9 +320,17 @@ jobs:
           COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
         run: |
           set -euo pipefail
+          base="${DOKPLOY_URL%/}"
+          # Remember the latest deployment before queuing this one. Polling
+          # the unfiltered list can otherwise see an earlier successful row
+          # and declare success before Dokploy inserts the new deployment.
+          baseline="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+            -G "$base/api/deployment.allByCompose" --data-urlencode "composeId=$COMPOSE_ID" \
+            | jq -r 'sort_by(.createdAt) | last | .createdAt // ""')"
+          echo "DOKPLOY_DEPLOY_BASELINE=$baseline" >> "$GITHUB_ENV"
           curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
             -H 'content-type: application/json' \
-            -X POST "${DOKPLOY_URL%/}/api/compose.deploy" \
+            -X POST "$base/api/compose.deploy" \
             --data "{\"composeId\":\"$COMPOSE_ID\"}"
           echo "Deployment queued"
 
@@ -338,18 +346,17 @@ jobs:
             sleep 10
             latest="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
               -G "$base/api/deployment.allByCompose" --data-urlencode "composeId=$COMPOSE_ID" \
-              | jq -r 'sort_by(.createdAt) | last | .status')"
-            echo "deployment status: $latest"
+              | jq -r --arg baseline "$DOKPLOY_DEPLOY_BASELINE" \
+                '[.[] | select(.createdAt > $baseline)] | sort_by(.createdAt) | last | .status // "queued"')"
+            echo "current deployment status: $latest"
             if [ "$latest" = "done" ]; then exit 0; fi
             if [ "$latest" = "error" ]; then
               echo "::error::Dokploy deployment failed"
               exit 1
             fi
           done
-          # Still running is not failure — a large image pull simply takes as
-          # long as it takes; Dokploy finishes on its own after we stop looking.
-          echo "::warning::Deployment still running after 10 minutes — letting it converge."
-          exit 0
+          echo "::error::Dokploy deployment did not finish within 10 minutes."
+          exit 1
 
       - name: Production health gate
         env:

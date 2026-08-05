@@ -1,0 +1,11 @@
+[Unit]
+Description=Keep Bunkhouse LiveKit TURN networking attached to the active task
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=10s
+AccuracySec=1s
+Unit=bunkhouse-turn-nat.service
+
+[Install]
+WantedBy=timers.target

@@ -17,6 +17,12 @@
 # points at.
 
 networks:
+  # Media services share this stack-private overlay. The voice agent must see
+  # the same LiveKit node address that LiveKit advertises internally; routing
+  # it through the public TURN endpoint from a different overlay creates an
+  # unrouteable hairpin in Docker Swarm.
+  default:
+    driver: overlay
   dokploy-network:
     external: true
   # The shared services network, where the database, Redis, and object storage
@@ -180,6 +186,7 @@ services:
     volumes:
       - agent-workspaces:/data/agent-homes
     networks:
+      - default
       - dokploy-network
       - infra-net
     deploy:
@@ -240,6 +247,7 @@ services:
         logging:
           level: info
     networks:
+      - default
       - dokploy-network
     ports:
       - target: 7881
@@ -259,7 +267,209 @@ services:
       # TURN advertises the node address for relay candidates. Publish the
       # matching relay sockets or ICE checks reach the host and die before the
       # embedded TURN server can receive them.
-      - "30000-30049:30000-30049/udp"
+      # Swarm defaults short-form ranges to the routing mesh. TURN needs the
+      # packets on the node that owns the LiveKit task, so every relay socket
+      # is published explicitly in host mode.
+      - target: 30000
+        published: 30000
+        protocol: udp
+        mode: host
+      - target: 30001
+        published: 30001
+        protocol: udp
+        mode: host
+      - target: 30002
+        published: 30002
+        protocol: udp
+        mode: host
+      - target: 30003
+        published: 30003
+        protocol: udp
+        mode: host
+      - target: 30004
+        published: 30004
+        protocol: udp
+        mode: host
+      - target: 30005
+        published: 30005
+        protocol: udp
+        mode: host
+      - target: 30006
+        published: 30006
+        protocol: udp
+        mode: host
+      - target: 30007
+        published: 30007
+        protocol: udp
+        mode: host
+      - target: 30008
+        published: 30008
+        protocol: udp
+        mode: host
+      - target: 30009
+        published: 30009
+        protocol: udp
+        mode: host
+      - target: 30010
+        published: 30010
+        protocol: udp
+        mode: host
+      - target: 30011
+        published: 30011
+        protocol: udp
+        mode: host
+      - target: 30012
+        published: 30012
+        protocol: udp
+        mode: host
+      - target: 30013
+        published: 30013
+        protocol: udp
+        mode: host
+      - target: 30014
+        published: 30014
+        protocol: udp
+        mode: host
+      - target: 30015
+        published: 30015
+        protocol: udp
+        mode: host
+      - target: 30016
+        published: 30016
+        protocol: udp
+        mode: host
+      - target: 30017
+        published: 30017
+        protocol: udp
+        mode: host
+      - target: 30018
+        published: 30018
+        protocol: udp
+        mode: host
+      - target: 30019
+        published: 30019
+        protocol: udp
+        mode: host
+      - target: 30020
+        published: 30020
+        protocol: udp
+        mode: host
+      - target: 30021
+        published: 30021
+        protocol: udp
+        mode: host
+      - target: 30022
+        published: 30022
+        protocol: udp
+        mode: host
+      - target: 30023
+        published: 30023
+        protocol: udp
+        mode: host
+      - target: 30024
+        published: 30024
+        protocol: udp
+        mode: host
+      - target: 30025
+        published: 30025
+        protocol: udp
+        mode: host
+      - target: 30026
+        published: 30026
+        protocol: udp
+        mode: host
+      - target: 30027
+        published: 30027
+        protocol: udp
+        mode: host
+      - target: 30028
+        published: 30028
+        protocol: udp
+        mode: host
+      - target: 30029
+        published: 30029
+        protocol: udp
+        mode: host
+      - target: 30030
+        published: 30030
+        protocol: udp
+        mode: host
+      - target: 30031
+        published: 30031
+        protocol: udp
+        mode: host
+      - target: 30032
+        published: 30032
+        protocol: udp
+        mode: host
+      - target: 30033
+        published: 30033
+        protocol: udp
+        mode: host
+      - target: 30034
+        published: 30034
+        protocol: udp
+        mode: host
+      - target: 30035
+        published: 30035
+        protocol: udp
+        mode: host
+      - target: 30036
+        published: 30036
+        protocol: udp
+        mode: host
+      - target: 30037
+        published: 30037
+        protocol: udp
+        mode: host
+      - target: 30038
+        published: 30038
+        protocol: udp
+        mode: host
+      - target: 30039
+        published: 30039
+        protocol: udp
+        mode: host
+      - target: 30040
+        published: 30040
+        protocol: udp
+        mode: host
+      - target: 30041
+        published: 30041
+        protocol: udp
+        mode: host
+      - target: 30042
+        published: 30042
+        protocol: udp
+        mode: host
+      - target: 30043
+        published: 30043
+        protocol: udp
+        mode: host
+      - target: 30044
+        published: 30044
+        protocol: udp
+        mode: host
+      - target: 30045
+        published: 30045
+        protocol: udp
+        mode: host
+      - target: 30046
+        published: 30046
+        protocol: udp
+        mode: host
+      - target: 30047
+        published: 30047
+        protocol: udp
+        mode: host
+      - target: 30048
+        published: 30048
+        protocol: udp
+        mode: host
+      - target: 30049
+        published: 30049
+        protocol: udp
+        mode: host
     deploy:
       replicas: 1
       placement:
@@ -298,6 +508,7 @@ services:
     cap_add:
       - SYS_ADMIN
     networks:
+      - default
       - dokploy-network
     deploy:
       replicas: 1
@@ -326,6 +537,7 @@ services:
         logging:
           level: info
     networks:
+      - default
       - dokploy-network
     ports:
       - target: 5060
