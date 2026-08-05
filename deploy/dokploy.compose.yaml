@@ -235,19 +235,6 @@ services:
           level: info
     networks:
       - dokploy-network
-    # Dokploy injects its managed signalling-domain labels at this level. Keep
-    # the TURN router in the same label source: Traefik's Swarm provider skips
-    # a service entirely when both container and deploy labels are present.
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=dokploy-network"
-      - "traefik.tcp.routers.bunkhouse-turn.rule=HostSNI(`${LIVEKIT_TURN_DOMAIN:-bunkhouse-turn.cloud.rassaun.com}`)"
-      - "traefik.tcp.routers.bunkhouse-turn.entrypoints=websecure"
-      - "traefik.tcp.routers.bunkhouse-turn.service=bunkhouse-turn"
-      - "traefik.tcp.routers.bunkhouse-turn.tls=true"
-      # Dokploy's default store already carries the valid wildcard certificate
-      # for this domain. Do not start a second ACME order for the TURN SNI.
-      - "traefik.tcp.services.bunkhouse-turn.loadbalancer.server.port=443"
     ports:
       - target: 7881
         published: 7881
@@ -259,6 +246,20 @@ services:
         mode: host
     deploy:
       replicas: 1
+      # Dokploy's managed signalling router is a Swarm service label. The TURN
+      # router must use that same provider and its `traefik.swarm.network`
+      # selector; mixing in Docker container labels creates a second router
+      # that cannot reliably address a Swarm task.
+      labels:
+        - "traefik.enable=true"
+        - "traefik.swarm.network=dokploy-network"
+        - "traefik.tcp.routers.bunkhouse-turn.rule=HostSNI(`${LIVEKIT_TURN_DOMAIN:-bunkhouse-turn.cloud.rassaun.com}`)"
+        - "traefik.tcp.routers.bunkhouse-turn.entrypoints=websecure"
+        - "traefik.tcp.routers.bunkhouse-turn.service=bunkhouse-turn"
+        - "traefik.tcp.routers.bunkhouse-turn.tls=true"
+        # Dokploy's default store already carries the valid wildcard certificate
+        # for this domain. Do not start a second ACME order for the TURN SNI.
+        - "traefik.tcp.services.bunkhouse-turn.loadbalancer.server.port=443"
       placement:
         constraints:
           - node.hostname==dokploy-mgr
