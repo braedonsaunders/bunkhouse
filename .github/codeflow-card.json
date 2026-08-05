@@ -2,108 +2,6 @@
   "version": 1,
   "runs": [
     {
-      "at": "2026-08-05T03:26:35.120Z",
-      "sha": "40a7a596aad99b91bc21befcf11f98c971271eb3",
-      "pr": null,
-      "actor": "braedonsaunders",
-      "files": 381,
-      "functions": 1129,
-      "loc": 110268,
-      "languages": 12,
-      "topLanguages": [
-        {
-          "ext": "ts",
-          "pct": 33,
-          "lines": 36482
-        },
-        {
-          "ext": "json",
-          "pct": 24,
-          "lines": 26699
-        },
-        {
-          "ext": "tsx",
-          "pct": 23,
-          "lines": 25808
-        },
-        {
-          "ext": "yaml",
-          "pct": 14,
-          "lines": 15288
-        },
-        {
-          "ext": "sql",
-          "pct": 3,
-          "lines": 2957
-        }
-      ],
-      "dead": 32,
-      "deadPct": 2.8,
-      "circular": 1,
-      "godObjects": 1,
-      "avgCoupling": 2.6,
-      "securityIssues": 40,
-      "patterns": 7,
-      "duplicates": 12,
-      "layerViolations": 206,
-      "connections": 976,
-      "avgFnLines": 15.6,
-      "longestFn": 16,
-      "testFiles": 1,
-      "testRatio": 0.3,
-      "topFolders": [
-        {
-          "name": "apps",
-          "count": 287
-        },
-        {
-          "name": "migrations",
-          "count": 49
-        },
-        {
-          "name": "packages",
-          "count": 20
-        },
-        {
-          "name": "root",
-          "count": 12
-        },
-        {
-          "name": "docs",
-          "count": 8
-        }
-      ],
-      "folders": 5,
-      "grade": "D",
-      "score": 69,
-      "topBlast": {
-        "path": "apps/web/src/db/client.ts",
-        "direct": 83,
-        "transitive": 156,
-        "total": 239
-      },
-      "fragility": [
-        {
-          "path": "apps/web/src/db/client.ts",
-          "direct": 83,
-          "transitive": 156,
-          "total": 239
-        },
-        {
-          "path": "apps/web/src/lib/tenant.ts",
-          "direct": 45,
-          "transitive": 98,
-          "total": 143
-        },
-        {
-          "path": "apps/web/src/lib/auth.ts",
-          "direct": 5,
-          "transitive": 91,
-          "total": 96
-        }
-      ]
-    },
-    {
       "at": "2026-08-05T03:30:07.100Z",
       "sha": "607112dbb613bf238fdd0c98e45fcdf9c5312fc0",
       "pr": null,
@@ -3013,6 +2911,108 @@
         {
           "name": "apps",
           "count": 289
+        },
+        {
+          "name": "migrations",
+          "count": 50
+        },
+        {
+          "name": "packages",
+          "count": 20
+        },
+        {
+          "name": "root",
+          "count": 12
+        },
+        {
+          "name": "docs",
+          "count": 8
+        }
+      ],
+      "folders": 5,
+      "grade": "D",
+      "score": 69,
+      "topBlast": {
+        "path": "apps/web/src/db/client.ts",
+        "direct": 84,
+        "transitive": 158,
+        "total": 242
+      },
+      "fragility": [
+        {
+          "path": "apps/web/src/db/client.ts",
+          "direct": 84,
+          "transitive": 158,
+          "total": 242
+        },
+        {
+          "path": "apps/web/src/lib/tenant.ts",
+          "direct": 45,
+          "transitive": 99,
+          "total": 144
+        },
+        {
+          "path": "apps/web/src/lib/auth.ts",
+          "direct": 5,
+          "transitive": 92,
+          "total": 97
+        }
+      ]
+    },
+    {
+      "at": "2026-08-05T18:22:46.777Z",
+      "sha": "7b01f23f5f5587261568a2b3e2f620b6bd27f4a3",
+      "pr": null,
+      "actor": "braedonsaunders",
+      "files": 387,
+      "functions": 1148,
+      "loc": 111384,
+      "languages": 13,
+      "topLanguages": [
+        {
+          "ext": "ts",
+          "pct": 33,
+          "lines": 37173
+        },
+        {
+          "ext": "json",
+          "pct": 24,
+          "lines": 26699
+        },
+        {
+          "ext": "tsx",
+          "pct": 23,
+          "lines": 25930
+        },
+        {
+          "ext": "yaml",
+          "pct": 14,
+          "lines": 15480
+        },
+        {
+          "ext": "sql",
+          "pct": 3,
+          "lines": 2974
+        }
+      ],
+      "dead": 33,
+      "deadPct": 2.9,
+      "circular": 1,
+      "godObjects": 1,
+      "avgCoupling": 2.6,
+      "securityIssues": 40,
+      "patterns": 7,
+      "duplicates": 12,
+      "layerViolations": 207,
+      "connections": 989,
+      "avgFnLines": 15.6,
+      "longestFn": 16,
+      "testFiles": 1,
+      "testRatio": 0.3,
+      "topFolders": [
+        {
+          "name": "apps",
+          "count": 291
         },
         {
           "name": "migrations",
