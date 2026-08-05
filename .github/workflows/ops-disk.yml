@@ -161,6 +161,23 @@ jobs:
               --format '{{range .Endpoint.Ports}}    {{.Protocol}}/{{.PublishedPort}} -> {{.TargetPort}}  mode={{.PublishMode}}{{"\n"}}{{end}}' 2>&1 || true
           done
           echo "::endgroup::"
+          # TCP answering proves very little: ICE needs the UDP port to reply to
+          # a STUN binding request, and that is the exact exchange the logs show
+          # failing eight times with no answer. Asked from the node itself, so a
+          # failure here means the socket, and a success means the path.
+          echo "::group::STUN binding request to the media port, from the node"
+          docker run --rm --net=host python:3-alpine python3 -c "
+import socket, struct, os
+for target in ['127.0.0.1', '10.0.0.101']:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(4)
+    try:
+        s.sendto(struct.pack('>HHI', 1, 0, 0x2112A442) + os.urandom(12), (target, 7882))
+        d, a = s.recvfrom(2048)
+        print('  %-12s udp/7882 REPLIED %d bytes' % (target, len(d)))
+    except Exception as e:
+        print('  %-12s udp/7882 NO RESPONSE (%s)' % (target, type(e).__name__))
+" 2>&1 || true
+          echo "::endgroup::"
           echo "::group::Firewall"
           docker run --rm --net=host --privileged alpine:3 sh -c \
             "apk add -q --no-cache iptables >/dev/null 2>&1; \
