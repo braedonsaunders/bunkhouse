@@ -74,6 +74,10 @@ on:
         description: 'Upsert ONE variable on the bunkhouse compose as KEY=VALUE, then redeploy (leave blank to skip)'
         type: string
         default: ''
+      updateRunners:
+        description: 'Pull the newest runner image and recreate EVERY shared GitHub runner on this host (interrupts any job they are running)'
+        type: boolean
+        default: false
 
 # Where this deployment's durable storage lives. Repository variables rather
 # than literals: this file is written to be public, and one company's NFS
@@ -533,6 +537,63 @@ jobs:
           curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" -H 'content-type: application/json' \
             -X POST "$base/api/compose.deploy" --data "{\"composeId\":\"$COMPOSE_ID\"}" > /dev/null
           echo "Redeploy triggered."
+
+      # The runner binary is baked into the image and GitHub retires old
+      # versions on a clock — a runner past the cutoff silently stops picking
+      # up jobs, which for this repo means deploys queue forever. The recreate
+      # is scheduled detached with a delay, because this job runs on the very
+      # container being replaced: recreating it inline would kill the job that
+      # asked for it, and the helper has to outlive us to finish the work.
+      - name: Update the shared GitHub runners
+        if: ${{ inputs.updateRunners }}
+        run: |
+          set -euo pipefail
+          ctr="$(docker ps --format '{{.Names}}' | grep '^github-runners-' | head -1)"
+          if [ -z "$ctr" ]; then echo "::error::No github-runners container on this host"; exit 1; fi
+          proj="$(docker inspect "$ctr" --format '{{index .Config.Labels "com.docker.compose.project"}}')"
+          wd="$(docker inspect "$ctr" --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}')"
+          cfg="$(docker inspect "$ctr" --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}')"
+          img="$(docker inspect "$ctr" --format '{{.Config.Image}}')"
+          if [ -z "$proj" ] || [ -z "$wd" ]; then
+            echo "::error::$ctr carries no compose labels — cannot recreate what compose did not create"
+            exit 1
+          fi
+          echo "compose project: $proj"
+          echo "project dir    : $wd"
+          echo "config files   : $cfg"
+          echo "image          : $img"
+          echo "::group::Runners before"
+          docker ps --filter name=github-runners- --format '{{.Names}}  {{.Image}}  {{.Status}}'
+          echo "::endgroup::"
+          # A failed earlier attempt left its story in the helper's logs, and
+          # nothing else on this host keeps that record.
+          if docker inspect github-runners-update >/dev/null 2>&1; then
+            echo "::group::Previous update helper output"
+            docker logs github-runners-update 2>&1 | tail -40 || true
+            echo "::endgroup::"
+            docker rm -f github-runners-update >/dev/null 2>&1
+          fi
+          docker pull "$img"
+          # The helper needs the compose plugin; find that out now, while a
+          # failure still fails this step instead of a detached container.
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock docker:27-cli docker compose version
+          args="-p $proj --project-directory $wd"
+          mounts="-v /var/run/docker.sock:/var/run/docker.sock -v $wd:$wd:ro"
+          seen_dirs=""
+          IFS=','
+          for f in $cfg; do
+            args="$args -f $f"
+            d="$(dirname "$f")"
+            case ",$wd,$seen_dirs," in *",$d,"*) ;; *)
+              mounts="$mounts -v $d:$d:ro"; seen_dirs="${seen_dirs:+$seen_dirs,}$d" ;;
+            esac
+          done
+          unset IFS
+          # shellcheck disable=SC2086 # $mounts and $args are deliberate word lists
+          docker run -d --name github-runners-update $mounts docker:27-cli \
+            sh -c "sleep 20 && docker compose $args up -d --force-recreate"
+          echo "Recreate scheduled ~20s after this job ends. Every runner in '$proj'"
+          echo "restarts on the freshly pulled image and re-registers itself."
 
       - name: Prune images, stopped containers, and build cache
         if: ${{ inputs.prune }}
