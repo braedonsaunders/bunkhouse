@@ -102,6 +102,10 @@ on:
         description: 'Show Traefik TCP routers and services from its local read-only API'
         type: boolean
         default: false
+      turnProbe:
+        description: 'Send a real STUN request to TURN directly and through public TURN/TLS'
+        type: boolean
+        default: false
 
 # Where this deployment's durable storage lives. Repository variables rather
 # than literals: this file is written to be public, and one company's NFS
@@ -377,6 +381,67 @@ jobs:
             echo
             echo "::endgroup::"
           done
+
+      # A TCP connect only proves that something accepted a socket. This sends
+      # a protocol-valid STUN binding request, first as plaintext to the TURN
+      # service (external_tls means this is exactly what LiveKit expects), then
+      # through the public TLS/SNI route. Both must return binding success.
+      - name: Probe TURN protocol end to end
+        if: ${{ inputs.turnProbe }}
+        run: |
+          set -uo pipefail
+          cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
+          if [ -z "$cid" ]; then echo "::error::No running web container"; exit 1; fi
+          docker exec "$cid" node -e '
+            const net = require("node:net");
+            const tls = require("node:tls");
+            const crypto = require("node:crypto");
+            const request = Buffer.alloc(20);
+            request.writeUInt16BE(0x0001, 0);
+            request.writeUInt16BE(0, 2);
+            request.writeUInt32BE(0x2112a442, 4);
+            crypto.randomFillSync(request, 8, 12);
+
+            function probe(label, connect) {
+              return new Promise((resolve) => {
+                let settled = false;
+                const socket = connect();
+                const finish = (ok, detail) => {
+                  if (settled) return;
+                  settled = true;
+                  clearTimeout(timer);
+                  socket.destroy();
+                  console.log(`  ${label.padEnd(26)} ${ok ? "OK" : "FAILED"} — ${detail}`);
+                  resolve(ok);
+                };
+                const timer = setTimeout(() => finish(false, "no STUN response in 8s"), 8000);
+                socket.once("error", (error) => finish(false, `${error.code || error.name}: ${error.message}`));
+                socket.once("secureConnect", () => socket.write(request));
+                socket.once("connect", () => {
+                  if (!(socket instanceof tls.TLSSocket)) socket.write(request);
+                });
+                socket.once("data", (data) => {
+                  if (data.length < 20) return finish(false, `short response (${data.length} bytes)`);
+                  const type = data.readUInt16BE(0);
+                  const cookie = data.readUInt32BE(4);
+                  const sameTransaction = data.subarray(8, 20).equals(request.subarray(8, 20));
+                  finish(type === 0x0101 && cookie === 0x2112a442 && sameTransaction,
+                    `type=0x${type.toString(16).padStart(4, "0")}, ${data.length} bytes, transaction=${sameTransaction ? "matched" : "wrong"}`);
+                });
+              });
+            }
+
+            (async () => {
+              const direct = await probe("livekit:443 plaintext", () => net.connect(443, "livekit"));
+              const routed = await probe("public TURN/TLS", () => tls.connect({
+                host: "bunkhouse-turn.cloud.rassaun.com",
+                port: 443,
+                servername: "bunkhouse-turn.cloud.rassaun.com",
+                rejectUnauthorized: true,
+              }));
+              if (!direct || !routed) process.exitCode = 1;
+            })();
+          '
 
       # Answering "what were the agents doing all night, and what did it cost"
       # needs the whole night at once, which the observatory cannot show. The
