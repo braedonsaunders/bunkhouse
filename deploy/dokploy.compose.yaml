@@ -3,8 +3,9 @@
 # Deployed as a SWARM STACK (composeType "stack") pinned to the manager node:
 # placement puts every service beside dokploy-traefik, and ingress is wired by
 # Dokploy managed domains (Traefik file provider) — one hostname to web:3000,
-# one to livekit:7880 over wss. The GitHub deploy workflow bumps BUNKHOUSE_TAG
-# and triggers compose.deploy.
+# one to livekit:7880 over wss. A Traefik TCP router on websecure sends
+# TURN/TLS traffic for LIVEKIT_TURN_DOMAIN to LiveKit's embedded TURN server.
+# The GitHub deploy workflow bumps BUNKHOUSE_TAG and triggers compose.deploy.
 #
 # Database, app Redis, and object storage are EXISTING shared services, never
 # bundled containers — point BUNKHOUSE_DB_URL, BUNKHOUSE_REDIS_URL, and the
@@ -198,28 +199,10 @@ services:
 
   livekit:
     image: livekit/livekit-server:latest
-    # Signalling reaches this over Traefik on 443; media does not, and media is
-    # what a call actually is. Two things have to be true, and getting one of
-    # them wrong is silent: the agent still answers, and the caller hears
-    # nothing at all.
-    #
-    # The address clients are told to send media to must be one they can route
-    # to. `${PUBLIC_IP}` does not forward 7881/7882, and the server's own view
-    # of itself is an overlay address meaningless outside the swarm — both were
-    # advertised at one point and neither could be reached. It now advertises
-    # the swarm node, which callers on this network can reach.
-    #
-    # And the media ports must publish in HOST mode, exactly as livekit-sip's
-    # do. Ingress publishing puts them on the swarm routing mesh, which
-    # source-NATs and load-balances — TCP survives that and ICE does not. On
-    # the mesh, 7881/tcp answered while 7882/udp was a black hole: every
-    # candidate pair failed with 8 STUN requests sent and 0 responses, on both
-    # transports, on every call. Host mode is safe here because the service is
-    # pinned to the one node whose address is advertised above.
-    #
-    # Verify after any change to this block, from a machine on the caller's
-    # network — a STUN binding request to <node_ip>:7882/udp must come back:
-    #   python3 -c "import socket,struct,os;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.settimeout(4);s.sendto(struct.pack('>HHI',1,0,0x2112A442)+os.urandom(12),('10.0.0.101',7882));print(s.recvfrom(2048)[1])"
+    # Signalling and the most compatible media fallback both enter through
+    # Traefik on 443. Direct TCP/UDP media stays published in host mode for the
+    # fast path, while embedded TURN/TLS gives callers outside the node's LAN
+    # a route that works through restrictive firewalls and container networks.
     environment:
       # One config body rather than flags plus environment: the media settings
       # below have no flag equivalents, and splitting the configuration across
@@ -231,29 +214,19 @@ services:
         rtc:
           tcp_port: 7881
           udp_port: 7882
-          # The address clients are told to send media to. Discovery is wrong
-          # here: the only interface the server can see is its overlay address,
-          # and the public address does not forward 7881/7882 — both were
-          # advertised and neither could be reached, which is what "could not
-          # establish pc connection" was. The swarm node is reachable on the
-          # network callers are on, and answers on both ports once they publish
-          # in host mode.
-          #
-          # WHO CAN CALL is decided entirely by this one line. It is the swarm
-          # node's LAN address, so media works for callers on 10.0.0.0/24 and
-          # for nobody else: a caller on another subnet or over the VPN reaches
-          # the signalling (Traefik, 443) and then fails ICE, which is heard as
-          # an agent who answers and never speaks. Verified from both sides —
-          # 10.0.0.73 reaches 7881, this deployment's own callers on other
-          # networks time out with "wait_pc_connection timed out", and LiveKit
-          # logs every candidate pair failing with 0 responses.
-          #
-          # To let anyone else call: forward 7881/tcp and 7882/udp from the
-          # public address to this node, then set LIVEKIT_NODE_IP to that
-          # public address in the deployment environment. It is a variable
-          # rather than a literal precisely so that opening the ports is the
-          # only work — no code change, no rebuild.
           node_ip: ${LIVEKIT_NODE_IP:-10.0.0.101}
+        turn:
+          enabled: true
+          domain: ${LIVEKIT_TURN_DOMAIN:-bunkhouse-turn.cloud.rassaun.com}
+          # Traefik terminates TURN/TLS on websecure and forwards plaintext to
+          # this port. external_tls keeps the advertised URI as turns:443.
+          tls_port: 443
+          external_tls: true
+          ttl_seconds: 300
+          # LiveKit blocks TURN relays to private targets by default. Permit
+          # only the configured SFU node, not the rest of the private network.
+          allow_restricted_peer_cidrs:
+            - "${LIVEKIT_NODE_IP:-10.0.0.101}/32"
         redis:
           address: media-redis:6379
         keys:
@@ -273,6 +246,15 @@ services:
         mode: host
     deploy:
       replicas: 1
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=dokploy-network"
+        - "traefik.tcp.routers.bunkhouse-turn.rule=HostSNI(`${LIVEKIT_TURN_DOMAIN:-bunkhouse-turn.cloud.rassaun.com}`)"
+        - "traefik.tcp.routers.bunkhouse-turn.entrypoints=websecure"
+        - "traefik.tcp.routers.bunkhouse-turn.service=bunkhouse-turn"
+        - "traefik.tcp.routers.bunkhouse-turn.tls=true"
+        - "traefik.tcp.routers.bunkhouse-turn.tls.certresolver=letsencrypt"
+        - "traefik.tcp.services.bunkhouse-turn.loadbalancer.server.port=443"
       placement:
         constraints:
           - node.hostname==dokploy-mgr
