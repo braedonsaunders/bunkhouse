@@ -152,6 +152,15 @@ jobs:
                nc -z -w 3 \$target 7881 && echo OPEN || echo BLOCKED; \
              done"
           echo "::endgroup::"
+          # The setting that decides whether ICE can work at all. `mode: host`
+          # in the compose is a request; this is what the swarm actually did.
+          echo "::group::How the media ports are published, as running"
+          for svc in $(docker service ls --format '{{.Name}}' | grep -E '_livekit$' || true); do
+            echo "  $svc"
+            docker service inspect "$svc" \
+              --format '{{range .Endpoint.Ports}}    {{.Protocol}}/{{.PublishedPort}} -> {{.TargetPort}}  mode={{.PublishMode}}{{"\n"}}{{end}}' 2>&1 || true
+          done
+          echo "::endgroup::"
           echo "::group::Firewall"
           docker run --rm --net=host --privileged alpine:3 sh -c \
             "apk add -q --no-cache iptables >/dev/null 2>&1; \
