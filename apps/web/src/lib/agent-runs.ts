@@ -35,6 +35,7 @@ import {
   runEvents,
   runs,
   tokenSpend,
+  type ApprovalPayload,
   type RunTrigger,
 } from '../db/schema'
 import { db } from '../db/client'
@@ -777,12 +778,18 @@ export async function executeAgentRun(args: {
         const [approval] = await app.db.select().from(approvals).where(eq(approvals.id, outcome.approvalId))
         if (manager && approval) {
           try {
+            // The payload already holds the exact action the executor will
+            // replay; the email used to show only the one-line label. Three
+            // approvals in one afternoon all read "Sending the reply" and the
+            // manager approved them blind — the draft itself was in the
+            // payload the whole time, one join away from the email.
+            const shown = approvalContentPreview(approval.payload)
             await sendNewMail({
               tenantId: args.tenantId,
               personId: person.id,
               to: [{ name: manager.name, address: manager.email }],
               subject: `[BH#${approval.id.slice(0, 8)}] Approval needed: ${approval.category.replace('_', ' ')}`,
-              text: `Hi ${manager.name.split(' ')[0]},\n\nI need your sign-off before I act:\n\n${approval.payload.description}\n\nReply to this email with "approve" or "decline" (a short note after the word is kept for the record). You can also decide it in Bunkhouse under Approvals.\n\n${person.personality?.signoff ?? person.name}`,
+              text: `Hi ${manager.name.split(' ')[0]},\n\nI need your sign-off before I act:\n\n${approval.payload.description}${shown ? `\n\n${shown}` : ''}\n\nReply to this email with "approve" or "decline" (a short note after the word is kept for the record). You can also decide it in Bunkhouse under Approvals.\n\n${person.personality?.signoff ?? person.name}`,
               runId,
             })
             await sink.event({ kind: 'message', text: `Approval request emailed to ${manager.name} <${manager.email}>.` })
@@ -930,6 +937,51 @@ function senderPermitted(policy: 'staff_only' | 'known_contacts' | 'anyone', tru
 }
 
 /**
+ * What the manager is actually deciding, lifted out of the approval's own
+ * replayable action. Content fields only — a draft's recipient, subject and
+ * body are the decision; tool plumbing (thread ids, page sizes) is not.
+ */
+function approvalContentPreview(payload: ApprovalPayload): string | null {
+  const input = (payload.action as { input?: unknown }).input
+  if (input === null || typeof input !== 'object') return null
+  const record = input as Record<string, unknown>
+  const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value.trim() : null)
+  const lines: string[] = []
+  const to =
+    text(record.to) ??
+    (Array.isArray(record.to)
+      ? record.to
+          .map((entry) =>
+            typeof entry === 'string' ? entry : text((entry as { address?: unknown } | null)?.address),
+          )
+          .filter(Boolean)
+          .join(', ')
+      : null)
+  if (to) lines.push(`To: ${to}`)
+  const subject = text(record.subject) ?? text(record.title)
+  if (subject) lines.push(`Subject: ${subject}`)
+  const body = text(record.body) ?? text(record.text) ?? text(record.message) ?? text(record.spec)
+  if (body) {
+    const clipped = body.length > 1500 ? `${body.slice(0, 1500)}\n[…trimmed]` : body
+    lines.push('', '--- What will be sent ---', clipped, '--- End ---')
+  }
+  return lines.length > 0 ? lines.join('\n') : null
+}
+
+/**
+ * A reply on an approval thread is control traffic, not conversation. The
+ * worker's approval watcher reads it ("approve" / "decline") and decides the
+ * approval; handing the same message to the agent as ordinary mail is how one
+ * approved reply became an afternoon-long loop on a live tenant: the manager's
+ * "approve" spawned a run with no context, that run wrote a confused reply to
+ * the manager, the reply parked on a fresh approval, the manager approved
+ * that, and around it went — three approvals deep before anyone understood
+ * why the agent kept asking. The subject tag is the same one the watcher
+ * matches decisions on.
+ */
+const NOT_AN_APPROVAL_THREAD = sql`${mailMessages.subject} not like '%[BH#%'`
+
+/**
  * Inbound messages that never got a run: gate each by the agent's inbound
  * policy, then start a run — or record an auditable declined run so the
  * message is never silently reprocessed.
@@ -943,6 +995,7 @@ export async function pendingInboundMessageIds(tenantId: string): Promise<string
       .where(
         and(
           eq(mailMessages.direction, 'inbound'),
+          NOT_AN_APPROVAL_THREAD,
           sql`not exists (select 1 from runs r where r.trigger->>'messageId' = ${mailMessages.id}::text)`,
           sql`not exists (select 1 from runs r where ${mailMessages.id} = any(r.consumed_message_ids))`,
         ),
@@ -969,6 +1022,7 @@ export async function startRunsForNewInbound(tenantId: string, onlyMessageId?: s
       .where(
         and(
           eq(mailMessages.direction, 'inbound'),
+          NOT_AN_APPROVAL_THREAD,
           ...(onlyMessageId ? [eq(mailMessages.id, onlyMessageId)] : []),
           sql`not exists (select 1 from runs r where r.trigger->>'messageId' = ${mailMessages.id}::text)`,
           sql`not exists (select 1 from runs r where ${mailMessages.id} = any(r.consumed_message_ids))`,
