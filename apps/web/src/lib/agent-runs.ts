@@ -29,6 +29,7 @@ import {
   duties,
   mailMessages,
   mailThreads,
+  mailboxAccounts,
   people,
   procedureRevisions,
   procedures,
@@ -39,6 +40,8 @@ import {
   type RunTrigger,
 } from '../db/schema'
 import { db } from '../db/client'
+import { loadInternalAddressTest } from './internal-addresses'
+import { matchesInternalDomain } from './internal-domains'
 import { takeInbox } from './colleague-inbox'
 import { hopsOf } from './colleague-post'
 import { resolveAgentAiConfig } from './ai'
@@ -365,16 +368,64 @@ export function skillMaterializer(args: {
 }
 
 /**
+ * Everyone on a thread who is not the agent holding the mailbox, lowercased.
+ * The thread's participants are the whole of who a reply reaches.
+ */
+async function threadCounterparties(tenantId: string, threadId: string): Promise<string[]> {
+  const app = db()
+  const [row] = await app.withTenantContext(tenantId, () =>
+    app.db
+      .select({ participants: mailThreads.participants, mailbox: mailboxAccounts.address })
+      .from(mailThreads)
+      .innerJoin(mailboxAccounts, eq(mailboxAccounts.id, mailThreads.mailboxId))
+      .where(eq(mailThreads.id, threadId)),
+  )
+  if (!row) return []
+  const own = row.mailbox.trim().toLowerCase()
+  return row.participants
+    .map((participant) => participant.address.trim().toLowerCase())
+    .filter((address) => address && address !== own)
+}
+
+/**
+ * Is every address this reply reaches one of ours? Answered before the tool
+ * runs, because the dial is resolved when the ability is built.
+ *
+ * An empty thread is treated as external: with nobody identifiable on it, the
+ * cautious answer is the one that asks a human.
+ */
+export async function threadIsInternal(tenantId: string, threadId: string): Promise<boolean> {
+  const [counterparties, isInternalAddress] = await Promise.all([
+    threadCounterparties(tenantId, threadId),
+    loadInternalAddressTest(tenantId),
+  ])
+  return counterparties.length > 0 && counterparties.every((address) => isInternalAddress(address))
+}
+
+/**
  * The thread-bound reply ability: only email-triggered runs carry it, and the
  * approval executor rebuilds it to carry out an approved reply.
+ *
+ * `internal` is resolved from who is actually on the thread. It used to be
+ * hardcoded external, which is the same defect `send_email` was fixed for and
+ * this one kept: an agent replying to its own CFO — a person in the directory,
+ * writing from the company's own domain — had to wait for sign-off to answer.
+ * On one tenant that produced a loop, because the approval confirmation came
+ * back as mail the agent then had to reply to, needing another approval.
  */
-export function replyToThreadAbility(args: { tenantId: string; threadId: string; runId: string }): Ability {
+export function replyToThreadAbility(args: {
+  tenantId: string
+  threadId: string
+  runId: string
+  /** True when every counterparty on the thread is staff or at our domains. */
+  internal?: boolean
+}): Ability {
   const { tenantId, threadId, runId } = args
   return defineAbility({
     name: 'reply_to_thread',
     description:
       'Send your reply on the email thread you are handling. The body is sent as-is from your mailbox. Attach files you produced by id with attachFileIds.',
-    category: 'external_email',
+    category: args.internal ? 'internal_email' : 'external_email',
     inputSchema: z.object({
       body: z.string(),
       attachFileIds: z.array(z.string()).optional().describe('File ids of documents to attach.'),
@@ -668,7 +719,14 @@ export async function executeAgentRun(args: {
       }
       const abilities: Ability[] = [...(assembled?.abilities ?? live!.abilities)]
       if (args.trigger.type === 'email') {
-        abilities.push(replyToThreadAbility({ tenantId: args.tenantId, threadId: args.trigger.threadId, runId }))
+        abilities.push(
+          replyToThreadAbility({
+            tenantId: args.tenantId,
+            threadId: args.trigger.threadId,
+            runId,
+            internal: await threadIsInternal(args.tenantId, args.trigger.threadId),
+          }),
+        )
       }
 
       const outcome = await runAgent({
@@ -922,6 +980,11 @@ async function classifySender(tenantId: string, address: string, before: Date): 
     .where(and(eq(people.status, 'active'), sql`lower(${people.email}) = ${lower}`))
     .limit(1)
   if (staff.length > 0) return 'staff'
+  // A colleague who has never been added to the roster still writes from the
+  // company's own domain, and a `staff_only` agent that turns them away is
+  // refusing its own company's mail.
+  const { internalDomains } = await getCompanyIdentity(tenantId)
+  if (matchesInternalDomain(lower, internalDomains)) return 'staff'
   const prior = await app.db
     .select({ id: mailMessages.id })
     .from(mailMessages)

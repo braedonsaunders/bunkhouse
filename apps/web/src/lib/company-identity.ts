@@ -29,6 +29,8 @@ export type CompanyIdentity = {
   websiteUrl: string
   industry: string
   description: string
+  /** The company's own email domains, bare and lowercased. */
+  internalDomains: string[]
   services: string[]
   serviceArea: string
   customers: string[]
@@ -49,6 +51,7 @@ const EMPTY: CompanyIdentity = {
   websiteUrl: '',
   industry: '',
   description: '',
+  internalDomains: [],
   services: [],
   serviceArea: '',
   customers: [],
@@ -71,6 +74,7 @@ function normalize(stored: CompanyIdentitySettings | undefined): CompanyIdentity
     websiteUrl: stored.websiteUrl ?? '',
     industry: stored.industry ?? '',
     description: stored.description ?? '',
+    internalDomains: stored.internalDomains ?? [],
     services: stored.services ?? [],
     serviceArea: stored.serviceArea ?? '',
     customers: stored.customers ?? [],

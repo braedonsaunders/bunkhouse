@@ -12,7 +12,7 @@
     "db:migrate": "tsx --env-file-if-exists=.env.local scripts/migrate.mts",
     "db:generate": "drizzle-kit generate",
     "db:seed": "tsx --env-file=.env.local scripts/seed.mts",
-    "test": "tsx scripts/governance.test.mts && tsx scripts/compaction.test.mts && tsx scripts/breaker.test.mts && tsx scripts/call-tones.test.mts && tsx scripts/duties.test.mts && tsx scripts/org.test.mts && tsx scripts/assignment.test.mts && tsx scripts/tools.test.mts && tsx scripts/mailbox.test.mts && tsx scripts/netsuite-shim.test.mts && tsx scripts/skills.test.mts && NODE_OPTIONS=\"--conditions=react-server\" tsx scripts/backdrop.test.mts && NODE_OPTIONS=\"--conditions=react-server\" tsx scripts/page-reading.test.mts && NODE_OPTIONS=\"--conditions=react-server\" tsx scripts/shell-supervision.test.mts",
+    "test": "tsx scripts/governance.test.mts && tsx scripts/compaction.test.mts && tsx scripts/breaker.test.mts && tsx scripts/call-tones.test.mts && tsx scripts/duties.test.mts && tsx scripts/org.test.mts && tsx scripts/assignment.test.mts && tsx scripts/tools.test.mts && tsx scripts/mailbox.test.mts && tsx scripts/netsuite-shim.test.mts && tsx scripts/internal-addresses.test.mts && tsx scripts/skills.test.mts && NODE_OPTIONS=\"--conditions=react-server\" tsx scripts/backdrop.test.mts && NODE_OPTIONS=\"--conditions=react-server\" tsx scripts/page-reading.test.mts && NODE_OPTIONS=\"--conditions=react-server\" tsx scripts/shell-supervision.test.mts",
     "test:db": "NODE_OPTIONS=\"--conditions=react-server\" tsx scripts/db-claims.test.mts",
     "seed:avatar-parts": "tsx --env-file=.env.local scripts/seed-avatar-parts.mts",
     "worker": "NODE_OPTIONS=\"--conditions=react-server\" tsx --env-file=.env.local scripts/worker.mts",

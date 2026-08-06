@@ -4,7 +4,7 @@ import type { Ability } from '@bunkhouse/runtime'
 import { approvals, people, runs } from '../db/schema'
 import { db } from '../db/client'
 import { assembleAbilities } from './agent-abilities'
-import { ASSIGNMENT_MAX_STEPS, executeAgentRun, replyToThreadAbility } from './agent-runs'
+import { ASSIGNMENT_MAX_STEPS, executeAgentRun, replyToThreadAbility, threadIsInternal } from './agent-runs'
 import { finalizeAssignmentRun } from './assignments'
 import { appendRunEvent } from './run-events'
 
@@ -100,7 +100,14 @@ export async function executeDecidedApproval(tenantId: string, approvalId: strin
       })
       const abilities: Ability[] = [...assembled.abilities]
       if (run.trigger.type === 'email') {
-        abilities.push(replyToThreadAbility({ tenantId, threadId: run.trigger.threadId, runId: run.id }))
+        abilities.push(
+          replyToThreadAbility({
+            tenantId,
+            threadId: run.trigger.threadId,
+            runId: run.id,
+            internal: await threadIsInternal(tenantId, run.trigger.threadId),
+          }),
+        )
       }
       try {
         const ability = abilities.find((a) => a.name === action.toolName)

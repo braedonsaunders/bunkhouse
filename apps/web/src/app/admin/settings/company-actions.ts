@@ -9,6 +9,7 @@ import {
   saveCompanyIdentity,
   type CompanyIdentityDraft,
 } from '../../../lib/company-identity'
+import { normalizeDomain } from '../../../lib/internal-domains'
 import type { CompanyIdentitySettings } from '../../../db/schema'
 
 /**
@@ -24,6 +25,8 @@ export type CompanyIdentityInput = {
   industry: string
   /** Markdown from the rich-text editor. */
   description: string
+  /** The company's own email domains — see `internal-addresses.ts`. */
+  internalDomains: string[]
   services: string[]
   serviceArea: string
   customers: string[]
@@ -72,6 +75,19 @@ export async function saveCompanyIdentityAction(
     return { ok: false, message: 'That contact email address is not valid.' }
   }
 
+  // Domains decide who counts as a colleague, so a typo is worth stopping on
+  // rather than dropping quietly: a domain silently discarded here reads later
+  // as the dial ignoring the setting.
+  const internalDomains: string[] = []
+  for (const raw of input.internalDomains) {
+    if (!raw.trim()) continue
+    const domain = normalizeDomain(raw)
+    if (!domain) {
+      return { ok: false, message: `"${raw.trim()}" is not a domain — write it like "yourcompany.com".` }
+    }
+    if (!internalDomains.includes(domain)) internalDomains.push(domain)
+  }
+
   const socialLinks = Object.fromEntries(
     Object.entries(input.socialLinks)
       .map(([network, url]) => [network.trim().toLowerCase(), url.trim()] as const)
@@ -85,6 +101,7 @@ export async function saveCompanyIdentityAction(
     ...(website.value ? { websiteUrl: website.value } : {}),
     ...(clean(input.industry) ? { industry: clean(input.industry) } : {}),
     ...(clean(input.description) ? { description: clean(input.description) } : {}),
+    ...(internalDomains.length > 0 ? { internalDomains } : {}),
     ...(cleanList(input.services).length > 0 ? { services: cleanList(input.services) } : {}),
     ...(clean(input.serviceArea) ? { serviceArea: clean(input.serviceArea) } : {}),
     ...(cleanList(input.customers).length > 0 ? { customers: cleanList(input.customers) } : {}),

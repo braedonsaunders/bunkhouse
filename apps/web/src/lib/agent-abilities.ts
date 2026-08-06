@@ -13,6 +13,7 @@ import { assignments, duties, memories, people, type AssignmentSource, type McpI
 import { db } from '../db/client'
 import { agentBinding, bindsToAgent, type AgentBinding } from './assignment'
 import { findColleague, postToColleague } from './colleague-post'
+import { loadInternalAddressTest, type InternalAddressTest } from './internal-addresses'
 import { listMcpIntegrations } from './mcp-integrations'
 import { mcpM2mHeaders, mcpOauthHeaders } from './mcp-oauth'
 import { sendNewMail } from './mailbox'
@@ -170,13 +171,13 @@ export function emailAbilities(args: {
    */
   rootRunId?: string
   /**
-   * Every address on staff, lowercased. Loaded once when the abilities are
-   * assembled, because the dial has to be resolved BEFORE the tool runs — an
-   * approval is filed ahead of `execute` — so the answer cannot be a database
-   * round trip at call time. The directory is small and it is already being
-   * read; an env var guessing at a domain would only be a worse copy of it.
+   * Whether an address is one of ours — the staff directory plus the company's
+   * own email domains. Loaded once when the abilities are assembled, because
+   * the dial has to be resolved BEFORE the tool runs (an approval is filed
+   * ahead of `execute`), so the answer cannot be a database round trip at call
+   * time.
    */
-  staffAddresses: ReadonlySet<string>
+  isInternalAddress: InternalAddressTest
 }): Ability[] {
   const { tenantId, person, runId } = args
   const rootRunId = args.rootRunId
@@ -255,7 +256,7 @@ export function emailAbilities(args: {
       // applies depends on who is being written to, so it is resolved from who
       // is being written to.
       category: (input: { to: string }) =>
-        args.staffAddresses.has((input.to ?? '').trim().toLowerCase()) ? 'internal_email' : 'external_email',
+        args.isInternalAddress(input.to ?? '') ? 'internal_email' : 'external_email',
       inputSchema: z.object({
         to: z.string().describe('The recipient email address'),
         subject: z.string(),
@@ -801,15 +802,11 @@ export async function assembleAbilities(args: {
   const integrations = await connectIntegrationAbilities(tenantId, agentBinding(person))
   // Who counts as a colleague, read once. Mail to one of these is internal
   // whichever tool sends it — see the category resolver in emailAbilities.
-  const staffAddresses = new Set(
-    (await db().db.select({ email: people.email }).from(people).where(eq(people.status, 'active')))
-      .map((row) => row.email.trim().toLowerCase())
-      .filter(Boolean),
-  )
+  const isInternalAddress = await loadInternalAddressTest(tenantId)
   const abilities: Ability[] = [
     ...memoryAbilities({ tenantId, person, runId }),
     ...researchAbilities({ tenantId }),
-    ...emailAbilities({ tenantId, person, runId, staffAddresses, ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}) }),
+    ...emailAbilities({ tenantId, person, runId, isInternalAddress, ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}) }),
     ...(args.waitState
       ? askAbilities({ tenantId, person, runId, waitState: args.waitState, ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}) })
       : []),

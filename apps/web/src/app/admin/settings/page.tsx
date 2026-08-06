@@ -269,6 +269,7 @@ export default async function SettingsPage({
         websiteUrl: identity.websiteUrl,
         industry: identity.industry,
         description: identity.description,
+        internalDomains: identity.internalDomains,
         services: identity.services,
         serviceArea: identity.serviceArea,
         customers: identity.customers,

@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Globe, X } from 'lucide-react'
 import { Badge, Button, Drawer, Input, Label, Select, SettingsRow, SettingsSection, SubtabNav } from '@appkit/ui'
 import { MarkdownEditor } from './markdown-editor'
+import { normalizeDomain } from '../lib/internal-domains'
 import {
   captureCompanyIdentityAction,
   saveCompanyIdentityAction,
@@ -174,6 +175,23 @@ export function CompanyIdentitySettings({
               placeholder="northbridgemech.com"
             />
           </div>
+          <ListField
+            id="company-internal-domains"
+            label="Your email domains"
+            hint="Anyone writing from these is treated as a colleague, even if they are not on the roster: agents answer them on the internal autonomy dial instead of asking for sign-off to reply, and accept their mail. Subdomains count. Leave empty and only the addresses on the roster are internal."
+            placeholder="yourcompany.com"
+            values={form.internalDomains}
+            // Normalized as it is added, with the same function the action
+            // stores it through, so the chip is never a different string from
+            // the one that ends up in the setting. Anything unparseable is
+            // kept verbatim — the save then names it as the typo it is.
+            onChange={(values) =>
+              set(
+                'internalDomains',
+                Array.from(new Set(values.map((value) => normalizeDomain(value) ?? value))),
+              )
+            }
+          />
           <div className="space-y-1">
             <Label htmlFor="company-description">What the business does</Label>
             <MarkdownEditor
@@ -330,7 +348,10 @@ export function CompanyIdentitySettings({
 // --- The website draft ------------------------------------------------------
 
 type DraftValues = {
-  values: Omit<CompanyIdentityInput, 'capture' | 'notes' | 'websiteUrl'>
+  // `internalDomains` is deliberately not draftable: it decides who counts as
+  // a colleague, and a page read off the open web must never be able to widen
+  // that. An operator types those in themselves.
+  values: Omit<CompanyIdentityInput, 'capture' | 'notes' | 'websiteUrl' | 'internalDomains'>
   capture: NonNullable<CompanyIdentityView['capture']>
   pages: string[]
 }
