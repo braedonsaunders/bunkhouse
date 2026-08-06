@@ -2,6 +2,7 @@ import { createMCPClient } from '@ai-sdk/mcp'
 import type { ToolSet } from 'ai'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { Ability } from './abilities'
+import { isNetsuiteMcp, shimNetsuiteTools } from './netsuite-shim'
 import type { ActionCategory } from './types'
 
 /**
@@ -34,7 +35,11 @@ export async function connectMcpServers(configs: McpServerConfig[]): Promise<Mcp
       }),
     })
     clients.push(client)
-    const tools: ToolSet = await client.tools()
+    let tools: ToolSet = await client.tools()
+    // NetSuite's hosted MCP answers some failures with a generic line and
+    // demands parameters with only one possible value; the shim smooths both
+    // before the tools reach any model. See netsuite-shim.ts for the receipts.
+    if (isNetsuiteMcp(config.url)) tools = shimNetsuiteTools(tools)
     for (const [name, tool] of Object.entries(tools)) {
       abilities.push({
         name: `${config.slug}_${name}`,
