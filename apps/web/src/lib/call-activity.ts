@@ -58,15 +58,27 @@ const INTEGRATION_NAMES: Record<string, string> = {
  * MCP tools are namespaced for machines (`netsuite_ns_runCustomSuiteQL`). The
  * namespace is useful in a ledger but not something a caller or operator
  * should have read back to them as prose.
+ *
+ * The call's own words for what THIS call does ride along when the arguments
+ * carry them: many integration tools take a `description` of the specific
+ * query. Without it every NetSuite call on a run collapses to the identical
+ * string "Checking NetSuite" — and the mailbox deduplicates on exact text, so
+ * one five-minute financial analysis said those words once and then held the
+ * line in silence for 103 seconds while ten more progress notes were dropped
+ * as already-said.
  */
-function describeIntegrationTool(toolName: string): string {
+function describeIntegrationTool(toolName: string, args: Record<string, unknown>): string {
   const [namespace = '', ...rest] = toolName.split('_')
   const integration = INTEGRATION_NAMES[namespace.toLowerCase()] ??
     `${namespace.slice(0, 1).toUpperCase()}${namespace.slice(1) || 'connected system'}`
   const operation = rest.join('_').toLowerCase()
-  if (/send|email|message|notify/.test(operation)) return `Sending through ${integration}`
-  if (/create|add|update|edit|write|delete|remove/.test(operation)) return `Updating ${integration}`
-  return `Checking ${integration}`
+  const verb = /send|email|message|notify/.test(operation)
+    ? `Sending through ${integration}`
+    : /create|add|update|edit|write|delete|remove/.test(operation)
+      ? `Updating ${integration}`
+      : `Checking ${integration}`
+  const detail = quote(args.description)
+  return detail ? `${verb} — ${detail}` : verb
 }
 
 /** Human label for a tool call, from its name and arguments. */
@@ -170,7 +182,7 @@ export function describeToolCall(toolName: string, input: unknown): string {
       return to ? `Inviting ${to} to a video meeting` : 'Sending a meeting link'
     }
     default:
-      return describeIntegrationTool(toolName)
+      return describeIntegrationTool(toolName, args)
   }
 }
 

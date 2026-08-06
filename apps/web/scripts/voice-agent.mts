@@ -312,6 +312,10 @@ async function buildInstructions(
       name: person.name,
       title: person.title,
       email: person.email,
+      // Without this the clock line in the prompt reads UTC, and an agent
+      // answering a 7:37pm call in Toronto opened with "How are things this
+      // morning?" — the one detail that tells a caller nobody is home.
+      timezone: person.timezone ?? null,
       personality: person.personality ?? {
         bio: person.responsibilities ?? `I am the ${person.title}.`,
         tone: ['professional'],
@@ -947,6 +951,13 @@ export default defineAgent({
     let trace: CallTrace | null = null
     /** The last thing the agent said, for spotting it coming back in. */
     let lastAgentLine: string | null = null
+    /**
+     * The agent's last few lines, newest first, for the same purpose. Echo
+     * arrives seconds late: on one call the fake caller turn came back while
+     * the NEXT line was already being spoken, so the single last line was the
+     * wrong one to compare against.
+     */
+    const recentAgentLines: string[] = []
     agentSession.on(voice.AgentSessionEventTypes.ConversationItemAdded, (event) => {
       const item = event.item
       if (item.type !== 'message') return
@@ -959,12 +970,14 @@ export default defineAgent({
       // than argued about from the words.
       if (speaker === 'agent') {
         lastAgentLine = text
+        recentAgentLines.unshift(text)
+        if (recentAgentLines.length > 3) recentAgentLines.length = 3
         trace?.agentTurn({ itemId: item.id, text })
       } else {
         // The agent hearing itself is not the caller taking a turn. Answering
         // it is how the agent ends up asking the same question twice and
         // apologising for something the caller never said.
-        if (echoOfAgent(text, lastAgentLine)) {
+        if (echoOfAgent(text, recentAgentLines)) {
           console.warn(`[voice] ${session.id}: heard itself back, ignoring — ${text.slice(0, 60)}`)
           void recordEvent('error', {
             message: `The microphone picked the agent's own voice back up and it was transcribed as the caller: "${text.slice(0, 120)}". Echo cancellation is not holding on this line.`,
@@ -1014,6 +1027,17 @@ export default defineAgent({
       )
     })
     const callTrace = trace
+    // Every final transcript off the caller's audio, before any judgement
+    // about what it is. On one call the caller spoke into two minutes of
+    // working silence and nothing anywhere said whether their words died at
+    // the transcriber or reached the model and were ignored — this row is the
+    // difference between those two faults.
+    agentSession.on(voice.AgentSessionEventTypes.UserInputTranscribed, (event) => {
+      if (!event.isFinal) return
+      const text = event.transcript.trim()
+      if (!text) return
+      callTrace.heard({ text })
+    })
 
     // The call's audio, once it is running. Started below, after the finalizer
     // is registered — nothing may be left recording with no one to stop it.
@@ -1477,8 +1501,16 @@ export default defineAgent({
     const deliveryMailbox = mailbox
     // Boundaries are events, not a polling interval: these two are the only
     // honest signals that the line has just gone quiet or just gone busy.
-    agentSession.on(voice.AgentSessionEventTypes.AgentStateChanged, () => deliveryMailbox.notifyStateChanged())
-    agentSession.on(voice.AgentSessionEventTypes.UserStateChanged, () => deliveryMailbox.notifyStateChanged())
+    // `lastBusyAt` rides on the same signals — it is the moment the line was
+    // last genuinely occupied, and the keep-company watch below measures its
+    // silences from it.
+    let lastBusyAt = Date.now()
+    const onLineStateChanged = () => {
+      if (!lineIsQuiet()) lastBusyAt = Date.now()
+      deliveryMailbox.notifyStateChanged()
+    }
+    agentSession.on(voice.AgentSessionEventTypes.AgentStateChanged, onLineStateChanged)
+    agentSession.on(voice.AgentSessionEventTypes.UserStateChanged, onLineStateChanged)
     ctx.addShutdownCallback(async () => deliveryMailbox.close())
 
     // --- The work, beside the conversation ---------------------------------
@@ -1573,6 +1605,56 @@ export default defineAgent({
     })
 
     const callWorker = worker
+
+    // --- Keeping the caller company -----------------------------------------
+    // The instructions tell the agent to keep talking across a pause, but a
+    // realtime model only speaks when something arrives — a caller turn or a
+    // mailbox delivery. On one call every progress note deduplicated down to
+    // the same two words, nothing else arrived, and the caller sat through 103
+    // seconds of dead air before hanging up on a line that was working
+    // perfectly. So silence during live work is now an event of its own: when
+    // the line has been quiet this long and work is still running, the model
+    // is handed a turn and asked for one short line of company. The mailbox
+    // stays the only route for facts; this asks for presence, not progress.
+    const KEEP_COMPANY_AFTER_MS = 15_000
+    let keepingCompany = false
+    const keepCompany = () => {
+      if (keepingCompany || mailboxDeliveryInFlight) return
+      if (!callWorker.working()) return
+      if (!lineIsQuiet()) return
+      // Something is already queued to be said — the mailbox will break the
+      // silence itself, with actual news, at its own boundary.
+      if (deliveryMailbox.pending().length > 0) return
+      if (Date.now() - lastBusyAt < KEEP_COMPANY_AFTER_MS) return
+      keepingCompany = true
+      // Stamped now, not on completion: a model that answers slowly must not
+      // earn a second nudge while the first is still being thought about.
+      lastBusyAt = Date.now()
+      const expected = callTrace.expectTurn({ cause: 'keep_company' })
+      try {
+        const handle = agentSession.generateReply({
+          instructions:
+            'The line has gone quiet while your work is still running. Say ONE short, natural sentence so they know you are still there — where things have genuinely got to if you know, otherwise a bit of ordinary company or a question that makes the result more useful. Fresh words every time: never repeat a phrase you have already used on this call, never apologise for the wait, and do not announce anything as finished. Then stop and listen.',
+          // Company is not a licence to start more work, and a status nudge
+          // answered with a second do_work hand-over is the repeat this guards.
+          toolChoice: 'none',
+        })
+        void handle
+          .waitForPlayout()
+          .catch(() => undefined)
+          .finally(() => {
+            expected.release({ recordUnspoken: false })
+            keepingCompany = false
+            lastBusyAt = Date.now()
+          })
+      } catch (error) {
+        expected.release({ recordUnspoken: false })
+        keepingCompany = false
+        console.error(`[voice] room ${roomName}: keep-company speech failed — ${describeError(error)}`)
+      }
+    }
+    const keepCompanyWatch = setInterval(keepCompany, 5_000)
+    ctx.addShutdownCallback(async () => clearInterval(keepCompanyWatch))
 
     // An approved action is executed by a different process. The durable run
     // event is the hand-off back to this live room: without watching it, the

@@ -14,7 +14,7 @@ import {
   useSpeakingParticipants,
   useTracks,
 } from '@livekit/components-react'
-import { ConnectionState, Track } from 'livekit-client'
+import { ConnectionState, Track, type RoomOptions } from 'livekit-client'
 import {
   Button,
   Card,
@@ -661,6 +661,27 @@ function CallScreen({ children }: { children: React.ReactNode }) {
 }
 
 /**
+ * The microphone's own defences, spelled out rather than left to defaults.
+ * On one call the agent's voice went out the caller's speakers, back in
+ * their microphone, and came back transcribed as the caller — the agent was
+ * barged in on by its own echo and cut off mid-sentence twice. The browser's
+ * echo canceller is the first and best defence against that loop; asking for
+ * it explicitly (with noise suppression and gain control beside it) means a
+ * browser that CAN cancel echo always does, instead of whatever the library
+ * default happens to be that release.
+ *
+ * Module-level on purpose: LiveKitRoom treats a new options object as a new
+ * room, and an inline literal is a new object every render.
+ */
+const ROOM_OPTIONS: RoomOptions = {
+  audioCaptureDefaults: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  },
+}
+
+/**
  * The browser side of a call: a LiveKit room with the agent's voice agent as
  * the other participant. Audio only; captions poll the append-only ledger.
  * Opening the page IS placing the call — the session, its run, and the token
@@ -806,6 +827,7 @@ export function CallRoom({
         token={call.token}
         audio
         video={false}
+        options={ROOM_OPTIONS}
         // Hanging up releases the room in the same breath: the microphone
         // stops, the agent's voice stops, and the caller is left with the
         // resolved stage rather than a line that is somehow still open.

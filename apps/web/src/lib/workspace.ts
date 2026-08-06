@@ -297,7 +297,21 @@ export function workspaceAbilities(args: { tenantId: string; person: PersonRow; 
         input: z.unknown().describe('The JSON value passed to main()'),
       }),
       execute: async ({ source, input }) => {
-        const result = await runSandbox({ source, input: input ?? null, timeoutMs: 5000 })
+        // Models pass `input` as a JSON-encoded STRING often enough to matter:
+        // one call burned four attempts and two and a half minutes on
+        // `main(input)` reading properties off a string, each failure saying
+        // only "cannot read property of undefined". A string that parses as
+        // JSON was meant as the value it encodes; a string that does not is a
+        // genuine string input and goes through untouched.
+        let value = input ?? null
+        if (typeof value === 'string') {
+          try {
+            value = JSON.parse(value)
+          } catch {
+            // Not JSON — an intentional string input.
+          }
+        }
+        const result = await runSandbox({ source, input: value, timeoutMs: 5000 })
         return result.status === 'ok'
           ? { status: 'ok', value: result.value, logs: result.logs }
           : { status: result.status, error: result.error ?? 'The script did not complete.', logs: result.logs }

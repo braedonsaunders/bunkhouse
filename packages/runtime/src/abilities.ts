@@ -277,6 +277,12 @@ export function governedToolSet(args: {
   const deadlineMs = args.deadlineMs ?? DEFAULT_TOOL_DEADLINE_MS
   // Same tool, same failure, over and over — one open breaker per run.
   const breakers = new Map<string, { failures: number; error: string }>()
+  // Notify-level notices already written this run. Three parallel NetSuite
+  // queries used to write the identical "Performed under notify-level
+  // autonomy: Checking NetSuite" line three times per batch — noise that made
+  // the ledger read like a stutter. The notice is a fact about the category
+  // being exercised; once per distinct description is the whole of it.
+  const notified = new Set<string>()
   const set: ToolSet = {}
   for (const ability of args.abilities) {
     const base = ability.tool
@@ -325,10 +331,11 @@ export function governedToolSet(args: {
         if (level === 'notify') {
           const description =
             args.describeAction?.(ability.name, input) ?? `${ability.name} with ${JSON.stringify(input)}`
-          await args.sink.event({
-            kind: 'message',
-            text: `Performed under notify-level autonomy (${category}): ${description}`,
-          })
+          const notice = `Performed under notify-level autonomy (${category}): ${description}`
+          if (!notified.has(notice)) {
+            notified.add(notice)
+            await args.sink.event({ kind: 'message', text: notice })
+          }
         }
         // Every tool is bounded, and every tool comes back with something.
         // A throw used to escape here and be recorded nowhere: the loop only

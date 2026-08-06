@@ -121,6 +121,29 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
   )
   assert.equal(echoOfAgent('yes', 'yes'), false, 'too short to judge — a person agreeing is not an echo')
   assert.equal(echoOfAgent('anything at all', null), false, 'nothing said yet cannot be echoed')
+  // The Marla call: the agent's "I am on it, Braedon. I" came back transcribed
+  // as "I'm on it." — a contraction is not a difference.
+  assert.equal(
+    echoOfAgent("I'm on it.", 'I am on it, Braedon. I'),
+    true,
+    'STT contracting the agent`s own words is still an echo',
+  )
+  assert.equal(
+    echoOfAgent('I am digging right into those', "I'm digging right into those figures now"),
+    true,
+    'the expansion works in both directions',
+  )
+  // Echo arrives late: the line it echoes may be an utterance or two back.
+  assert.equal(
+    echoOfAgent('what dates are you needing', ['Tomorrow works for me.', asked]),
+    true,
+    'an echo of the line before last is still an echo',
+  )
+  assert.equal(
+    echoOfAgent("I'm leaving now", 'I am on it, Braedon. I'),
+    false,
+    'a real caller sentence sharing a couple of words is a real turn',
+  )
   console.log('echo: the agent hearing itself is not a caller turn')
 }
 

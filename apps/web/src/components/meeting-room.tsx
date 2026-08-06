@@ -11,9 +11,22 @@ import {
   useTrackToggle,
   useTracks,
 } from '@livekit/components-react'
-import { ConnectionState, Track } from 'livekit-client'
+import { ConnectionState, Track, type RoomOptions } from 'livekit-client'
 import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label, PageHeader } from '@appkit/ui'
 import { joinMeetingAction, leaveMeetingAction } from '../app/meet/actions'
+
+// Explicit for the same reason as the call page: a guest on laptop speakers
+// feeds the agent's voice back through their microphone, and the browser's
+// echo canceller is the defence that keeps the agent from being interrupted
+// by — and answering — its own echo. Module-level because LiveKitRoom treats
+// a new options object as a new room.
+const ROOM_OPTIONS: RoomOptions = {
+  audioCaptureDefaults: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  },
+}
 
 const CONNECTION_LABELS: Record<string, string> = {
   [ConnectionState.Connecting]: 'connecting',
@@ -251,6 +264,7 @@ export function MeetingRoom({
         token={room.token}
         audio
         video={false}
+        options={ROOM_OPTIONS}
         connect
         onDisconnected={() => void leave()}
       >

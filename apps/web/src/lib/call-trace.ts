@@ -50,6 +50,13 @@ export type TurnCause =
   | { cause: 'work_result'; workId: string }
   | { cause: 'greeting' }
   | { cause: 'vision_lost' }
+  /**
+   * The line had been quiet too long while work was still running, so the
+   * process asked for one short line of company. On one call the caller heard
+   * 103 seconds of nothing while NetSuite queries ran — every progress note
+   * deduplicated away and nothing else arriving to give the model a turn.
+   */
+  | { cause: 'keep_company' }
   | { cause: 'spontaneous' }
 
 /** How a piece of work ended, in the words the worker uses for it. */
@@ -90,6 +97,14 @@ export type TurnExpectation = {
 }
 
 export type CallTrace = {
+  /**
+   * A final transcript arrived off the caller's audio, whatever becomes of it.
+   * This is the ground truth for "the agent ignored me": a caller once spoke
+   * into two minutes of working silence and the record could not say whether
+   * their words never reached the transcriber or reached it and were not
+   * answered — two entirely different faults with identical transcripts.
+   */
+  heard: (line: { text: string }) => void
   /** The caller said something. The next agent turn is probably an answer to it. */
   callerTurn: (itemId: string) => void
   /**
@@ -197,6 +212,9 @@ export function createCallTrace(sink: TraceSink): CallTrace {
   }
 
   return {
+    heard: ({ text }) => {
+      write({ trace: 'stt', chars: text.length, words: plain(text) })
+    },
     callerTurn: (itemId) => {
       callerTurnPending = itemId
     },
