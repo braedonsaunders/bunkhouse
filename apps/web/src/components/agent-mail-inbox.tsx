@@ -60,6 +60,21 @@ export function AgentMailInbox({
     [activeMailboxId],
   )
 
+  // "Sync now" lives outside this component: it pulls from the provider and
+  // revalidates, and the fresh thread list arrives as new initial props on a
+  // component that is already mounted. State seeded once at mount never sees
+  // them — an operator pressed Sync, the mail landed in the database, and the
+  // drawer kept showing the list from before, which reads as sync being
+  // broken. So a new server render is treated as the refresh it is — via a
+  // refetch of whichever folder is actually open, since the initial props
+  // describe only the initial one.
+  const seededWith = React.useRef(initialThreads)
+  React.useEffect(() => {
+    if (seededWith.current === initialThreads) return
+    seededWith.current = initialThreads
+    void refreshFolder(folder)
+  }, [initialThreads, folder, refreshFolder])
+
   const listItems: MailThreadListItem[] = threads.map((thread) => ({
     id: thread.id,
     counterparty: thread.counterparty,
