@@ -1006,14 +1006,23 @@ export default defineAgent({
         // a fire door: it cannot unsay the sentence, but a fabrication that
         // leaves a record can be found, counted and fixed, where one that
         // leaves nothing is argued about from a caller's memory.
-        const verdict = screenUtterance(text, factLedger)
-        if (!verdict.ok) {
-          console.warn(`[voice] room ${roomName}: SAID something ungrounded — ${verdict.reason}`)
-          void recordEvent('error', {
-            message: `The caller was told something nothing on this call backs up (${verdict.reason}): "${text.slice(0, 300)}"${
-              verdict.offending.length > 0 ? ` Unbacked: ${verdict.offending.join(', ')}.` : ''
-            }`,
-          }).catch(() => undefined)
+        //
+        // Wrapped, and deliberately paranoid about it: this runs inside the
+        // framework's own event emitter, so anything thrown here escapes into
+        // the machinery that is mid-way through producing speech. An alarm
+        // that can silence the call it is watching is worse than no alarm.
+        try {
+          const verdict = screenUtterance(text, factLedger)
+          if (!verdict.ok) {
+            console.warn(`[voice] room ${roomName}: SAID something ungrounded — ${verdict.reason}`)
+            void recordEvent('error', {
+              message: `The caller was told something nothing on this call backs up (${verdict.reason}): "${text.slice(0, 300)}"${
+                verdict.offending.length > 0 ? ` Unbacked: ${verdict.offending.join(', ')}.` : ''
+              }`,
+            }).catch(() => undefined)
+          }
+        } catch (error) {
+          console.error(`[voice] room ${roomName}: the grounding check itself failed — ${describeError(error)}`)
         }
         trace?.agentTurn({ itemId: item.id, text })
       } else {
@@ -1078,26 +1087,36 @@ export default defineAgent({
     // here. Seeded with the facts that are true before a word is spoken — the
     // company, the roster, who is on the line — because those are facts too,
     // they just did not arrive through a tool.
-    const ledgerSeed: string[] = [
-      person.name,
-      person.title,
-      person.email,
-      ...(session.counterparty.name ? [session.counterparty.name] : []),
-      ...(session.counterparty.email ? [session.counterparty.email] : []),
-    ]
-    try {
-      const identity = await getCompanyIdentity(session.tenantId)
-      ledgerSeed.push(identity.name, identity.legalName, ...identity.services, ...identity.customers)
-      const roster = await app.withTenantContext(session.tenantId, () =>
-        app.db.select({ name: people.name, title: people.title, email: people.email }).from(people),
-      )
-      for (const colleague of roster) ledgerSeed.push(`${colleague.name} ${colleague.title} ${colleague.email}`)
-    } catch (error) {
-      // A thin ledger refuses more than it should, which is noisy but safe; a
-      // call that will not start because the roster read failed is not.
-      console.error(`[voice] room ${roomName}: the fact ledger could not be fully seeded — ${describeError(error)}`)
-    }
-    const factLedger = createFactLedger(ledgerSeed.filter(Boolean))
+    const factLedger = createFactLedger(
+      [
+        person.name,
+        person.title,
+        person.email,
+        ...(session.counterparty.name ? [session.counterparty.name] : []),
+        ...(session.counterparty.email ? [session.counterparty.email] : []),
+      ].filter(Boolean),
+    )
+    // The company and the roster are two more database reads, and NOTHING on
+    // the path to answering the phone may wait on the database: these nodes
+    // flap, and a caller hearing silence because a roster read was slow is a
+    // far worse failure than a ledger that is thin for its first second. So
+    // they are learned beside the call, not before it.
+    void (async () => {
+      try {
+        const identity = await getCompanyIdentity(session.tenantId)
+        factLedger.learn([identity.name, identity.legalName, ...identity.services, ...identity.customers].join(' '))
+        const roster = await app.withTenantContext(session.tenantId, () =>
+          app.db.select({ name: people.name, title: people.title, email: people.email }).from(people),
+        )
+        for (const colleague of roster) {
+          factLedger.learn(`${colleague.name} ${colleague.title} ${colleague.email}`)
+        }
+      } catch (error) {
+        // A thin ledger refuses a little more than it should, which is noisy
+        // and safe. A call that will not start is neither.
+        console.error(`[voice] room ${roomName}: the fact ledger could not be fully seeded — ${describeError(error)}`)
+      }
+    })()
 
     // Every final transcript off the caller's audio, before any judgement
     // about what it is. On one call the caller spoke into two minutes of
@@ -1981,7 +2000,16 @@ export default defineAgent({
           return voice.Agent.default.ttsNode(this, screened, modelSettings)
         }
       }
-      const agent = new ScreenedAgent({ instructions, tools, toolHandling: { asyncOptions: ASYNC_TOOL_VOICE } })
+      // Only a cascade session has text on its way to a synthesiser to screen.
+      // A realtime session gets the stock Agent: its audio never passes through
+      // `ttsNode`, so a subclass overriding it can only add a way to go wrong
+      // on the path that produces the caller's audio — and did, on the first
+      // call after it shipped, which answered and then played nothing. The
+      // realtime posture is the after-the-fact check on the transcript above,
+      // which cannot touch the audio path at all.
+      const agentOptions = { instructions, tools, toolHandling: { asyncOptions: ASYNC_TOOL_VOICE } }
+      const agent =
+        liveConfig.mode === 'cascade' ? new ScreenedAgent(agentOptions) : new voice.Agent(agentOptions)
       await agentSession.start({ agent, room: ctx.room })
       // One pair of eyes for the whole call: the guest's shared screen in a
       // meeting, and the agent's own browser on any call at all.
