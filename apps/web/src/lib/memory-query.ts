@@ -65,11 +65,18 @@ export function anyTermQuery(query: string): string {
  * legs like beats one that either leg loves — which is the property that makes
  * a lexical miss survivable and a semantic near-match trustworthy.
  *
- * k=60 is the value from the original RRF paper and the one every
- * implementation since has used; it is large enough that the difference
- * between rank 1 and rank 2 does not swamp the other leg's opinion.
+ * k damps how much a single leg's top ranks dominate. The literature's k=60
+ * assumes the thousand-result lists web search fuses, where a long tail needs
+ * flattening; over a candidate pool of a few dozen it flattens everything —
+ * measured here, the fortieth result still scored 0.31 of the first, so the
+ * whole pool arrived at the final ranking nearly tied and the flat usefulness
+ * term decided the order. Which is the defect this change set exists to fix,
+ * reintroduced one layer down.
+ *
+ * k=10 keeps the shape of RRF and gives a pool this size room to disagree:
+ * first place is worth five times fortieth rather than three times.
  */
-export const RRF_K = 60
+export const RRF_K = 10
 
 /** Fuse ranked id lists into one score per id. Ranks are 1-based. */
 export function reciprocalRankFusion(rankings: readonly (readonly string[])[], k = RRF_K): Map<string, number> {
@@ -83,11 +90,28 @@ export function reciprocalRankFusion(rankings: readonly (readonly string[])[], k
 }
 
 /**
- * The most any one leg can contribute, used to put a fused score on a 0..1
- * scale so it can be weighed against importance and recency the way the plain
- * `ts_rank_cd` used to be.
+ * What counts as full marks for relevance: being ranked first by two legs.
+ *
+ * A fixed scale, and both of the obvious alternatives are worse. Dividing by
+ * the theoretical maximum `legs/(k+1)` makes the score depend on how many legs
+ * happened to run — the same query over the same notes would rank differently
+ * depending on whether pgvector is installed, and semantic recall is optional
+ * by design. Dividing by the best score actually achieved always crowns
+ * somebody: ask a question the Logbook has no answer to and the least
+ * irrelevant note scores 1.0, which is how "no good match" turns into a
+ * confident wrong one — the exact failure this whole change set exists to stop.
+ *
+ * Two legs agreeing is a genuinely good match and earns 1.0. One leg alone
+ * earns about half, which is the honest signal that only one kind of search
+ * liked it. Three legs agreeing is also 1.0 — there is no more to say.
  */
-export function normalizeFused(score: number, legs: number, k = RRF_K): number {
-  const best = legs / (k + 1)
-  return best > 0 ? Math.min(1, score / best) : 0
+const FULL_MARKS = 2 / (RRF_K + 1)
+
+/**
+ * Put fused scores on a 0..1 scale, so relevance can be weighed against
+ * importance and recency the way the plain `ts_rank_cd` used to be. Absolute,
+ * not relative: a weak set stays weak.
+ */
+export function normalizeFusedScores(fused: Map<string, number>): Map<string, number> {
+  return new Map([...fused].map(([id, score]) => [id, Math.min(1, score / FULL_MARKS)]))
 }

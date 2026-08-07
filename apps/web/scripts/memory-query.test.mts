@@ -11,9 +11,8 @@
  */
 import assert from 'node:assert/strict'
 import {
-  RRF_K,
   anyTermQuery,
-  normalizeFused,
+  normalizeFusedScores,
   reciprocalRankFusion,
   searchTerms,
 } from '../src/lib/memory-query'
@@ -78,16 +77,32 @@ import {
   console.log('memory query: fusion prefers agreement over any single leg’s enthusiasm')
 }
 
-// --- putting a fused score back on a 0..1 scale -----------------------------
+// --- putting fused scores back on a 0..1 scale ------------------------------
 {
-  // Top of every leg is the best possible, and that is 1.
-  const legs = 3
-  const perfect = reciprocalRankFusion([['a'], ['a'], ['a']]).get('a')!
-  assert.equal(normalizeFused(perfect, legs), 1, 'first in all three legs normalises to 1')
+  const close = (a: number, b: number) => Math.abs(a - b) < 1e-9
 
-  assert.equal(normalizeFused(0, legs), 0, 'ranked by nothing scores nothing')
-  assert.ok(normalizeFused(1 / (RRF_K + 1), legs) < 1, 'first in one leg of three is not a perfect score')
-  assert.ok(normalizeFused(999, legs) <= 1, 'the scale is clamped')
-  assert.equal(normalizeFused(1, 0), 0, 'no legs is not a division by zero')
-  console.log('memory query: fused relevance lands on the same 0..1 scale the weights expect')
+  // Two legs agreeing is a good match and earns full marks.
+  const agreed = normalizeFusedScores(reciprocalRankFusion([['top'], ['top']]))
+  assert.equal(agreed.get('top'), 1, 'first in two legs is full relevance')
+
+  // One leg alone earns about half — the honest signal that only one kind of
+  // search liked it.
+  const alone = normalizeFusedScores(reciprocalRankFusion([['solo'], []]))
+  assert.ok(close(alone.get('solo')!, 0.5), `one leg alone is about half: ${alone.get('solo')}`)
+
+  // The property a fixed scale exists for: semantic recall is optional, so
+  // whether pgvector is installed must not rescale the legs that always ran.
+  const twoLegs = normalizeFusedScores(reciprocalRankFusion([['a', 'b'], ['a', 'b']]))
+  const threeLegs = normalizeFusedScores(reciprocalRankFusion([['a', 'b'], ['a', 'b'], ['a', 'b']]))
+  assert.ok(close(twoLegs.get('a')!, threeLegs.get('a')!), 'an extra leg does not change the top score')
+
+  // And the property achieved-max normalisation would have destroyed: asking a
+  // question the Logbook has no good answer to must NOT crown the least
+  // irrelevant note. A weak set stays weak.
+  const weak = normalizeFusedScores(reciprocalRankFusion([[...Array(40).keys()].map(String)]))
+  assert.ok(weak.get('39')! < 0.15, `a distant match stays low: ${weak.get('39')}`)
+  assert.ok(weak.get('0')! <= 0.5, 'even the best of one leg is only half marks')
+
+  assert.equal(normalizeFusedScores(new Map()).size, 0, 'nothing in, nothing out')
+  console.log('memory query: relevance is an absolute scale — a weak set stays weak')
 }

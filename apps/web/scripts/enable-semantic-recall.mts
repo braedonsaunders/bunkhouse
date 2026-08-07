@@ -14,7 +14,8 @@
  *   pnpm --filter web exec tsx --env-file=.env.local scripts/enable-semantic-recall.mts
  */
 import { and, eq, isNull, sql } from 'drizzle-orm'
-import { memories, tenants } from '../src/db/schema'
+import { schema as identity } from '@appkit/db'
+import { memories } from '../src/db/schema'
 import { db } from '../src/db/client'
 import { embedTexts, embeddableText, toVectorLiteral } from '../src/lib/embeddings'
 
@@ -41,7 +42,12 @@ await app.db.execute(
 )
 console.log('column and index are in place')
 
-const allTenants = await app.db.select({ id: tenants.id, name: tenants.name }).from(tenants)
+const allTenants = await app.withSuperAdmin((superDb) =>
+  superDb
+    .select({ id: identity.tenants.id, name: identity.tenants.name })
+    .from(identity.tenants)
+    .where(eq(identity.tenants.status, 'active')),
+)
 for (const tenant of allTenants) {
   const pending = await app.withTenantContext(tenant.id, () =>
     app.db

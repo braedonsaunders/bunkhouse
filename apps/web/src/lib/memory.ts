@@ -5,7 +5,7 @@ import { db } from '../db/client'
 import type { ResourceAssignment } from '../db/schema'
 import type { AgentBinding } from './assignment'
 import { embedText, embeddableText, toVectorLiteral } from './embeddings'
-import { anyTermQuery, normalizeFused, reciprocalRankFusion } from './memory-query'
+import { anyTermQuery, normalizeFusedScores, reciprocalRankFusion } from './memory-query'
 
 /**
  * The Logbook engine (docs/memory-design.md). Markdown notes are the source of
@@ -336,7 +336,7 @@ export async function retrieveNotes(args: {
     )
   }
 
-  const fused = reciprocalRankFusion(legs)
+  const fused = normalizeFusedScores(reciprocalRankFusion(legs))
   const relevantIds = [...fused.keys()]
   if (relevantIds.length === 0) return []
 
@@ -364,7 +364,7 @@ export async function retrieveNotes(args: {
       note: row.note,
       // The same 0.45 relevance / 0.55 usefulness balance the weighted sum
       // always had — only the relevance term is now worth trusting.
-      score: 0.45 * normalizeFused(fused.get(row.note.id) ?? 0, legs.length) + row.usefulness,
+      score: 0.45 * (fused.get(row.note.id) ?? 0) + row.usefulness,
     }))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
