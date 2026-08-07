@@ -637,8 +637,10 @@ async function buildSpeechPipeline(args: {
   personId: string
   config: BunkhouseVoiceConfig
   vad: InstanceType<typeof silero.VAD>
+  /** This call's run, used as the gateway's cache-affinity key. */
+  runId?: string | null
 }): Promise<SpeechPipeline> {
-  const { tenantId, config } = args
+  const { tenantId, config, runId } = args
   if (config.mode === 'cascade') {
     const ai = await resolveAgentAiConfig(tenantId, args.personId)
     if (!ai || !ai.modelSmart) {
@@ -667,6 +669,28 @@ async function buildSpeechPipeline(args: {
       // thinking one, which is the old single-model behaviour.
       model: ai.modelFast || ai.modelSmart,
       ...(baseURL ? { baseURL } : {}),
+      // --- Latency, which on a phone call is a feature ----------------------
+      // A caller waited 41 seconds for a greeting. The model spent them
+      // reasoning: it emitted 595 characters of "first write your internal
+      // reasoning, then write the reply" before a single word of speech, and a
+      // reasoning model on the conversational leg pays that on every turn.
+      // Thinking belongs to the work behind `do_work`, off the line — the
+      // talker's job is to be a person on the phone, and a person does not
+      // deliberate for forty seconds before saying hello.
+      reasoningEffort: 'none',
+      // A turn is a sentence or two. This is not a style preference, it is the
+      // ceiling on how long the worst turn can take: an unbounded reply is an
+      // unbounded wait, and the instructions already ask for brevity in words
+      // that a model is free to ignore.
+      maxCompletionTokens: 400,
+      // Sticky routing for the prompt cache. The talker re-sends the same
+      // ~5,000-token head on every turn of the call — identity, company,
+      // directory, logbook, then the voice rules — and a gateway that spreads
+      // those turns across upstreams buys that head again, cold, every time.
+      // The run id is the right key: stable for the call, different for the
+      // next one. `loop.ts` has done this for the worker all along; the talker,
+      // which turns far more often, never did.
+      ...(runId ? { user: runId } : {}),
     })
     return {
       session: new voice.AgentSession({
@@ -868,6 +892,7 @@ export default defineAgent({
           personId: person.id,
           config,
           vad,
+          runId: session.runId ?? session.id,
         })
         built = pipeline.session
         ai = pipeline.ai
@@ -1837,10 +1862,44 @@ export default defineAgent({
       })
     }
 
+    // --- What a model is allowed to be asked to say -------------------------
+    // Progress is PRESENCE, not information: "Checking NetSuite" contains no
+    // answer, and there is nothing in it a caller needs to hear in the model's
+    // own words. In cascade it is spoken verbatim, which is safe. In realtime
+    // there is no synthesiser to speak it through, so the only way to voice it
+    // is to ask the model — and a model asked to phrase a status note while an
+    // unanswered question hangs in the conversation fills the gap: that is
+    // exactly how "Checking NetSuite" became a customer that does not exist,
+    // twice, on one call.
+    //
+    // So on a realtime session progress is never handed to the model at all.
+    // It is still recorded, still visible to check_work and the call page, and
+    // the fixed filler above covers the silence it used to fill. An act that
+    // carries no facts cannot be turned into a fact that was never there.
+    const speechMailbox: CallMailbox =
+      liveConfig.mode === 'cascade'
+        ? deliveryMailbox
+        : {
+            ...deliveryMailbox,
+            post: (item) => {
+              if (item.kind !== 'progress') {
+                deliveryMailbox.post(item)
+                return
+              }
+              callTrace.mailbox({
+                decision: 'dropped',
+                kind: item.kind,
+                workId: item.workId,
+                text: item.text,
+                reason: 'a realtime model would have to phrase this, and progress carries nothing worth phrasing',
+              })
+            },
+          }
+
     const tools = callTools({
       lastAgentLine: () => lastAgentLine,
       worker,
-      mailbox: deliveryMailbox,
+      mailbox: speechMailbox,
       trace: callTrace,
       abilities: assembled.abilities,
       governance: {

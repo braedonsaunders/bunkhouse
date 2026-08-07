@@ -532,7 +532,14 @@ export function createCallWorker(args: {
 
   return {
     pageAccess,
-    abilityNames: visible.map((ability) => ability.name),
+    // `cite_procedure` is real and always present, but it is installed by the
+    // governed loop itself rather than by `assembleAbilities`, so it never
+    // appeared in this list. The prompt names it whenever the agent has
+    // procedures — so every call with a procedure attached wrote "Call
+    // instructions promised absent tools: cite_procedure" onto its own record.
+    // A false alarm on every single call is worse than no alarm: it is the
+    // noise the real finding hides in.
+    abilityNames: [...visible.map((ability) => ability.name), 'cite_procedure'],
     startWork: (intent, hooks) => {
       counter += 1
       const item: Item = {
