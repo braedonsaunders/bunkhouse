@@ -185,3 +185,45 @@ const freshLedger = () => {
   assert.equal(allBad.out.trim(), UNGROUNDED_FALLBACK, 'a total refusal falls back, never to dead air')
   console.log('gate: streaming screens per sentence and never returns silence')
 }
+
+// --- The gate must never be able to silence a call -------------------------
+// It sits in the pipe that turns words into audio. A screen that throws must
+// let the words past, because "the agent answered and then said nothing" is a
+// worse and far less visible failure than the one this file exists to prevent.
+{
+  const { screenSpeechStream } = await import('../src/lib/call-speech-gate')
+  const exploding = {
+    learn: () => {},
+    knowsPhrase: () => {
+      throw new Error('ledger exploded')
+    },
+    knowsNumber: () => {
+      throw new Error('ledger exploded')
+    },
+    size: () => 0,
+  }
+  const stream = async function* () {
+    yield 'Our top customer is Birla Carbon Canada Ltd. '
+    yield 'They are at $1,817,412.41.'
+  }
+  let out = ''
+  for await (const said of screenSpeechStream(stream(), exploding, () => {})) out += said
+  assert.ok(out.includes('Birla Carbon'), 'a broken screen still lets the caller hear the answer')
+  assert.ok(out.includes('1,817,412.41'), 'including the figures')
+
+  // And a reporting callback that throws cannot stop the rest of the speech.
+  const ledger = freshLedger()
+  const noisy = async function* () {
+    yield 'The top customer is Imperial Metals. '
+    yield 'Total A/R is $4.35 million.'
+  }
+  let second = ''
+  for await (const said of screenSpeechStream(noisy(), ledger, () => {
+    throw new Error('reporting exploded')
+  })) {
+    second += said
+  }
+  assert.ok(!second.includes('Imperial'), 'the invention is still refused')
+  assert.ok(second.includes('$4.35 million'), 'and the good sentence still goes out')
+  console.log('gate: a broken gate fails open — it can never silence a call')
+}

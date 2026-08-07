@@ -380,7 +380,21 @@ export async function* screenSpeechStream(
   const flush = function* (sentence: string): Generator<string> {
     const trimmed = sentence.trim()
     if (!trimmed) return
-    const verdict = screenUtterance(trimmed, ledger, options)
+    let verdict: SpeechVerdict
+    try {
+      verdict = screenUtterance(trimmed, ledger, options)
+    } catch {
+      // FAIL OPEN, on purpose, and this is the most important decision in the
+      // file. This generator sits in the middle of the pipe that turns words
+      // into audio: a throw here does not produce a caught error somewhere
+      // useful, it produces a call where the agent answers and then says
+      // nothing — which is a worse failure than the fabrication this exists to
+      // prevent, and one that is far harder to notice. A screen that cannot
+      // run lets the words past.
+      spoke = true
+      yield sentence
+      return
+    }
     if (verdict.ok) {
       spoke = true
       yield verdict.text.endsWith(' ') ? verdict.text : `${verdict.text} `
@@ -390,7 +404,7 @@ export async function* screenSpeechStream(
     try {
       onRefused(verdict, trimmed)
     } catch {
-      // Reporting must never be able to stop the call talking.
+      // Reporting must never be able to stop the call talking either.
     }
   }
 
