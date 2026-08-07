@@ -76,6 +76,111 @@ record](#why-the-calls-own-record) — the turns say what was said and the tool
 events say what was done, and for three separate defects neither was enough to
 say which of two mechanisms had produced them.
 
+## The speech boundary: the model chooses words, never facts
+
+The talker/worker split above separates *the conversation from the work*. It
+does not, on its own, separate **the words from the facts** — and every serious
+defect this architecture has produced lives in that gap. One evening of real
+calls, again:
+
+- Handed the progress note `"Checking NetSuite"` and asked to put it in its own
+  words, an agent said *"Just got it — our biggest customer is a major steel
+  processing client"*, then named **Hamilton Steel Group**. No such customer
+  exists. Corrected by the caller, it named **Imperial Metals** and called that
+  *"the confirmed name from our records"*. The real answer, Birla Carbon Canada
+  Ltd, was sitting in the run record the whole time.
+- Asked for "one short line of company" to cover a silence, an agent spoke a
+  phishing message out of its weights — *"your account has been flagged… may be
+  in violation of the User Agreement"* — to a caller, in a colleague's voice, on
+  a finance call.
+- A reasoning model's scratchpad arrived in the content field and went straight
+  to the speaker: 595 characters of *"do not mention any of this in your
+  answer… start with a thought block"*, read out as a greeting.
+
+Every one of those is the same event: **a model asked to produce speech with
+nothing grounded to say, filling the gap from its own weights.** And every one
+happened while a prompt rule forbidding exactly it was in context. That is the
+lesson: correctness enforced by instruction does not compose. Each new rule
+dilutes the others, and the pile reached 8.6KB before models started losing to
+it. Worse, fabrication is self-reinforcing — feeding an agent the truth after
+it has invented something does not reliably stop it, which is precisely what
+the caller above saw when their correction produced a second invented name.
+
+So the rule is mechanical instead, and it is the one invariant of this
+architecture:
+
+> **The model chooses words. It never chooses facts.**
+
+A model may phrase things however it likes, round `$4,347,898.35` to "about four
+and a third million", and be as warm as it wants. It simply cannot introduce a
+name or a figure that nothing gave it.
+
+### How it works
+
+```
+   tool results ──┐
+                  ├──▶ FACT LEDGER ──┐
+   caller's STT ──┘                  │
+                                     ▼
+   model text ──────────────▶ ┌─────────────┐
+                              │    GATE     │──▶ TTS ──▶ caller
+                              └─────────────┘
+                                     │
+                              refusal on the record
+```
+
+**The ledger** (`call-speech-gate.ts`) holds everything that arrived on this
+call from somewhere trustworthy: tool results, and what the caller actually
+said. It is seeded with what is true before anyone speaks — the company, the
+roster, who is on the line. It deliberately does **not** learn from the agent's
+own utterances; a ledger that did would happily confirm the agent's own
+invention the second time it said it.
+
+**The gate** screens every utterance on its way to the voice, sentence by
+sentence, and refuses three things:
+
+1. **Ungrounded specifics.** Multi-word proper nouns and figures over 1,000 must
+   appear in the ledger. Figures match on significant digits, so a rounded quote
+   still passes — rounding is good behaviour and must survive.
+2. **Leaked scaffolding.** Reasoning wrappers are stripped; instruction
+   language ("in your answer", "internal reasoning", tool names) is refused
+   outright.
+3. **Unsolicited alarm.** An agent has no business telling a caller their
+   account is flagged or suspended. That claim belongs to a human.
+
+A refused sentence is dropped and recorded; the rest of the utterance still goes
+out, because one bad claim should cost that claim and not the answer. If every
+sentence is refused, a fixed honest line goes out instead — a refusal must never
+become dead air, which is the defect that started all of this.
+
+### Where it is enforced, and where it cannot be
+
+The gate lives in `ttsNode`, which is every route to the voice in a **cascade**
+session: greeting, generated reply, mailbox delivery, fixed filler. In a
+**realtime** session the model emits audio itself, there is no text on its way
+to a synthesiser, and the gate degrades from a fire door to a smoke alarm — it
+screens the transcript after the fact and writes an error, which finds and
+counts fabrications but cannot unsay them. Every realtime call now says so on
+its own record. **An agent whose job involves figures a caller will act on
+belongs on cascade.**
+
+### Filler is never generated
+
+Dead air is a bug, but the first fix for it — handing the model a turn and
+asking for "one short line of company" — is the worst defect this codebase has
+shipped. It fired once in production and produced the phishing message above.
+Filler is now a fixed set of contentless lines said straight through the mouth,
+bypassing the model entirely, bounded to four per call. Anything with *content*
+still goes through the mailbox, where it is grounded and screened.
+
+### Rules become tests
+
+Every incident above is now a case in `call-speech-gate.test.mts`, quoted from
+`call_turns`. Half that file is the *false-positive* half — real utterances from
+the same evening that were correct and must keep working, because a gate that
+blocks good speech is worse than the defect it fixes. That is the discipline
+this architecture was missing: an incident produces a test, not a paragraph.
+
 ## The talker's tools
 
 Six, not twenty-nine:

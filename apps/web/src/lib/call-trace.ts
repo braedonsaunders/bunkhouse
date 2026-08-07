@@ -51,12 +51,12 @@ export type TurnCause =
   | { cause: 'greeting' }
   | { cause: 'vision_lost' }
   /**
-   * The line had been quiet too long while work was still running, so the
-   * process asked for one short line of company. On one call the caller heard
-   * 103 seconds of nothing while NetSuite queries ran — every progress note
-   * deduplicated away and nothing else arriving to give the model a turn.
+   * The line had been quiet too long while work was still running, so one of a
+   * fixed set of contentless lines was said straight through the mouth. Never
+   * generated: the version that asked the model for "one short line of
+   * company" spoke a phishing message at a caller on its only firing.
    */
-  | { cause: 'keep_company' }
+  | { cause: 'filler' }
   | { cause: 'spontaneous' }
 
 /** How a piece of work ended, in the words the worker uses for it. */

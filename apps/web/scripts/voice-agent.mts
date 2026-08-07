@@ -41,6 +41,7 @@ import { saveFile } from '../src/lib/files'
 import { companyPromptProfile, getCompanyIdentity } from '../src/lib/company-identity'
 import { resolveSeeingModel } from '../src/lib/page-reading'
 import { echoOfAgent } from '../src/lib/call-echo'
+import { createFactLedger, screenSpeechStream, screenUtterance } from '../src/lib/call-speech-gate'
 import { toolsPromisedButAbsent } from '../src/lib/call-reading'
 import { priceSpend } from '../src/lib/pricing'
 import { isWithinWorkingHours } from '../src/lib/working-hours'
@@ -248,6 +249,24 @@ async function ensureInboundPhoneSession(ctx: JobContext, roomName: string): Pro
   })
 }
 
+/**
+ * A web ReadableStream as an async iterable. Node's implementation is already
+ * iterable and takes the fast path in the caller; this covers the one that is
+ * not, so the speech gate can consume either without caring which it got.
+ */
+async function* streamToIterable(stream: ReadableStream<string>): AsyncIterable<string> {
+  const reader = stream.getReader()
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) return
+      if (value !== undefined) yield value
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
 async function markFailed(session: SessionRow, message: string): Promise<void> {
   const now = new Date()
   await app.withTenant(session.tenantId, async () => {
@@ -413,12 +432,14 @@ async function buildInstructions(
     'Every so often you will be told where your own work has got to. That is for you, not a script: mention it only if it is genuinely worth a few words to them ("still going through their site", "found two so far"), in your own words, in one short clause, and then carry on the conversation. Most of the time the right answer is to say nothing at all and keep talking about what you were talking about. Never read those notes out one after another — a running commentary of pages being opened is not company.',
     'Be relentless. One source refusing you is not a dead end, it is the first thing you tried: a 403, a bot check, a dead domain, a page that will not load — go straight to the next route without being asked. Try the official site, then the search result you have not opened yet, then a directory or aggregator, then the cached or printable version, then a different search phrasing, then the browser instead of a plain fetch. Three or four genuine attempts down different paths before you even mention difficulty. Never answer a request with a question when you could answer it with an attempt, and never hand the work back ("would you like me to try another site?") — try it, then tell them what you found. Only when you have honestly exhausted the routes do you say so, and then say exactly what you tried and what stopped you.',
     'If the caller speaks while work is running, just talk with them — it keeps going and you share the result when it lands. Never hand the same thing over twice because you were interrupted.',
-    // Answering from stale context. A caller was once read a list of
-    // restaurants the agent had seen in a search snippet minutes earlier, while
-    // the real answer — a different list, off a page the agent had actually
-    // read — sat finished in the record and was never spoken. Every fact a
-    // caller acts on has to come from something that came back on this call.
-    'Every fact you state must come from what came back to you on THIS call — a result you were handed, a note you were given, a page you actually read. Something you saw earlier in the conversation, a half-remembered list, an assumption about a place you know: none of that is a result, and none of it may be presented as one. If what came back has no answer in it, say plainly that you did not get it and offer to finish it and send it on. Never fill a gap with something you remember.',
+    // Grounding. This used to be two long paragraphs pleading with the model
+    // not to invent things, and models invented things anyway — a customer
+    // name twice in one call, the second time described as "confirmed from our
+    // records". It is now a machine check on the way to the voice: a name or a
+    // figure that did not arrive on this call does not get spoken, whatever
+    // the model intended. What is left here is the part a check cannot do,
+    // which is telling the caller the truth about it gracefully.
+    'Every name and figure you say has to have come from this call — something handed to you, or something they told you. You cannot fill a gap from memory, and you do not have to: if you have not got it yet, say so plainly and say when you will. "I have not got that back yet" is always a better sentence than a guess, and a guess will not reach them anyway.',
     // Perishable facts. The worker verifies them against the primary source;
     // this is the half the caller hears — the sentence that makes the
     // difference between a fact and a fact with a date on it.
@@ -514,7 +535,13 @@ const deliveryBriefing = (text: string, items: readonly MailboxItem[]): string =
     text,
     mustSay
       ? 'Tell them this now, in one short sentence, in your own words: what is waiting and what happens next. If it needs their sign-off, say that it does and that it will happen once it is signed off — never that it is done, and never ask for the same sign-off twice. Then carry on with the call.'
-      : 'Say where you are up to in one short clause, in your own words, and then stop. If it adds nothing to what they already know, say nothing at all. Never treat this as something the caller said, never thank them for it, never invent a result, and never call the work finished unless the note above says it is.',
+      : // This clause is load-bearing and was learned expensively. Handed the
+        // progress note "Checking NetSuite" and asked to put it in its own
+        // words, a model said "Just got it — our biggest customer is a major
+        // steel processing client", then named a company that does not exist.
+        // A status note is not an answer and contains no answer; the only safe
+        // paraphrase of it is one that adds nothing at all.
+        'Say where you are up to in one short clause, in your own words, and then stop. If it adds nothing to what they already know, say nothing at all. The note above is a STATUS, not an answer — it contains no result, so you have none to give. You may not name a company, a person, a figure or a total that is not written in the note above, and you may not say or imply that the work has produced an answer. If they have asked a question you cannot yet answer, say plainly that you are still getting it. Never treat this as something the caller said, and never thank them for it.',
   ].join('\n')
 }
 
@@ -972,6 +999,22 @@ export default defineAgent({
         lastAgentLine = text
         recentAgentLines.unshift(text)
         if (recentAgentLines.length > 3) recentAgentLines.length = 3
+        // The gate on the voice can only screen text on its way to a
+        // synthesiser. A realtime model emits audio itself, so on those calls
+        // nothing is screened before the caller hears it and this is the only
+        // place an ungrounded claim shows up at all. It is a smoke alarm, not
+        // a fire door: it cannot unsay the sentence, but a fabrication that
+        // leaves a record can be found, counted and fixed, where one that
+        // leaves nothing is argued about from a caller's memory.
+        const verdict = screenUtterance(text, factLedger)
+        if (!verdict.ok) {
+          console.warn(`[voice] room ${roomName}: SAID something ungrounded — ${verdict.reason}`)
+          void recordEvent('error', {
+            message: `The caller was told something nothing on this call backs up (${verdict.reason}): "${text.slice(0, 300)}"${
+              verdict.offending.length > 0 ? ` Unbacked: ${verdict.offending.join(', ')}.` : ''
+            }`,
+          }).catch(() => undefined)
+        }
         trace?.agentTurn({ itemId: item.id, text })
       } else {
         // The agent hearing itself is not the caller taking a turn. Answering
@@ -1027,6 +1070,35 @@ export default defineAgent({
       )
     })
     const callTrace = trace
+
+    // --- What is true on this call ------------------------------------------
+    // Everything specific the agent is allowed to say has to have arrived from
+    // somewhere: a tool result, or the caller's own mouth. The ledger is that
+    // "somewhere", and the gate on the voice refuses anything it cannot find
+    // here. Seeded with the facts that are true before a word is spoken — the
+    // company, the roster, who is on the line — because those are facts too,
+    // they just did not arrive through a tool.
+    const ledgerSeed: string[] = [
+      person.name,
+      person.title,
+      person.email,
+      ...(session.counterparty.name ? [session.counterparty.name] : []),
+      ...(session.counterparty.email ? [session.counterparty.email] : []),
+    ]
+    try {
+      const identity = await getCompanyIdentity(session.tenantId)
+      ledgerSeed.push(identity.name, identity.legalName, ...identity.services, ...identity.customers)
+      const roster = await app.withTenantContext(session.tenantId, () =>
+        app.db.select({ name: people.name, title: people.title, email: people.email }).from(people),
+      )
+      for (const colleague of roster) ledgerSeed.push(`${colleague.name} ${colleague.title} ${colleague.email}`)
+    } catch (error) {
+      // A thin ledger refuses more than it should, which is noisy but safe; a
+      // call that will not start because the roster read failed is not.
+      console.error(`[voice] room ${roomName}: the fact ledger could not be fully seeded — ${describeError(error)}`)
+    }
+    const factLedger = createFactLedger(ledgerSeed.filter(Boolean))
+
     // Every final transcript off the caller's audio, before any judgement
     // about what it is. On one call the caller spoke into two minutes of
     // working silence and nothing anywhere said whether their words died at
@@ -1036,6 +1108,9 @@ export default defineAgent({
       if (!event.isFinal) return
       const text = event.transcript.trim()
       if (!text) return
+      // What the caller says is a fact on this call. A customer they name is
+      // one the agent may name back, whether or not a tool ever returned it.
+      factLedger.learn(text)
       callTrace.heard({ text })
     })
 
@@ -1534,7 +1609,15 @@ export default defineAgent({
       // answers from search snippets and says nothing about it.
       autonomy: dial,
       caller: session.counterparty.name ?? 'the caller',
-      record: (kind, payload) => recordEvent(kind, payload),
+      record: (kind, payload) => {
+        // Only a tool result is evidence. Deliberately NOT the trace stream:
+        // that carries the agent's own utterances, and a ledger that learned
+        // those would happily confirm the agent's own invention the second
+        // time it said it — which is exactly how one fabricated customer name
+        // became a second, more confident one.
+        if (kind === 'tool_result') factLedger.learn(payload.output)
+        return recordEvent(kind, payload)
+      },
       trace: callTrace,
       // The call ending must not take an answer with it. Work still running is
       // refiled as an assignment — the deferred disposition of the same engine,
@@ -1607,54 +1690,67 @@ export default defineAgent({
     const callWorker = worker
 
     // --- Keeping the caller company -----------------------------------------
-    // The instructions tell the agent to keep talking across a pause, but a
-    // realtime model only speaks when something arrives — a caller turn or a
-    // mailbox delivery. On one call every progress note deduplicated down to
-    // the same two words, nothing else arrived, and the caller sat through 103
-    // seconds of dead air before hanging up on a line that was working
-    // perfectly. So silence during live work is now an event of its own: when
-    // the line has been quiet this long and work is still running, the model
-    // is handed a turn and asked for one short line of company. The mailbox
-    // stays the only route for facts; this asks for presence, not progress.
-    const KEEP_COMPANY_AFTER_MS = 15_000
-    let keepingCompany = false
-    const keepCompany = () => {
-      if (keepingCompany || mailboxDeliveryInFlight) return
+    // Dead air during work is a bug: a caller once sat through 103 seconds of
+    // it and hung up on a line that was working perfectly. But the first fix
+    // for it — handing the model a turn and asking for "one short line of
+    // company" — is the worst defect this file has ever shipped. It fired
+    // exactly once in production and the model, given no content to relay and
+    // an open instruction to say something, produced a phishing message out of
+    // its training data: "your account has been flagged... may be in violation
+    // of the User Agreement". A caller heard that, in their colleague's voice,
+    // on a finance call.
+    //
+    // So filler is never generated. It is a fixed set of lines said straight
+    // through the mouth, bypassing the model entirely — the caller can hear
+    // that someone is still there without a language model being asked to
+    // invent what "still there" sounds like. Anything with CONTENT in it still
+    // goes through the mailbox, where it is grounded and screened.
+    const FILLER_AFTER_MS = 15_000
+    /** Fixed, contentless, and true whatever the work turns out to be. */
+    const FILLER_LINES = [
+      'Still going here — bear with me.',
+      'Not forgotten you, still working through it.',
+      'Almost there, give me a moment.',
+      'Still on it.',
+    ] as const
+    /** Bounded: past this the silence is a fault to fix, not to paper over. */
+    const MAX_FILLERS = 4
+    let fillerIndex = 0
+    let fillerInFlight = false
+    const sayFiller = () => {
+      if (fillerInFlight || mailboxDeliveryInFlight) return
+      if (fillerIndex >= MAX_FILLERS) return
       if (!callWorker.working()) return
       if (!lineIsQuiet()) return
-      // Something is already queued to be said — the mailbox will break the
-      // silence itself, with actual news, at its own boundary.
+      // Something with actual news is queued — let the mailbox break the
+      // silence instead, and say nothing on top of it.
       if (deliveryMailbox.pending().length > 0) return
-      if (Date.now() - lastBusyAt < KEEP_COMPANY_AFTER_MS) return
-      keepingCompany = true
-      // Stamped now, not on completion: a model that answers slowly must not
-      // earn a second nudge while the first is still being thought about.
+      if (Date.now() - lastBusyAt < FILLER_AFTER_MS) return
+      const line = FILLER_LINES[fillerIndex % FILLER_LINES.length]!
+      fillerIndex += 1
+      fillerInFlight = true
+      // Stamped now, not on completion, so a slow playout cannot earn a second
+      // filler while the first is still in the caller's ear.
       lastBusyAt = Date.now()
-      const expected = callTrace.expectTurn({ cause: 'keep_company' })
+      const expected = callTrace.expectTurn({ cause: 'filler' })
       try {
-        const handle = agentSession.generateReply({
-          instructions:
-            'The line has gone quiet while your work is still running. Say ONE short, natural sentence so they know you are still there — where things have genuinely got to if you know, otherwise a bit of ordinary company or a question that makes the result more useful. Fresh words every time: never repeat a phrase you have already used on this call, never apologise for the wait, and do not announce anything as finished. Then stop and listen.',
-          // Company is not a licence to start more work, and a status nudge
-          // answered with a second do_work hand-over is the repeat this guards.
-          toolChoice: 'none',
-        })
+        const handle = agentSession.say(line, { allowInterruptions: true, addToChatCtx: true })
         void handle
           .waitForPlayout()
           .catch(() => undefined)
           .finally(() => {
             expected.release({ recordUnspoken: false })
-            keepingCompany = false
+            fillerInFlight = false
             lastBusyAt = Date.now()
           })
       } catch (error) {
         expected.release({ recordUnspoken: false })
-        keepingCompany = false
-        console.error(`[voice] room ${roomName}: keep-company speech failed — ${describeError(error)}`)
+        fillerInFlight = false
+        console.error(`[voice] room ${roomName}: filler speech failed — ${describeError(error)}`)
       }
     }
-    const keepCompanyWatch = setInterval(keepCompany, 5_000)
-    ctx.addShutdownCallback(async () => clearInterval(keepCompanyWatch))
+    const fillerWatch = setInterval(sayFiller, 5_000)
+    ctx.addShutdownCallback(async () => clearInterval(fillerWatch))
 
     // An approved action is executed by a different process. The durable run
     // event is the hand-off back to this live room: without watching it, the
@@ -1744,7 +1840,15 @@ export default defineAgent({
           )
         },
       },
-      record: (kind, payload) => recordEvent(kind, payload),
+      record: (kind, payload) => {
+        // Only a tool result is evidence. Deliberately NOT the trace stream:
+        // that carries the agent's own utterances, and a ledger that learned
+        // those would happily confirm the agent's own invention the second
+        // time it said it — which is exactly how one fabricated customer name
+        // became a second, more confident one.
+        if (kind === 'tool_result') factLedger.learn(payload.output)
+        return recordEvent(kind, payload)
+      },
       // The hangup waits for the agent's last words to play out (close()
       // drains), settles the ledger, and then takes the room down, which is
       // what actually ends the call for the caller.
@@ -1850,7 +1954,34 @@ export default defineAgent({
       // the model when work reports in or finishes. The stock ones name the
       // tool and its call id, which is precisely what a caller must never
       // hear, so they are replaced with the sentences a colleague would use.
-      const agent = new voice.Agent({ instructions, tools, toolHandling: { asyncOptions: ASYNC_TOOL_VOICE } })
+      // --- The speech boundary ---------------------------------------------
+      // The last thing between the model and the caller's ear. Every route to
+      // the voice in a cascade — the greeting, a generated reply, a mailbox
+      // delivery, a fixed filler line — arrives here as text on its way to
+      // becoming audio, which makes this the one place a rule about what may
+      // be SAID can actually be enforced rather than requested.
+      //
+      // Three things a caller heard in one evening are refused here, none of
+      // which a prompt rule stopped: an invented customer name, a phishing
+      // warning the model produced to fill a silence, and 595 characters of
+      // the model's own scratchpad read out as a greeting.
+      class ScreenedAgent extends voice.Agent {
+        override async ttsNode(text: ReadableStream<string> | AsyncIterable<string>, modelSettings: never) {
+          const source = (
+            Symbol.asyncIterator in text ? text : streamToIterable(text as ReadableStream<string>)
+          ) as AsyncIterable<string>
+          const screened = screenSpeechStream(source, factLedger, (verdict, sentence) => {
+            console.warn(`[voice] room ${roomName}: refused to say "${sentence.slice(0, 80)}" — ${verdict.reason}`)
+            void recordEvent('error', {
+              message: `Refused to say something ungrounded: ${verdict.reason}. It was: "${sentence.slice(0, 300)}"${
+                verdict.offending.length > 0 ? ` Unbacked: ${verdict.offending.join(', ')}.` : ''
+              }`,
+            }).catch(() => undefined)
+          })
+          return voice.Agent.default.ttsNode(this, screened, modelSettings)
+        }
+      }
+      const agent = new ScreenedAgent({ instructions, tools, toolHandling: { asyncOptions: ASYNC_TOOL_VOICE } })
       await agentSession.start({ agent, room: ctx.room })
       // One pair of eyes for the whole call: the guest's shared screen in a
       // meeting, and the agent's own browser on any call at all.
@@ -1937,6 +2068,18 @@ export default defineAgent({
             : `Greet ${session.counterparty.name ?? 'the caller'} briefly, as yourself, and ask how you can help.`,
       })
       console.log(`[voice] ${person.name} answered room ${roomName} (${liveConfig.mode})`)
+      // The speech boundary screens text on its way to a synthesiser. A
+      // realtime model makes its own audio, so on those calls nothing is
+      // screened before the caller hears it — the gate degrades from a fire
+      // door to a smoke alarm. That is a real and unfixable difference between
+      // the two modes, so it goes on the record of every call it applies to
+      // rather than living in somebody's head: an agent whose job involves
+      // figures a caller will act on belongs on cascade.
+      if (liveConfig.mode !== 'cascade') {
+        await recordEvent('message', {
+          text: 'This call runs a realtime model, which produces its own audio — so nothing said on it passed the grounding gate before the caller heard it. Ungrounded claims are recorded after the fact, not prevented. Put agents that quote figures on cascade.',
+        }).catch(() => undefined)
+      }
 
       // A call where nobody speaks is the worst failure this process has,
       // because every part of it reports success: the session starts, the
