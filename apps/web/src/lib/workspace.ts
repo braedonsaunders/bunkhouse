@@ -1,12 +1,14 @@
 import 'server-only'
-import { mkdir, readdir, readFile, rm, rmdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, rm, rmdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { runSandbox } from '@appkit/sandbox'
-import { isProcessSandboxSupported } from '@appkit/process-sandbox'
 import { defineAbility, type Ability } from '@bunkhouse/runtime'
 import {
+  backgroundJobs,
+  deskEvents,
+  deskSessions,
   people,
   shellSessions,
   tenantSettings,
@@ -14,31 +16,21 @@ import {
   type WorkspacePolicySettings,
 } from '../db/schema'
 import { db } from '../db/client'
-import {
-  configuredRunner,
-  resolveShellExecutionPolicy,
-  runSandboxedShell,
-  runShellRemotely,
-  shellRuntimeStatus,
-  type ShellRuntimeStatus,
-} from './shell-sandbox'
-import { saveFile } from './files'
+import { deskRuntimeStatus, resolveShellExecutionPolicy, type DeskRuntimeStatus } from './desk'
+import { deskEventPresentation } from './call-activity'
+import type { RunDeskEventRow } from '../components/run-tables'
 
 /**
- * The workspace: each agent's persistent home directory — its desk. Files
- * written there survive across runs and calls, like a human's working folder;
- * shell commands run inside a bubblewrap sandbox with ONLY that home writable,
- * and every command lands in the append-only shell_sessions ledger.
+ * The workspace policy and the cheapest execution tier.
  *
- * The homes root is deployment infrastructure (a mounted volume shared by the
- * web, worker, and voice services); which files exist is the agent's business,
- * surfaced through its own tools and the files ledger when work is published.
+ * The agent's actual filesystem moved into its desk (lib/desk.ts): the guest
+ * home IS the workspace now, and `run_shell` plus the workspace file abilities
+ * live there, over the desk-runner. What stays here is what never needed a
+ * machine at all: `run_script` (QuickJS, in-process — tier 0, pure
+ * computation), the tenant's workspace policy, and housekeeping for the legacy
+ * homes root, which remains only as the skill-bundle staging area and as
+ * history for pre-desk deployments.
  */
-
-type PersonRow = typeof people.$inferSelect
-
-const READ_CAP_BYTES = 32 * 1024
-const LIST_CAP = 200
 
 function homesRoot(): string {
   return resolve(/* turbopackIgnore: true */ process.env.BUNKHOUSE_AGENT_HOMES ?? '/data/agent-homes')
@@ -59,32 +51,24 @@ function insideHome(home: string, relativePath: string): string {
   return target
 }
 
-/**
- * Whether this deployment can run a shell command at all.
- *
- * The local probe alone was the wrong question the moment the sandbox moved to
- * its own container: `web` and `worker` cannot build a bubblewrap sandbox and
- * are not meant to, so asking them would withdraw `run_shell` from every agent
- * precisely when it had started working. A configured runner IS the support.
- */
-export function shellSupported(): boolean {
-  return configuredRunner() !== null || isProcessSandboxSupported()
+/** Is this path inside that root, on a separator boundary? */
+export function insideRoot(root: string, candidate: string): boolean {
+  const base = resolve(root)
+  const target = resolve(candidate)
+  return target === base || target.startsWith(base.endsWith(sep) ? base : base + sep)
 }
 
 /** Where a loaded skill's bundle lands inside the agent's home. */
 export const SKILLS_FOLDER = 'skills'
 
 /**
- * Write one skill's files into the agent's workspace so its own instructions
- * can refer to them — and so any script it ships is reachable by the sandboxed
- * shell the agent already has. Nothing new is granted here: `run_shell` is
- * still the only way anything executes, still bubblewrapped with the home as
- * the sole writable path, still governed by the shell dial, and still recorded.
- * A skill with scripts is inert on a deployment where the shell is unavailable.
+ * Write one skill's files into the agent's staging home so its instructions
+ * can refer to them. Rewritten from the database on every load, so a file an
+ * agent altered on a previous run never becomes what the skill "is".
  *
- * Rewritten from the database on every load, so a file an agent altered on a
- * previous run never becomes what the skill "is" — the installed bytes are the
- * only truth, and this folder is a cache of them.
+ * NOTE: with the desk cutover this writes to the web tier's homes root, not
+ * the guest disk — syncing bundles into the guest home is a follow-up on the
+ * desk workstream. A skill with scripts is inert until that lands.
  */
 export async function materializeSkillBundle(args: {
   tenantId: string
@@ -152,13 +136,20 @@ export type ShellSessionView = {
   finishedAt: string | null
 }
 
+/**
+ * The operator's workspace surface: desk-runner health plus recent shell
+ * history. New commands land on the desk ledger (desk_events); the
+ * shell_sessions rows shown here are the audit history of the pre-desk
+ * surface and stop growing. The observatory's desk replay supersedes this
+ * view when the UI workstream lands.
+ */
 export async function workspaceRuntimeView(tenantId: string): Promise<{
-  runtime: ShellRuntimeStatus
+  runtime: DeskRuntimeStatus
   sessions: ShellSessionView[]
 }> {
   const app = db()
   const [runtime, sessions] = await Promise.all([
-    shellRuntimeStatus(),
+    deskRuntimeStatus(),
     app.withTenantContext(tenantId, () =>
       app.db
         .select({
@@ -191,8 +182,190 @@ export async function workspaceRuntimeView(tenantId: string): Promise<{
   }
 }
 
+export type DeskSessionRowView = {
+  id: string
+  personName: string
+  runId: string
+  status: 'active' | 'ended' | 'failed'
+  screenReason: string | null
+  startedAt: string
+  endedAt: string | null
+  eventCount: number
+  /** The interleaved replay, oldest first, capped for transport. */
+  events: RunDeskEventRow[]
+  eventsTruncated: boolean
+}
+
+export type DeskJobRowView = {
+  id: string
+  personName: string
+  command: string
+  status: 'running' | 'exited' | 'killed'
+  startedAt: string
+  exitedAt: string | null
+  exitCode: number | null
+}
+
+export type DeskEscalationRowView = {
+  sessionId: string
+  personName: string
+  /** The agent's stated justification for opening a screen — §3.17. */
+  reason: string
+  at: string
+  /** Screen steps this session spent, against the tenant's per-session ceiling. */
+  stepsUsed: number
+  stepCeiling: number
+}
+
+export type DeskOperationsData = {
+  sessions: DeskSessionRowView[]
+  jobs: DeskJobRowView[]
+  escalations: DeskEscalationRowView[]
+}
+
+/** How many recent sessions the operator surface replays. */
+const DESK_SESSION_LIMIT = 12
+/** Events shipped per session drawer; the run record shows the full stream. */
+const DESK_SESSION_EVENT_CAP = 200
+
+/** The kinds that spend the §3.18 screen budget once a screen is open. */
+const SCREEN_STEP_KINDS: ReadonlySet<string> = new Set([
+  'screenshot',
+  'click',
+  'type',
+  'key',
+  'scroll',
+  'drag',
+  'window_focus',
+  'app_launch',
+])
+
 /**
- * Housekeeping: apply the tenant's retention policy to its agents' workspaces.
+ * The operator's desk surface: recent sessions with their interleaved replay,
+ * the background jobs table (a running process nobody can see is the failure
+ * mode there), and the escalation record — every screen opened, with the
+ * stated reason and what the session spent against its step ceiling. A pattern
+ * of opening a screen when a connector existed is something an operator can
+ * see here and correct (§3.17).
+ */
+export async function deskOperationsView(
+  tenantId: string,
+  stepCeiling: number,
+): Promise<DeskOperationsData> {
+  const app = db()
+  return app.withTenantContext(tenantId, async () => {
+    const sessions = await app.db
+      .select({
+        id: deskSessions.id,
+        personName: people.name,
+        runId: deskSessions.runId,
+        status: deskSessions.status,
+        screenReason: deskSessions.screenReason,
+        screenOpenedAt: deskSessions.screenOpenedAt,
+        startedAt: deskSessions.startedAt,
+        endedAt: deskSessions.endedAt,
+      })
+      .from(deskSessions)
+      .innerJoin(people, eq(people.id, deskSessions.personId))
+      .orderBy(desc(deskSessions.startedAt))
+      .limit(DESK_SESSION_LIMIT)
+
+    const sessionIds = sessions.map((session) => session.id)
+    const events = sessionIds.length
+      ? await app.db
+          .select({
+            sessionId: deskEvents.sessionId,
+            seq: deskEvents.seq,
+            kind: deskEvents.kind,
+            detail: deskEvents.detail,
+            screenshotFileId: deskEvents.screenshotFileId,
+            at: deskEvents.at,
+          })
+          .from(deskEvents)
+          .where(inArray(deskEvents.sessionId, sessionIds))
+          .orderBy(asc(deskEvents.sessionId), asc(deskEvents.seq))
+      : []
+    const bySession = new Map<string, typeof events>()
+    for (const event of events) {
+      const list = bySession.get(event.sessionId) ?? []
+      list.push(event)
+      bySession.set(event.sessionId, list)
+    }
+
+    const jobs = await app.db
+      .select({
+        id: backgroundJobs.id,
+        personName: people.name,
+        command: backgroundJobs.command,
+        status: backgroundJobs.status,
+        startedAt: backgroundJobs.startedAt,
+        exitedAt: backgroundJobs.exitedAt,
+        exitCode: backgroundJobs.exitCode,
+      })
+      .from(backgroundJobs)
+      .innerJoin(people, eq(people.id, backgroundJobs.personId))
+      .orderBy(desc(backgroundJobs.startedAt))
+      .limit(50)
+
+    const escalations: DeskEscalationRowView[] = []
+    for (const session of sessions) {
+      if (!session.screenReason || !session.screenOpenedAt) continue
+      const opened = session.screenOpenedAt.getTime()
+      const stepsUsed = (bySession.get(session.id) ?? []).filter(
+        (event) => SCREEN_STEP_KINDS.has(event.kind) && event.at.getTime() >= opened,
+      ).length
+      escalations.push({
+        sessionId: session.id,
+        personName: session.personName,
+        reason: session.screenReason,
+        at: session.screenOpenedAt.toISOString(),
+        stepsUsed,
+        stepCeiling,
+      })
+    }
+
+    return {
+      sessions: sessions.map((session) => {
+        const all = bySession.get(session.id) ?? []
+        return {
+          id: session.id,
+          personName: session.personName,
+          runId: session.runId,
+          status: session.status,
+          screenReason: session.screenReason,
+          startedAt: session.startedAt.toISOString(),
+          endedAt: session.endedAt?.toISOString() ?? null,
+          eventCount: all.length,
+          events: all.slice(0, DESK_SESSION_EVENT_CAP).map((event) => ({
+            seq: event.seq,
+            kind: event.kind,
+            ...deskEventPresentation(event.kind, event.detail),
+            screenshotFileId: event.screenshotFileId,
+          })),
+          eventsTruncated: all.length > DESK_SESSION_EVENT_CAP,
+        }
+      }),
+      // Running first: the list exists so a daemon is never invisible.
+      jobs: [...jobs]
+        .sort((a, b) =>
+          a.status === b.status ? 0 : a.status === 'running' ? -1 : b.status === 'running' ? 1 : 0,
+        )
+        .map((job) => ({
+          id: job.id,
+          personName: job.personName,
+          command: job.command,
+          status: job.status,
+          startedAt: job.startedAt.toISOString(),
+          exitedAt: job.exitedAt?.toISOString() ?? null,
+          exitCode: job.exitCode,
+        })),
+      escalations,
+    }
+  })
+}
+
+/**
+ * Housekeeping: apply the tenant's retention policy to the staging homes root.
  * Deletes only files whose last modification is older than the configured
  * window, then prunes directories left empty. With retention off (the
  * default), this touches nothing. Idempotent — safe on every tick.
@@ -235,58 +408,13 @@ export async function tidyWorkspaces(tenantId: string): Promise<{ deleted: numbe
   return { deleted }
 }
 
-async function runShell(args: {
-  tenantId: string
-  person: PersonRow
-  runId: string
-  command: string
-  cwd: string
-}): Promise<{ status: 'completed' | 'failed' | 'timeout'; exitCode: number | null; output: string }> {
-  const home = await agentHomePath(args.tenantId, args.person.id)
-  const cwd = insideHome(home, args.cwd)
-  const policy = (await getWorkspacePolicy(args.tenantId)).shell
-
-  // Where this actually runs is a deployment question, not an agent-facing one
-  // — see shell-sandbox.ts. With a runner configured the command goes to the
-  // one container that has the privileges bubblewrap needs; without one it
-  // runs here, which is what a developer machine does. The record below is
-  // written the same way either way, so the ledger does not know or care.
-  const runner = configuredRunner()
-  const result = runner
-    ? await runShellRemotely(runner, { home, cwd, command: args.command, policy })
-    : await runSandboxedShell({ home, cwd, command: args.command, policy })
-
-  const startedAt = new Date(result.startedAt)
-  const finishedAt = new Date(result.finishedAt)
-
-  const app = db()
-  await app.withTenant(args.tenantId, async () => {
-    await app.db.insert(shellSessions).values({
-      tenantId: args.tenantId,
-      personId: args.person.id,
-      runId: args.runId,
-      executionId: result.executionId,
-      command: args.command,
-      cwd: args.cwd,
-      status: result.status,
-      exitCode: result.exitCode,
-      output: result.output,
-      outputTruncated: result.outputTruncated,
-      durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
-      startedAt,
-      finishedAt,
-    }).onConflictDoNothing({
-      target: [shellSessions.tenantId, shellSessions.executionId],
-    })
-  })
-
-  return result
-}
-
-export function workspaceAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {
-  const { tenantId, person, runId } = args
-
-  const abilities: Ability[] = [
+/**
+ * The one workspace ability that never needed a machine: pure computation in
+ * QuickJS, in-process. Unchanged by the desk cutover on purpose — it is the
+ * cheapest tier and the right answer for math a model should not estimate.
+ */
+export function workspaceAbilities(): Ability[] {
+  return [
     defineAbility({
       name: 'run_script',
       description:
@@ -317,99 +445,5 @@ export function workspaceAbilities(args: { tenantId: string; person: PersonRow; 
           : { status: result.status, error: result.error ?? 'The script did not complete.', logs: result.logs }
       },
     }),
-    defineAbility({
-      name: 'list_workspace_files',
-      description:
-        'List the files in your workspace — your persistent home folder. Work you saved there in earlier runs and calls is still there.',
-      category: null,
-      inputSchema: z.object({
-        path: z.string().default('.').describe('Folder inside your workspace, e.g. "." or "projects"'),
-      }),
-      execute: async ({ path }) => {
-        const home = await agentHomePath(tenantId, person.id)
-        const dir = insideHome(home, path)
-        const entries: { path: string; kind: 'file' | 'folder'; sizeBytes?: number; modifiedAt?: string }[] = []
-        const walk = async (current: string, prefix: string, depth: number): Promise<void> => {
-          if (depth > 4 || entries.length >= LIST_CAP) return
-          const names = await readdir(/* turbopackIgnore: true */ current).catch(() => [])
-          for (const name of names) {
-            if (entries.length >= LIST_CAP) return
-            const full = join(/* turbopackIgnore: true */ current, name)
-            const info = await stat(/* turbopackIgnore: true */ full).catch(() => null)
-            if (!info) continue
-            const rel = prefix ? `${prefix}/${name}` : name
-            if (info.isDirectory()) {
-              entries.push({ path: rel, kind: 'folder' })
-              await walk(full, rel, depth + 1)
-            } else {
-              entries.push({ path: rel, kind: 'file', sizeBytes: info.size, modifiedAt: info.mtime.toISOString() })
-            }
-          }
-        }
-        await walk(dir, '', 0)
-        return { entries, ...(entries.length >= LIST_CAP ? { note: `Listing capped at ${LIST_CAP} entries.` } : {}) }
-      },
-    }),
-    defineAbility({
-      name: 'read_workspace_file',
-      description: 'Read a text file from your workspace (truncated past 32 KB).',
-      category: null,
-      inputSchema: z.object({ path: z.string() }),
-      execute: async ({ path }) => {
-        const home = await agentHomePath(tenantId, person.id)
-        const target = insideHome(home, path)
-        const info = await stat(/* turbopackIgnore: true */ target).catch(() => null)
-        if (!info || !info.isFile()) return { found: false, reason: 'No such file in your workspace.' }
-        const bytes = await readFile(/* turbopackIgnore: true */ target)
-        const text = bytes.subarray(0, READ_CAP_BYTES).toString('utf8')
-        return { found: true, text, ...(bytes.length > READ_CAP_BYTES ? { truncated: true } : {}) }
-      },
-    }),
-    defineAbility({
-      name: 'publish_workspace_file',
-      description:
-        'Publish a file from your workspace to the company file ledger, so it can be attached to email (attachFileIds) and kept on the record. Returns the file id.',
-      category: 'file_write',
-      inputSchema: z.object({
-        path: z.string().describe('The workspace file to publish'),
-        filename: z.string().optional().describe('Name the recipient sees; defaults to the file name'),
-        contentType: z.string().optional().describe('MIME type; defaults to application/octet-stream'),
-      }),
-      execute: async ({ path, filename, contentType }) => {
-        const home = await agentHomePath(tenantId, person.id)
-        const target = insideHome(home, path)
-        const info = await stat(/* turbopackIgnore: true */ target).catch(() => null)
-        if (!info || !info.isFile()) return { published: false, reason: 'No such file in your workspace.' }
-        const bytes = await readFile(/* turbopackIgnore: true */ target)
-        const record = await saveFile({
-          tenantId,
-          personId: person.id,
-          runId,
-          kind: 'document',
-          filename: filename ?? path.split('/').pop() ?? 'file',
-          contentType: contentType ?? 'application/octet-stream',
-          bytes,
-        })
-        return { published: true, fileId: record.id, filename: record.filename, sizeBytes: record.sizeBytes }
-      },
-    }),
   ]
-
-  if (shellSupported()) {
-    abilities.push(
-      defineAbility({
-        name: 'run_shell',
-        description:
-          'Run a shell command in your sandboxed workspace. Your home folder is the only writable place and it persists — files you create are there next time. 120-second limit per command; output is captured on the record. Use it for real work: organizing files, processing data, preparing material you then publish and send.',
-        category: 'shell',
-        inputSchema: z.object({
-          command: z.string().describe('The command line, run with /bin/sh -lc'),
-          cwd: z.string().default('.').describe('Working folder inside your workspace'),
-        }),
-        execute: async ({ command, cwd }) => runShell({ tenantId, person, runId, command, cwd }),
-      }),
-    )
-  }
-
-  return abilities
 }

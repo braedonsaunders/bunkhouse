@@ -17,6 +17,7 @@ export * from './chat'
 export * from './templates'
 export * from './filing'
 export * from './browser'
+export * from './desk'
 export * from './skills'
 export * from './tools'
 
@@ -38,6 +39,7 @@ import { CHAT_TENANT_TABLES } from './chat'
 import { TEMPLATES_TENANT_TABLES } from './templates'
 import { FILING_TENANT_TABLES } from './filing'
 import { BROWSER_TENANT_TABLES } from './browser'
+import { DESK_TENANT_TABLES } from './desk'
 import { SKILLS_TENANT_TABLES } from './skills'
 import { TOOLS_TENANT_TABLES } from './tools'
 
@@ -61,6 +63,7 @@ export const BUNKHOUSE_TENANT_TABLES = [
   ...TEMPLATES_TENANT_TABLES,
   ...FILING_TENANT_TABLES,
   ...BROWSER_TENANT_TABLES,
+  ...DESK_TENANT_TABLES,
   ...SKILLS_TENANT_TABLES,
   ...TOOLS_TENANT_TABLES,
 ] as const

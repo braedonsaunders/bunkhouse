@@ -1,0 +1,151 @@
+# The agent desk runner — its own application, on its own VM, on purpose.
+#
+# This file replaces deploy/shell-runner.compose.yaml. The desk (a Cloud
+# Hypervisor microVM per agent — docs/agent-desk.md) is the only agent
+# execution surface now; the bubblewrap shell runner is retired with it, and
+# the BUNKHOUSE_SHELL_URL / BUNKHOUSE_SHELL_TOKEN pair on the main stack is
+# superseded by BUNKHOUSE_DESK_URL / BUNKHOUSE_DESK_TOKEN.
+#
+# WHY THIS RUNS ON A DEDICATED DESK HOST VM, AND NOT THE DOKPLOY VM:
+#
+# Booting a microVM needs KVM, and KVM inside a Hyper-V guest needs nested
+# virtualisation. Enabling that requires powering the L1 VM off and disabling
+# Dynamic Memory — static RAM only, because ballooning wrecks nested load.
+# Doing that to the VM that holds the provider keys, the session secret and
+# the database is the wrong trade, and it is the same argument the shell
+# runner's header made before this file existed:
+#
+#   The obvious fix — grant all three to web, worker and voice-agent — is the
+#   wrong trade. Those are the containers that execute model-directed code and
+#   drive a browser across the open web, on a host that also runs other
+#   applications. Removing the outer confinement from the most exposed
+#   containers in order to enable an inner sandbox is backwards.
+#
+# Same shape here: the capability (this time /dev/kvm and a reconfigured host
+# VM rather than CAP_SYS_ADMIN and unconfined seccomp) lives in a process
+# whose entire job is to boot desks and relay what happens on them. It holds
+# no database URL, no provider keys, no session secret, and publishes no port.
+# Two checks bound what it can be asked to do: a bearer token compared in
+# constant time, and disk paths that must resolve inside the agent-disks root.
+#
+# EXPECT A PERFORMANCE TAX. Cloud Hypervisor here is L2 virtualisation —
+# a VMM inside a Hyper-V guest. The sub-second boot figures published for
+# these VMMs are measured on bare metal; nested will be slower. Measure on
+# the real host before promising resume latency anywhere in the UI or docs.
+#
+# HOW TO DEPLOY IT
+#
+#   1. Prepare the dedicated desk host VM on the Hyper-V host (NOT the
+#      Dokploy VM — that is the whole point). From an admin PowerShell:
+#
+#        # VM must be OFF to toggle nested virtualisation
+#        Stop-VM -Name 'bunkhouse-desk'
+#        Set-VMProcessor -VMName 'bunkhouse-desk' -ExposeVirtualizationExtensions $true
+#
+#        # Dynamic Memory must be off; ballooning wrecks nested load
+#        Set-VMMemory -VMName 'bunkhouse-desk' -DynamicMemoryEnabled $false -StartupBytes 32GB
+#
+#        # Nested guests need this for their own networking
+#        Get-VMNetworkAdapter -VMName 'bunkhouse-desk' | Set-VMNetworkAdapter -MacAddressSpoofing On
+#
+#        Start-VM -Name 'bunkhouse-desk'
+#
+#   2. Verify inside the guest before deploying anything:
+#
+#        ls -l /dev/kvm && grep -cE 'vmx|svm' /proc/cpuinfo
+#
+#      No /dev/kvm means step 1 did not take (or the CPU lacks VT-x/EPT or
+#      AMD-V/NPT); nothing below will work until it does.
+#   3. Add the desk host to Dokploy as a remote server, then create a new
+#      Compose application ON THAT SERVER, compose type "Docker Compose",
+#      pointed at this file. (Plain `docker compose -f ... up -d` on the desk
+#      host works identically if you would rather not run it through Dokploy.)
+#   4. Set the environment: BUNKHOUSE_TAG, and BUNKHOUSE_DESK_TOKEN — a secret
+#      you invent; the same value goes on the main stack so the two ends agree.
+#   5. On the main bunkhouse stack, set:
+#         BUNKHOUSE_DESK_URL=http://bunkhouse-desk:8080
+#         BUNKHOUSE_DESK_TOKEN=<the same secret>
+#      With those unset, agents have no machine at all: the desk abilities
+#      fail closed, exactly as the product already behaves without Chromium.
+
+networks:
+  dokploy-network:
+    external: true
+
+volumes:
+  # LOCAL to the desk host, on purpose — unlike agent workspaces, which are an
+  # NFS export shared with the main stack, this is disk-level state: the golden
+  # base image plus one copy-on-write overlay per agent. A block-level overlay
+  # over NFS is the wrong tool (locking, latency, and a corrupted overlay on a
+  # dropped mount); workspace files still flow through the web tier and its
+  # NFS-backed volume, not through here.
+  agent-disks:
+  # The one governed hole in the per-agent boundary: the company shared
+  # folder, mounted into each guest via virtio-fs (docs/agent-desk.md §3.12).
+  shared-folder:
+
+services:
+  desk-runner:
+    image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
+    command:
+      - sh
+      - -c
+      - NODE_OPTIONS=--conditions=react-server exec apps/web/node_modules/.bin/tsx apps/web/scripts/desk-runner.mts
+    # The one capability this whole file exists to grant.
+    devices:
+      - /dev/kvm
+    environment:
+      NODE_ENV: production
+      PORT: '8080'
+      # Deliberately the whole environment. No database, no Redis, no provider
+      # keys, no auth secret: this process needs a token, two paths, and a
+      # proxy address, and what it does not have cannot be taken from it.
+      BUNKHOUSE_DESK_TOKEN: ${BUNKHOUSE_DESK_TOKEN}
+      BUNKHOUSE_AGENT_DISKS: /data/agent-disks
+      BUNKHOUSE_SHARED_FOLDER: /data/shared
+      BUNKHOUSE_EGRESS_PROXY: http://egress-proxy:3128
+    volumes:
+      - agent-disks:/data/agent-disks
+      - shared-folder:/data/shared
+    networks:
+      dokploy-network:
+        # An alias with no underscore in it. Docker service names contain one,
+        # underscores are illegal in hostnames, and a strict server refuses the
+        # Host header — which is exactly how every call recording was silently
+        # rejected by object storage before this was understood.
+        aliases:
+          - bunkhouse-desk
+    # No ports. It is reachable on the internal network and nowhere else.
+    restart: always
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Every byte a guest sends leaves through here. The desk-runner DNAT's all
+  # guest traffic at the TAP device into this proxy as it creates each tap, so
+  # the guest cannot opt out — there is no proxy setting to unset, and it
+  # covers every application including the ones that ignore HTTP_PROXY
+  # (docs/agent-desk.md §3.11). That placement is the point: the agent has a
+  # root shell inside the guest, so enforcement has to live outside the
+  # boundary the agent controls or it is not enforcement.
+  egress-proxy:
+    image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
+    command:
+      - sh
+      - -c
+      - NODE_OPTIONS=--conditions=react-server exec apps/web/node_modules/.bin/tsx apps/web/scripts/egress-proxy.mts
+    environment:
+      NODE_ENV: production
+      PORT: '3128'
+    networks:
+      - dokploy-network
+    # No ports. Guests reach it only through the DNAT rules the desk-runner
+    # installs; nothing else needs to reach it at all.
+    restart: always

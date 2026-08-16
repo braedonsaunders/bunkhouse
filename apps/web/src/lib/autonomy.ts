@@ -11,9 +11,11 @@ export const ACTION_CATEGORIES = [
   'record_write',
   'money_adjacent',
   'file_write',
-  'computer_use',
-  'shell',
   'phone_call',
+  'sandbox',
+  'desktop',
+  'shared_folder',
+  'background_job',
 ] as const satisfies readonly ActionCategory[]
 
 export const AUTONOMY_LEVELS = ['forbidden', 'approval', 'notify', 'trusted'] as const satisfies readonly AutonomyLevel[]
@@ -27,9 +29,11 @@ export const CATEGORY_LABELS: Record<ActionCategory, string> = {
   record_write: 'Record changes',
   money_adjacent: 'Money-adjacent',
   file_write: 'File writes',
-  computer_use: 'Computer use',
-  shell: 'Terminal / shell',
   phone_call: 'Phone calls',
+  sandbox: 'Sandbox machine',
+  desktop: 'Desktop screen',
+  shared_folder: 'Shared folder',
+  background_job: 'Background jobs',
 }
 
 /** What each level means, in the operator's terms. */

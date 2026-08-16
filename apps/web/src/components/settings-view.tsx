@@ -3,8 +3,8 @@
 import * as React from 'react'
 import Link from 'next/link'
 import {
-  Activity, DoorOpen, Boxes, Brain, Building2, FileText, FolderCog, Globe, ImageIcon, Mail, MessageSquare,
-  MessagesSquare, Phone, Shield, UserRoundCog } from 'lucide-react'
+  Activity, DoorOpen, Boxes, Brain, Building2, FileText, Globe, ImageIcon, Mail, MessageSquare,
+  MessagesSquare, Monitor, Phone, Shield, SlidersHorizontal, UserRoundCog } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -41,7 +41,17 @@ import { DepartmentsSettings, type DepartmentRow } from './departments-settings'
 import { PhoneSystemRow, type AgentExtensionRow, type AgentOption, type PhoneNumberRowView, type SipTrunkSummary } from './phone-system'
 import { MailOauthApps, type MailOauthAppView } from './mail-oauth-apps'
 import { MailSignatureSettings, type MailSignatureView } from './mail-signature-settings'
-import { DocumentsSection, ResearchSection, SmsSection, WorkspaceSection, type DocumentBrandingView, type SmsSettingsView, type WorkspacePolicyView } from './capability-settings'
+import {
+  DeskSection,
+  DocumentsSection,
+  ResearchSection,
+  SmsSection,
+  type DeskOperationsView,
+  type DocumentBrandingView,
+  type SmsSettingsView,
+  type WorkspacePolicyView,
+} from './capability-settings'
+import { FeaturesSettings, type FeaturesView } from './features-settings'
 import { VoiceCostSettings, type VoiceCostSettingsView } from './voice-cost-settings'
 import { DocumentTemplatesView, type TemplateRowView } from './document-templates-view'
 import { FilingSection, type FilingActivityRow, type FilingSettingsView } from './filing-settings'
@@ -129,6 +139,7 @@ const NAV: SettingsNavGroup[] = [
     label: 'Company',
     items: [
       { key: 'identity', label: 'Identity', icon: <Building2 /> },
+      { key: 'features', label: 'Features', icon: <SlidersHorizontal /> },
       { key: 'documents', label: 'Documents', icon: <FileText /> },
       { key: 'avatar-parts', label: 'Avatars', icon: <Boxes /> },
       { key: 'departments', label: 'Departments', icon: <DoorOpen /> },
@@ -160,7 +171,7 @@ const NAV: SettingsNavGroup[] = [
   },
   {
     label: 'Systems',
-    items: [{ key: 'workspace', label: 'Workspace', icon: <FolderCog /> }],
+    items: [{ key: 'desk', label: 'Desk', icon: <Monitor /> }],
   },
 ]
 
@@ -177,6 +188,7 @@ const SECTION_ALIASES: Record<string, { section: string; tab: string }> = {
   templates: { section: 'documents', tab: 'templates' },
   filing: { section: 'documents', tab: 'filing' },
   callcosts: { section: 'voice', tab: 'costs' },
+  workspace: { section: 'desk', tab: 'status' },
 }
 
 function resolveSection(requested: string): { section: string; tab: string | null } {
@@ -255,6 +267,8 @@ export function SettingsView({
   wander,
   sceneKinds,
   workspace,
+  desk,
+  features,
   chat,
   callCosts,
   templates,
@@ -302,6 +316,10 @@ export function SettingsView({
   wander: boolean
   sceneKinds: { value: string; label: string }[]
   workspace: WorkspacePolicyView
+  /** The desk operator surface: policy, sessions, jobs, escalations. */
+  desk: DeskOperationsView
+  /** The company feature switchboard, resolved — the single source of truth. */
+  features: FeaturesView
   callCosts: VoiceCostSettingsView
   templates: TemplateRowView[]
   filing: { settings: FilingSettingsView; activity: FilingActivityRow[] }
@@ -593,7 +611,10 @@ export function SettingsView({
 
       {active === 'sms' ? <SmsSection settings={sms} /> : null}
       {active === 'research' ? <ResearchSection provider={research.provider} /> : null}
-      {active === 'workspace' ? <WorkspaceSection policy={workspace} /> : null}
+      {active === 'features' ? <FeaturesSettings features={features} /> : null}
+      {active === 'desk' ? (
+        <DeskSection policy={workspace} desk={desk} initialTab={arrival.section === 'desk' ? arrival.tab ?? undefined : undefined} />
+      ) : null}
       {active === 'chat' ? (
         <ChatSettingsSection
           connections={chat.connections}

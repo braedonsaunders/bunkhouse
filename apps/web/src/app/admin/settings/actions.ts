@@ -20,8 +20,11 @@ import { removeSearchProvider, setSearchProvider } from '../../../lib/research'
 import { saveDocumentBranding } from '../../../lib/documents'
 import { compileMailSignature, saveMailSignature } from '../../../lib/mail-signature'
 import { removeSmsSettings, saveSmsSettings } from '../../../lib/sms'
+import { eq } from 'drizzle-orm'
+import { backgroundJobs } from '../../../db/schema'
 import { saveWorkspacePolicy } from '../../../lib/workspace'
-import { resolveShellExecutionPolicy, type ShellExecutionPolicy } from '../../../lib/shell-sandbox'
+import { deskIdFor, execOnDesk, resolveShellExecutionPolicy, type ShellExecutionPolicy } from '../../../lib/desk'
+import { resolveDeskPolicy, saveDeskFeatures, saveDeskPolicy, type DeskPolicy } from '../../../lib/desk-policy'
 import { isMailOauthProvider, removeMailOauthApp, saveMailOauthApp } from '../../../lib/mail-oauth'
 import { db } from '../../../db/client'
 import { listImageModels, type ImageModelId } from '@appkit/avatars'
@@ -404,6 +407,106 @@ export async function saveWorkspacePolicyAction(input: {
   await saveWorkspacePolicy(tenantId, {
     retentionDays: input.retentionEnabled ? input.retentionDays : null,
     shell,
+  })
+  revalidatePath('/admin/settings')
+  return { ok: true }
+}
+
+// --- Features and the desk ---------------------------------------------
+
+/**
+ * The one authoritative feature switchboard (AGENTS.md): persists the tenant's
+ * company.features row through the same settings upsert the desk policy uses.
+ * The resolver forces the child off with its parent, so a stored row can never
+ * leave desktop screens on with agent desks off — and switching a feature off
+ * withholds the capability everywhere while preserving every record it wrote.
+ */
+export async function saveFeaturesAction(input: {
+  desk: boolean
+  desktop: boolean
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const tenantId = await resolveTenantId()
+    await saveDeskFeatures(tenantId, { desk: input.desk === true, desktop: input.desktop === true })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  revalidatePath('/admin/settings')
+  return { ok: true }
+}
+
+/** Save the tenant's desk policy — every number bounds-checked before it lands. */
+export async function saveDeskPolicyAction(
+  input: DeskPolicy,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  let policy: DeskPolicy
+  try {
+    policy = resolveDeskPolicy(input)
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  const tenantId = await resolveTenantId()
+  await saveDeskPolicy(tenantId, policy)
+  revalidatePath('/admin/settings')
+  return { ok: true }
+}
+
+/**
+ * Stop a background job on an agent's desk. A running process nobody can see
+ * is the failure mode the jobs table exists to prevent; this is the other
+ * half — the operator's way to end one.
+ *
+ * Mechanics and their limitation: the desk-v1 protocol has no job-signal
+ * endpoint (the guest agent understands `job-signal`, but neither the runner
+ * nor DeskHandle exposes it), so the kill is an ordinary exec in the guest —
+ * `pkill -TERM -f` on the job's recorded command line. That terminates every
+ * process whose command line matches, which is the job and any identical
+ * sibling; a job whose command is not unique on the machine can take a twin
+ * down with it. A `pkill` that matches nothing means the process is already
+ * gone — both outcomes leave the job not running, so the row is closed either
+ * way. The runner's own job-exit event confirms the death on the ledger the
+ * next time that desk's events are drained.
+ */
+export async function killDeskJobAction(
+  jobRowId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!jobRowId) return { ok: false, message: 'Which job should be stopped?' }
+  const tenantId = await resolveTenantId()
+  const app = db()
+  const [job] = await app.withTenantContext(tenantId, () =>
+    app.db
+      .select({
+        id: backgroundJobs.id,
+        personId: backgroundJobs.personId,
+        command: backgroundJobs.command,
+        status: backgroundJobs.status,
+      })
+      .from(backgroundJobs)
+      .where(eq(backgroundJobs.id, jobRowId)),
+  )
+  if (!job) return { ok: false, message: 'That job is not on the record.' }
+  if (job.status !== 'running') return { ok: false, message: 'This job has already ended.' }
+
+  const outcome = await execOnDesk({
+    deskId: deskIdFor(tenantId, job.personId),
+    command: ['/usr/bin/pkill', '-TERM', '-f', '--', job.command],
+    timeoutMs: 15_000,
+    outputLimitKb: 16,
+  })
+  // pkill exits 0 when it signalled, 1 when nothing matched (already gone) —
+  // either way the process is not running. Anything else is a real failure:
+  // the desk unreachable, or pkill itself refusing.
+  if (outcome.exitCode !== 0 && outcome.exitCode !== 1) {
+    return {
+      ok: false,
+      message: `The job could not be stopped: ${outcome.output.trim() || outcome.status}`,
+    }
+  }
+  await app.withTenant(tenantId, async () => {
+    await app.db
+      .update(backgroundJobs)
+      .set({ status: 'killed', exitedAt: new Date(), updatedAt: new Date() })
+      .where(eq(backgroundJobs.id, jobRowId))
   })
   revalidatePath('/admin/settings')
   return { ok: true }

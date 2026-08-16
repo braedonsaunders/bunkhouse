@@ -2,16 +2,21 @@ import type { AiConfig } from '@appkit/ai'
 import type { ModelMessage } from 'ai'
 
 /** The governed action categories. Must stay in sync with the app's
- *  `action_category` enum — the dial is enforced here, not in prompts. */
+ *  `action_category` enum — the dial is enforced here, not in prompts.
+ *  The pg enum still carries the retired 'shell' and 'computer_use' values
+ *  (postgres cannot drop them); they are deliberately absent here so no
+ *  ability can be defined against a retired dial. */
 export type ActionCategory =
   | 'external_email'
   | 'internal_email'
   | 'record_write'
   | 'money_adjacent'
   | 'file_write'
-  | 'computer_use'
-  | 'shell'
   | 'phone_call'
+  | 'sandbox'
+  | 'desktop'
+  | 'shared_folder'
+  | 'background_job'
 
 export type AutonomyLevel = 'forbidden' | 'approval' | 'notify' | 'trusted'
 

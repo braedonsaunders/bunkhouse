@@ -6,16 +6,15 @@
  * a caller being promised something to their face:
  *
  * - the fetch ability was taken off every call so pages would be VISITED where
- *   the caller can watch, and an agent whose computer_use dial sits on
- *   'approval' then parked every browser_open awaiting a sign-off nobody gives
- *   mid-call — three for three on one call — with no route left and nothing
- *   saying so;
+ *   the caller can watch, and an agent whose desktop dial sits on 'approval'
+ *   then parked every browser_open awaiting a sign-off nobody gives mid-call —
+ *   three for three on one call — with no route left and nothing saying so;
  * - the instruction written to patch that told the agent to "read pages with
  *   read_webpage instead", which by then had been folded into one perception
  *   ability and was no longer in the set at all: a sentence naming a tool that
  *   does not exist, handed to the worker AND spoken by the talker;
  * - and the kit sentence promised every caller a real browser to drive
- *   whatever the dial said, so an agent forbidden computer use still told them
+ *   whatever the dial said, so an agent forbidden the desktop still told them
  *   it would pull the page up.
  *
  * So one resolution decides the route, and the SAME resolution writes the
@@ -70,8 +69,8 @@ export type PageAccess = {
 export function resolvePageAccess(args: {
   /** Every ability name the call assembled — the platform's own answer on Chromium. */
   abilityNames: readonly string[]
-  /** The computer_use dial for this agent. */
-  computerUse: PageAccessLevel
+  /** The desktop dial for this agent — the browser rides it. */
+  desktop: PageAccessLevel
   /** How the browser's opening ability applies the dial. */
   browserApproval?: 'each-call' | 'continues'
 }): PageAccess {
@@ -80,8 +79,8 @@ export function resolvePageAccess(args: {
   const unusable = ((): string | null => {
     // No Chromium on the box means browserAbilities() returned nothing at all.
     if (!opens) return 'this deployment has no browser for the agent to drive'
-    if (args.computerUse === 'forbidden') return 'computer use is switched off for this agent'
-    if (args.computerUse === 'approval' && args.browserApproval !== 'continues') {
+    if (args.desktop === 'forbidden') return 'the desktop is switched off for this agent'
+    if (args.desktop === 'approval' && args.browserApproval !== 'continues') {
       return 'every page this agent opens in the browser parks awaiting a human sign-off, which will not arrive mid-call'
     }
     return null

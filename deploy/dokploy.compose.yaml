@@ -77,13 +77,14 @@ services:
       APPKIT_STORAGE_SECRET_ACCESS_KEY: ${APPKIT_STORAGE_SECRET_ACCESS_KEY}
       APPKIT_STORAGE_BUCKET: ${APPKIT_STORAGE_BUCKET:-bunkhouse}
       BUNKHOUSE_AGENT_HOMES: /data/agent-homes
-      # Where a shell command actually runs. The swarm cannot give a container
-      # what bubblewrap needs (see deploy/shell-runner.compose.yaml), so the
-      # sandbox is its own Compose application and this is how to reach it.
-      # Unset, agents run the shell in-process — right on a developer machine,
-      # impossible here.
-      BUNKHOUSE_SHELL_URL: ${BUNKHOUSE_SHELL_URL:-}
-      BUNKHOUSE_SHELL_TOKEN: ${BUNKHOUSE_SHELL_TOKEN:-}
+      # Where agent execution actually happens. This VM cannot host microVMs
+      # (nested virtualisation is deliberately off here — see
+      # deploy/desk-runner.compose.yaml), so the desk runner is its own
+      # application on the dedicated desk host and this is how to reach it.
+      # Unset, agents have no machine: the desk abilities fail closed, exactly
+      # as browsing does without Chromium.
+      BUNKHOUSE_DESK_URL: ${BUNKHOUSE_DESK_URL:-}
+      BUNKHOUSE_DESK_TOKEN: ${BUNKHOUSE_DESK_TOKEN:-}
     volumes:
       - agent-workspaces:/data/agent-homes
     networks:
@@ -132,13 +133,14 @@ services:
       APPKIT_STORAGE_SECRET_ACCESS_KEY: ${APPKIT_STORAGE_SECRET_ACCESS_KEY}
       APPKIT_STORAGE_BUCKET: ${APPKIT_STORAGE_BUCKET:-bunkhouse}
       BUNKHOUSE_AGENT_HOMES: /data/agent-homes
-      # Where a shell command actually runs. The swarm cannot give a container
-      # what bubblewrap needs (see deploy/shell-runner.compose.yaml), so the
-      # sandbox is its own Compose application and this is how to reach it.
-      # Unset, agents run the shell in-process — right on a developer machine,
-      # impossible here.
-      BUNKHOUSE_SHELL_URL: ${BUNKHOUSE_SHELL_URL:-}
-      BUNKHOUSE_SHELL_TOKEN: ${BUNKHOUSE_SHELL_TOKEN:-}
+      # Where agent execution actually happens. This VM cannot host microVMs
+      # (nested virtualisation is deliberately off here — see
+      # deploy/desk-runner.compose.yaml), so the desk runner is its own
+      # application on the dedicated desk host and this is how to reach it.
+      # Unset, agents have no machine: the desk abilities fail closed, exactly
+      # as browsing does without Chromium.
+      BUNKHOUSE_DESK_URL: ${BUNKHOUSE_DESK_URL:-}
+      BUNKHOUSE_DESK_TOKEN: ${BUNKHOUSE_DESK_TOKEN:-}
     volumes:
       - agent-workspaces:/data/agent-homes
     networks:
@@ -176,13 +178,14 @@ services:
       APPKIT_STORAGE_SECRET_ACCESS_KEY: ${APPKIT_STORAGE_SECRET_ACCESS_KEY}
       APPKIT_STORAGE_BUCKET: ${APPKIT_STORAGE_BUCKET:-bunkhouse}
       BUNKHOUSE_AGENT_HOMES: /data/agent-homes
-      # Where a shell command actually runs. The swarm cannot give a container
-      # what bubblewrap needs (see deploy/shell-runner.compose.yaml), so the
-      # sandbox is its own Compose application and this is how to reach it.
-      # Unset, agents run the shell in-process — right on a developer machine,
-      # impossible here.
-      BUNKHOUSE_SHELL_URL: ${BUNKHOUSE_SHELL_URL:-}
-      BUNKHOUSE_SHELL_TOKEN: ${BUNKHOUSE_SHELL_TOKEN:-}
+      # Where agent execution actually happens. This VM cannot host microVMs
+      # (nested virtualisation is deliberately off here — see
+      # deploy/desk-runner.compose.yaml), so the desk runner is its own
+      # application on the dedicated desk host and this is how to reach it.
+      # Unset, agents have no machine: the desk abilities fail closed, exactly
+      # as browsing does without Chromium.
+      BUNKHOUSE_DESK_URL: ${BUNKHOUSE_DESK_URL:-}
+      BUNKHOUSE_DESK_TOKEN: ${BUNKHOUSE_DESK_TOKEN:-}
     volumes:
       - agent-workspaces:/data/agent-homes
     networks:

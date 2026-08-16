@@ -1,9 +1,20 @@
 'use server'
 
 import { randomUUID } from 'node:crypto'
-import { and, asc, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm'
 import { mintLiveKitToken } from '@appkit/voice'
-import { browserSessions, browserSteps, callSessions, callTurns, people, runEvents, runs, type BrowserStepDetail } from '../../db/schema'
+import {
+  browserSessions,
+  browserSteps,
+  callSessions,
+  callTurns,
+  deskEvents,
+  deskSessions,
+  people,
+  runEvents,
+  runs,
+  type DeskLedgerEventDetail,
+} from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId as resolveTenant } from '../../lib/tenant'
 const resolveTenantId = () => resolveTenant('calls.manage')
@@ -14,20 +25,22 @@ import type { CallActivityEvent } from '../../lib/call-activity'
 export type TranscriptTurn = { seq: number; speaker: 'agent' | 'human'; text: string; atMs: number }
 
 /**
- * The newest frame from the agent's browser on this call's run — what it is
- * looking at right now, for the caller to watch on the stage. One frame, never
- * the history: the whole visit replays on the run record.
+ * The newest recorded frame from the agent's desk on this call's run — what it
+ * is looking at right now, for the caller to watch on the stage. One frame,
+ * never the history: the whole session replays on the run record. Old runs
+ * that recorded onto the legacy browser ledger still feed the same shape.
  */
 export type CallBrowserFrame = {
   seq: number
-  /** The verb recorded for the step: open, click, type, read, screenshot, close. */
+  /** The desk ledger kind (navigate, click, screenshot, …) or, for legacy
+   *  browser rows, the step verb (open, click, type, read, screenshot, close). */
   action: string
-  detail: BrowserStepDetail
+  detail: DeskLedgerEventDetail
   /** The captured frame in the files ledger — null when the capture itself failed. */
   fileId: string | null
   /** Offset from the call's start, milliseconds. */
   atMs: number
-  /** True while the visit is still open; false once the browser has closed. */
+  /** True while the session is still open; false once the desk work has ended. */
   live: boolean
 }
 
@@ -102,9 +115,10 @@ export async function startCallAction(personId: string): Promise<{ sessionId: st
  * Live captions, tool activity, and the agent's screen for the call page —
  * polled together while the call is up, so the page keeps one loop. Tool
  * activity is the call run's own event ledger (the audit trail), offset onto
- * the call clock so it interleaves with the transcript; the browser frame is
- * the newest row of the run's step ledger, fetched by the step ledger's own
- * (session, seq) index rather than by reading the visit's history.
+ * the call clock so it interleaves with the transcript; the screen still is
+ * the newest frame-bearing row of the run's desk ledger, fetched by the
+ * ledger's own (session, seq) index rather than by reading the session's
+ * history.
  */
 export async function getCallTranscriptAction(sessionId: string): Promise<{
   status: 'active' | 'ended' | 'failed'
@@ -145,34 +159,71 @@ export async function getCallTranscriptAction(sessionId: string): Promise<{
             payload: e.payload,
           }))
       : []
-    const [frame] = session.runId
+    // The still comes from the run's desk session: the newest ledger event
+    // that carried a frame (shell commands record no picture, so the newest
+    // row alone could blank the stage mid-visit). Runs from before the desk
+    // fall back to the legacy browser step ledger, which is preserved history.
+    const [deskSession] = session.runId
       ? await app.db
-          .select({
-            seq: browserSteps.seq,
-            action: browserSteps.action,
-            detail: browserSteps.detail,
-            fileId: browserSteps.screenshotFileId,
-            at: browserSteps.at,
-            sessionStatus: browserSessions.status,
-          })
-          .from(browserSteps)
-          .innerJoin(browserSessions, eq(browserSteps.sessionId, browserSessions.id))
-          .where(eq(browserSessions.runId, session.runId))
-          .orderBy(desc(browserSteps.seq))
-          .limit(1)
+          .select({ id: deskSessions.id, status: deskSessions.status })
+          .from(deskSessions)
+          .where(eq(deskSessions.runId, session.runId))
       : []
-    // Closing the browser is a step of its own, so the last step tells us both
-    // what the screen shows and whether anyone is still at the keyboard.
-    const browser: CallBrowserFrame | null = frame
-      ? {
-          seq: frame.seq,
-          action: frame.action,
-          detail: frame.detail,
-          fileId: frame.fileId,
-          atMs: Math.max(0, frame.at.getTime() - startedAtMs),
-          live: frame.sessionStatus === 'active' && frame.action !== 'close',
-        }
-      : null
+    let browser: CallBrowserFrame | null = null
+    if (deskSession) {
+      const [event] = await app.db
+        .select({
+          seq: deskEvents.seq,
+          kind: deskEvents.kind,
+          detail: deskEvents.detail,
+          fileId: deskEvents.screenshotFileId,
+          at: deskEvents.at,
+        })
+        .from(deskEvents)
+        .where(and(eq(deskEvents.sessionId, deskSession.id), isNotNull(deskEvents.screenshotFileId)))
+        .orderBy(desc(deskEvents.seq))
+        .limit(1)
+      // Closing the browser or the screen is an event of its own, so the kind
+      // says whether anyone is still at the keyboard.
+      browser = event
+        ? {
+            seq: event.seq,
+            action: event.kind,
+            detail: event.detail,
+            fileId: event.fileId,
+            atMs: Math.max(0, event.at.getTime() - startedAtMs),
+            live:
+              deskSession.status === 'active' &&
+              event.kind !== 'browser_close' &&
+              event.kind !== 'screen_close',
+          }
+        : null
+    } else if (session.runId) {
+      const [frame] = await app.db
+        .select({
+          seq: browserSteps.seq,
+          action: browserSteps.action,
+          detail: browserSteps.detail,
+          fileId: browserSteps.screenshotFileId,
+          at: browserSteps.at,
+          sessionStatus: browserSessions.status,
+        })
+        .from(browserSteps)
+        .innerJoin(browserSessions, eq(browserSteps.sessionId, browserSessions.id))
+        .where(eq(browserSessions.runId, session.runId))
+        .orderBy(desc(browserSteps.seq))
+        .limit(1)
+      browser = frame
+        ? {
+            seq: frame.seq,
+            action: frame.action,
+            detail: frame.detail,
+            fileId: frame.fileId,
+            atMs: Math.max(0, frame.at.getTime() - startedAtMs),
+            live: frame.sessionStatus === 'active' && frame.action !== 'close',
+          }
+        : null
+    }
     return { status: session.status, turns, activity, browser }
   })
 }

@@ -3,6 +3,7 @@
 import * as React from 'react'
 import {
   AlertCircle,
+  AppWindow,
   Briefcase,
   Calculator,
   CalendarClock,
@@ -10,6 +11,7 @@ import {
   FileText,
   FolderOpen,
   Globe,
+  Hand,
   Loader2,
   Mail,
   MessageCircleQuestion,
@@ -65,6 +67,20 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   browser_read: MonitorSmartphone,
   browser_screenshot: MonitorSmartphone,
   browser_close: MonitorSmartphone,
+  open_desktop: AppWindow,
+  close_desktop: AppWindow,
+  desktop_screenshot: AppWindow,
+  desktop_click: AppWindow,
+  desktop_type: AppWindow,
+  desktop_key: AppWindow,
+  desktop_scroll: AppWindow,
+  desktop_drag: AppWindow,
+  desktop_windows: AppWindow,
+  desktop_focus: AppWindow,
+  desktop_open_app: AppWindow,
+  request_takeover: Hand,
+  run_tool: TerminalSquare,
+  list_tools: TerminalSquare,
   send_meeting_link: Video,
 }
 

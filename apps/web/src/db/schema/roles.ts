@@ -21,9 +21,11 @@ export type RoleAutonomyDefaults = Partial<
     | 'record_write'
     | 'money_adjacent'
     | 'file_write'
-    | 'computer_use'
-    | 'shell'
-    | 'phone_call',
+    | 'phone_call'
+    | 'sandbox'
+    | 'desktop'
+    | 'shared_folder'
+    | 'background_job',
     'forbidden' | 'approval' | 'notify' | 'trusted'
   >
 >

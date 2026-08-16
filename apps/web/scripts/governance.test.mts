@@ -194,7 +194,7 @@ async function call(tools: ReturnType<typeof governedToolSet>, name: string, inp
   const continues = defineAbility({
     name: 'browser_click',
     description: 'continue an approved browser errand',
-    category: 'computer_use',
+    category: 'desktop',
     approval: 'continues',
     inputSchema: z.object({}),
     execute: async () => {
@@ -202,11 +202,11 @@ async function call(tools: ReturnType<typeof governedToolSet>, name: string, inp
       return { ok: true }
     },
   })
-  const allowed = harness({ levels: { computer_use: 'approval' }, abilities: [continues] })
+  const allowed = harness({ levels: { desktop: 'approval' }, abilities: [continues] })
   const step = (await call(allowed.tools, 'browser_click', {})) as { ok?: boolean }
   assert.equal(step.ok, true, "'continues' files no request of its own under an approval dial")
   assert.equal(allowed.requests.length, 0)
-  const blocked = harness({ levels: { computer_use: 'forbidden' }, abilities: [continues] })
+  const blocked = harness({ levels: { desktop: 'forbidden' }, abilities: [continues] })
   const refusal = (await call(blocked.tools, 'browser_click', {})) as { status?: string }
   assert.equal(refusal.status, 'forbidden', "forbidden still blocks a 'continues' ability outright")
   assert.equal(steps, 1)

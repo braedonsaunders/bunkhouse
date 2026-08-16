@@ -10,7 +10,7 @@ const resolveTenantId = () => resolveTenant('roles.manage')
 import { getRole, installRoleProcedures } from '../../lib/roles'
 import { isRoleResourceKind, setRoleLinks } from '../../lib/role-resources'
 
-const CATEGORIES = ['external_email', 'internal_email', 'record_write', 'money_adjacent', 'file_write', 'computer_use', 'shell'] as const
+const CATEGORIES = ['external_email', 'internal_email', 'record_write', 'money_adjacent', 'file_write', 'sandbox', 'desktop', 'shared_folder', 'background_job'] as const
 const LEVELS = ['forbidden', 'approval', 'notify', 'trusted'] as const
 const POLICIES = ['staff_only', 'known_contacts', 'anyone'] as const
 

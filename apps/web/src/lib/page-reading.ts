@@ -12,7 +12,7 @@ import { readWebpage } from './research'
  * Perception used to be three incompatible things and the MODEL chose between
  * them: a fetch (quick, invisible, empty on anything that needs JavaScript or
  * is built from images), a browser visit (real, watchable, but gated by the
- * computer_use dial), and a screenshot handed over as a picture (which a
+ * desktop dial), and a screenshot handed over as a picture (which a
  * text-only model refuses outright). Every failure that split produced earned
  * its own special case, and the special cases were the bug:
  *

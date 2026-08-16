@@ -15,32 +15,34 @@ FROM node:24-bookworm-slim AS base
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.30.0 --activate
 
-# Native tools the agents' work depends on:
+# Native tools the SERVER's own work depends on — and only those. Everything
+# the agents use with their hands (chromium, libreoffice, git, tesseract,
+# bubblewrap) lives in the desk guest base image now, not here: agent
+# execution happens inside a per-agent microVM (docs/agent-desk.md §6.3,
+# docs/desk-host.md), so shipping agent tools in the app image would only
+# grow the surface of the containers that hold the keys.
 # - ca-certificates: the system trust store. Node carries its own CA bundle, so
 #   its absence is invisible until a native dependency needs TLS: LiveKit's
 #   media client (@livekit/rtc-node) is Rust and reads the OS store, so without
 #   this the voice agent registers happily and then fails every call it is
 #   handed with "no native root CA certificates found".
-# - git: agents fetch and work on repositories in their sandboxed workspace,
-#   which the sandbox permits (it isolates the filesystem, not the network)
-# - libreoffice-writer + fonts: HTML → .docx/.pdf rendering (@appkit/office)
-# - poppler-utils: PDF concatenation (pdfunite) + pdftoppm for OCR rasterizing
-# - bubblewrap: the process sandbox agents run shell work in
-# - tesseract-ocr: text from scanned PDFs and images
-# - chromium: the recorded browser agents drive (puppeteer-core connects to it)
+# - poppler-utils: pdfunite concatenates PDFs in the server-side document
+#   pipeline (@appkit/office, used by documents.ts and the template merge);
+#   pdftoppm is file-reading.ts's OCR raster step, which probes for a
+#   tesseract binary and fails closed where none exists.
+# - libreoffice-writer + fonts-liberation: the tier-0 document pipeline.
+#   create_document and the template merge render through @appkit/office's
+#   soffice call ON THE SERVER — that ability is deliberately better than an
+#   agent driving LibreOffice by hand in the guest (docs/agent-desk.md §2),
+#   so the binary stays here even though the guest image also carries one
+#   for GUI work. Server-side rendering without fonts produces tofu.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
-    git \
-    libreoffice-writer \
     poppler-utils \
-    bubblewrap \
+    libreoffice-writer \
     fonts-liberation \
-    tesseract-ocr \
-    tesseract-ocr-eng \
-    chromium \
   && rm -rf /var/lib/apt/lists/*
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # --- deps: workspace-aware install ------------------------------------------
 # Dev dependencies stay in (tsx, typescript run at runtime); NODE_ENV becomes

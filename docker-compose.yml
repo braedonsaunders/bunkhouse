@@ -17,6 +17,13 @@
 # What is not: object storage (point APPKIT_STORAGE_* at any S3-compatible
 # service to enable real file deliverables), the mail/media lab
 # (docker-compose.dev.yml), and the voice agent (needs LiveKit — same file).
+#
+# The agent desk (the per-agent microVM) is opt-in via a profile, because it
+# needs /dev/kvm. On a Linux host that has it:
+#
+#   docker compose --profile desk up -d
+#
+# See the desk-runner service below for what happens everywhere else.
 
 services:
   postgres:
@@ -57,9 +64,21 @@ services:
       BUNKHOUSE_REDIS_URL: redis://redis:6379
       ADMIN_EMAIL: ${ADMIN_EMAIL:-owner@example.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-bunkhouse-first-boot}
+      BUNKHOUSE_AGENT_HOMES: /data/agent-homes
+      # The desk runner, when the `desk` profile is up (Linux hosts with
+      # /dev/kvm). Without the profile nothing answers at this address and the
+      # desk abilities fail closed — deliberately, see the desk-runner service.
+      BUNKHOUSE_DESK_URL: http://desk-runner:8080
+      BUNKHOUSE_DESK_TOKEN: ${BUNKHOUSE_DESK_TOKEN:-quickstart-only-not-a-secret-change-me-3}
       # Local-evaluation defaults. Generate real ones for anything shared.
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-quickstart-only-not-a-secret-change-me-1}
       APPKIT_SECRET: ${APPKIT_SECRET:-quickstart-only-not-a-secret-change-me-2}
+    volumes:
+      # Without this mount, run_shell's promise that "files you create are
+      # there next time" was silently false on the quickstart path: nothing was
+      # mounted at /data/agent-homes, so agent homes lived and died with the
+      # container. Only deploy/dokploy.compose.yaml bound a real volume here.
+      - agent-homes:/data/agent-homes
 
   worker:
     image: bunkhouse:quickstart
@@ -73,7 +92,71 @@ services:
     environment:
       <<: *app-env
       NODE_OPTIONS: '--conditions=react-server'
+    volumes:
+      # The same fix as on web: an agent's files must be the same files
+      # whichever process wrote them, and must survive a container restart.
+      - agent-homes:/data/agent-homes
+
+  # The agent desk: one Cloud Hypervisor microVM per agent (docs/agent-desk.md).
+  #
+  # Opt-in via `docker compose --profile desk up` because it requires /dev/kvm:
+  #   - On a Linux host, /dev/kvm is usually present and passes straight into
+  #     the container — the full product lights up.
+  #   - Docker Desktop on macOS and Windows cannot pass the device through. The
+  #     service then fails to start (or fails its healthcheck and exits), and
+  #     the product runs without the machine — fail closed, with the desk
+  #     abilities simply not offered, exactly as it already behaves without
+  #     Chromium on the box.
+  # Deliberately NO software-emulation (TCG) fallback: an emulated desktop is
+  # slow enough to misrepresent the product worse than omitting it.
+  desk-runner:
+    profiles: ['desk']
+    image: bunkhouse:quickstart
+    build: .
+    command:
+      - sh
+      - -c
+      - NODE_OPTIONS=--conditions=react-server exec apps/web/node_modules/.bin/tsx apps/web/scripts/desk-runner.mts
+    devices:
+      - /dev/kvm
+    environment:
+      PORT: '8080'
+      BUNKHOUSE_DESK_TOKEN: ${BUNKHOUSE_DESK_TOKEN:-quickstart-only-not-a-secret-change-me-3}
+      BUNKHOUSE_AGENT_DISKS: /data/agent-disks
+      BUNKHOUSE_SHARED_FOLDER: /data/shared
+      BUNKHOUSE_EGRESS_PROXY: http://egress-proxy:3128
+    volumes:
+      - agent-disks:/data/agent-disks
+      - shared-folder:/data/shared
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Every byte a desk guest sends is DNAT'd into this proxy at the TAP device
+  # by the desk-runner — enforcement lives outside the guest, which is the
+  # point (docs/agent-desk.md §3.11).
+  egress-proxy:
+    profiles: ['desk']
+    image: bunkhouse:quickstart
+    build: .
+    command:
+      - sh
+      - -c
+      - NODE_OPTIONS=--conditions=react-server exec apps/web/node_modules/.bin/tsx apps/web/scripts/egress-proxy.mts
+    environment:
+      PORT: '3128'
 
 volumes:
   pgdata:
   redisdata:
+  agent-homes:
+  # Desk state (golden base image + per-agent CoW overlays); profile `desk`.
+  agent-disks:
+  shared-folder:

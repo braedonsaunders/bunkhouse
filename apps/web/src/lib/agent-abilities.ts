@@ -23,6 +23,8 @@ import { readWebpage, webSearch } from './research'
 import { documentAbilities } from './documents'
 import { templateAbilities } from './document-templates'
 import { workspaceAbilities } from './workspace'
+import { deskAbilities, deskSupported } from './desk'
+import { resolveDeskFeatures } from './desk-policy'
 import { toolAbilities } from './tools'
 import { sendSms, smsConfigured } from './sms'
 import { chatAbilities } from './chat-bridge'
@@ -803,6 +805,11 @@ export async function assembleAbilities(args: {
   // Who counts as a colleague, read once. Mail to one of these is internal
   // whichever tool sends it — see the category resolver in emailAbilities.
   const isInternalAddress = await loadInternalAddressTest(tenantId)
+  // The desk feature gate, resolved once from the single source of truth
+  // (desk-policy.ts). `desk` gates the machine; `desktop` — never available
+  // without its parent — gates the screen. The runner being configured is
+  // still required on top: a switched-on feature with no runner fails closed.
+  const deskFeatures = await resolveDeskFeatures(tenantId)
   const abilities: Ability[] = [
     ...memoryAbilities({ tenantId, person, runId }),
     ...researchAbilities({ tenantId }),
@@ -823,9 +830,15 @@ export async function assembleAbilities(args: {
     }),
     ...documentAbilities({ tenantId, person, runId }),
     ...templateAbilities({ tenantId, person, runId }),
-    ...workspaceAbilities({ tenantId, person, runId }),
-    ...toolAbilities({ tenantId, person }),
-    ...browserAbilities({ tenantId, person, runId }),
+    ...workspaceAbilities(),
+    // The desk: run_shell, the workspace files, the screen. Fails closed
+    // without a runner; the desktop family additionally rides the desktop
+    // feature inside deskAbilities.
+    ...deskAbilities({ tenantId, person, runId, features: deskFeatures }),
+    ...(deskFeatures.desk ? toolAbilities({ tenantId, person, runId }) : []),
+    // The browser lives in the desk (tier 1 — no screen needed), so it needs
+    // the machine, not the desktop feature.
+    ...(deskSupported() && deskFeatures.desk ? browserAbilities({ tenantId, person, runId }) : []),
     ...assignmentAbilities({
       tenantId,
       person,

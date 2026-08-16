@@ -4,43 +4,48 @@ import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import {
   DEFAULT_AGENT_TOOL_POLICY,
+  agentToolCommands,
   createAgentToolRuntime,
   createProcessSandboxRunner,
+  type AgentToolManifest,
   type AgentToolRuntime,
 } from '@appkit/agent-tools'
 import { createDrizzleAgentToolStore } from '@appkit/agent-tools/drizzle'
-import { isProcessSandboxSupported } from '@appkit/process-sandbox'
 import { defineAbility, type Ability } from '@bunkhouse/runtime'
 import { people, tenantSettings, TOOL_POLICY_KEY, type ToolPolicySettings } from '../db/schema'
 import { db } from '../db/client'
-import { agentHomePath } from './workspace'
+import { GUEST_HOME, configuredDeskRunner, deskIdFor, deskSupported, execOnDesk, recordDeskLedgerEvent } from './desk'
 import { TOOL_CATALOGUE } from './tool-catalogue'
 
 export { TOOL_CATALOGUE }
 
 /**
- * The tool shelf: command-line programs an agent may install and run.
+ * The tool shelf: command-line programs an agent may run, pinned to exact
+ * versions with a declared risk and a health an operator can see.
  *
- * `run_shell` gives an agent whatever the image already ships. This is the
- * shelf above it — named tools with a pinned version, a declared risk, and a
- * health an operator can see. Adding one is a catalogue entry that can be
- * revoked, not a Dockerfile change nobody remembers making.
- *
- * Installing a tool and running one are separate questions, and neither answer
- * is permanent. Governance lives in @appkit/agent-tools; what bunkhouse owns is
- * which tools it trusts and where they run — always inside the agent's own home
- * directory, which is the only writable place a tool ever sees.
+ * The desk cutover (docs/agent-desk.md §3.16, §3.22) changed WHERE these run
+ * and WHAT the shelf enforces. Tools execute on the agent's desk — the
+ * catalogue is baked into the golden base image (lib/base-image.ts), so a run
+ * is just the pinned binary in the guest. The package's install/execute
+ * approval gates no longer sit on the agent path: an agent with a terminal
+ * walks around a per-command gate in one line, so keeping it would be false
+ * assurance. What the shelf keeps is everything that never depended on the
+ * gate — the pinning, the health checks, revocability (`enabled`), and the
+ * operator-visible listing. Real enforcement is the `sandbox` dial (which
+ * gates having a machine at all), the egress proxy, and the desk ledger,
+ * where every tool run lands as a shell_command event.
  */
 
 type PersonRow = typeof people.$inferSelect
 
-/** Where installed tools live. Deployment infrastructure, like the homes root. */
+/** Where npm-installed tools land on NON-desk consumers of the runtime. */
 function toolsRoot(): string {
   return resolve(/* turbopackIgnore: true */ process.env.BUNKHOUSE_AGENT_TOOLS ?? '/data/agent-tools')
 }
 
+/** Tools run on the desk; no desk, no tools — fail closed like run_shell. */
 export function toolsSupported(): boolean {
-  return isProcessSandboxSupported()
+  return deskSupported()
 }
 
 export async function getToolPolicy(tenantId: string): Promise<ToolPolicySettings> {
@@ -68,8 +73,8 @@ export async function saveToolPolicy(tenantId: string, value: ToolPolicySettings
 }
 
 /**
- * The runtime, bound to one tenant. The store is tenant-scoped so row-level
- * security is the outer boundary and the package's own predicates the inner one.
+ * The runtime, bound to one tenant — the shelf's bookkeeping (register, list,
+ * health, revocation), not the agent execution path.
  */
 export function toolRuntime(tenantId: string): AgentToolRuntime {
   const app = db()
@@ -131,22 +136,44 @@ async function describeShelf(tenantId: string): Promise<string> {
       (tool) =>
         `${tool.toolId} — ${tool.manifest.description} Commands: ${tool.manifest.bins
           .map((bin) => bin.name)
-          .join(', ')}. ${tool.status === 'installed' ? 'Ready.' : 'Not installed yet.'}`,
+          .join(', ')}.`,
     )
     .join('\n')
 }
 
-export function toolAbilities(args: { tenantId: string; person: PersonRow }): Ability[] {
-  const { tenantId, person } = args
-  if (!toolsSupported()) return []
+/**
+ * Which enabled shelf entry offers this command, and the executable it maps
+ * to. Prefers the tenant's shelf (revocation applies); falls back to the
+ * static catalogue so a shelf that has not been synced does not brick tools.
+ */
+async function resolveShelfCommand(
+  tenantId: string,
+  toolId: string,
+  command: string,
+): Promise<{ manifest: AgentToolManifest; bin: string } | { error: string }> {
   const app = db()
-  const runtime = toolRuntime(tenantId)
+  const shelf = await app.withTenantContext(tenantId, () => toolRuntime(tenantId).list(tenantId))
+  const record = shelf.find((tool) => tool.toolId === toolId)
+  if (record && !record.enabled) return { error: `The ${toolId} tool has been disabled by an operator.` }
+  const manifest = record?.manifest ?? TOOL_CATALOGUE.find((tool) => tool.id === toolId)
+  if (!manifest) return { error: `No tool named "${toolId}" is on your shelf — use list_tools.` }
+  if (!agentToolCommands(manifest).includes(command)) {
+    return { error: `${toolId} does not offer a "${command}" command. It offers: ${agentToolCommands(manifest).join(', ')}.` }
+  }
+  const bin = manifest.bins.find((entry) => entry.name === command)
+  if (!bin) return { error: `${toolId} does not offer a "${command}" command.` }
+  return { manifest, bin: bin.bin }
+}
+
+export function toolAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {
+  const { tenantId, person, runId } = args
+  if (!toolsSupported()) return []
 
   return [
     defineAbility({
       name: 'list_tools',
       description:
-        'List the command-line tools on your shelf — what each one does, the commands it offers, and whether it is ready to use.',
+        'List the command-line tools on your shelf — what each one does and the commands it offers. They are pre-installed on your machine.',
       category: null,
       inputSchema: z.object({}),
       execute: async () => ({ shelf: await describeShelf(tenantId) }),
@@ -154,8 +181,8 @@ export function toolAbilities(args: { tenantId: string; person: PersonRow }): Ab
     defineAbility({
       name: 'run_tool',
       description:
-        'Run one of the tools on your shelf against files in your workspace. Give the tool id, the command name, and its arguments as a list (there is no shell, so no pipes, quotes, or redirection — write output with the tool\'s own flag). Your workspace is the working directory and the only place a tool can write. If the tool is not installed yet it will be installed first. Some tools need a person to approve the run; you will be told when that happens.',
-      category: 'shell',
+        'Run one of the tools on your shelf against files in your workspace. Give the tool id, the command name, and its arguments as a list (there is no shell, so no pipes, quotes, or redirection — write output with the tool\'s own flag). Your home folder is the working directory. The run is recorded on your desk ledger like any command.',
+      category: 'sandbox',
       inputSchema: z.object({
         tool: z.string().describe('The tool id from list_tools, e.g. "prettier"'),
         command: z.string().describe('The command that tool offers, e.g. "prettier"'),
@@ -166,40 +193,41 @@ export function toolAbilities(args: { tenantId: string; person: PersonRow }): Ab
         why: z
           .string()
           .optional()
-          .describe('One line on what this run is for; shown to whoever approves it'),
+          .describe('One line on what this run is for; kept on the record'),
       }),
       execute: async ({ tool, command, args: argv, why }) => {
-        const workdir = await agentHomePath(tenantId, person.id)
-        const result = await app.withTenantContext(tenantId, () =>
-          runtime.execute({
-            tenantId,
-            toolId: tool,
-            command,
-            argv,
-            workdir,
-            installIfMissing: true,
-            actor: person.id,
+        const resolved = await resolveShelfCommand(tenantId, tool, command)
+        if ('error' in resolved) return { status: 'unavailable', reason: resolved.error }
+        const runner = configuredDeskRunner()
+        if (!runner) return { status: 'unavailable', reason: 'No desk is configured for this deployment.' }
+        const timeoutMs = resolved.manifest.defaultTimeoutMs ?? 60_000
+        const outcome = await execOnDesk({
+          deskId: deskIdFor(tenantId, person.id),
+          command: [resolved.bin, ...argv],
+          cwd: GUEST_HOME,
+          timeoutMs,
+          outputLimitKb: 64,
+        })
+        await recordDeskLedgerEvent({
+          tenantId,
+          personId: person.id,
+          runId,
+          kind: 'shell_command',
+          detail: {
+            command: [resolved.bin, ...argv].join(' '),
+            cwd: '.',
+            exitCode: outcome.exitCode,
+            signal: outcome.signal,
+            output: outcome.output,
+            outputTruncated: outcome.outputTruncated,
             ...(why ? { reason: why } : {}),
-          }),
-        )
-        switch (result.outcome) {
-          case 'ran':
-            return {
-              status: result.run.status,
-              exitCode: result.run.exitCode,
-              stdout: result.run.stdout,
-              stderr: result.run.stderr,
-              ...(result.run.truncated ? { note: 'Output was truncated.' } : {}),
-            }
-          case 'blocked':
-            return {
-              status: 'pending_approval',
-              note: `${result.summary} Carry on with anything that does not depend on it, or say what you are waiting for.`,
-            }
-          case 'denied':
-            return { status: 'denied', reason: result.reason, note: result.summary }
-          case 'unavailable':
-            return { status: 'unavailable', reason: result.reason, note: result.summary }
+          },
+        }).catch(() => undefined)
+        return {
+          status: outcome.status,
+          exitCode: outcome.exitCode,
+          output: outcome.output,
+          ...(outcome.outputTruncated ? { note: 'Output was truncated.' } : {}),
         }
       },
     }),

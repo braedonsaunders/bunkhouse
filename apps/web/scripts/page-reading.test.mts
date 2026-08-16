@@ -271,24 +271,20 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
   console.log('recording: the store is addressed by something a strict server accepts')
 }
 
-// --- what the privileged runner will and will not be talked into ------------
-// The shell sandbox runs in a container with CAP_SYS_ADMIN and both seccomp
-// and AppArmor unconfined, because bubblewrap needs all three. It is handed a
-// home directory and makes it writable, so the one thing standing between a
-// bad request and the host filesystem is this check.
+// --- what reaches the guest filesystem, and what does not -------------------
+// Every file-shaped input to the desk resolves through this guard before it
+// is ever sent to the runner. The path is interpreted INSIDE the guest, so
+// the check is pure string discipline — there is no filesystem to consult —
+// and an escape here would aim commands outside the agent's home.
 {
-  const { insideRoot } = await import('../src/lib/shell-sandbox')
-  const root = '/data/agent-homes'
-  assert.equal(insideRoot(root, '/data/agent-homes/tenant/person'), true)
-  assert.equal(insideRoot(root, root), true, 'the root itself is inside itself')
-  assert.equal(insideRoot(root, '/etc'), false)
-  assert.equal(insideRoot(root, '/'), false, 'the whole filesystem is the request to refuse')
-  // A prefix is not a parent. Without the separator check this reads as inside.
-  assert.equal(insideRoot(root, '/data/agent-homes-evil/x'), false, 'a shared prefix is not containment')
-  // Traversal, resolved before comparing rather than pattern-matched.
-  assert.equal(insideRoot(root, '/data/agent-homes/../../etc/shadow'), false, 'dot-dot does not escape')
-  assert.equal(insideRoot(root, '/data/agent-homes/a/../b'), true, 'traversal that stays inside is still inside')
-  console.log('shell: the privileged runner refuses to make anything but a home writable')
+  const { guestWorkspacePath, GUEST_HOME } = await import('../src/lib/desk')
+  assert.equal(guestWorkspacePath('.'), GUEST_HOME, 'the home itself is the default')
+  assert.equal(guestWorkspacePath('projects/report.md'), `${GUEST_HOME}/projects/report.md`)
+  assert.equal(guestWorkspacePath('a/../b'), `${GUEST_HOME}/b`, 'traversal that stays inside is still inside')
+  assert.throws(() => guestWorkspacePath('..'), /escapes the workspace/)
+  assert.throws(() => guestWorkspacePath('../../etc/shadow'), /escapes the workspace/, 'dot-dot does not escape')
+  assert.throws(() => guestWorkspacePath('projects/../../other-agent'), /escapes the workspace/)
+  console.log('desk: workspace paths resolve inside the guest home and nowhere else')
 }
 
 // --- which dial governs an email --------------------------------------------

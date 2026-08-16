@@ -158,6 +158,36 @@ export function RunApprovalsTable({ rows }: { rows: RunApprovalRow[] }) {
 /** Frames are captured at 1280×900, so the thumbnail keeps that exact ratio. */
 const BROWSER_THUMBNAIL = { width: 128, height: 90 }
 
+/** One recorded frame as a thumbnail, or an honest "no frame" placeholder. */
+function FrameThumbnail({ fileId, alt }: { fileId: string | null; alt: string }) {
+  if (!fileId) {
+    return (
+      <span className="flex h-[90px] w-32 items-center justify-center rounded border border-dashed border-border text-xs text-fg-subtle">
+        no frame
+      </span>
+    )
+  }
+  return (
+    <a
+      href={`/api/files/${fileId}`}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(event) => event.stopPropagation()}
+      className="inline-block"
+    >
+      <Image
+        src={`/api/files/${fileId}`}
+        alt={alt}
+        width={BROWSER_THUMBNAIL.width}
+        height={BROWSER_THUMBNAIL.height}
+        loading="lazy"
+        unoptimized
+        className="rounded border border-border object-contain"
+      />
+    </a>
+  )
+}
+
 export type RunBrowserStepRow = {
   seq: number
   action: string
@@ -179,30 +209,7 @@ export function RunBrowserStepsTable({ rows }: { rows: RunBrowserStepRow[] }) {
     {
       key: 'frame',
       header: 'Screen',
-      cell: (row) =>
-        row.screenshotFileId ? (
-          <a
-            href={`/api/files/${row.screenshotFileId}`}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(event) => event.stopPropagation()}
-            className="inline-block"
-          >
-            <Image
-              src={`/api/files/${row.screenshotFileId}`}
-              alt={`Step ${row.seq}: ${row.action}`}
-              width={BROWSER_THUMBNAIL.width}
-              height={BROWSER_THUMBNAIL.height}
-              loading="lazy"
-              unoptimized
-              className="rounded border border-border object-contain"
-            />
-          </a>
-        ) : (
-          <span className="flex h-[90px] w-32 items-center justify-center rounded border border-dashed border-border text-xs text-fg-subtle">
-            no frame
-          </span>
-        ),
+      cell: (row) => <FrameThumbnail fileId={row.screenshotFileId} alt={`Step ${row.seq}: ${row.action}`} />,
     },
     {
       key: 'description',
@@ -232,6 +239,100 @@ export function RunBrowserStepsTable({ rows }: { rows: RunBrowserStepRow[] }) {
         <EmptyState
           title="No browser steps"
           description="When an agent drives a browser, every step is recorded here with the screen as it looked."
+        />
+      }
+    />
+  )
+}
+
+export type RunDeskEventRow = {
+  seq: number
+  /** The typed ledger kind: shell_command, navigate, click, screen_open, … */
+  kind: string
+  /** Human phrasing of the event, composed by the caller. */
+  description: string
+  /** The recorded justification when the event opened a screen — §3.17. */
+  reason: string | null
+  /** Handover rows say explicitly that nothing typed was recorded. */
+  note: string | null
+  /** Where the event points: a page, a blocked host, or a working folder. */
+  context: string
+  screenshotFileId: string | null
+}
+
+const DESK_EVENT_VARIANT = (kind: string) =>
+  kind === 'egress_blocked'
+    ? ('destructive' as const)
+    : kind === 'screen_open' || kind === 'handover_begin' || kind === 'handover_end'
+      ? ('default' as const)
+      : ('outline' as const)
+
+/**
+ * The desk replay: ONE interleaved stream — terminal, browser, and screen in
+ * the order they happened, with the recorded frame inline wherever one was
+ * captured. This is deliberately a single table (docs/agent-desk.md §3.19):
+ * three separate ledgers would make an operator interleave them by timestamp,
+ * and the seams are where things get missed.
+ */
+export function RunDeskEventsTable({ rows }: { rows: RunDeskEventRow[] }) {
+  const columns: PagedColumn<RunDeskEventRow>[] = [
+    {
+      key: 'seq',
+      header: '#',
+      align: 'right',
+      cell: (row) => <span className="tabular-nums text-fg-muted">{row.seq}</span>,
+      sortValue: (row) => row.seq,
+    },
+    {
+      key: 'frame',
+      header: 'Screen',
+      cell: (row) => <FrameThumbnail fileId={row.screenshotFileId} alt={`Event ${row.seq}: ${row.kind}`} />,
+    },
+    {
+      key: 'description',
+      header: 'Event',
+      cell: (row) => (
+        <span className="block max-w-md space-y-1">
+          <span className="flex items-start gap-2">
+            <Badge variant={DESK_EVENT_VARIANT(row.kind)}>{row.kind.replace(/_/g, ' ')}</Badge>
+            <span className={row.kind === 'shell_command' ? 'font-mono text-xs leading-5' : undefined}>
+              {row.description}
+            </span>
+          </span>
+          {row.reason ? (
+            <span className="block rounded-md border border-border bg-bg-subtle px-2 py-1 text-xs">
+              <span className="text-fg-muted">Stated reason: </span>
+              <span className="font-medium">{row.reason}</span>
+            </span>
+          ) : null}
+          {row.note ? <span className="block text-xs text-fg-muted">{row.note}</span> : null}
+        </span>
+      ),
+      search: (row) => `${row.description} ${row.kind} ${row.reason ?? ''}`,
+    },
+    {
+      key: 'context',
+      header: 'Where',
+      cell: (row) =>
+        row.context ? <span className="block max-w-xs truncate text-fg-muted">{row.context}</span> : '—',
+      search: (row) => row.context,
+      sortValue: (row) => row.context,
+    },
+  ]
+
+  return (
+    <PagedTable
+      columns={columns}
+      rows={rows}
+      rowKey={(row) => String(row.seq)}
+      pageSize={10}
+      searchable
+      defaultSort={{ key: 'seq', dir: 'asc' }}
+      labels={{ searchPlaceholder: 'Search desk events…', searchLabel: 'Search desk events' }}
+      empty={
+        <EmptyState
+          title="No desk events"
+          description="Everything an agent does at its desk — terminal, browser, and screen — is recorded here in order."
         />
       }
     />

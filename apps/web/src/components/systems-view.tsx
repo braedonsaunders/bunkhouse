@@ -90,8 +90,10 @@ const CATEGORY_OPTIONS = [
   { value: 'file_write', label: 'File writes' },
   { value: 'external_email', label: 'External email' },
   { value: 'internal_email', label: 'Internal email' },
-  { value: 'computer_use', label: 'Computer use' },
-  { value: 'shell', label: 'Shell' },
+  { value: 'sandbox', label: 'Sandbox machine' },
+  { value: 'desktop', label: 'Desktop screen' },
+  { value: 'shared_folder', label: 'Shared folder' },
+  { value: 'background_job', label: 'Background jobs' },
   { value: 'phone_call', label: 'Phone calls' },
 ]
 

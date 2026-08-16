@@ -8,6 +8,9 @@ import {
   browserSteps,
   callSessions,
   callTurns,
+  // Aliased: this module already names its activity-feed rows `deskEvents`.
+  deskEvents as deskEventsTable,
+  deskSessions,
   files,
   people,
   procedureRevisions,
@@ -17,7 +20,12 @@ import {
   tokenSpend,
 } from '../../db/schema'
 import { db } from '../../db/client'
-import { describeBrowserStep, toolActivityFromEvents, type CallActivityEvent } from '../../lib/call-activity'
+import {
+  describeBrowserStep,
+  deskEventPresentation,
+  toolActivityFromEvents,
+  type CallActivityEvent,
+} from '../../lib/call-activity'
 import {
   RunActivity,
   RunTranscript,
@@ -28,11 +36,13 @@ import {
 import {
   RunApprovalsTable,
   RunBrowserStepsTable,
+  RunDeskEventsTable,
   RunFilesTable,
   RunProceduresTable,
   RunSpendTable,
   type RunApprovalRow,
   type RunBrowserStepRow,
+  type RunDeskEventRow,
   type RunFileRow,
   type RunProcedureRow,
   type RunSpendRow,
@@ -202,12 +212,40 @@ export async function loadRunRecord({
           .orderBy(asc(callTurns.seq))
       : null
     const producedFiles = await app.db.select().from(files).where(eq(files.runId, runId)).orderBy(asc(files.createdAt))
-    // Computer use is recorded, always: if this run drove a browser, its steps
-    // and their frames replay here.
-    const [browserSession] = await app.db
-      .select({ id: browserSessions.id, status: browserSessions.status })
-      .from(browserSessions)
-      .where(eq(browserSessions.runId, runId))
+    // Desk work is recorded, always: one session per run, one interleaved
+    // event stream — terminal, browser, and screen in the order they happened
+    // (docs/agent-desk.md §3.19), with the frames filed alongside.
+    const [deskSession] = await app.db
+      .select({
+        id: deskSessions.id,
+        status: deskSessions.status,
+        screenReason: deskSessions.screenReason,
+        screenOpenedAt: deskSessions.screenOpenedAt,
+      })
+      .from(deskSessions)
+      .where(eq(deskSessions.runId, runId))
+    const deskEventRows = deskSession
+      ? await app.db
+          .select({
+            seq: deskEventsTable.seq,
+            kind: deskEventsTable.kind,
+            detail: deskEventsTable.detail,
+            screenshotFileId: deskEventsTable.screenshotFileId,
+          })
+          .from(deskEventsTable)
+          .where(eq(deskEventsTable.sessionId, deskSession.id))
+          .orderBy(asc(deskEventsTable.seq))
+      : []
+    // Runs from before the desk recorded onto browser_sessions/browser_steps.
+    // Those tables are preserved audit history — an old run stays replayable —
+    // but a run with a desk session never reads them: the desk stream already
+    // carries its browser steps.
+    const [browserSession] = deskSession
+      ? []
+      : await app.db
+          .select({ id: browserSessions.id, status: browserSessions.status })
+          .from(browserSessions)
+          .where(eq(browserSessions.runId, runId))
     const browserStepRows = browserSession
       ? await app.db
           .select({
@@ -232,6 +270,8 @@ export async function loadRunRecord({
       callSession: callSession ?? null,
       transcript,
       producedFiles,
+      deskSession: deskSession ?? null,
+      deskEventRows,
       browserSession: browserSession ?? null,
       browserStepRows,
     }
@@ -312,6 +352,13 @@ export async function loadRunRecord({
     decided: stamp(row.decidedAt),
     decidedAt: row.decidedAt ? row.decidedAt.toISOString() : '',
     expires: stamp(row.expiresAt),
+  }))
+
+  const deskRows: RunDeskEventRow[] = data.deskEventRows.map((event) => ({
+    seq: event.seq,
+    kind: event.kind,
+    ...deskEventPresentation(event.kind, event.detail),
+    screenshotFileId: event.screenshotFileId,
   }))
 
   const browserRows: RunBrowserStepRow[] = data.browserStepRows.map((step) => ({
@@ -458,7 +505,38 @@ export async function loadRunRecord({
     })
   }
 
-  if (browserRows.length > 0) {
+  if (data.deskSession) {
+    tabs.push({
+      key: 'desk',
+      label: 'Desk',
+      count: deskRows.length,
+      content: (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              Desk session
+              <Badge variant={data.deskSession.status === 'failed' ? 'destructive' : 'outline'}>
+                {data.deskSession.status}
+              </Badge>
+              {data.deskSession.screenOpenedAt ? <Badge variant="default">screen opened</Badge> : null}
+            </CardTitle>
+            <CardDescription>
+              Everything this run did at its desk — terminal, browser, and screen as one continuous record, with the
+              screen as it looked — work at the desk is always replayable.
+              {data.deskSession.screenReason
+                ? ` The screen was opened for a recorded reason: “${data.deskSession.screenReason}”.`
+                : ''}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <RunDeskEventsTable rows={deskRows} />
+          </CardContent>
+        </Card>
+      ),
+    })
+  } else if (browserRows.length > 0) {
+    // Pre-desk runs recorded onto the browser ledger; their history stays
+    // replayable exactly as it was written.
     tabs.push({
       key: 'browser',
       label: 'Browser',

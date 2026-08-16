@@ -214,6 +214,131 @@ export function describeBrowserStep(action: string, detail: BrowserStepWords): s
   return `${verb}${target ? ` ${target}` : ''}${typed}${failure}`
 }
 
+/** What a recorded desk event carried beyond its kind — structural on purpose,
+ * like BrowserStepWords: this file stays free of database imports and runs on
+ * either side of the wire. Every field is optional; the kind says which slice
+ * to expect (see DeskLedgerEventDetail in db/schema/desk.ts). */
+export type DeskEventWords = BrowserStepWords & {
+  command?: string
+  cwd?: string
+  exitCode?: number | null
+  signal?: string | null
+  x?: number
+  y?: number
+  button?: string
+  combo?: string
+  from?: { x: number; y: number }
+  to?: { x: number; y: number }
+  appId?: string
+  args?: string[]
+  window?: { id: string; title: string; appId: string | null }
+  reason?: string
+  actor?: string | null
+  scope?: string
+  durationMs?: number
+  jobId?: string
+  host?: string | null
+  port?: number | null
+}
+
+const asDuration = (ms: number): string => {
+  const seconds = Math.max(1, Math.round(ms / 1000))
+  if (seconds < 60) return `${seconds}s`
+  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`
+}
+
+/**
+ * One plain line per desk ledger event, in describeBrowserStep's style but for
+ * the whole desk: the terminal, the browser (whose steps ride the same ledger),
+ * and the desktop screen. `click`/`type` cover both vocabularies — a browser
+ * click carries a target, a desktop click carries coordinates — so this one
+ * function narrates a desk replay and a legacy browser frame alike.
+ */
+export function describeDeskEvent(kind: string, detail: DeskEventWords): string {
+  const failure = detail.error ? ` — ${detail.error}` : ''
+  const place = detail.target ?? detail.title ?? detail.url ?? ''
+  switch (kind) {
+    case 'shell_command': {
+      const exit =
+        detail.exitCode === null || detail.exitCode === undefined
+          ? detail.signal
+            ? ` — ${detail.signal}`
+            : ''
+          : ` — exit ${detail.exitCode}`
+      return `Ran ${detail.command ? `"${detail.command}"` : 'a command'}${exit}${failure}`
+    }
+    case 'navigate':
+      return `Opened${place ? ` ${place}` : ' a page'}${failure}`
+    case 'read':
+      return `Read${place ? ` ${place}` : ' the page'}${failure}`
+    case 'screenshot':
+      return `Captured the screen${failure}`
+    case 'browser_close':
+      return `Closed the browser${failure}`
+    case 'app_launch':
+      return `Launched ${detail.appId ?? 'an application'}${detail.args?.length ? ` ${detail.args.join(' ')}` : ''}${failure}`
+    case 'click':
+      if (place) return `Clicked ${place}${failure}`
+      return typeof detail.x === 'number' && typeof detail.y === 'number'
+        ? `Clicked at (${detail.x}, ${detail.y})${detail.button && detail.button !== 'left' ? ` — ${detail.button} button` : ''}${failure}`
+        : `Clicked${failure}`
+    case 'type':
+      return `Typed${place ? ` into ${place}` : ''}${detail.text ? ` — "${detail.text}"` : ''}${failure}`
+    case 'key':
+      return `Pressed ${detail.combo ?? 'a key'}${failure}`
+    case 'scroll':
+      return `Scrolled${typeof detail.x === 'number' && typeof detail.y === 'number' ? ` at (${detail.x}, ${detail.y})` : ''}${failure}`
+    case 'drag':
+      return detail.from && detail.to
+        ? `Dragged from (${detail.from.x}, ${detail.from.y}) to (${detail.to.x}, ${detail.to.y})${failure}`
+        : `Dragged${failure}`
+    case 'window_focus':
+      return `Focused ${detail.window?.title ?? place ?? 'a window'}${failure}`
+    case 'screen_open':
+      return `Opened the desktop screen — ${detail.reason ?? 'no reason recorded'}`
+    case 'screen_close':
+      return 'Closed the desktop screen'
+    case 'file_write':
+      return `Published ${detail.title ?? detail.target ?? 'a file'}${failure}`
+    case 'shared_write':
+      return `Wrote to the shared folder${place ? ` — ${place}` : ''}${failure}`
+    case 'egress_blocked':
+      return `Blocked a connection to ${detail.host ?? 'an address'}${detail.port ? `:${detail.port}` : ''}`
+    case 'handover_begin':
+      return `Handed the screen to ${detail.actor ?? 'a person'}${detail.scope ? ` (${detail.scope})` : ''}${detail.reason ? ` — ${detail.reason}` : ''}`
+    case 'handover_end':
+      return `Handover ended${detail.actor ? ` — ${detail.actor}` : ''}${typeof detail.durationMs === 'number' ? ` after ${asDuration(detail.durationMs)}` : ''}`
+    case 'job_start':
+      return `Started a background job${detail.command ? ` — "${detail.command}"` : ''}`
+    case 'job_exit':
+      return `Background job exited${detail.exitCode === null || detail.exitCode === undefined ? '' : ` — exit ${detail.exitCode}`}`
+    default:
+      return describeBrowserStep(kind, detail)
+  }
+}
+
+/**
+ * A desk event as the replay tables want it, minus the row plumbing: the plain
+ * line, the recorded screen-open reason surfaced on its own (§3.17 — it is the
+ * reviewable part), the handover masking made explicit, and where the event
+ * points. Shared by the run record and the operator's desk session drawer, so
+ * both read the same story from the same ledger.
+ */
+export function deskEventPresentation(
+  kind: string,
+  detail: DeskEventWords,
+): { description: string; reason: string | null; note: string | null; context: string } {
+  return {
+    description: describeDeskEvent(kind, detail),
+    reason: kind === 'screen_open' ? (detail.reason ?? null) : null,
+    note:
+      kind === 'handover_begin' || kind === 'handover_end'
+        ? 'Nothing typed during the handover was recorded — only that it happened, who drove, and for how long.'
+        : null,
+    context: detail.url ?? detail.host ?? detail.cwd ?? '',
+  }
+}
+
 /**
  * Pair the ledger back into items. Results and approval requests match their
  * call by toolName in arrival order — concurrent calls to the same tool

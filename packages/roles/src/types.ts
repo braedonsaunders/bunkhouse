@@ -18,9 +18,11 @@ export type ActionCategory =
   | 'record_write'
   | 'money_adjacent'
   | 'file_write'
-  | 'computer_use'
-  | 'shell'
   | 'phone_call'
+  | 'sandbox'
+  | 'desktop'
+  | 'shared_folder'
+  | 'background_job'
 
 export type AutonomyLevel = 'forbidden' | 'approval' | 'notify' | 'trusted'
 

@@ -30,9 +30,11 @@ const ACTION_CATEGORIES = [
   'record_write',
   'money_adjacent',
   'file_write',
-  'computer_use',
-  'shell',
   'phone_call',
+  'sandbox',
+  'desktop',
+  'shared_folder',
+  'background_job',
 ]
 
 /** Add or replace a system connection; it is probed before saving. */

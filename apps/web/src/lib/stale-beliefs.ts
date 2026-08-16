@@ -120,8 +120,21 @@ const KNOWN_TOOLS: ReadonlySet<string> = new Set([
   'cancel_scheduled_task',
   'cite_procedure',
   'list_tools',
+  'run_tool',
   'send_sms',
   'place_call',
+  'open_desktop',
+  'close_desktop',
+  'desktop_screenshot',
+  'desktop_click',
+  'desktop_type',
+  'desktop_key',
+  'desktop_scroll',
+  'desktop_drag',
+  'desktop_windows',
+  'desktop_focus',
+  'desktop_open_app',
+  'request_takeover',
 ])
 
 export type RetiredBelief = { agent: string; note: string; tool: string }

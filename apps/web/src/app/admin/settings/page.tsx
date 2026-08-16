@@ -16,7 +16,8 @@ import { getResearchSettings } from '../../../lib/research'
 import { getDocumentBranding } from '../../../lib/documents'
 import { getCompanyIdentity } from '../../../lib/company-identity'
 import { getSmsSettings } from '../../../lib/sms'
-import { getWorkspacePolicy, workspaceRuntimeView } from '../../../lib/workspace'
+import { deskOperationsView, getWorkspacePolicy, workspaceRuntimeView } from '../../../lib/workspace'
+import { getDeskPolicy, resolveDeskFeatures } from '../../../lib/desk-policy'
 import { chatWebhookUrls, listChatChannelRoutes, listChatConnections } from '../../../lib/chat-bridge'
 import { getVoiceRetention } from '../../../lib/voice-recording'
 import { getVoicePricing } from '../../../lib/voice-pricing'
@@ -116,6 +117,15 @@ export default async function SettingsPage({
   const identity = await getCompanyIdentity(tenantId)
   const workspacePolicy = await getWorkspacePolicy(tenantId)
   const workspaceRuntime = await workspaceRuntimeView(tenantId)
+  // The desk: the one feature switchboard, the tenant's machine policy, and
+  // the operator surface (sessions, jobs, escalations). Read whether or not
+  // the feature is on — turning it off preserves the record, and the section
+  // says so instead of pretending the data left.
+  const [deskFeatures, deskPolicy] = await Promise.all([
+    resolveDeskFeatures(tenantId),
+    getDeskPolicy(tenantId),
+  ])
+  const deskOperations = await deskOperationsView(tenantId, deskPolicy.screenStepCeiling)
   const [voiceRetention, voicePricing, templates, filingSettings, filingActivity] = await Promise.all([
     getVoiceRetention(tenantId),
     getVoicePricing(tenantId),
@@ -288,6 +298,14 @@ export default async function SettingsPage({
         runtime: workspaceRuntime.runtime,
         sessions: workspaceRuntime.sessions,
       }}
+      desk={{
+        enabled: deskFeatures.desk,
+        policy: deskPolicy,
+        sessions: deskOperations.sessions,
+        jobs: deskOperations.jobs,
+        escalations: deskOperations.escalations,
+      }}
+      features={deskFeatures}
       callCosts={{
         recordingDays: voiceRetention.recordingDays,
         deepgramUsdPerMinute: voicePricing.deepgramUsdPerMinute ?? null,

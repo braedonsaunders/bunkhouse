@@ -13,9 +13,17 @@ export const actionCategory = pgEnum('action_category', [
   'record_write',
   'money_adjacent',
   'file_write',
+  'phone_call',
+  'sandbox',
+  'desktop',
+  'shared_folder',
+  'background_job',
+  // Retired by the desk cutover (0054) but still present in the pg type —
+  // postgres cannot drop enum values, and historical approvals rows carry
+  // them. The runtime's ActionCategory union no longer admits them, which is
+  // what keeps new rows out.
   'computer_use',
   'shell',
-  'phone_call',
 ])
 
 export const autonomyLevel = pgEnum('autonomy_level', ['forbidden', 'approval', 'notify', 'trusted'])

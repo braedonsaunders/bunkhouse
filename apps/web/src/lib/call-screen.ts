@@ -14,9 +14,9 @@ import { AGENT_SCREEN_FPS, AGENT_SCREEN_TRACK_NAME } from './agent-screen'
 import type { AgentScreenOpener } from './browser-cast'
 
 /**
- * The agent's browser, published into the call as a video track.
+ * The agent's desk, published into the call as a video track.
  *
- * The agent is already a participant in the caller's room. Its browser is a
+ * The agent is already a participant in the caller's room. Its desk is a
  * picture that changes ten times a second. Putting the second inside the first
  * is the whole design: the caller's page already renders LiveKit tracks, so
  * they get smooth live video — the page scrolling, the cursor crossing it, the
@@ -24,7 +24,7 @@ import type { AgentScreenOpener } from './browser-cast'
  *
  * Only calls. `registerBrowserCast` is what turns this on, and only the voice
  * agent calls it, for the run its call owns. An email run or a scheduled duty
- * registers nothing, so its browser opens no video source at all.
+ * registers nothing, so its desk opens no video source at all.
  *
  * Imported only by the voice agent process; the web app never bundles this.
  */
@@ -38,9 +38,10 @@ import type { AgentScreenOpener } from './browser-cast'
 const MAX_BITRATE = 2_000_000n
 
 /**
- * Build the opener a browser session asks for when it starts. One call, one
- * room; the track itself is not created until a browser actually opens, so a
- * call where the agent never browses publishes nothing and costs nothing.
+ * Build the opener a desk's capture asks for when it starts. One call, one
+ * room; the track itself is not created until a screen actually opens, so a
+ * call where the agent never puts anything on screen publishes nothing and
+ * costs nothing.
  */
 export function agentScreenOpener(args: {
   room: Room

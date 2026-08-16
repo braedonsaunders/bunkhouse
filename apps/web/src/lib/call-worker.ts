@@ -13,6 +13,7 @@ import { resolvePageAccess, toolsPromisedButAbsent, type PageAccess } from './ca
 import { pageReadingAbility, type SeeingModel } from './page-reading'
 import type { CallTrace } from './call-trace'
 import { browserSupported, closeBrowserSession } from './browser-use'
+import { closeDeskSession } from './desk'
 
 /**
  * The worker on a call.
@@ -297,7 +298,7 @@ export function createCallWorker(args: {
   //
   // "Where the browser is usable" is the whole of it, and withdrawing the fetch
   // path without checking that was a regression of its own: an agent whose
-  // computer_use dial sits on 'approval' parks every browser_open awaiting a
+  // desktop dial sits on 'approval' parks every browser_open awaiting a
   // sign-off that will not arrive mid-call, so it had NO way to read a page and
   // silently answered from search snippets instead. The rule now lives in
   // call-reading.ts, and it is never allowed to leave the worker with neither
@@ -308,7 +309,7 @@ export function createCallWorker(args: {
     abilityNames: browserSupported()
       ? args.abilities.map((ability) => ability.name)
       : args.abilities.map((ability) => ability.name).filter((name) => !name.startsWith('browser_')),
-    computerUse: args.autonomy('computer_use'),
+    desktop: args.autonomy('desktop'),
     ...(() => {
       const opener = args.abilities.find((ability) => ability.name === 'browser_open')
       return opener?.approval ? { browserApproval: opener.approval } : {}
@@ -621,10 +622,12 @@ export function createCallWorker(args: {
           })
           .catch(() => {})
       }
-      // The browser this call opened belongs to the call, not to one request.
+      // The browser this call opened belongs to the call, not to one request,
+      // and the call's desk session closes with it.
       await closeBrowserSession(runId).catch((error: unknown) =>
         args.onError(`the browser could not be closed: ${describeError(error)}`),
       )
+      await closeDeskSession(runId).catch(() => {})
     },
   }
 }

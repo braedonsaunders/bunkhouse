@@ -683,7 +683,7 @@ function harness(timing: Partial<MailboxTiming> = {}) {
 {
   const full = resolvePageAccess({
     abilityNames: ['web_search', 'read_page', 'browser_open', 'browser_click'],
-    computerUse: 'trusted',
+    desktop: 'trusted',
   })
   assert.equal(full.route, 'browser', 'with a usable browser the page gets visited')
   assert.equal(full.work, '', 'nothing needs saying about it')
@@ -694,7 +694,7 @@ function harness(timing: Partial<MailboxTiming> = {}) {
   // pages into a call while the caller waits.
   const parked = resolvePageAccess({
     abilityNames: ['web_search', 'read_page', 'browser_open', 'browser_click'],
-    computerUse: 'approval',
+    desktop: 'approval',
   })
   assert.equal(parked.route, 'fetch')
   assert.match(parked.reason, /sign-off/)
@@ -706,7 +706,7 @@ function harness(timing: Partial<MailboxTiming> = {}) {
   assert.equal(
     resolvePageAccess({
       abilityNames: ['read_page', 'browser_open'],
-      computerUse: 'approval',
+      desktop: 'approval',
       browserApproval: 'continues',
     }).route,
     'browser',
@@ -714,8 +714,8 @@ function harness(timing: Partial<MailboxTiming> = {}) {
 
   // Forbidden, and no Chromium on the box: both are the quiet route, both with
   // a reason an operator can act on.
-  assert.equal(resolvePageAccess({ abilityNames: ['read_page', 'browser_open'], computerUse: 'forbidden' }).route, 'fetch')
-  const headless = resolvePageAccess({ abilityNames: ['web_search', 'read_page'], computerUse: 'trusted' })
+  assert.equal(resolvePageAccess({ abilityNames: ['read_page', 'browser_open'], desktop: 'forbidden' }).route, 'fetch')
+  const headless = resolvePageAccess({ abilityNames: ['web_search', 'read_page'], desktop: 'trusted' })
   assert.equal(headless.route, 'fetch')
   assert.match(headless.reason, /no browser/)
 

@@ -38,7 +38,7 @@ import {
   type TranscriptTurn,
 } from '../app/call/actions'
 import {
-  describeBrowserStep,
+  describeDeskEvent,
   hostOf,
   toolActivityFromEvents,
   type CallActivityEvent,
@@ -232,26 +232,26 @@ function useCallTones(phase: CallPhase, working: boolean): void {
 }
 
 /**
- * The newest browser frame as the stage wants it: a picture and its labels.
- * A frame from a visit that is over is still handed over — marked not live, so
- * the stage can retire it gracefully rather than have it disappear.
+ * The newest desk frame as the stage wants it: a picture and its labels.
+ * A frame from a session that is over is still handed over — marked not live,
+ * so the stage can retire it gracefully rather than have it disappear.
  *
  * This is the still path, and it is not going anywhere: the screenshot ledger
- * is the audit record, it is what the run desk replays, and it is what is left
- * on the stage after the browser closes and its track goes away. While the
- * browser is open on a call there is live video of the same page, and that
- * takes the picture; everything else here — which page, what was just done —
- * still comes from the ledger.
+ * is the audit record, it is what the run record replays, and it is what is
+ * left on the stage after the desk work ends and its track goes away. While
+ * the desk is on screen during a call there is live video of the same picture,
+ * and that takes the stage; everything else here — which page, what was just
+ * done — still comes from the ledger.
  */
 function screenView(frame: CallBrowserFrame, live: boolean): CallStageScreenView {
   const host = hostOf(frame.detail.url)
-  const title = frame.detail.title?.trim() || host || 'Working in the browser'
+  const title = frame.detail.title?.trim() || host || 'Working at the desk'
   return {
     live,
     imageUrl: frame.fileId ? `/api/files/${frame.fileId}` : null,
     title,
     host: host && host !== title ? host : null,
-    action: describeBrowserStep(frame.action, frame.detail),
+    action: describeDeskEvent(frame.action, frame.detail),
     atSeconds: Math.floor(frame.atMs / 1000),
     frameKey: String(frame.seq),
   }
@@ -526,9 +526,10 @@ function LiveCallSurface({
 
   const [transcriptVisible, setTranscriptVisible] = React.useState(true)
 
-  // The agent's own browser, live in this room. It publishes itself as an
-  // ordinary screen-share track while it has a page open, so watching it needs
-  // no polling and no second transport — the room is already here.
+  // The agent's own desk, live in this room — its browser today, its desktop
+  // screen when one is open. It publishes itself as an ordinary screen-share
+  // track while it has something on screen, so watching it needs no polling
+  // and no second transport — the room is already here.
   //
   // Source alone would not identify it: in a meeting a human guest shares a
   // screen from another remote participant on the very same source. The track
@@ -572,18 +573,19 @@ function LiveCallSurface({
     const still = browser ? screenView(browser, browser.live && phase !== 'ended') : null
     if (!agentScreen || phase === 'ended') return still
     // The track is the present tense in a way the ledger cannot be: it exists
-    // for exactly as long as the agent's browser is open, and it carries the
-    // page as it moves rather than as it was two seconds ago. The ledger still
-    // supplies the words around it — which page, and what was just done on it.
+    // for exactly as long as the agent's desk has something on screen, and it
+    // carries the picture as it moves rather than as it was two seconds ago.
+    // The ledger still supplies the words around it — which page, and what was
+    // just done on it.
     const video = <VideoTrack trackRef={agentScreen} />
     return still
       ? { ...still, live: true, video }
       : {
-          // The browser has opened but no step has landed on the record yet.
+          // The screen has opened but no step has landed on the record yet.
           live: true,
           video,
           imageUrl: null,
-          title: 'Working in the browser',
+          title: 'Working at the desk',
           host: null,
           action: 'Opening the page',
           atSeconds: elapsedSeconds,

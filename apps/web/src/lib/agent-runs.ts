@@ -55,6 +55,7 @@ import { describeToolCall } from './call-activity'
 import { isWithinWorkingHours } from './working-hours'
 import { getFileBytes, getFileRecord } from './files'
 import { closeBrowserSession } from './browser-use'
+import { closeDeskSession } from './desk'
 import { readSkillBundle, skillsForAgent, type BoundSkillRow } from './skills'
 import { agentBinding, bindsToAgent, type AgentBinding } from './assignment'
 import { appendRunEvent } from './run-events'
@@ -790,8 +791,10 @@ export async function executeAgentRun(args: {
         // would tear them out from under whatever else the caller has running.
         if (live) return
         await assembled!.close()
-        // A browser left open by the model is closed with the run, not leaked.
+        // A browser left open by the model is closed with the run, not leaked,
+        // and the run's chapter of the desk ledger is stamped ended.
         await closeBrowserSession(runId)
+        await closeDeskSession(runId).catch(() => {})
       })
 
       // The completion contract: work that was triggered by a person waiting for

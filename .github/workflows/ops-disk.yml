@@ -651,9 +651,9 @@ jobs:
           cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
           if [ -z "$cid" ]; then echo "::error::No running web container on this node"; exit 1; fi
           docker exec "$cid" node -e '
-            const url = process.env.BUNKHOUSE_SHELL_URL;
-            const token = process.env.BUNKHOUSE_SHELL_TOKEN;
-            console.log("BUNKHOUSE_SHELL_URL :", url ?? "(unset)");
+            const url = process.env.BUNKHOUSE_DESK_URL;
+            const token = process.env.BUNKHOUSE_DESK_TOKEN;
+            console.log("BUNKHOUSE_DESK_URL  :", url ?? "(unset)");
             console.log("token configured    :", Boolean(token));
             if (!url || !token) { console.log("not wired up yet"); process.exit(0); }
             const home = `${process.env.BUNKHOUSE_AGENT_HOMES ?? "/data/agent-homes"}/.opscheck`;

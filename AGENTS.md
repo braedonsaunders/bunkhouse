@@ -25,7 +25,7 @@ record; "you"/"the coding agent" means whoever is editing this repo. Do not conf
    A role *links* resources (procedures, skills, knowledge, systems) through the one
    `assignment` edge; it never restates them (`docs/roles.md`).
 4. **Autonomy is a dial, per agent × action category** (external email, money-adjacent,
-   record changes, computer use, shell). Enforcement lives in the runtime, not in prompts.
+   record changes, sandbox, desktop). Enforcement lives in the runtime, not in prompts.
 5. **Salary = token budget.** Per-agent monthly budget against the company's own provider
    keys; metering is first-class; overage is "overtime" and visible. No bunkhouse-side
    markup, ever.

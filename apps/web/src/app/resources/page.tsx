@@ -8,7 +8,7 @@ import { roleOptions as listRoleOptions } from '../../lib/roles'
 import { listMcpIntegrations, readMcpHealth } from '../../lib/mcp-integrations'
 import { mcpOauthRedirectUri } from '../../lib/mcp-oauth'
 import { listCurrentRevisions, listSkillFiles, listSkills } from '../../lib/skills'
-import { shellSupported } from '../../lib/workspace'
+import { deskSupported } from '../../lib/desk'
 import { ResourcesView } from '../../components/resources-view'
 import type { ProcedureRow } from '../../components/procedures-view'
 import type { SkillRowView } from '../../components/skills-view'
@@ -210,7 +210,7 @@ export default async function ResourcesPage({
         })}
         procedures={procedureRows}
         skills={skillRows}
-        shellAvailable={shellSupported()}
+        shellAvailable={deskSupported()}
         systems={data.systems.map((entry) => ({
           slug: entry.slug,
           label: entry.label,
