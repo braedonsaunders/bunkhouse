@@ -9,6 +9,7 @@
 #                guest agent baked in and enabled.
 #   - vmlinux    the guest kernel extracted from that image, for Cloud
 #                Hypervisor direct-kernel boot.
+#   - initrd     the matching initramfs (the modular cloud kernel needs it).
 #
 # WHY RAW, NOT QCOW2: each desk runs on a copy-on-write overlay that is a
 # reflink (`cp --reflink`) of base.raw. Reflinks require a RAW source on a
@@ -47,6 +48,7 @@ DEBIAN_URL="https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-gene
 CLOUD_QCOW2="${OUT_DIR}/debian-12-genericcloud-amd64.qcow2"
 BASE_RAW="${OUT_DIR}/base.raw"
 VMLINUX="${OUT_DIR}/vmlinux"
+INITRD="${OUT_DIR}/initrd"
 ROOT_SIZE="${ROOT_SIZE:-20G}"
 
 # virt-* tools run more reliably without the appliance's own KVM layer here.
@@ -139,21 +141,28 @@ virt-customize -a "${BASE_RAW}" \
   --run-command 'systemctl set-default multi-user.target' \
   --run-command 'apt-get clean'
 
-# --- step 4: extract the kernel ---------------------------------------------
+# --- step 4: extract the kernel and initramfs -------------------------------
 #
 # Cloud Hypervisor does a direct-kernel boot, so it needs the raw vmlinux out of
-# the image, not the disk's own bootloader.
+# the image, not the disk's own bootloader. The Debian cloud kernel is modular:
+# it loads virtio_blk from the initramfs, and boots to a "VFS: Unable to mount
+# root fs" panic without one — so we stage the initrd beside it. virt-get-kernel
+# emits both files in one pass.
 
-if [ -f "${VMLINUX}" ]; then
-  log "step 4: ${VMLINUX} already exists, skipping kernel extraction (delete it to refresh)"
+if [ -f "${VMLINUX}" ] && [ -f "${INITRD}" ]; then
+  log "step 4: ${VMLINUX} and ${INITRD} already exist, skipping (delete them to refresh)"
 else
-  log "step 4: extracting the guest kernel to ${VMLINUX}"
+  log "step 4: extracting the guest kernel and initramfs"
   KTMP="$(mktemp -d)"
   virt-get-kernel -a "${BASE_RAW}" -o "${KTMP}"
   KERNEL_FILE="$(find "${KTMP}" -name 'vmlinuz-*' -type f | sort | tail -n1)"
   [ -n "${KERNEL_FILE}" ] || die "virt-get-kernel produced no vmlinuz-* file"
   cp "${KERNEL_FILE}" "${VMLINUX}.part"
   mv "${VMLINUX}.part" "${VMLINUX}"
+  INITRD_FILE="$(find "${KTMP}" -name 'initramfs-*' -o -name 'initrd.img-*' | sort | tail -n1)"
+  [ -n "${INITRD_FILE}" ] || die "virt-get-kernel produced no initramfs file"
+  cp "${INITRD_FILE}" "${INITRD}.part"
+  mv "${INITRD}.part" "${INITRD}"
   rm -rf "${KTMP}"
 fi
 
@@ -161,6 +170,7 @@ fi
 
 BASE_SIZE="$(du -h "${BASE_RAW}" | cut -f1)"
 VMLINUX_SIZE="$(du -h "${VMLINUX}" | cut -f1)"
+INITRD_SIZE="$(du -h "${INITRD}" | cut -f1)"
 
 cat <<SUMMARY
 
@@ -169,6 +179,7 @@ cat <<SUMMARY
   disks root : ${OUT_DIR}
   base.raw   : ${BASE_RAW}  (${BASE_SIZE}, RAW — overlays are reflink copies of this)
   vmlinux    : ${VMLINUX}  (${VMLINUX_SIZE})
+  initrd     : ${INITRD}  (${INITRD_SIZE}, modular virtio needs it or the guest panics)
 
   Point the runner at this directory:
     BUNKHOUSE_AGENT_DISKS=${OUT_DIR}

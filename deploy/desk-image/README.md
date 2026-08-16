@@ -11,6 +11,7 @@ is not built here — see `apps/web/scripts/desk-runner.mts` and
 ```
 deploy/desk-image/
 ├── build-golden-image.sh          # builds base.raw + vmlinux
+- `initrd` — the matching initramfs; the modular Debian cloud kernel panics without it (`/desk` boots CH with `--initramfs`, auto-detected at `<disks root>/initrd`).
 ├── agent/
 │   ├── desk-guest-agent.mjs       # the in-guest agent (Node ESM, node built-ins only)
 │   ├── package.json               # marks /opt/desk-agent as ESM inside the image

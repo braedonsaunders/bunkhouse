@@ -733,6 +733,9 @@ server.listen(PORT, () => {
   )
   void verifyDeskHost({
     kernelPath: join(DISKS_ROOT, 'vmlinux'),
+    // The Debian cloud kernel is modular; without its initramfs the probe VM
+    // panics before the guest agent answers and vsock reads as unsupported.
+    initramfsPath: join(DISKS_ROOT, 'initrd'),
     baseImagePath: join(DISKS_ROOT, 'base.raw'),
   })
     .then((result) => {
