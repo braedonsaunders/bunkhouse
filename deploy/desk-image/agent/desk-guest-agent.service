@@ -1,0 +1,28 @@
+# The in-guest desk agent: PID 1's helper inside the per-agent microVM.
+#
+# Runs as root because it execs arbitrary agent commands on the agent's behalf
+# (spec §5.1) — this is the security-critical surface, kept small on purpose.
+# It listens on a UNIX socket at /run/desk-guest-agent.sock; the companion
+# desk-vsock-bridge.service forwards vsock port 5252 into that socket.
+[Unit]
+Description=Bunkhouse in-guest desk agent (framed JSON over UNIX socket)
+Documentation=https://github.com/rassaun/bunkhouse/blob/main/docs/agent-desk.md
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+# RuntimeDirectory gives us /run/desk-agent owned by root; the socket itself
+# lives directly at /run/desk-guest-agent.sock, created and removed by the agent.
+RuntimeDirectory=desk-agent
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/node /opt/desk-agent/desk-guest-agent.mjs
+Restart=always
+RestartSec=1
+# Journald captures the agent's stderr logging.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=desk-guest-agent
+
+[Install]
+WantedBy=multi-user.target

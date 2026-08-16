@@ -1,0 +1,8 @@
+{
+  "name": "desk-guest-agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "In-guest desk agent for the per-agent microVM. Marks /opt/desk-agent as ESM so the vendored @appkit/desk .js modules load as modules inside the image, where there is no parent package.json.",
+  "main": "desk-guest-agent.mjs"
+}

@@ -183,8 +183,11 @@ async function ensureDesk(
   } catch {
     handle = await host.start({
       deskId,
-      baseImage: join(DISKS_ROOT, 'base.qcow2'),
-      overlayPath: join(DISKS_ROOT, 'overlays', `${deskId}.qcow2`),
+      // RAW base, not qcow2: Cloud Hypervisor cannot follow qcow2 backing
+      // chains, so overlays are reflink copies (cp --reflink=auto) of a raw
+      // base rather than a copy-on-write qcow2 over a backing file.
+      baseImage: join(DISKS_ROOT, 'base.raw'),
+      overlayPath: join(DISKS_ROOT, 'overlays', `${deskId}.raw`),
       ...(options.memoryMb ? { memoryMb: options.memoryMb } : {}),
       ...(options.vcpus ? { vcpus: options.vcpus } : {}),
       ...(options.leaseMs ? { leaseMs: options.leaseMs } : {}),
@@ -506,7 +509,7 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       vcpus: numberOr(body.vcpus),
       leaseMs: numberOr(body.leaseMs),
     })
-    reply(response, 200, { deskId, resident: true, ...host.stats() })
+    reply(response, 200, { deskId, ...host.stats() })
     return
   }
 
@@ -730,7 +733,7 @@ server.listen(PORT, () => {
   )
   void verifyDeskHost({
     kernelPath: join(DISKS_ROOT, 'vmlinux'),
-    baseImagePath: join(DISKS_ROOT, 'base.qcow2'),
+    baseImagePath: join(DISKS_ROOT, 'base.raw'),
   })
     .then((result) => {
       verification = result
@@ -745,6 +748,10 @@ server.listen(PORT, () => {
         imageRoot: DISKS_ROOT,
         capacity: CAPACITY,
         idleSuspendMs: IDLE_SUSPEND_MS,
+        // Partition 3 holds the golden root after virt-resize moved it (the
+        // package default root=/dev/vda is wrong here); serial console on
+        // ttyS0 so guest boot logs reach the VMM.
+        kernelCmdline: 'console=ttyS0 root=/dev/vda3 rw',
         ports: {
           // Governance deliberately does NOT live here (spec §3.22): the dial
           // and the feature gate are enforced in bunkhouse's tier before a

@@ -86,7 +86,17 @@ volumes:
 
 services:
   desk-runner:
-    image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
+    # Built from the app image plus the VMM tooling (cloud-hypervisor + qemu-img)
+    # that the app image deliberately omits — see deploy/desk-runner.Dockerfile.
+    # This is the only service that maps /dev/kvm and spawns microVMs.
+    build:
+      context: ..
+      dockerfile: deploy/desk-runner.Dockerfile
+      args:
+        BUNKHOUSE_TAG: ${BUNKHOUSE_TAG:-latest}
+    # The guest disk assets (base.raw + vmlinux) are produced by
+    # deploy/desk-image/build-golden-image.sh and live in the agent-disks
+    # volume; per-desk overlays are raw reflink copies of base.raw.
     command:
       - sh
       - -c

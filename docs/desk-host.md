@@ -30,7 +30,7 @@ No `/dev/kvm`, or a zero flag count, means the preparation did not take. Fix tha
 
 ## What the golden base image contains
 
-One maintained base image; each agent's desk is a copy-on-write overlay on top of it, holding `/home` and anything the agent installs. Patch the base once and every desk inherits it on next boot.
+One maintained base image; each agent's desk is a copy-on-write overlay on top of it, holding `/home` and anything the agent installs. Patch the base once and every desk inherits it on next boot. The base ships as a **raw** image (`base.raw`), not qcow2 — Cloud Hypervisor cannot follow qcow2 backing chains — and each overlay is a reflink copy (`cp --reflink=auto base.raw <deskId>.raw`), so the copy is near-free on a reflink-capable filesystem yet each desk gets an independent raw disk. The runner that boots these is its own image, `deploy/desk-runner.Dockerfile` (the app image plus cloud-hypervisor and qemu-img).
 
 - Debian stable, matching the app image's lineage.
 - A conventional desktop environment — XFCE or LXQt, decided at image-build time on measured footprint — plus XWayland. Installed, not running: a desk boots headless and the screen starts on demand.

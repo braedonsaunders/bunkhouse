@@ -1,0 +1,23 @@
+# Bridges the host's vsock connection into the desk agent's UNIX socket.
+#
+# The host (desk-runner, via Cloud Hypervisor) dials the guest on vsock port
+# 5252. socat listens there and forwards each connection to the agent's UNIX
+# socket, so the agent itself never has to speak vsock. `fork` gives every host
+# connection its own agent connection; the agent runs runGuestAgent() per
+# connection. Debian bookworm's socat supports VSOCK-LISTEN natively.
+[Unit]
+Description=Bunkhouse desk vsock->unix bridge (vsock:5252 -> /run/desk-guest-agent.sock)
+After=desk-guest-agent.service
+Requires=desk-guest-agent.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/socat VSOCK-LISTEN:5252,fork,reuseaddr UNIX-CONNECT:/run/desk-guest-agent.sock
+Restart=always
+RestartSec=1
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=desk-vsock-bridge
+
+[Install]
+WantedBy=multi-user.target
