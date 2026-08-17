@@ -2,8 +2,8 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { EyeOff, Loader2, Monitor, MonitorOff, MousePointer2, ShieldAlert } from 'lucide-react'
-import { Badge, Button, EmptyState, cn } from '@appkit/ui'
+import { EyeOff, Loader2, Maximize2, Minimize2, Monitor, MonitorOff, MousePointer2, ShieldAlert } from 'lucide-react'
+import { Badge, Button, Drawer, EmptyState, cn } from '@appkit/ui'
 import { AGENT_SCREEN_HEIGHT, AGENT_SCREEN_WIDTH } from '../lib/agent-screen'
 import {
   closeDesktopAction,
@@ -39,6 +39,14 @@ import {
  *
  * Saying either of those is the other would be a lie an operator could not
  * detect, so the copy on both is exact.
+ *
+ * The pane is a third of a card, which is enough to watch a machine and not
+ * enough to work one, so the same desk can be opened full screen. That is one
+ * picture in two frames rather than two views: the frame stream, the status
+ * poll, the driving mode and the typing buffer all live here and are untouched
+ * by the move, the input surface is a single element that is re-parented into
+ * the overlay, and the coordinate translation is the one `framePoint` reading
+ * the live box — so a click lands on the same pixel at either size.
  */
 
 /** The desk's answer for one agent, as the server action reports it. */
@@ -88,6 +96,20 @@ const TYPE_FLUSH_MS = 160
 
 /** Two Escapes inside this window hand control back — see the driving note. */
 const RELEASE_CHORD_MS = 500
+
+/**
+ * How long an Escape that was given to the guest keeps the full-screen view
+ * from being closed by that same press.
+ *
+ * While someone is driving, every Escape belongs to the desktop, so the
+ * overlay declares that with `data-ui-overlay` and the surface never gets
+ * closed out from under a task. That attribute is read by the overlay when the
+ * key is pressed, and React has already re-rendered by then if the press was
+ * the second of the pair that stops driving — the attribute is gone, and the
+ * same keystroke that handed control back would also collapse the view. This
+ * window is what makes the two separate acts: stop driving, then leave.
+ */
+const GUEST_ESCAPE_GRACE_MS = 250
 
 /** Movement under this many frame pixels between press and release is a click, not a drag. */
 const DRAG_THRESHOLD_PX = 4
@@ -161,6 +183,12 @@ type DesktopInput =
  * what the stream said it would be: the decoded picture is the thing the
  * coordinates are quoted against, and the two disagree the moment a
  * compositor hands back something other than the size it was asked for.
+ *
+ * Because every term comes from the element's live box, the pane and the
+ * full-screen view need one function between them rather than one each: the
+ * picture is four times the size in the overlay and the scale simply comes out
+ * four times larger. A second copy of this sum, drifting from the first, would
+ * show up as clicks that land near the target — which reads as a broken desk.
  *
  * A point in the letterbox belongs to no pixel of the frame, so it returns
  * null and nothing is sent.
@@ -323,8 +351,23 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     active: false,
     url: null,
   })
+  /** Whether the desk is filling the window rather than sitting in its pane. */
+  const [expanded, setExpanded] = React.useState(false)
+  /**
+   * Whether the full-screen view is on screen at all — which includes the
+   * moment it is sliding out. `expanded` is the intent; this is the presence,
+   * and the two differ for the length of the exit. That difference is what
+   * keeps the pane from drawing a second picture while the overlay is still
+   * holding the only one: there is one input surface and one image ref, and
+   * two of them alive at once would leave both pointing at a dead element.
+   */
+  const [overlayPresent, setOverlayPresent] = React.useState(false)
 
-  const surfaceRef = React.useRef<HTMLDivElement>(null)
+  // The input surface is held as state rather than in a ref because it is the
+  // same element in two places: expanding re-parents it into the overlay, and
+  // the native wheel listener has to follow it there. A ref would be read once
+  // and left bound to an element that is no longer on screen.
+  const [surface, setSurface] = React.useState<HTMLDivElement | null>(null)
   const imageRef = React.useRef<HTMLImageElement>(null)
 
   /** The controls' own re-read, after they have changed something. */
@@ -337,8 +380,13 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     setStatus(answer.status)
     setStatusError(null)
     // A screen the agent closed under us takes the driving mode with it, so
-    // the next click cannot land on a desktop that is no longer there.
-    if (!answer.status.screenRunning) setDriving(false)
+    // the next click cannot land on a desktop that is no longer there — and
+    // the full-screen view with it, so a screen that comes back later does not
+    // come back over the whole window.
+    if (!answer.status.screenRunning) {
+      setDriving(false)
+      setExpanded(false)
+    }
   }, [personId])
 
   // Mounted per agent (the pane is keyed on the person), so there is nothing
@@ -355,7 +403,10 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
       }
       setStatus(answer.status)
       setStatusError(null)
-      if (!answer.status.screenRunning) setDriving(false)
+      if (!answer.status.screenRunning) {
+        setDriving(false)
+        setExpanded(false)
+      }
     }
     void tick()
     const interval = setInterval(() => void tick(), STATUS_POLL_MS)
@@ -369,6 +420,12 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   // Nothing to watch during a handover: the guest withholds every frame for
   // its duration, so holding the stream open would only keep a socket alive
   // to carry silence.
+  //
+  // The one subscription for both views, deliberately: it is asked for here,
+  // above the pane and the full-screen overlay alike, so expanding cannot tear
+  // it down and re-establish it. A re-subscribe restarts the guest's capture
+  // pump, and the picture goes black at the exact moment somebody has made it
+  // big enough to work in.
   const { frame, live } = useDeskFrames(personId, screenOpen && !handover.active)
 
   /**
@@ -454,6 +511,74 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   // what keeps a click from being sent at a desktop that has already gone.
   const drivingNow = driving && screenOpen && !handover.active
 
+  // Focus is what makes the keyboard live, so it is taken for the person
+  // rather than left as a step they have to guess at — both when they take the
+  // controls and after the surface has moved between the pane and the overlay,
+  // which the overlay would otherwise end by focusing its own close button.
+  React.useEffect(() => {
+    if (!drivingNow || !surface) return
+    // On a beat, so the overlay's own opening focus — set on the same commit —
+    // has already happened and this is the one that stands.
+    const timer = setTimeout(() => surface.focus(), 0)
+    return () => clearTimeout(timer)
+  }, [drivingNow, surface])
+
+  // A screen that has gone takes the full-screen view with it: there is
+  // nothing left to fill a window with, and an overlay over a closed desktop
+  // is a wall in front of the conversation. Derived from the screen rather
+  // than corrected after the fact — the same reason `drivingNow` is.
+  const showExpanded = expanded && screenOpen
+
+  /** The moment an Escape was handed to the guest — see GUEST_ESCAPE_GRACE_MS. */
+  const guestEscapeAtRef = React.useRef(0)
+
+  // Presence and intent are raised in the same act, so the pane hands the
+  // picture over and the overlay takes it on one commit rather than either
+  // rendering it twice or neither rendering it at all.
+  const expand = React.useCallback(() => {
+    setOverlayPresent(true)
+    setExpanded(true)
+  }, [])
+
+  const collapse = React.useCallback(() => {
+    // Driving is not stopped on the way out: the pane drives too, and yanking
+    // the controls away because a view got smaller would lose whatever was
+    // half-done. What is refused is the Escape that belonged to the desktop.
+    if (Date.now() - guestEscapeAtRef.current < GUEST_ESCAPE_GRACE_MS) return
+    setExpanded(false)
+    // Presence is normally given up when the exit animation reports itself
+    // finished. With nothing on screen to animate there is no such moment, and
+    // a pane still pointing at a view that is not there would have no picture
+    // in it at all.
+    if (!showExpanded) setOverlayPresent(false)
+  }, [showExpanded])
+
+  // A key for it, so the operator who is about to work in the desk does not
+  // have to go to the mouse to make it big enough to work in. Deliberately
+  // narrow: nothing while the keys belong to the guest, nothing while a field
+  // has focus, and nothing when there is no screen to show.
+  React.useEffect(() => {
+    if (!screenOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (!event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return
+      if (event.key.toLowerCase() !== 'f') return
+      if (drivingNow) return
+      const target = event.target
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT')
+      ) {
+        return
+      }
+      event.preventDefault()
+      if (showExpanded) collapse()
+      else expand()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [collapse, drivingNow, expand, screenOpen, showExpanded])
+
   const toggleDriving = () => {
     if (driving) {
       stopDriving()
@@ -461,9 +586,6 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     }
     setControlError(null)
     setDriving(true)
-    // Focus is what makes the keyboard live, so it is taken for the person
-    // rather than left as a step they have to guess at.
-    surfaceRef.current?.focus()
   }
 
   const toggleHandover = async () => {
@@ -526,8 +648,11 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   // while the guest is being scrolled is unusable.
   const scrollRef = React.useRef({ dx: 0, dy: 0, x: 0, y: 0, timer: null as ReturnType<typeof setTimeout> | null })
   React.useEffect(() => {
-    const element = surfaceRef.current
-    if (!element || !drivingNow) return
+    // Bound to the surface element itself rather than to a ref read once: the
+    // same surface is re-parented when the desk goes full screen, and this has
+    // to follow it there.
+    if (!surface || !drivingNow) return
+    const element = surface
     const state = scrollRef.current
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
@@ -562,7 +687,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
         state.timer = null
       }
     }
-  }, [drivingNow, sendInput])
+  }, [drivingNow, sendInput, surface])
 
   const pressRef = React.useRef<{ x: number; y: number; button: 'left' | 'middle' | 'right' } | null>(null)
   const escapeRef = React.useRef(0)
@@ -574,7 +699,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     const point = framePoint(image, event.clientX, event.clientY)
     if (!point) return
     event.preventDefault()
-    surfaceRef.current?.focus()
+    surface?.focus()
     pressRef.current = { ...point, button: MOUSE_BUTTONS[event.button] ?? 'left' }
     event.currentTarget.setPointerCapture(event.pointerId)
   }
@@ -612,6 +737,10 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
       const at = Date.now()
       const second = at - escapeRef.current < RELEASE_CHORD_MS
       escapeRef.current = second ? 0 : at
+      // Both Escapes of the pair are the desktop's, so neither may also be
+      // read as "close the full-screen view" by the overlay this surface may
+      // be sitting in — the stamp is what `collapse` refuses on.
+      guestEscapeAtRef.current = at
       // The first Escape still goes to the guest — an Escape that does nothing
       // for half a second would make dialogs unclosable. The second one, in
       // quick succession, is the way out of the pane for someone whose keys are
@@ -648,6 +777,15 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     sendInput({ action: 'key', combo: parts.join('+') })
   }
 
+  // What the desk is doing, in one word. The same badge stands in the pane's
+  // header and in the full-screen header — a screen that is masked or being
+  // driven must say so wherever it is being looked at.
+  const statusBadge = screenOpen ? (
+    <Badge variant={handover.active ? 'info' : drivingNow ? 'warning' : 'success'} className="shrink-0">
+      {handover.active ? 'private control' : drivingNow ? 'you are driving' : 'screen open'}
+    </Badge>
+  ) : null
+
   // One line, the same twelve-rem-high rule the conversation and the thread
   // list carry: the three panes share one card now, so their headers have to
   // sit on one line across it. What the desk IS gets said in the body, where
@@ -655,12 +793,206 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   const header = (
     <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface px-4">
       <span className="truncate text-sm font-medium text-fg">{personName}&apos;s desk</span>
-      {screenOpen ? (
-        <Badge variant={handover.active ? 'info' : drivingNow ? 'warning' : 'success'} className="shrink-0">
-          {handover.active ? 'private control' : drivingNow ? 'you are driving' : 'screen open'}
-        </Badge>
-      ) : null}
+      <span className="flex shrink-0 items-center gap-1.5">
+        {statusBadge}
+        {screenOpen ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            aria-pressed={showExpanded}
+            title={showExpanded ? 'Leave full screen (Shift F)' : 'Full screen (Shift F)'}
+            onClick={showExpanded ? collapse : expand}
+          >
+            {showExpanded ? (
+              <Minimize2 aria-hidden className="size-4" />
+            ) : (
+              <Maximize2 aria-hidden className="size-4" />
+            )}
+            <span className="sr-only">
+              {showExpanded
+                ? `Return ${personName}'s desktop to this pane (Shift F)`
+                : `Fill the window with ${personName}'s desktop (Shift F)`}
+            </span>
+          </Button>
+        ) : null}
+      </span>
     </header>
+  )
+
+  /**
+   * The picture and the input target, as one element rendered in one place at
+   * a time — the pane's screen box, or the full-screen overlay.
+   *
+   * It is written once rather than twice on purpose: the refs, the handlers
+   * and the classes are the same at either size, so there is one input
+   * surface, one `framePoint` reading its live box, and no second <img>
+   * quietly competing for the image ref.
+   */
+  const liveScreen = (
+    // The surface is the input target, not the picture: it keeps its box
+    // whether or not a frame has arrived, so focus, the ring, and the pointer
+    // maths never move when one does.
+    <div
+      ref={setSurface}
+      tabIndex={drivingNow ? 0 : -1}
+      role={drivingNow ? 'application' : undefined}
+      aria-label={drivingNow ? `${personName}'s desktop — your keyboard and mouse are on it` : undefined}
+      // While the desk is full screen and being driven, the desktop owns
+      // Escape. This is the attribute appkit's overlays read to know that
+      // something in front of them has claimed the key, and it is what stops
+      // the release chord's first Escape from closing the view instead of
+      // reaching the guest. The stamp in `collapse` covers the second one.
+      data-ui-overlay={showExpanded && drivingNow ? 'desk-driving' : undefined}
+      onKeyDown={onKeyDown}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onContextMenu={(event) => {
+        if (drivingNow) event.preventDefault()
+      }}
+      onBlur={() => flushTyping()}
+      className={cn('absolute inset-0 outline-none', drivingNow && 'cursor-crosshair')}
+    >
+      {handover.active ? (
+        <div className="flex size-full flex-col items-center justify-center gap-2 px-8 text-center">
+          <EyeOff aria-hidden className="size-6 text-fg-subtle" />
+          <p className="text-sm text-fg-muted">
+            The picture is withheld while you have private control. That is the point of it — nothing on this screen
+            reaches {personName}&apos;s context or the record until you hand it back.
+          </p>
+        </div>
+      ) : frame ? (
+        // A plain <img>: the frame arrives as a data URL and there is nothing
+        // for an image optimizer to do with one. The src is swapped in place
+        // rather than the element being keyed, so the browser holds the last
+        // frame until the next has decoded and a live screen never blinks
+        // white between them. `object-contain` is what keeps the desk's own
+        // shape at any size — the letterbox is the backdrop behind it, and
+        // `framePoint` knows a click that lands there belongs to no pixel.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          ref={imageRef}
+          src={frame.src}
+          alt={`${personName}'s desktop`}
+          draggable={false}
+          className="size-full select-none object-contain"
+        />
+      ) : (
+        <div className="flex size-full flex-col items-center justify-center gap-2 text-center">
+          <Loader2 aria-hidden className="size-5 animate-spin text-fg-subtle" />
+          <p className="px-8 text-sm text-fg-muted">
+            The screen is open. Waiting for the first frame — a desktop that is not repainting sends nothing.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+
+  /** Whether the picture on screen is current, said over the picture itself. */
+  const liveBadge = handover.active ? null : (
+    <span className="pointer-events-none absolute right-2 top-2 flex items-center gap-1.5 rounded-full border border-border bg-surface/90 px-2 py-1 text-xs font-medium text-fg-muted backdrop-blur">
+      <span
+        aria-hidden
+        className={cn('inline-block size-1.5 rounded-full', live ? 'animate-pulse bg-primary' : 'bg-fg-subtle')}
+      />
+      {live ? 'Live' : 'Waiting for a repaint'}
+    </span>
+  )
+
+  /**
+   * What is true of this screen right now, in the words that matter: a masked
+   * handover and a recorded drive are never described in the same terms, and
+   * the full-screen view says which key does what while the keyboard is not
+   * the browser's to spend.
+   */
+  const notice = handover.active ? (
+    <div
+      role="status"
+      className="space-y-1 rounded-lg border border-primary/40 bg-primary-subtle px-3 py-2 text-xs text-fg"
+    >
+      <p className="font-medium">You have private control of this desktop.</p>
+      <p className="text-fg-muted">
+        Nothing you do inside it is recorded and no frame leaves the machine — only that control was handed over, to
+        you, and for how long. It expires on its own; hand it back as soon as the private step is done.
+      </p>
+      {handover.url !== null ? (
+        <Button asChild size="sm" variant="outline" className="mt-1">
+          <a href={handover.url} target="_blank" rel="noreferrer">
+            Open the private screen
+          </a>
+        </Button>
+      ) : (
+        <p className="text-fg-muted">
+          The screen for it is on the desk runner and is reachable from the network the runner is on.
+        </p>
+      )}
+    </div>
+  ) : drivingNow ? (
+    <div
+      role="status"
+      className="space-y-1 rounded-lg border border-warning/40 bg-warning-subtle px-3 py-2 text-xs text-fg"
+    >
+      <p className="font-medium">You are driving this desktop.</p>
+      <p className="text-fg-muted">
+        Your clicks, typing, and scrolling go to {personName}&apos;s machine, and every one of them lands on the run
+        record as your step — including what you type. For something that must not be recorded, use private control
+        instead. Press Escape twice to stop driving.
+        {showExpanded
+          ? ' While you are driving, Escape belongs to the desktop and full screen stays open — leave it with the' +
+            ' button, or once you have stopped.'
+          : ''}
+      </p>
+    </div>
+  ) : (
+    <p className="text-xs text-fg-muted">
+      Watching only. Take the controls to work {personName}&apos;s desktop yourself — on the record, like any other
+      step.
+      {showExpanded ? ' Escape leaves full screen.' : ''}
+    </p>
+  )
+
+  /**
+   * The two ways to touch the screen, and the way to close it. They keep their
+   * exact words wherever they are shown: "take the controls" is the recorded
+   * door, "private control" is the masked handover, and no size of view is
+   * allowed to blur that.
+   */
+  const controls = (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        type="button"
+        variant={drivingNow ? 'default' : 'outline'}
+        size="sm"
+        aria-pressed={drivingNow}
+        disabled={busy || handover.active}
+        onClick={toggleDriving}
+      >
+        <MousePointer2 aria-hidden className="size-4" />
+        {drivingNow ? 'Stop driving' : 'Take the controls'}
+      </Button>
+      <Button
+        type="button"
+        variant={handover.active ? 'default' : 'outline'}
+        size="sm"
+        aria-pressed={handover.active}
+        disabled={busy}
+        onClick={() => void toggleHandover()}
+      >
+        {busy ? <Loader2 aria-hidden className="size-4 animate-spin" /> : <EyeOff aria-hidden className="size-4" />}
+        {handover.active ? 'Hand the screen back' : 'Private control'}
+      </Button>
+      <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void closeDesktop()}>
+        <MonitorOff aria-hidden className="size-4" />
+        Close desktop
+      </Button>
+      {showExpanded ? (
+        <Button type="button" variant="outline" size="sm" onClick={collapse}>
+          <Minimize2 aria-hidden className="size-4" />
+          Leave full screen
+        </Button>
+      ) : null}
+    </div>
   )
 
   let body: React.ReactNode
@@ -737,6 +1069,26 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
         </p>
       </div>
     )
+  } else if (overlayPresent) {
+    // The one picture is in the full-screen view, so the pane says where it
+    // went instead of drawing a second copy of a screen there is only one of.
+    body = (
+      <div className="space-y-4">
+        <DeskScreenBox className="border-dashed bg-bg-subtle">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-8 text-center">
+            <Maximize2 aria-hidden className="size-6 text-fg-subtle" />
+            <p className="text-sm text-fg-muted">
+              {personName}&apos;s desktop is filling the window. Nothing has been closed — the screen, the controls and
+              the record are all in there.
+            </p>
+          </div>
+        </DeskScreenBox>
+        <Button type="button" variant="outline" onClick={collapse}>
+          <Minimize2 aria-hidden className="size-4" />
+          Bring the desk back to this pane
+        </Button>
+      </div>
+    )
   } else {
     body = (
       <div className="space-y-3">
@@ -746,134 +1098,11 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
             drivingNow && 'ring-2 ring-warning ring-offset-2 ring-offset-surface',
           )}
         >
-          {/* The surface is the input target, not the picture: it keeps its
-              box whether or not a frame has arrived, so focus, the ring, and
-              the pointer maths never move when one does. */}
-          <div
-            ref={surfaceRef}
-            tabIndex={drivingNow ? 0 : -1}
-            role={drivingNow ? 'application' : undefined}
-            aria-label={drivingNow ? `${personName}'s desktop — your keyboard and mouse are on it` : undefined}
-            onKeyDown={onKeyDown}
-            onPointerDown={onPointerDown}
-            onPointerUp={onPointerUp}
-            onContextMenu={(event) => {
-              if (drivingNow) event.preventDefault()
-            }}
-            onBlur={() => flushTyping()}
-            className={cn('absolute inset-0 outline-none', drivingNow && 'cursor-crosshair')}
-          >
-            {handover.active ? (
-              <div className="flex size-full flex-col items-center justify-center gap-2 px-8 text-center">
-                <EyeOff aria-hidden className="size-6 text-fg-subtle" />
-                <p className="text-sm text-fg-muted">
-                  The picture is withheld while you have private control. That is the point of it — nothing on this
-                  screen reaches {personName}&apos;s context or the record until you hand it back.
-                </p>
-              </div>
-            ) : frame ? (
-              // A plain <img>: the frame arrives as a data URL and there is
-              // nothing for an image optimizer to do with one. The src is
-              // swapped in place rather than the element being keyed, so the
-              // browser holds the last frame until the next has decoded and a
-              // live screen never blinks white between them.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                ref={imageRef}
-                src={frame.src}
-                alt={`${personName}'s desktop`}
-                draggable={false}
-                className="size-full select-none object-contain"
-              />
-            ) : (
-              <div className="flex size-full flex-col items-center justify-center gap-2 text-center">
-                <Loader2 aria-hidden className="size-5 animate-spin text-fg-subtle" />
-                <p className="px-8 text-sm text-fg-muted">
-                  The screen is open. Waiting for the first frame — a desktop that is not repainting sends nothing.
-                </p>
-              </div>
-            )}
-          </div>
-          {handover.active ? null : (
-            <span className="pointer-events-none absolute right-2 top-2 flex items-center gap-1.5 rounded-full border border-border bg-surface/90 px-2 py-1 text-xs font-medium text-fg-muted backdrop-blur">
-              <span
-                aria-hidden
-                className={cn('inline-block size-1.5 rounded-full', live ? 'animate-pulse bg-primary' : 'bg-fg-subtle')}
-              />
-              {live ? 'Live' : 'Waiting for a repaint'}
-            </span>
-          )}
+          {liveScreen}
+          {liveBadge}
         </DeskScreenBox>
-
-        {handover.active ? (
-          <div
-            role="status"
-            className="space-y-1 rounded-lg border border-primary/40 bg-primary-subtle px-3 py-2 text-xs text-fg"
-          >
-            <p className="font-medium">You have private control of this desktop.</p>
-            <p className="text-fg-muted">
-              Nothing you do inside it is recorded and no frame leaves the machine — only that control was handed over,
-              to you, and for how long. It expires on its own; hand it back as soon as the private step is done.
-            </p>
-            {handover.url !== null ? (
-              <Button asChild size="sm" variant="outline" className="mt-1">
-                <a href={handover.url} target="_blank" rel="noreferrer">
-                  Open the private screen
-                </a>
-              </Button>
-            ) : (
-              <p className="text-fg-muted">
-                The screen for it is on the desk runner and is reachable from the network the runner is on.
-              </p>
-            )}
-          </div>
-        ) : drivingNow ? (
-          <div
-            role="status"
-            className="space-y-1 rounded-lg border border-warning/40 bg-warning-subtle px-3 py-2 text-xs text-fg"
-          >
-            <p className="font-medium">You are driving this desktop.</p>
-            <p className="text-fg-muted">
-              Your clicks, typing, and scrolling go to {personName}&apos;s machine, and every one of them lands on the
-              run record as your step — including what you type. For something that must not be recorded, use private
-              control instead. Press Escape twice to stop driving.
-            </p>
-          </div>
-        ) : (
-          <p className="text-xs text-fg-muted">
-            Watching only. Take the controls to work {personName}&apos;s desktop yourself — on the record, like any
-            other step.
-          </p>
-        )}
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant={drivingNow ? 'default' : 'outline'}
-            size="sm"
-            aria-pressed={drivingNow}
-            disabled={busy || handover.active}
-            onClick={toggleDriving}
-          >
-            <MousePointer2 aria-hidden className="size-4" />
-            {drivingNow ? 'Stop driving' : 'Take the controls'}
-          </Button>
-          <Button
-            type="button"
-            variant={handover.active ? 'default' : 'outline'}
-            size="sm"
-            aria-pressed={handover.active}
-            disabled={busy}
-            onClick={() => void toggleHandover()}
-          >
-            {busy ? <Loader2 aria-hidden className="size-4 animate-spin" /> : <EyeOff aria-hidden className="size-4" />}
-            {handover.active ? 'Hand the screen back' : 'Private control'}
-          </Button>
-          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void closeDesktop()}>
-            <MonitorOff aria-hidden className="size-4" />
-            Close desktop
-          </Button>
-        </div>
+        {notice}
+        {controls}
       </div>
     )
   }
@@ -891,6 +1120,42 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
           </p>
         ) : null}
       </div>
+
+      {/* The same desk, given the window. A Drawer at full size is this app's
+          full-bleed surface — portalled, modal, focus-trapped, scroll-locked
+          and Escape-aware — so the full-screen desk is that rather than a
+          hand-rolled layer with a z-index nobody can account for. The body
+          takes the whole panel below the header, on the same dark backdrop the
+          pane's screen box uses, so the letterbox around a desk of a different
+          shape reads as the edge of the screen rather than as a rendering
+          fault. The close control is the panel's own, and it is never
+          suppressed: the way out is always visible. */}
+      <Drawer
+        open={showExpanded}
+        onClose={collapse}
+        onExitComplete={() => setOverlayPresent(false)}
+        size="full"
+        disableFullscreen
+        title={`${personName}'s desk`}
+        description="The same screen, the same controls, and the same record — with room to work in."
+        headerActions={statusBadge}
+        // Positioned and unpadded, so the surface can be the whole of it: the
+        // picture is measured against this box by `framePoint`, and a scrollbar
+        // or a stray inch of padding would be measured with it.
+        bodyClassName={cn(
+          'relative overflow-hidden bg-overlay',
+          drivingNow && 'ring-2 ring-inset ring-warning',
+        )}
+        footer={
+          <div className="flex w-full flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">{notice}</div>
+            {controls}
+          </div>
+        }
+      >
+        {liveScreen}
+        {liveBadge}
+      </Drawer>
     </div>
   )
 }
