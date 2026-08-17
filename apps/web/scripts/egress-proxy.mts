@@ -34,6 +34,22 @@ import {
 
 const PORT = Number(process.env.PORT ?? 3128)
 const HOST = process.env.BUNKHOUSE_EGRESS_LISTEN ?? '0.0.0.0'
+/**
+ * The two TRANSPARENT listeners, one per pre-DNAT port. The desk-runner sends
+ * guest :80 to the first and guest :443 to the second (§3.11).
+ *
+ * Why two rather than one: the package recovers a transparent flow's
+ * destination NAME from the TLS ClientHello's SNI or the plain-HTTP Host
+ * header, but the destination PORT has to come from somewhere, and node
+ * cannot read SO_ORIGINAL_DST off a DNAT'd socket. So the port is carried by
+ * WHICH listener the flow arrived on: each one is created with the pre-DNAT
+ * port it serves, and the policy sees the port the guest actually asked for
+ * rather than a guess. A Host header that names its own port still wins on
+ * the plain-HTTP listener, and a port outside the allowlist is denied — so
+ * lying about it does not buy the guest anything.
+ */
+const TRANSPARENT_HTTP_PORT = Number(process.env.BUNKHOUSE_EGRESS_HTTP_PORT ?? 3129)
+const TRANSPARENT_HTTPS_PORT = Number(process.env.BUNKHOUSE_EGRESS_HTTPS_PORT ?? 3130)
 /** Destination ports guests may reach. Everything else is refused. */
 const ALLOWED_PORTS = new Set(
   (process.env.BUNKHOUSE_EGRESS_ALLOW_PORTS ?? '80,443')
@@ -64,19 +80,40 @@ function audit(entry: EgressAuditEntry): void {
   console.log(JSON.stringify({ source: 'egress-proxy', ...entry }))
 }
 
-const proxy = createEgressProxy({
-  policy,
-  audit,
-  listen: { host: HOST, port: PORT },
-})
+/**
+ * The guest a flow belongs to, as its source address. The desk-runner numbers
+ * each desk's tap from one template (BUNKHOUSE_GUEST_ADDR_TEMPLATE) and this
+ * process shares its network namespace, so the peer address of a DNAT'd
+ * socket IS the guest — nothing the guest can set travels in it.
+ */
+function principalFor(socket: { remoteAddress?: string | undefined }): string | null {
+  const address = socket.remoteAddress
+  if (!address) return null
+  // Node reports v4 peers on a dual-stack listener in v4-mapped form.
+  return address.replace(/^::ffff:/, '')
+}
 
-const bound = await proxy.listen()
-console.log(
-  `[egress-proxy] listening on ${bound.host}:${bound.port}; ports allowed: ${[...ALLOWED_PORTS].join(', ')}`,
-)
+const listeners = [
+  // Explicit proxying and CONNECT, for anything configured to use a proxy.
+  { role: 'explicit', port: PORT, options: {} },
+  { role: 'transparent-http', port: TRANSPARENT_HTTP_PORT, options: { transparentHttpPort: 80 } },
+  { role: 'transparent-https', port: TRANSPARENT_HTTPS_PORT, options: { transparentHttpsPort: 443 } },
+] as const
+
+const proxies = listeners.map(({ role, port, options }) => ({
+  role,
+  port,
+  handle: createEgressProxy({ policy, audit, principalFor, listen: { host: HOST, port }, ...options }),
+}))
+
+for (const { role, handle } of proxies) {
+  const bound = await handle.listen()
+  console.log(`[egress-proxy] ${role} on ${bound.host}:${bound.port}`)
+}
+console.log(`[egress-proxy] ports allowed: ${[...ALLOWED_PORTS].join(', ')}`)
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
-    void proxy.close().finally(() => process.exit(0))
+    void Promise.all(proxies.map(({ handle }) => handle.close())).finally(() => process.exit(0))
   })
 }

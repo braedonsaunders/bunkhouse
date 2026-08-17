@@ -28,6 +28,26 @@
 # Two checks bound what it can be asked to do: a bearer token compared in
 # constant time, and disk paths that must resolve inside the agent-disks root.
 #
+# WHY THIS SERVICE HAS NET_ADMIN, AND WHY THAT IS NOT A WIDENING:
+#
+# A desk's network does not exist until this process makes it. For each desk
+# it creates a TAP device, addresses it, and puts a per-desk iptables rule set
+# in front of it that DNATs ALL guest HTTP and HTTPS into the egress proxy,
+# pins DNS to one resolver, and DROPS everything else — including 443/udp,
+# because Chromium tries QUIC first and would otherwise route straight past a
+# TCP-only proxy without ever telling anyone (docs/agent-desk.md §3.11).
+#
+# That is the enforcement §3.22 depends on. The agent has a ROOT SHELL inside
+# the guest, so any control that lives inside the guest is a control the agent
+# can remove. Putting the rules on the host side of the TAP is what makes them
+# rules rather than requests — and NET_ADMIN is the capability that costs.
+#
+# It is granted to THIS container and no other, for the same reason /dev/kvm
+# is: this process holds no database URL, no provider keys and no session
+# secret, and publishes no port. It fails closed on both arms — a host without
+# KVM serves no desks, and a container that cannot create the tap or write the
+# rules serves no desks either, rather than booting one with an open route.
+#
 # EXPECT A PERFORMANCE TAX. Cloud Hypervisor here is L2 virtualisation —
 # a VMM inside a Hyper-V guest. The sub-second boot figures published for
 # these VMMs are measured on bare metal; nested will be slower. Measure on
@@ -104,16 +124,28 @@ services:
     # The one capability this whole file exists to grant.
     devices:
       - /dev/kvm
+    # The second one, and the header explains the trade: without it there is
+    # no TAP and no DNAT, and therefore no enforced egress.
+    cap_add:
+      - NET_ADMIN
     environment:
       NODE_ENV: production
       PORT: '8080'
       # Deliberately the whole environment. No database, no Redis, no provider
-      # keys, no auth secret: this process needs a token, two paths, and a
-      # proxy address, and what it does not have cannot be taken from it.
+      # keys, no auth secret: this process needs a token, two paths, and the
+      # ports its egress proxy listens on, and what it does not have cannot be
+      # taken from it.
       BUNKHOUSE_DESK_TOKEN: ${BUNKHOUSE_DESK_TOKEN}
       BUNKHOUSE_AGENT_DISKS: /data/agent-disks
       BUNKHOUSE_SHARED_FOLDER: /data/shared
-      BUNKHOUSE_EGRESS_PROXY: http://egress-proxy:3128
+      # The DNAT targets. Same two values on the proxy below, which shares
+      # this container's network namespace — so these are ports on the very
+      # address each tap already carries, and the redirect never leaves it.
+      BUNKHOUSE_EGRESS_HTTP_PORT: '3129'
+      BUNKHOUSE_EGRESS_HTTPS_PORT: '3130'
+      # The one resolver a guest may reach; 53 is DNAT'd to it and nothing
+      # else in the guest can choose otherwise.
+      BUNKHOUSE_GUEST_DNS: 1.1.1.1
     volumes:
       - agent-disks:/data/agent-disks
       - shared-folder:/data/shared
@@ -145,6 +177,19 @@ services:
   # (docs/agent-desk.md §3.11). That placement is the point: the agent has a
   # root shell inside the guest, so enforcement has to live outside the
   # boundary the agent controls or it is not enforcement.
+  #
+  # IT SHARES THE DESK-RUNNER'S NETWORK NAMESPACE, deliberately. The taps live
+  # in that namespace, so the DNAT target is then an address the tap already
+  # carries: the redirect is a local delivery that never crosses the docker
+  # bridge, and — the part that matters — the target cannot move. A separate
+  # container gets a new IP whenever it restarts, which would leave every
+  # already-installed DNAT rule pointing at nothing. It also means the proxy
+  # sees each flow's real source address, which is the guest's, which is how
+  # a decision in the audit log names the desk that made it.
+  #
+  # Two listeners answer the redirect, one per pre-DNAT port, because node
+  # cannot read SO_ORIGINAL_DST: the port a guest asked for is carried by
+  # which listener the flow landed on. 3128 stays for explicit proxying.
   egress-proxy:
     image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
     command:
@@ -154,8 +199,12 @@ services:
     environment:
       NODE_ENV: production
       PORT: '3128'
-    networks:
-      - dokploy-network
-    # No ports. Guests reach it only through the DNAT rules the desk-runner
-    # installs; nothing else needs to reach it at all.
+      BUNKHOUSE_EGRESS_HTTP_PORT: '3129'
+      BUNKHOUSE_EGRESS_HTTPS_PORT: '3130'
+    # Not `networks:` — the two are mutually exclusive, and the namespace is
+    # the point. No ports either: guests reach it only through the DNAT rules
+    # the desk-runner installs, and nothing else needs to reach it at all.
+    network_mode: service:desk-runner
+    depends_on:
+      - desk-runner
     restart: always

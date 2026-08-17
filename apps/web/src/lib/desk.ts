@@ -19,6 +19,7 @@ import {
 import { db } from '../db/client'
 import { saveFile } from './files'
 import { AGENT_SCREEN_HEIGHT, AGENT_SCREEN_WIDTH } from './agent-screen'
+import { startDeskCast, stopDeskCast } from './desk-cast'
 import { getDeskPolicy, type DeskFeatures, type DeskPolicy } from './desk-policy'
 
 /**
@@ -219,6 +220,13 @@ export function guestWorkspacePath(relative: string): string {
 // The wire protocol client (desk-v1) — mirrored by scripts/desk-runner.mts.
 // The runner is deliberately dependency-light and does not import this module,
 // so the wire shapes are duplicated there on purpose; change both together.
+//
+// Two of the endpoints are spoken elsewhere in this tier rather than here,
+// because they are streams and not calls:
+//   · GET  /desks/:id/screen/frames  and POST /screen/frames/start|stop —
+//     the live view, in desk-cast.ts, which feeds them to the call stage.
+//   · GET  /desks/:id/handover/stream (WS) — the handover relay; this module
+//     only composes its authenticated URL, below.
 // ---------------------------------------------------------------------------
 
 export type DeskClientDeps = {
@@ -472,12 +480,36 @@ export async function connectDeskBrowser(
     {},
     60_000,
   )
-  const base = runner.url.replace(/^http/, 'ws')
   return {
     browserWSEndpoint:
-      `${base}/desks/${encodeURIComponent(deskId)}/browser${path}` +
+      `${runnerWsBase(runner)}/desks/${encodeURIComponent(deskId)}/browser${path}` +
       `?token=${encodeURIComponent(runner.token)}`,
   }
+}
+
+function runnerWsBase(runner: DeskRunner): string {
+  return runner.url.replace(/^http/, 'ws')
+}
+
+/**
+ * The outward end of a handover (§3.14). The guest's own viewer answers on
+ * guest localhost and is reachable from nowhere but the runner; the runner
+ * splices bytes to it over this authenticated, TTL-bounded path, the same way
+ * it relays CDP. The token rides the query string because a websocket dial
+ * cannot carry our bearer header everywhere.
+ */
+export function deskHandoverStreamUrl(
+  args: { deskId: string; stream: string },
+  deps: DeskClientDeps = {},
+): string | null {
+  const runner = deps.runner ?? configuredDeskRunner()
+  if (!runner) return null
+  // The path comes from the runner, but it is never trusted as an address:
+  // only the runner's own base can be dialled.
+  const path = args.stream.startsWith('/')
+    ? args.stream
+    : `/desks/${encodeURIComponent(args.deskId)}/handover/stream`
+  return `${runnerWsBase(runner)}${path}?token=${encodeURIComponent(runner.token)}`
 }
 
 // ---------------------------------------------------------------------------
@@ -713,6 +745,8 @@ export async function closeDeskSession(runId: string): Promise<void> {
   map.delete(runId)
   const live = await pending.catch(() => null)
   if (!live) return
+  // The lease outlives the run, but this run's live view does not.
+  await stopDeskCast(runId).catch(() => undefined)
   const ctx = deskContext({ tenantId: live.tenantId, personId: live.personId, runId, deps: {} })
   await drainRunnerEvents(ctx, live).catch(() => undefined)
   await ctx.store.markSessionStatus({ tenantId: live.tenantId, sessionId: live.sessionId, status: 'ended' })
@@ -983,6 +1017,29 @@ async function runnerScreenPost(
   await runnerPost(runner, ctx.deps, `/desks/${encodeURIComponent(live.deskId)}${path}`, body)
 }
 
+/**
+ * Put the desktop on the call stage, if a call is watching this run (§3.13).
+ *
+ * Exactly the lifecycle the browser's cast has: an opener is registered by the
+ * voice agent for the run its call owns, so this starts a track for a call and
+ * does nothing at all for an email run or a duty. Absorbing: a screen that
+ * opened is a screen that opened, whether or not anybody could be shown it.
+ */
+async function beginDeskCast(ctx: DeskContext, live: LiveDesk): Promise<void> {
+  const runner = ctx.deps.runner ?? configuredDeskRunner()
+  if (!runner) return
+  try {
+    await startDeskCast({
+      runId: ctx.runId,
+      deskId: live.deskId,
+      runner,
+      ...(ctx.deps.fetch ? { fetch: ctx.deps.fetch } : {}),
+    })
+  } catch {
+    // The live view is a nicety; the desktop session is not failed over it.
+  }
+}
+
 // ---------------------------------------------------------------------------
 // run_shell and the workspace file abilities — the headless tier
 // ---------------------------------------------------------------------------
@@ -1208,6 +1265,7 @@ export function deskAbilities(args: {
         }
         live.screenOpen = true
         live.screenSteps = 0
+        await beginDeskCast(ctx, live)
         await ctx.store.markScreenOpened({ tenantId, sessionId: live.sessionId, reason: stated })
         const result = await observeRecordShow(ctx, live, 'screen_open', {
           width: AGENT_SCREEN_WIDTH,
@@ -1227,6 +1285,9 @@ export function deskAbilities(args: {
       execute: async () => {
         const live = await getLiveDesk(ctx)
         if (!live.screenOpen) return { closed: false, note: 'No screen is open.' }
+        // The stage empties before the compositor does, so the caller never
+        // watches a frozen last frame of a desktop that has already gone.
+        await stopDeskCast(ctx.runId)
         try {
           await runnerScreenPost(ctx, live, '/screen/stop', {})
         } catch (error) {
@@ -1457,6 +1518,7 @@ export function deskAbilities(args: {
             })
             live.screenOpen = true
             live.screenSteps = 0
+            await beginDeskCast(ctx, live)
             await ctx.store.markScreenOpened({ tenantId, sessionId: live.sessionId, reason })
             await appendSerialized(ctx, live, 'screen_open', {
               width: AGENT_SCREEN_WIDTH,
@@ -1470,16 +1532,23 @@ export function deskAbilities(args: {
         try {
           const runner = ctx.deps.runner ?? configuredDeskRunner()
           if (!runner) throw new Error('No desk runner is configured.')
-          const { url } = await runnerPost<{ url: string }>(
+          const begun = await runnerPost<{ url: string; stream?: string; expiresAt?: string }>(
             runner,
             ctx.deps,
             `/desks/${encodeURIComponent(live.deskId)}/handover`,
             { op: 'begin', ttlMs: ttlMinutes * 60_000, scope, actor: person.name },
           )
+          const streamUrl = begun.stream
+            ? deskHandoverStreamUrl({ deskId: live.deskId, stream: begun.stream }, ctx.deps)
+            : null
+          // The boundary, and only the boundary. What the person then does on
+          // that screen is masked inside @appkit/desk and reaches no port here.
           await appendSerialized(ctx, live, 'handover_begin', { actor: person.name, scope, reason })
           return {
             granted: true,
-            url,
+            url: begun.url,
+            ...(streamUrl ? { streamUrl } : {}),
+            ...(begun.expiresAt ? { expiresAt: begun.expiresAt } : {}),
             scope,
             expiresInMinutes: ttlMinutes,
             note: 'Share what you need done. While a person drives, nothing they type reaches your context or the record.',

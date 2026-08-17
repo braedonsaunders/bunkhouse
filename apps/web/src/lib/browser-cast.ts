@@ -65,7 +65,7 @@ export type BrowserCast = {
 
 type CastRegistry = typeof globalThis & {
   __bunkhouseBrowserCastOpeners?: Map<string, AgentScreenOpener>
-  __bunkhouseBrowserCastsLive?: Map<string, BrowserCast>
+  __bunkhouseBrowserCastsLive?: Map<string, Set<BrowserCast>>
 }
 const castRegistry = globalThis as CastRegistry
 
@@ -75,15 +75,22 @@ const castRegistry = globalThis as CastRegistry
 function openers(): Map<string, AgentScreenOpener> {
   return (castRegistry.__bunkhouseBrowserCastOpeners ??= new Map())
 }
-function liveCasts(): Map<string, BrowserCast> {
+
+/**
+ * Every cast running for a run. A set rather than one entry because the
+ * browser is no longer the only thing that can be on the stage: the desk's own
+ * screen casts through the same opener (desk-cast.ts), and a run can have both
+ * a page open and a desktop open. Whatever ends the run ends all of them.
+ */
+function liveCasts(): Map<string, Set<BrowserCast>> {
   return (castRegistry.__bunkhouseBrowserCastsLive ??= new Map())
 }
 
 /**
- * Offer to carry this run's browser as live video. Returns the way to withdraw
- * the offer, which also ends a cast already running on it — so a call that
- * ends while the agent still has a page open leaves nothing behind, whatever
- * order the teardown happens in.
+ * Offer to carry this run's screen as live video. Returns the way to withdraw
+ * the offer, which also ends every cast already running on it — so a call that
+ * ends while the agent still has a page or a desktop open leaves nothing
+ * behind, whatever order the teardown happens in.
  */
 export function registerBrowserCast(runId: string, opener: AgentScreenOpener): () => Promise<void> {
   openers().set(runId, opener)
@@ -92,13 +99,38 @@ export function registerBrowserCast(runId: string, opener: AgentScreenOpener): (
     if (withdrawn) return
     withdrawn = true
     openers().delete(runId)
-    await liveCasts().get(runId)?.stop()
+    for (const cast of [...(liveCasts().get(runId) ?? [])]) await cast.stop()
   }
 }
 
-/** True when this run's browser is being watched live by somebody. */
+/** True when this run's screen is being watched live by somebody. */
 export function browserCastWanted(runId: string): boolean {
   return openers().has(runId)
+}
+
+/**
+ * The publisher opener registered for this run, or null when nobody is
+ * watching. The desk's cast goes through the same door as the browser's, so
+ * there is one registry and one lifecycle rather than two that drift.
+ */
+export function agentScreenOpenerFor(runId: string): AgentScreenOpener | null {
+  return openers().get(runId) ?? null
+}
+
+/** Put a running cast on the run's books, and take it off again. */
+export function trackLiveCast(runId: string, cast: BrowserCast): () => void {
+  let set = liveCasts().get(runId)
+  if (!set) {
+    set = new Set()
+    liveCasts().set(runId, set)
+  }
+  set.add(cast)
+  return () => {
+    const current = liveCasts().get(runId)
+    if (!current) return
+    current.delete(cast)
+    if (current.size === 0) liveCasts().delete(runId)
+  }
 }
 
 // --- The cursor ------------------------------------------------------------
@@ -351,7 +383,7 @@ const KEEPALIVE_MS = 1000
  * Node's Buffer is pooled and routinely offset, so check, and copy only when
  * the check fails — which for sharp's own allocations is never.
  */
-function exactBytes(buffer: Buffer): Uint8Array {
+export function exactBytes(buffer: Buffer): Uint8Array {
   if (buffer.byteOffset === 0 && buffer.byteLength === buffer.buffer.byteLength) {
     return new Uint8Array(buffer.buffer)
   }
@@ -462,6 +494,7 @@ export async function startBrowserCast(args: { page: Page; runId: string }): Pro
   if (typeof heartbeat === 'object' && 'unref' in heartbeat) heartbeat.unref()
   keepalive = heartbeat
 
+  let untrack: () => void = () => {}
   const cast: BrowserCast = {
     stop: async () => {
       if (stopped) return
@@ -469,7 +502,7 @@ export async function startBrowserCast(args: { page: Page; runId: string }): Pro
       if (keepalive) clearInterval(keepalive)
       keepalive = null
       lastFrame = null
-      if (liveCasts().get(runId) === cast) liveCasts().delete(runId)
+      untrack()
       // The page may already be gone — a closed browser is exactly when this
       // runs — so every step here is allowed to fail without stopping the next.
       await cdp?.send('Page.stopScreencast').catch(() => {})
@@ -479,6 +512,6 @@ export async function startBrowserCast(args: { page: Page; runId: string }): Pro
       await publisher.close().catch(() => {})
     },
   }
-  liveCasts().set(runId, cast)
+  untrack = trackLiveCast(runId, cast)
   return cast
 }

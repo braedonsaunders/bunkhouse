@@ -22,9 +22,18 @@ FROM ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG}
 # qemu-img (from qemu-utils) is how the runner materialises each desk's raw
 # overlay; the reflink copy of the raw base itself is a plain `cp`, already in
 # coreutils. Nothing else from the qemu suite is wanted here — keep it minimal.
+#
+# iproute2 and iptables are the other half of a desk: the runner creates each
+# guest's TAP with `ip` and puts the transparent-egress rules in front of it
+# with `iptables` (docs/agent-desk.md §3.11). They are useless without the
+# NET_ADMIN this container is granted in deploy/desk-runner.compose.yaml, and
+# the runner refuses to serve any desk at all if either is missing — an
+# unfiltered desk is a root shell with an open route out.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     qemu-utils \
+    iproute2 \
+    iptables \
     ca-certificates \
     curl \
   && rm -rf /var/lib/apt/lists/*

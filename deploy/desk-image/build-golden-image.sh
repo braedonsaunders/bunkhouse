@@ -5,8 +5,9 @@
 # WHAT THIS PRODUCES (both at the "disks root", the directory this script writes
 # into — point BUNKHOUSE_AGENT_DISKS at it):
 #   - base.raw   a RAW Debian 12 image, root grown to 20G, with the XFCE desktop
-#                set, Chromium, LibreOffice, git, PLUS node + socat + the desk
-#                guest agent baked in and enabled.
+#                set, Chromium, LibreOffice, git, the desktop tier's drivers
+#                (Xvfb, xdotool, wmctrl, ImageMagick, xclip, x11vnc, AT-SPI),
+#                PLUS node + socat + the desk guest agent baked in and enabled.
 #   - vmlinux    the guest kernel extracted from that image, for Cloud
 #                Hypervisor direct-kernel boot.
 #   - initrd     the matching initramfs (the modular cloud kernel needs it).
@@ -69,6 +70,7 @@ done
 
 [ -f "${BASE_IMAGE_TS}" ] || die "cannot find base-image.ts at ${BASE_IMAGE_TS}"
 [ -f "${AGENT_SRC_DIR}/desk-guest-agent.mjs" ] || die "cannot find the guest agent at ${AGENT_SRC_DIR}"
+[ -f "${AGENT_SRC_DIR}/atspi-dump.py" ] || die "cannot find atspi-dump.py at ${AGENT_SRC_DIR}"
 
 mkdir -p "${OUT_DIR}"
 
@@ -76,13 +78,58 @@ mkdir -p "${OUT_DIR}"
 #
 # Read the desktop set straight out of base-image.ts so this build never drifts
 # from the declared manifest: every `aptPackage: '...'` there is a Debian
-# package the golden image must contain. node (for the guest agent) and socat
-# (for the vsock bridge) are the build's own additions on top.
+# package the golden image must contain (spec §3.16 — that file is the single
+# source of truth for image contents).
+#
+# On top of it the build adds what only the build knows about:
+#
+#   nodejs socat   the guest agent itself and the vsock bridge it sits behind.
+#
+# ...and it INSISTS on the desktop tier's driver set. Every one of these is a
+# binary deploy/desk-image/agent/desk-guest-agent.mjs shells out to when a
+# screen is open; a golden image missing any of them produces a desk whose
+# screen fails one handler at a time, at runtime, in a microVM. They are all
+# declared in base-image.ts, and are repeated here so an accidental deletion
+# there is caught at build time rather than in production.
+#
+#   xvfb            the headless X server the session runs on (:99)
+#   x11-utils       xdpyinfo / xprop — display-ready and window-manager probes
+#   xdotool         all input injection, and the focused-window query
+#   wmctrl          the EWMH window list behind observe().windows
+#   imagemagick     `import` — the unscaled root-window PNG capture
+#   xclip           clipboard read/write
+#   x11vnc          the handover server, bound to guest localhost only
+#   at-spi2-core    the accessibility bus (opportunistic perception, §3.10)
+#   python3-pyatspi the binding atspi-dump.py uses to read that tree
+#   dbus-x11        dbus-launch — the session bus XFCE and AT-SPI both need
+#   xfce4-settings  xfsettingsd, started directly if xfce4-session did not
 
 mapfile -t DESKTOP_PACKAGES < <(grep -oE "aptPackage: '[^']+'" "${BASE_IMAGE_TS}" | sed -E "s/aptPackage: '([^']+)'/\1/" | sort -u)
 [ "${#DESKTOP_PACKAGES[@]}" -gt 0 ] || die "found no aptPackage entries in ${BASE_IMAGE_TS}"
 
-APT_PACKAGES=("${DESKTOP_PACKAGES[@]}" nodejs socat)
+DESKTOP_TIER_PACKAGES=(
+  xvfb
+  x11-utils
+  xdotool
+  wmctrl
+  imagemagick
+  xclip
+  x11vnc
+  at-spi2-core
+  python3-pyatspi
+  dbus-x11
+  xfce4-settings
+)
+
+for pkg in "${DESKTOP_TIER_PACKAGES[@]}"; do
+  found=no
+  for declared in "${DESKTOP_PACKAGES[@]}"; do
+    [ "${declared}" = "${pkg}" ] && found=yes && break
+  done
+  [ "${found}" = yes ] || log "WARNING: ${pkg} is not declared in base-image.ts; installing it anyway (declare it, §3.16)"
+done
+
+mapfile -t APT_PACKAGES < <(printf '%s\n' "${DESKTOP_PACKAGES[@]}" "${DESKTOP_TIER_PACKAGES[@]}" nodejs socat | sort -u)
 log "apt packages: ${APT_PACKAGES[*]}"
 
 # --- step 1: fetch the Debian cloud image -----------------------------------
@@ -117,7 +164,12 @@ fi
 # Stage the guest agent tree so it lands at exactly /opt/desk-agent, then in one
 # virt-customize invocation: install packages, copy the agent in, install and
 # enable both systemd units, create the agent user, and pin the boot target to
-# multi-user (no graphical target in the headless base image).
+# multi-user.
+#
+# multi-user stays deliberate now that the desktop tier is implemented: a desk
+# boots headless and cheap (§3.2, §3.15), and the X session only exists once the
+# agent's screenStart brings up Xvfb and xfce4-session on demand. Nothing here
+# starts a display manager.
 
 STAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "${STAGE_DIR}"' EXIT
@@ -127,6 +179,11 @@ mkdir -p "${STAGE_DIR}/desk-agent"
 cp "${AGENT_SRC_DIR}/desk-guest-agent.mjs" "${STAGE_DIR}/desk-agent/"
 cp "${AGENT_SRC_DIR}/package.json" "${STAGE_DIR}/desk-agent/"
 cp -R "${AGENT_SRC_DIR}/appkit-desk" "${STAGE_DIR}/desk-agent/"
+# The AT-SPI reader the agent shells out to for opportunistic accessibility
+# (§3.10). It must land beside the agent: the agent resolves it relative to its
+# own path, so /opt/desk-agent/atspi-dump.py is the contract.
+cp "${AGENT_SRC_DIR}/atspi-dump.py" "${STAGE_DIR}/desk-agent/"
+chmod 0755 "${STAGE_DIR}/desk-agent/atspi-dump.py"
 
 log "step 3: customizing ${BASE_RAW}"
 virt-customize -a "${BASE_RAW}" \
@@ -192,4 +249,9 @@ cat <<SUMMARY
   Baked in: node + socat + the desk guest agent (enabled units
   desk-guest-agent.service and desk-vsock-bridge.service). The desk answers the
   host over vsock port 5252 on first boot with no network install.
+
+  Desktop tier: /opt/desk-agent/atspi-dump.py ships beside the agent, and the
+  session's binaries (Xvfb, xdotool, wmctrl, import, xclip, x11vnc, dbus-launch,
+  xfsettingsd) are installed. The desk still boots to multi-user; the screen
+  starts only when the host asks for one.
 SUMMARY

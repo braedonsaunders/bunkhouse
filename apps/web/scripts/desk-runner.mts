@@ -1,8 +1,11 @@
-import { timingSafeEqual } from 'node:crypto'
+import { execFile } from 'node:child_process'
+import { createHash, timingSafeEqual } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { connect as tcpConnect } from 'node:net'
 import { join } from 'node:path'
 import type { Duplex } from 'node:stream'
+import { promisify } from 'node:util'
 import {
   cleanDeskId,
   createDeskHost,
@@ -39,8 +42,12 @@ import {
  *   POST /desks/:id/screen/focus                — activate a window via AT-SPI
  *   POST /desks/:id/screen/launch               — launch an app
  *   POST /desks/:id/screen/clipboard            — read/write
+ *   POST /desks/:id/screen/frames/start|stop    — the live-view capture pump
+ *   GET  /desks/:id/screen/frames               — SSE: base64 frames off that pump
  *   POST /desks/:id/handover                    — begin/end, idempotent begin
+ *   GET  /desks/:id/handover/stream (WS)        — relay the in-guest viewer outward
  *   POST /desks/:id/suspend                     — park the VM; disk persists
+ *   DELETE /desks/:id                           — destroy the VM and its tap
  *   GET  /desks/:id/events?after=N&wait=1       — buffered typed events since seq
  *   POST /desks/:id/browser                     — ensure in-guest Chromium, return CDP path
  *   GET  /desks/:id/browser/devtools/... (WS)   — relay CDP into the guest
@@ -51,7 +58,6 @@ const PORT = Number(process.env.PORT ?? 8080)
 const TOKEN = process.env.BUNKHOUSE_DESK_TOKEN ?? ''
 const DISKS_ROOT = process.env.BUNKHOUSE_AGENT_DISKS ?? '/data/agent-disks'
 const SHARED_FOLDER = process.env.BUNKHOUSE_SHARED_FOLDER ?? '/data/shared'
-const EGRESS_PROXY = process.env.BUNKHOUSE_EGRESS_PROXY ?? ''
 const CAPACITY = Number(process.env.BUNKHOUSE_DESK_CAPACITY ?? 8)
 const IDLE_SUSPEND_MS = Number(process.env.BUNKHOUSE_DESK_IDLE_MS ?? 5 * 60_000)
 const BODY_LIMIT_BYTES = 512 * 1024
@@ -72,6 +78,48 @@ const DOWNLOADS_DIR = `${GUEST_HOME}/downloads`
  * differs — but keep it in step with the tap setup or the relay dials air.
  */
 const GUEST_ADDR_TEMPLATE = process.env.BUNKHOUSE_GUEST_ADDR_TEMPLATE ?? '172.30.0.{index}'
+/** Index 1 of that template is the host end of every desk's link. */
+const GUEST_PREFIX_LENGTH = 24
+
+/**
+ * Where the guest's DNAT'd traffic actually lands. The egress proxy shares
+ * this process's network namespace (deploy/desk-runner.compose.yaml), so these
+ * are ports on the very address the tap already carries — the redirect never
+ * leaves the namespace and its target cannot move when a container restarts.
+ * They are the proxy's TRANSPARENT listeners, one per pre-DNAT port, because
+ * @appkit/egress-proxy recovers the original port from the listener it was
+ * reached on (there is no SO_ORIGINAL_DST from Node).
+ */
+const EGRESS_HTTP_PORT = Number(process.env.BUNKHOUSE_EGRESS_HTTP_PORT ?? 3129)
+const EGRESS_HTTPS_PORT = Number(process.env.BUNKHOUSE_EGRESS_HTTPS_PORT ?? 3130)
+
+/**
+ * The one resolver a guest may reach, DNAT'd so it cannot pick another. DNS
+ * is the simplest correct option here: running dnsmasq per tap would be a
+ * second daemon to supervise for no added safety, because the answer a guest
+ * gets decides nothing — the proxy re-resolves every destination by NAME from
+ * the SNI or Host header, so a poisoned or hostile answer still cannot take a
+ * flow anywhere the policy would not.
+ */
+const GUEST_DNS = process.env.BUNKHOUSE_GUEST_DNS ?? '1.1.1.1'
+
+/**
+ * The handover's two guest-side ports.
+ *
+ * The in-guest agent starts x11vnc bound to 127.0.0.1 ONLY — deliberately;
+ * its comment says "the runner does the exposing" — and speaks raw RFB, not
+ * websockets. So exposing it is two steps, both driven from here:
+ *
+ *   · reachability — a socat forwarder on the guest's tap address, started
+ *     over the exec channel and bounded by `timeout` so it cannot outlive the
+ *     grant even if this process dies. socat is already in the base image (it
+ *     is what bridges vsock), so this adds nothing to the guest.
+ *   · protocol — this runner terminates the websocket and splices its payload
+ *     to that forwarder, which is what noVNC in a browser expects and what
+ *     websockify would otherwise be a whole extra service to provide.
+ */
+const HANDOVER_FALLBACK_PORT = 5900
+const HANDOVER_RELAY_PORT = Number(process.env.BUNKHOUSE_HANDOVER_RELAY_PORT ?? 5901)
 
 if (!TOKEN) {
   console.error('[desk-runner] BUNKHOUSE_DESK_TOKEN is not set; refusing to start unauthenticated.')
@@ -90,8 +138,15 @@ type DeskEntry = {
   handle: DeskHandle
   screen: DeskScreenHandle | null
   handoverUrl: string | null
+  /** Guest-side TCP port the handover relay splices to, from that URL. */
+  handoverPort: number
+  /** Host-side TTL deadline; the relay refuses past it and the timer revokes. */
+  handoverExpiresAt: number
+  /** Live relay sockets, so an expiry can cut them rather than wait them out. */
+  handoverSockets: Set<Duplex>
+  handoverTimer: ReturnType<typeof setTimeout> | null
   browserPath: string | null
-  /** Stable per-desk index; the guest address derives from it. */
+  /** Stable per-desk index; the guest address and the tap derive from it. */
   index: number
 }
 
@@ -156,6 +211,236 @@ function guestAddressFor(index: number): string {
   return GUEST_ADDR_TEMPLATE.replace('{index}', String(index))
 }
 
+// --- guest networking and enforced egress (§3.11) ---------------------------
+
+/**
+ * The host end of every desk's point-to-point link: index 1 of the same
+ * template the guests are numbered from, so one comment describes the whole
+ * plan. It is carried on each tap as a /32 (the same address on every tap is
+ * legal on Linux and is what lets one DNAT target serve all of them) with a
+ * host route pointing each guest's /32 back down its own device.
+ */
+const HOST_GATEWAY_ADDR = guestAddressFor(1)
+
+const execFileAsync = promisify(execFile)
+
+/** The tap for a desk. `dsk<n>` matches @appkit/desk's own naming. */
+function tapDeviceFor(index: number): string {
+  return `dsk${index}`
+}
+
+/** Locally-administered, deterministic, and the same shape the package derives. */
+function macAddressFor(index: number): string {
+  const octets = [0x06, 0x00, (index >>> 24) & 0xff, (index >>> 16) & 0xff, (index >>> 8) & 0xff, index & 0xff]
+  return octets.map((octet) => octet.toString(16).padStart(2, '0')).join(':')
+}
+
+async function run(command: string, args: readonly string[]): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(command, [...args], { timeout: 15_000 })
+    return stdout
+  } catch (error) {
+    const failure = error as { stderr?: string; message?: string }
+    const detail = (failure.stderr ?? failure.message ?? String(error)).trim()
+    throw new Error(`${command} ${args.join(' ')}: ${detail || 'failed'}`)
+  }
+}
+
+async function succeeds(command: string, args: readonly string[]): Promise<boolean> {
+  try {
+    await execFileAsync(command, [...args], { timeout: 15_000 })
+    return true
+  } catch {
+    return false
+  }
+}
+
+type Rule = readonly string[]
+
+/**
+ * The per-desk rule set, as data. Everything a guest can emit is either
+ * redirected into the proxy or dropped; there is no accept-by-default anywhere
+ * in it, which is the whole point of putting enforcement at the tap rather
+ * than inside a guest whose root shell the agent holds (§3.11).
+ */
+function deskRules(tap: string, guest: string): {
+  table: 'nat' | 'filter'
+  parent: string
+  chain: string
+  jumps: Rule[]
+  rules: Rule[]
+}[] {
+  return [
+    {
+      table: 'nat',
+      parent: 'PREROUTING',
+      chain: `bh-pre-${tap}`,
+      jumps: [['-i', tap]],
+      rules: [
+        // Plain HTTP and TLS are the only two things that reach a network at
+        // all, and both land on the proxy's transparent listeners. The guest
+        // is never told; there is no proxy setting for it to unset.
+        ['-p', 'tcp', '--dport', '80', '-j', 'DNAT', '--to-destination', `${HOST_GATEWAY_ADDR}:${EGRESS_HTTP_PORT}`],
+        ['-p', 'tcp', '--dport', '443', '-j', 'DNAT', '--to-destination', `${HOST_GATEWAY_ADDR}:${EGRESS_HTTPS_PORT}`],
+        // DNS is pinned to one resolver rather than allowed outward freely.
+        ['-p', 'udp', '--dport', '53', '-j', 'DNAT', '--to-destination', `${GUEST_DNS}:53`],
+        ['-p', 'tcp', '--dport', '53', '-j', 'DNAT', '--to-destination', `${GUEST_DNS}:53`],
+      ],
+    },
+    {
+      table: 'nat',
+      parent: 'POSTROUTING',
+      chain: `bh-post-${tap}`,
+      jumps: [['-s', `${guest}/32`]],
+      // Only the DNS hop is actually forwarded out of this namespace; the
+      // proxy hop is delivered locally. Masquerade covers the former.
+      rules: [['-j', 'MASQUERADE']],
+    },
+    {
+      table: 'filter',
+      parent: 'INPUT',
+      chain: `bh-in-${tap}`,
+      jumps: [['-i', tap]],
+      rules: [
+        // Replies to flows THIS process opened into the guest — the CDP relay
+        // and the handover relay both dial the guest, and their return traffic
+        // arrives here on the tap.
+        ['-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED', '-j', 'ACCEPT'],
+        ['-p', 'tcp', '-d', HOST_GATEWAY_ADDR, '--dport', String(EGRESS_HTTP_PORT), '-j', 'ACCEPT'],
+        ['-p', 'tcp', '-d', HOST_GATEWAY_ADDR, '--dport', String(EGRESS_HTTPS_PORT), '-j', 'ACCEPT'],
+        // Default drop. QUIC (443/udp) dies here, and it MUST: Chromium
+        // speaks QUIC first and falls back to TCP only when UDP fails, so a
+        // guest whose 443/udp escaped would silently route the traffic this
+        // whole file exists to intercept around the proxy entirely.
+        ['-j', 'DROP'],
+      ],
+    },
+    {
+      table: 'filter',
+      parent: 'FORWARD',
+      chain: `bh-fwd-${tap}`,
+      // Both directions through one chain: guest-originated forwards, and the
+      // answers coming back down the tap.
+      jumps: [['-i', tap], ['-o', tap]],
+      rules: [
+        ['-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED', '-j', 'ACCEPT'],
+        ['-i', tap, '-p', 'udp', '-d', GUEST_DNS, '--dport', '53', '-j', 'ACCEPT'],
+        ['-i', tap, '-p', 'tcp', '-d', GUEST_DNS, '--dport', '53', '-j', 'ACCEPT'],
+        ['-j', 'DROP'],
+      ],
+    },
+  ]
+}
+
+/**
+ * Install this desk's rules. Idempotent by construction: each desk owns named
+ * chains that are created if missing, flushed, and refilled, and the jump into
+ * each built-in chain is added only when `-C` says it is not already there.
+ */
+async function installEgressRules(tap: string, guest: string): Promise<void> {
+  for (const { table, parent, chain, jumps, rules } of deskRules(tap, guest)) {
+    if (!(await succeeds('iptables', ['-t', table, '-N', chain]))) {
+      await run('iptables', ['-t', table, '-F', chain])
+    }
+    for (const rule of rules) await run('iptables', ['-t', table, '-A', chain, ...rule])
+    for (const jump of jumps) {
+      const target = [...jump, '-j', chain]
+      if (await succeeds('iptables', ['-t', table, '-C', parent, ...target])) continue
+      // Position 1: docker owns rules in FORWARD, and a desk's default drop
+      // has to be reached before anything of docker's can accept around it.
+      await run('iptables', ['-t', table, '-I', parent, '1', ...target])
+    }
+  }
+}
+
+async function removeEgressRules(tap: string, guest: string): Promise<void> {
+  for (const { table, parent, chain, jumps } of deskRules(tap, guest)) {
+    for (const jump of jumps) {
+      while (await succeeds('iptables', ['-t', table, '-C', parent, ...jump, '-j', chain])) {
+        if (!(await succeeds('iptables', ['-t', table, '-D', parent, ...jump, '-j', chain]))) break
+      }
+    }
+    await succeeds('iptables', ['-t', table, '-F', chain])
+    await succeeds('iptables', ['-t', table, '-X', chain])
+  }
+}
+
+/**
+ * Create this desk's tap, address it, and put the enforcement in front of it —
+ * in that order, and BEFORE the VM boots. Failing here throws, which is the
+ * point: a desk that cannot be filtered must not exist, because an unfiltered
+ * one is a machine with a root shell and an open route to the internet.
+ */
+async function ensureDeskNetwork(index: number): Promise<void> {
+  const tap = tapDeviceFor(index)
+  const guest = guestAddressFor(index)
+  if (!(await succeeds('ip', ['link', 'show', 'dev', tap]))) {
+    await run('ip', ['tuntap', 'add', 'dev', tap, 'mode', 'tap'])
+  }
+  await run('ip', ['addr', 'replace', `${HOST_GATEWAY_ADDR}/32`, 'dev', tap])
+  await run('ip', ['link', 'set', 'dev', tap, 'up'])
+  await run('ip', ['route', 'replace', `${guest}/32`, 'dev', tap])
+  // Namespaced, and needed for the one hop that leaves: DNS.
+  await writeFile('/proc/sys/net/ipv4/ip_forward', '1')
+  await installEgressRules(tap, guest)
+}
+
+async function teardownDeskNetwork(index: number): Promise<void> {
+  const tap = tapDeviceFor(index)
+  await removeEgressRules(tap, guestAddressFor(index))
+  await succeeds('ip', ['link', 'del', 'dev', tap])
+}
+
+/**
+ * Address the guest's NIC from the host side, over the exec channel that
+ * already exists. The kernel command line is shared by every desk, so it
+ * cannot carry a per-desk `ip=`; the host knows the number it assigned and
+ * says so. Idempotent (`replace`), and fatal when it fails — a desk that came
+ * up without the address the CDP and handover relays dial is a desk nothing
+ * can reach.
+ */
+async function configureGuestNetwork(entry: DeskEntry): Promise<void> {
+  const guest = guestAddressFor(entry.index)
+  const script = [
+    'set -e',
+    'dev=$(ls /sys/class/net | grep -E "^(en|eth)" | head -n 1)',
+    'test -n "$dev"',
+    `ip addr replace ${guest}/${GUEST_PREFIX_LENGTH} dev "$dev"`,
+    'ip link set dev "$dev" up',
+    `ip route replace default via ${HOST_GATEWAY_ADDR} dev "$dev"`,
+    // A stock cloud image points /etc/resolv.conf at a resolved stub that is
+    // not running here; replace the link, do not write through it.
+    'rm -f /etc/resolv.conf',
+    `printf 'nameserver %s\\n' ${GUEST_DNS} > /etc/resolv.conf`,
+  ].join('\n')
+  const snapshot = await entry.handle.exec({ command: '/bin/sh', args: ['-c', script], timeoutMs: 20_000 })
+  if (snapshot.exitCode !== 0) {
+    throw new Error(`The guest's network could not be configured: ${snapshot.stderr.trim() || 'no reason given'}`)
+  }
+}
+
+/**
+ * Boot-time proof that this process can actually do the above. Without
+ * NET_ADMIN the tap and the rules are impossible, and a desk booted anyway
+ * would have either no network or — worse — an unfiltered one.
+ */
+async function verifyNetAdmin(): Promise<void> {
+  const probe = 'dskprobe'
+  await succeeds('ip', ['link', 'del', 'dev', probe])
+  try {
+    await run('ip', ['tuntap', 'add', 'dev', probe, 'mode', 'tap'])
+    await run('iptables', ['-t', 'nat', '-S'])
+    await run('iptables', ['-t', 'filter', '-S'])
+  } catch (error) {
+    throw new Error(
+      'This container cannot create a tap or write iptables rules, so guest egress cannot be enforced ' +
+        `and no desk may boot. Grant NET_ADMIN (deploy/desk-runner.compose.yaml). Underlying failure: ${describe(error)}`,
+    )
+  } finally {
+    await succeeds('ip', ['link', 'del', 'dev', probe])
+  }
+}
+
 async function ensureDesk(
   deskId: string,
   options: { memoryMb?: number; vcpus?: number; leaseMs?: number },
@@ -177,6 +462,10 @@ async function ensureDesk(
     nextDeskIndex += 1
     deskIndexes.set(deskId, index)
   }
+  // Before the VM, always: the tap has to exist for the VMM to attach to it,
+  // and the rules have to be in front of it before a single guest packet can
+  // be emitted. A throw here is a desk that does not boot, on purpose.
+  await ensureDeskNetwork(index)
   let handle: DeskHandle
   try {
     handle = await host.resume(deskId)
@@ -188,14 +477,53 @@ async function ensureDesk(
       // base rather than a copy-on-write qcow2 over a backing file.
       baseImage: join(DISKS_ROOT, 'base.raw'),
       overlayPath: join(DISKS_ROOT, 'overlays', `${deskId}.raw`),
+      // Named rather than left to the package's CID-derived default: the tap
+      // this runner created and filtered is the only one the guest may have.
+      network: { tapDevice: tapDeviceFor(index), macAddress: macAddressFor(index) },
       ...(options.memoryMb ? { memoryMb: options.memoryMb } : {}),
       ...(options.vcpus ? { vcpus: options.vcpus } : {}),
       ...(options.leaseMs ? { leaseMs: options.leaseMs } : {}),
     })
   }
-  const entry: DeskEntry = { handle, screen: null, handoverUrl: null, browserPath: null, index }
+  const entry: DeskEntry = {
+    handle,
+    screen: null,
+    handoverUrl: null,
+    handoverPort: HANDOVER_FALLBACK_PORT,
+    handoverExpiresAt: 0,
+    handoverSockets: new Set(),
+    handoverTimer: null,
+    browserPath: null,
+    index,
+  }
+  await configureGuestNetwork(entry)
   desks.set(deskId, entry)
   return entry
+}
+
+/** Park the VM but keep its tap: the index is stable, so a resume reuses it. */
+async function suspendDesk(deskId: string): Promise<void> {
+  if (!host) throw new Error(refusalReason ?? 'This host cannot serve desks.')
+  const entry = desks.get(deskId)
+  closeFramePump(deskId)
+  if (entry) revokeHandover(entry)
+  await host.suspend(deskId)
+  desks.delete(deskId)
+}
+
+/** Destroy the VM and take its tap and rules down with it. */
+async function destroyDesk(deskId: string): Promise<void> {
+  if (!host) throw new Error(refusalReason ?? 'This host cannot serve desks.')
+  const entry = desks.get(deskId)
+  closeFramePump(deskId)
+  if (entry) revokeHandover(entry)
+  await host.destroy(deskId).catch(() => undefined)
+  desks.delete(deskId)
+  const index = deskIndexes.get(deskId)
+  if (index !== undefined) {
+    deskIndexes.delete(deskId)
+    await teardownDeskNetwork(index)
+  }
 }
 
 // --- executions: idempotent start, retained result, long-poll ---------------
@@ -275,6 +603,361 @@ function startExecution(
   return execution
 }
 
+// --- the live view: one capture pump per desk, fanned out as SSE (§3.13) ----
+
+/**
+ * The frames a desk is emitting, and everyone watching them.
+ *
+ * MASKING (§3.14, and the contract on @appkit/desk's DeskPorts): frames are
+ * taken from `handle.screen.frames()` — the package's MASKED host API — and
+ * never from the machine's raw event subscription. That is the whole safety
+ * argument for this relay: inside the package, the frame subscriber drops
+ * every frame while a handover is active, so a handover suppresses this
+ * stream at the source. Relaying the raw `{event:'frame'}` messages instead
+ * would carry a human's session out past the mask, which is exactly the leak
+ * the ledger design exists to prevent. Do not "optimise" this into a direct
+ * subscription.
+ *
+ * One pump per desk, however many subscribers: the guest encodes once, and a
+ * second viewer costs a socket rather than a second capture.
+ */
+type FramePump = {
+  fps: number
+  width: number
+  height: number
+  /** An explicit start pins the pump open even with nobody watching yet. */
+  pinned: boolean
+  subscribers: Set<ServerResponse>
+  closed: boolean
+  stop: () => void
+}
+
+const framePumps = new Map<string, FramePump>()
+
+function startFramePump(
+  deskId: string,
+  screen: DeskScreenHandle,
+  options: { fps: number; width: number; height: number },
+): FramePump {
+  const iterator = screen
+    .frames({ fps: options.fps, width: options.width, height: options.height })
+    [Symbol.asyncIterator]()
+  const pump: FramePump = {
+    fps: options.fps,
+    width: options.width,
+    height: options.height,
+    pinned: false,
+    subscribers: new Set(),
+    closed: false,
+    stop: () => {
+      if (pump.closed) return
+      pump.closed = true
+      // Cancel the iterator rather than waiting for a frame that may never
+      // come: a still screen emits nothing, so `break` alone would hang.
+      void iterator.return?.().catch(() => undefined)
+      for (const subscriber of pump.subscribers.values()) subscriber.end()
+      pump.subscribers.clear()
+      if (framePumps.get(deskId) === pump) framePumps.delete(deskId)
+    },
+  }
+  framePumps.set(deskId, pump)
+  void (async () => {
+    try {
+      for (;;) {
+        const next = await iterator.next()
+        if (next.done || pump.closed) break
+        const frame = next.value
+        const payload = JSON.stringify({
+          seq: frame.seq,
+          width: frame.width,
+          height: frame.height,
+          at: frame.at,
+          data: frame.data.toString('base64'),
+        })
+        for (const subscriber of pump.subscribers.values()) {
+          // Never queue: a subscriber that cannot keep up drops frames rather
+          // than growing a buffer in the one process that boots microVMs.
+          if (subscriber.writableEnded) continue
+          subscriber.write(`data: ${payload}\n\n`)
+        }
+      }
+    } catch (error) {
+      console.error(`[desk-runner] frame pump for ${deskId} stopped: ${describe(error)}`)
+    } finally {
+      pump.stop()
+    }
+  })()
+  return pump
+}
+
+function ensureFramePump(
+  deskId: string,
+  screen: DeskScreenHandle,
+  options: { fps: number; width: number; height: number },
+): FramePump {
+  const existing = framePumps.get(deskId)
+  if (existing && !existing.closed) return existing
+  return startFramePump(deskId, screen, options)
+}
+
+function closeFramePump(deskId: string): void {
+  framePumps.get(deskId)?.stop()
+}
+
+// --- the handover relay and its host-side TTL (§3.14) -----------------------
+
+/**
+ * Take a live handover down: end it in the package (which files the boundary
+ * event and the audit entry with its duration), forget the URL, and cut every
+ * relay socket. Called on expiry, on an explicit end, and on teardown — the
+ * TTL is enforced HERE as well as in the package's own sweep, because the
+ * relay is this process's door and a door has to close by itself.
+ */
+function revokeHandover(entry: DeskEntry): void {
+  if (entry.handoverTimer) {
+    clearTimeout(entry.handoverTimer)
+    entry.handoverTimer = null
+  }
+  const wasOpen = entry.handoverUrl !== null
+  entry.handoverUrl = null
+  entry.handoverExpiresAt = 0
+  for (const socket of entry.handoverSockets.values()) socket.destroy()
+  entry.handoverSockets.clear()
+  const screen = entry.screen
+  if (screen?.handover.active) {
+    void screen.handover.end().catch((error: unknown) => {
+      console.error(`[desk-runner] handover end failed: ${describe(error)}`)
+    })
+  }
+  if (wasOpen) {
+    // Take the forwarder down now rather than leaving it to its own timeout:
+    // an ended handover must stop being reachable at the moment it ends.
+    void entry.handle
+      .exec({
+        command: '/usr/bin/pkill',
+        args: ['-f', `TCP-LISTEN:${HANDOVER_RELAY_PORT}`],
+        timeoutMs: 5_000,
+      })
+      .catch(() => undefined)
+  }
+}
+
+/**
+ * Put the guest's loopback-bound viewer on its tap address for exactly as long
+ * as the grant lasts. `timeout` is the guest-side backstop: if this process
+ * dies mid-handover, the forwarder still goes away on schedule rather than
+ * outliving the thing it was opened for.
+ */
+async function exposeGuestHandover(entry: DeskEntry, ttlMs: number): Promise<void> {
+  const guest = guestAddressFor(entry.index)
+  const seconds = Math.max(1, Math.ceil(ttlMs / 1000))
+  await entry.handle.exec({
+    command: '/usr/bin/timeout',
+    args: [
+      '-k',
+      '5',
+      String(seconds),
+      '/usr/bin/socat',
+      `TCP-LISTEN:${HANDOVER_RELAY_PORT},fork,reuseaddr,bind=${guest}`,
+      `TCP:127.0.0.1:${entry.handoverPort}`,
+    ],
+    keepAlive: true,
+  })
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (await guestPortAnswers(guest, HANDOVER_RELAY_PORT)) return
+    await delay(250)
+  }
+  throw new Error('The handover forwarder never came up inside the guest.')
+}
+
+function guestPortAnswers(address: string, port: number): Promise<boolean> {
+  return new Promise((resolvePromise) => {
+    const probe = tcpConnect({ host: address, port, timeout: 1_000 })
+    const settle = (answer: boolean) => {
+      probe.destroy()
+      resolvePromise(answer)
+    }
+    probe.once('connect', () => settle(true))
+    probe.once('error', () => settle(false))
+    probe.once('timeout', () => settle(false))
+  })
+}
+
+// --- the websocket half of the handover relay -------------------------------
+
+/**
+ * The runner terminates the websocket and carries its payload as a byte
+ * stream, because the two ends speak different things: a browser viewer sends
+ * binary websocket frames, and x11vnc inside the guest speaks raw RFB. This is
+ * websockify's whole job, in the one process that can already reach the guest
+ * — a second service to do it would need the tap namespace and the token, so
+ * it would be this process wearing a different name.
+ *
+ * Nothing here interprets RFB. Payloads are concatenated in arrival order and
+ * written through untouched, which is exactly right for a byte stream: frame
+ * boundaries and FIN carry no meaning the RFB layer can see.
+ */
+const WEBSOCKET_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+/** A single client frame beyond this is a protocol abuse, not a viewer. */
+const WEBSOCKET_MAX_FRAME_BYTES = 8 * 1024 * 1024
+
+function acceptWebSocket(request: IncomingMessage, socket: Duplex): boolean {
+  const key = request.headers['sec-websocket-key']
+  if (typeof key !== 'string' || request.headers['sec-websocket-version'] !== '13') {
+    socket.end('HTTP/1.1 400 Bad Request\r\n\r\n')
+    return false
+  }
+  const accept = createHash('sha1').update(`${key}${WEBSOCKET_GUID}`).digest('base64')
+  // noVNC asks for the 'binary' subprotocol; answering it is what stops the
+  // viewer falling back to base64 framing nothing here would decode.
+  const offered = String(request.headers['sec-websocket-protocol'] ?? '')
+    .split(',')
+    .map((value) => value.trim())
+  const chosen = offered.includes('binary') ? 'binary' : null
+  socket.write(
+    'HTTP/1.1 101 Switching Protocols\r\n' +
+      'Upgrade: websocket\r\n' +
+      'Connection: Upgrade\r\n' +
+      `Sec-WebSocket-Accept: ${accept}\r\n` +
+      (chosen ? `Sec-WebSocket-Protocol: ${chosen}\r\n` : '') +
+      '\r\n',
+  )
+  return true
+}
+
+function encodeWebSocketFrame(payload: Buffer, opcode: number): Buffer {
+  const extended = payload.length < 126 ? 0 : payload.length < 65_536 ? 2 : 8
+  const header = Buffer.alloc(2 + extended)
+  header[0] = 0x80 | opcode
+  header[1] = extended === 0 ? payload.length : extended === 2 ? 126 : 127
+  if (extended === 2) header.writeUInt16BE(payload.length, 2)
+  else if (extended === 8) header.writeBigUInt64BE(BigInt(payload.length), 2)
+  return Buffer.concat([header, payload])
+}
+
+type WebSocketDrain = { rest: Buffer; data: Buffer[]; pongs: Buffer[]; closed: boolean; fatal: string | null }
+
+/** Decode as many complete client frames as the buffer holds. Fails closed. */
+function drainWebSocket(buffer: Buffer): WebSocketDrain {
+  const data: Buffer[] = []
+  const pongs: Buffer[] = []
+  let offset = 0
+  for (;;) {
+    if (buffer.length - offset < 2) break
+    const first = buffer[offset] ?? 0
+    const second = buffer[offset + 1] ?? 0
+    const opcode = first & 0x0f
+    const masked = (second & 0x80) !== 0
+    let length = second & 0x7f
+    let cursor = offset + 2
+    if (length === 126) {
+      if (buffer.length - cursor < 2) break
+      length = buffer.readUInt16BE(cursor)
+      cursor += 2
+    } else if (length === 127) {
+      if (buffer.length - cursor < 8) break
+      const wide = buffer.readBigUInt64BE(cursor)
+      if (wide > BigInt(WEBSOCKET_MAX_FRAME_BYTES)) {
+        return { rest: buffer, data, pongs, closed: true, fatal: 'websocket frame is too large' }
+      }
+      length = Number(wide)
+      cursor += 8
+    }
+    if (length > WEBSOCKET_MAX_FRAME_BYTES) {
+      return { rest: buffer, data, pongs, closed: true, fatal: 'websocket frame is too large' }
+    }
+    // RFC 6455: a client frame that is not masked is a protocol error, and a
+    // stream that lies about its framing cannot be resynchronized — drop it.
+    if (!masked) {
+      return { rest: buffer, data, pongs, closed: true, fatal: 'client frame is not masked' }
+    }
+    if (buffer.length - cursor < 4 + length) break
+    const mask = buffer.subarray(cursor, cursor + 4)
+    cursor += 4
+    const payload = Buffer.allocUnsafe(length)
+    for (let i = 0; i < length; i += 1) {
+      payload[i] = (buffer[cursor + i] ?? 0) ^ (mask[i % 4] ?? 0)
+    }
+    cursor += length
+    offset = cursor
+    if (opcode === 0x8) return { rest: buffer.subarray(offset), data, pongs, closed: true, fatal: null }
+    if (opcode === 0x9) pongs.push(payload)
+    else if (opcode === 0x0 || opcode === 0x1 || opcode === 0x2) data.push(payload)
+    // 0xA (pong) and anything else is dropped; nothing here needs it.
+  }
+  return { rest: buffer.subarray(offset), data, pongs, closed: false, fatal: null }
+}
+
+/**
+ * Splice one authenticated viewer to the guest's forwarded viewer port. The
+ * TTL was checked before this was called and the socket is registered on the
+ * desk, so an expiry cuts it mid-stream rather than waiting for it to leave.
+ */
+function relayHandoverSocket(args: {
+  request: IncomingMessage
+  socket: Duplex
+  head: Buffer
+  address: string
+  onClose: () => void
+}): void {
+  const { request, socket, head, address } = args
+  if (!acceptWebSocket(request, socket)) {
+    args.onClose()
+    return
+  }
+  const upstream = tcpConnect(HANDOVER_RELAY_PORT, address)
+  let pending: Buffer = Buffer.alloc(0)
+  let done = false
+  const drop = () => {
+    if (done) return
+    done = true
+    upstream.destroy()
+    socket.destroy()
+    args.onClose()
+  }
+  const feed = (chunk: Buffer) => {
+    pending = pending.length === 0 ? chunk : Buffer.concat([pending, chunk])
+    const drained = drainWebSocket(pending)
+    pending = drained.rest
+    for (const payload of drained.data) upstream.write(payload)
+    for (const payload of drained.pongs) socket.write(encodeWebSocketFrame(payload, 0xa))
+    if (drained.fatal) console.error(`[desk-runner] handover viewer refused: ${drained.fatal}`)
+    if (drained.closed) drop()
+  }
+  upstream.once('connect', () => {
+    if (head.length > 0) feed(head)
+    socket.on('data', feed)
+    upstream.on('data', (chunk: Buffer) => socket.write(encodeWebSocketFrame(chunk, 0x2)))
+  })
+  upstream.on('error', drop)
+  upstream.on('close', drop)
+  socket.on('error', drop)
+  socket.on('close', drop)
+}
+
+function armHandoverExpiry(entry: DeskEntry, ttlMs: number): void {
+  if (entry.handoverTimer) clearTimeout(entry.handoverTimer)
+  entry.handoverExpiresAt = Date.now() + ttlMs
+  const timer = setTimeout(() => revokeHandover(entry), ttlMs)
+  timer.unref()
+  entry.handoverTimer = timer
+}
+
+/**
+ * The guest hands back an in-guest URL (an x11vnc endpoint on guest
+ * localhost). Only its port matters out here — the address is always the
+ * guest's, and a URL claiming otherwise is not one this runner will dial.
+ */
+function handoverPortFrom(url: string): number {
+  try {
+    const parsed = new URL(url)
+    const port = Number(parsed.port)
+    return Number.isInteger(port) && port > 0 && port < 65_536 ? port : HANDOVER_FALLBACK_PORT
+  } catch {
+    return HANDOVER_FALLBACK_PORT
+  }
+}
+
 // --- the in-guest browser and its CDP relay ---------------------------------
 
 /**
@@ -342,27 +1025,26 @@ async function ensureGuestBrowser(entry: DeskEntry): Promise<string> {
 
 /**
  * Relay a CDP websocket into the guest. Raw byte splice on purpose: the
- * upgrade handshake and every websocket frame pass through untouched, so
- * this needs no websocket implementation and cannot corrupt one. Chromium
- * refuses non-local Host headers on the devtools endpoint, so the head is
- * rewritten to claim 127.0.0.1 before it is forwarded.
+ * upgrade handshake and every websocket frame pass through untouched, so this
+ * needs no websocket implementation and cannot corrupt one — Chromium's
+ * devtools endpoint speaks websocket at the far end, so nothing has to be
+ * translated. (The handover relay above cannot use this: x11vnc speaks raw
+ * RFB, so its websocket has to terminate here.) The Host header is rewritten
+ * to claim guest-localhost, because Chromium refuses non-local ones.
  */
-function relayBrowserSocket(request: IncomingMessage, socket: Duplex, head: Buffer): void {
-  const url = new URL(request.url ?? '/', 'http://desk-runner')
-  const match = /^\/desks\/([^/]+)\/browser(\/devtools\/.*)$/.exec(url.pathname)
-  const token = url.searchParams.get('token') ?? ''
-  if (!match || !tokenMatches(token)) {
-    socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n')
-    return
-  }
-  const entry = desks.get(decodeURIComponent(match[1] ?? ''))
-  if (!entry) {
-    socket.end('HTTP/1.1 404 Not Found\r\n\r\n')
-    return
-  }
-  const upstream = tcpConnect(CDP_PORT, guestAddressFor(entry.index))
+function relayGuestSocket(args: {
+  request: IncomingMessage
+  socket: Duplex
+  head: Buffer
+  address: string
+  port: number
+  path: string
+  onClose?: () => void
+}): void {
+  const { request, socket, head, address, port, path } = args
+  const upstream = tcpConnect(port, address)
   upstream.on('connect', () => {
-    const lines = [`GET ${match[2]} HTTP/1.1`, `Host: 127.0.0.1:${CDP_PORT}`]
+    const lines = [`GET ${path} HTTP/1.1`, `Host: 127.0.0.1:${port}`]
     for (let i = 0; i < request.rawHeaders.length; i += 2) {
       const name = request.rawHeaders[i] ?? ''
       const value = request.rawHeaders[i + 1] ?? ''
@@ -377,9 +1059,70 @@ function relayBrowserSocket(request: IncomingMessage, socket: Duplex, head: Buff
   const drop = () => {
     upstream.destroy()
     socket.destroy()
+    args.onClose?.()
   }
   upstream.on('error', drop)
+  upstream.on('close', drop)
   socket.on('error', drop)
+  socket.on('close', drop)
+}
+
+/** Route an upgrade to the CDP relay or the handover relay, or refuse it. */
+function relayUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
+  const url = new URL(request.url ?? '/', 'http://desk-runner')
+  // The token rides the query string because a websocket dial cannot carry a
+  // bearer header everywhere; it is compared in constant time all the same.
+  if (!tokenMatches(url.searchParams.get('token') ?? '')) {
+    socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n')
+    return
+  }
+
+  const browser = /^\/desks\/([^/]+)\/browser(\/devtools\/.*)$/.exec(url.pathname)
+  if (browser) {
+    const entry = desks.get(decodeURIComponent(browser[1] ?? ''))
+    if (!entry) {
+      socket.end('HTTP/1.1 404 Not Found\r\n\r\n')
+      return
+    }
+    relayGuestSocket({
+      request,
+      socket,
+      head,
+      address: guestAddressFor(entry.index),
+      port: CDP_PORT,
+      path: browser[2] ?? '/',
+    })
+    return
+  }
+
+  const handover = /^\/desks\/([^/]+)\/handover\/stream$/.exec(url.pathname)
+  if (handover) {
+    const entry = desks.get(decodeURIComponent(handover[1] ?? ''))
+    // Fail closed on every arm of it: no desk, no live handover, or one whose
+    // TTL has run out gets nothing. The deadline is checked HERE and not only
+    // by the expiry timer, so a clock that slipped or a timer that did not
+    // fire still cannot leave a viewer connected past its grant.
+    if (!entry || !entry.handoverUrl || !entry.screen?.handover.active) {
+      socket.end('HTTP/1.1 409 Conflict\r\n\r\n')
+      return
+    }
+    if (entry.handoverExpiresAt <= Date.now()) {
+      revokeHandover(entry)
+      socket.end('HTTP/1.1 410 Gone\r\n\r\n')
+      return
+    }
+    entry.handoverSockets.add(socket)
+    relayHandoverSocket({
+      request,
+      socket,
+      head,
+      address: guestAddressFor(entry.index),
+      onClose: () => entry.handoverSockets.delete(socket),
+    })
+    return
+  }
+
+  socket.end('HTTP/1.1 404 Not Found\r\n\r\n')
 }
 
 // --- HTTP plumbing ----------------------------------------------------------
@@ -413,6 +1156,26 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
 }
 
+function describe(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.trim() || 'no reason given'
+}
+
+/**
+ * Open a server-sent-event stream. No compression and no buffering: a frame
+ * held back by a proxy's write buffer is a live view that lags behind the
+ * screen it is supposed to be showing.
+ */
+function openEventStream(response: ServerResponse): void {
+  response.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-store, no-transform',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+  })
+  response.flushHeaders()
+}
+
 function waitFor(register: (wake: () => void) => void, ms: number): Promise<void> {
   return new Promise((resolvePromise) => {
     const timer = setTimeout(resolvePromise, ms)
@@ -436,7 +1199,7 @@ const server = createServer((request, response) => {
 
 server.on('upgrade', (request, socket, head) => {
   try {
-    relayBrowserSocket(request, socket, head)
+    relayUpgrade(request, socket, head)
   } catch {
     socket.destroy()
   }
@@ -582,11 +1345,12 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
 
   if (request.method === 'POST' && rest === '/screen/stop') {
     const entry = desks.get(deskId)
+    // The capture and any handover go down with the screen, in that order:
+    // nothing may keep emitting frames off a compositor that is stopping.
+    closeFramePump(deskId)
+    if (entry) revokeHandover(entry)
     if (entry?.handle.screen.running) await entry.handle.screen.stop()
-    if (entry) {
-      entry.screen = null
-      entry.handoverUrl = null
-    }
+    if (entry) entry.screen = null
     reply(response, 200, { running: false })
     return
   }
@@ -667,6 +1431,50 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       return
     }
 
+    if (request.method === 'POST' && rest === '/screen/frames/start') {
+      const body = await readBody(request)
+      const pump = ensureFramePump(deskId, screen, {
+        fps: numberOr(body.fps) ?? 10,
+        width: numberOr(body.width) ?? 1280,
+        height: numberOr(body.height) ?? 900,
+      })
+      pump.pinned = true
+      reply(response, 200, { streaming: true, fps: pump.fps, width: pump.width, height: pump.height })
+      return
+    }
+
+    if (request.method === 'POST' && rest === '/screen/frames/stop') {
+      closeFramePump(deskId)
+      reply(response, 200, { streaming: false })
+      return
+    }
+
+    if (request.method === 'GET' && rest === '/screen/frames') {
+      const pump = ensureFramePump(deskId, screen, {
+        fps: Number(url.searchParams.get('fps') ?? 10) || 10,
+        width: Number(url.searchParams.get('width') ?? 1280) || 1280,
+        height: Number(url.searchParams.get('height') ?? 900) || 900,
+      })
+      openEventStream(response)
+      pump.subscribers.add(response)
+      // A still screen emits nothing at all — that is the damage-driven
+      // capture working — so a comment line keeps the connection honest
+      // through whatever sits between here and the subscriber.
+      const beat = setInterval(() => {
+        if (!response.writableEnded) response.write(': keepalive\n\n')
+      }, 15_000)
+      beat.unref()
+      response.on('close', () => {
+        clearInterval(beat)
+        pump.subscribers.delete(response)
+        // An unpinned pump exists only for its watchers; the last one leaving
+        // stops the guest capturing rather than paying for a picture nobody
+        // is looking at.
+        if (!pump.pinned && pump.subscribers.size === 0) pump.stop()
+      })
+      return
+    }
+
     if (request.method === 'POST' && rest === '/screen/clipboard') {
       const body = await readBody(request)
       if (body.op === 'write') {
@@ -680,33 +1488,66 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
 
     if (request.method === 'POST' && rest === '/handover') {
       const body = await readBody(request)
+      const streamPath = `/desks/${encodeURIComponent(deskId)}/handover/stream`
       if (body.op === 'end') {
-        await screen.handover.end()
-        entry.handoverUrl = null
+        // revokeHandover ends it in the package (which files the boundary and
+        // its duration) and cuts every viewer already spliced through.
+        revokeHandover(entry)
         reply(response, 200, { ended: true })
         return
       }
       // Idempotent begin: an approval replay reopens the SAME handover rather
-      // than erroring or stacking a second one.
+      // than erroring or stacking a second one. The package throws on a second
+      // begin, so this branch is what makes the replay safe.
       if (screen.handover.active && entry.handoverUrl) {
-        reply(response, 200, { url: entry.handoverUrl })
+        if (entry.handoverExpiresAt <= Date.now()) {
+          revokeHandover(entry)
+          reply(response, 409, { error: 'that handover has expired' })
+          return
+        }
+        reply(response, 200, {
+          url: entry.handoverUrl,
+          stream: streamPath,
+          expiresAt: new Date(entry.handoverExpiresAt).toISOString(),
+        })
         return
       }
+      const ttlMs = numberOr(body.ttlMs) ?? 15 * 60_000
       const { url: handoverUrl } = await screen.handover.begin({
-        ttlMs: numberOr(body.ttlMs) ?? 15 * 60_000,
+        ttlMs,
         scope: body.scope === 'view' ? 'view' : 'control',
         ...(typeof body.actor === 'string' ? { actor: body.actor } : {}),
       })
       entry.handoverUrl = handoverUrl
-      reply(response, 200, { url: handoverUrl })
+      entry.handoverPort = handoverPortFrom(handoverUrl)
+      try {
+        await exposeGuestHandover(entry, ttlMs)
+      } catch (error) {
+        // A handover nobody can reach is not a handover. End it rather than
+        // hand back a URL that leads nowhere.
+        revokeHandover(entry)
+        reply(response, 502, { error: describe(error) })
+        return
+      }
+      armHandoverExpiry(entry, ttlMs)
+      reply(response, 200, {
+        url: handoverUrl,
+        stream: streamPath,
+        expiresAt: new Date(entry.handoverExpiresAt).toISOString(),
+      })
       return
     }
   }
 
   if (request.method === 'POST' && rest === '/suspend') {
-    await host.suspend(deskId)
-    desks.delete(deskId)
+    await suspendDesk(deskId)
     reply(response, 200, { suspended: true })
+    return
+  }
+
+  if (request.method === 'DELETE' && rest === '') {
+    await destroyDesk(deskId)
+    reply(response, 200, { destroyed: true })
     return
   }
 
@@ -726,18 +1567,38 @@ function numberOr(value: unknown): number | undefined {
 
 // --- boot -------------------------------------------------------------------
 
-server.listen(PORT, () => {
-  console.log(
-    `[desk-runner] listening on ${PORT}; disks ${DISKS_ROOT}; shared folder ${SHARED_FOLDER}` +
-      (EGRESS_PROXY ? `; egress via ${EGRESS_PROXY}` : '; NO egress proxy configured'),
+/**
+ * Take every desk's tap and rules down on the way out. A container that dies
+ * leaving its taps behind leaks devices across restarts, and leaves rules
+ * pointing at devices that no longer exist.
+ */
+function teardownEverything(): Promise<void> {
+  const indexes = [...deskIndexes.values()]
+  deskIndexes.clear()
+  return Promise.all(indexes.map((index) => teardownDeskNetwork(index).catch(() => undefined))).then(
+    () => undefined,
   )
-  void verifyDeskHost({
-    kernelPath: join(DISKS_ROOT, 'vmlinux'),
-    // The Debian cloud kernel is modular; without its initramfs the probe VM
-    // panics before the guest agent answers and vsock reads as unsupported.
-    initramfsPath: join(DISKS_ROOT, 'initrd'),
-    baseImagePath: join(DISKS_ROOT, 'base.raw'),
+}
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    void teardownEverything().finally(() => process.exit(0))
   })
+}
+
+server.listen(PORT, () => {
+  console.log(`[desk-runner] listening on ${PORT}; disks ${DISKS_ROOT}; shared folder ${SHARED_FOLDER}`)
+  void verifyNetAdmin()
+    .then(() =>
+      verifyDeskHost({
+        kernelPath: join(DISKS_ROOT, 'vmlinux'),
+        // The Debian cloud kernel is modular; without its initramfs the probe
+        // VM panics before the guest agent answers and vsock reads as
+        // unsupported.
+        initramfsPath: join(DISKS_ROOT, 'initrd'),
+        baseImagePath: join(DISKS_ROOT, 'base.raw'),
+      }),
+    )
     .then((result) => {
       verification = result
       if (!result.supported) {
@@ -766,11 +1627,17 @@ server.listen(PORT, () => {
         },
       })
       console.log(
-        `[desk-runner] desks ready — kvm=${result.kvm} vsock=${result.vsock} virtioGpu=${result.virtioGpu}, capacity ${CAPACITY}`,
+        `[desk-runner] desks ready — kvm=${result.kvm} vsock=${result.vsock} virtioGpu=${result.virtioGpu}, ` +
+          `capacity ${CAPACITY}; guest egress DNAT'd to ${HOST_GATEWAY_ADDR}:${EGRESS_HTTP_PORT}/${EGRESS_HTTPS_PORT}, ` +
+          `dns ${GUEST_DNS}, everything else dropped`,
       )
     })
     .catch((error: unknown) => {
-      refusalReason = error instanceof Error ? error.message : String(error)
+      // Fail LOUD and fail CLOSED, and that includes the network arm: without
+      // NET_ADMIN there is no tap and no enforcement, and a desk booted anyway
+      // would be a root shell with an unfiltered route to the internet. The
+      // reason is what /health serves from here on.
+      refusalReason = describe(error)
       verification = { supported: false, vmmPath: '', kvm: false, vsock: false, virtioGpu: false }
       console.error(`[desk-runner] DESKS REFUSED: ${refusalReason}`)
     })

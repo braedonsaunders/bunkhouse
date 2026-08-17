@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
+import sharp from 'sharp'
 import { governedToolSet, type Ability, type ActionCategory, type AutonomyLevel, type GovernanceState } from '@bunkhouse/runtime'
 
 // The desk cutover, proved with the runner faked out: fail-closed capability
 // detection, the run_shell round trip landing on the desk ledger, the
 // recorded escalation reason, the screen-session step ceiling, idempotent
-// takeover reopening, and the sandbox/desktop dial split (§3.21) — all with
-// no desk host, no database, and no model in the loop.
+// takeover reopening, the sandbox/desktop dial split (§3.21), and the live
+// view reaching the call stage (§3.13) — all with no desk host, no database,
+// and no model in the loop.
 
 delete process.env.BUNKHOUSE_DESK_URL
 delete process.env.BUNKHOUSE_DESK_TOKEN
@@ -18,6 +20,13 @@ const {
   deskIdFor,
   deskSupported,
 } = desk
+
+/** A real (tiny) PNG, so the cast's decode path is the genuine one. */
+const FRAME_PNG = await sharp({
+  create: { width: 8, height: 8, channels: 3, background: '#123456' },
+})
+  .png()
+  .toBuffer()
 
 type StoreEvent = {
   sessionId: string
@@ -73,7 +82,7 @@ function memoryStore() {
 /** A fake desk runner speaking just enough desk-v1 for the abilities. */
 function fakeRunner() {
   const calls: { method: string; path: string; body?: Record<string, unknown> }[] = []
-  const counters = { lease: 0, exec: 0, input: 0, screenStart: 0, handover: 0 }
+  const counters = { lease: 0, exec: 0, input: 0, screenStart: 0, handover: 0, framesOpen: 0, framesStop: 0 }
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = new URL(String(input))
     const method = init?.method ?? 'GET'
@@ -129,7 +138,32 @@ function fakeRunner() {
     }
     if (method === 'POST' && /\/handover$/.test(url.pathname)) {
       counters.handover += 1
-      return Response.json({ url: 'https://desk.example/handover/one-stable-url' })
+      return Response.json({
+        url: 'https://desk.example/handover/one-stable-url',
+        stream: `${url.pathname}/stream`,
+        expiresAt: '2026-08-16T12:15:00.000Z',
+      })
+    }
+    if (method === 'GET' && /\/screen\/frames$/.test(url.pathname)) {
+      counters.framesOpen += 1
+      // One frame, then the stream stays open with no timers pending — the
+      // damage-driven capture a still screen produces, exactly.
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const payload = JSON.stringify({
+            seq: 1,
+            width: 1280,
+            height: 900,
+            data: FRAME_PNG.toString('base64'),
+          })
+          controller.enqueue(new TextEncoder().encode(`data: ${payload}\n\n`))
+        },
+      })
+      return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+    }
+    if (method === 'POST' && /\/screen\/frames\/stop$/.test(url.pathname)) {
+      counters.framesStop += 1
+      return Response.json({ streaming: false })
     }
     return Response.json({ error: `unexpected ${method} ${url.pathname}` }, { status: 404 })
   }) as typeof fetch
@@ -255,6 +289,60 @@ function build(runId: string) {
     'the handover boundary is on the ledger with its reason — never its content',
   )
   console.log('desk: request_takeover carries everything in its input and replays idempotently')
+}
+
+// --- (e2) the live view: a desktop opened during a call reaches the stage ----
+{
+  const { registerBrowserCast } = await import('../src/lib/browser-cast')
+  const { AGENT_SCREEN_HEIGHT, AGENT_SCREEN_WIDTH } = await import('../src/lib/agent-screen')
+
+  // Nobody watching: opening a desktop must cost no capture at all.
+  const quiet = build('run-cast-quiet')
+  await quiet.call('open_desktop', { reason: 'No call is listening to this one.' })
+  assert.equal(quiet.counters.framesOpen, 0, 'an unwatched run opens no frame stream')
+
+  // A call registers its opener for the run, exactly as voice-agent.mts does.
+  const published: { width: number; height: number; bytes: number }[] = []
+  let openedAt: { width: number; height: number } | null = null
+  let closed = false
+  const stopOffer = registerBrowserCast('run-cast-live', async (size) => {
+    openedAt = size
+    return {
+      publish: (frame) => published.push({ width: frame.width, height: frame.height, bytes: frame.data.length }),
+      close: async () => {
+        closed = true
+      },
+    }
+  })
+
+  const live = build('run-cast-live')
+  await live.call('open_desktop', { reason: 'A GTK-only vendor portal, and the caller wants to watch.' })
+  assert.equal(live.counters.framesOpen, 1, 'opening the desktop subscribed to the guest frames')
+  const framesCall = live.calls.find((c) => /\/screen\/frames$/.test(c.path))
+  assert.ok(framesCall, 'the frame stream is the desk-v1 SSE endpoint')
+  assert.deepEqual(
+    openedAt,
+    { width: AGENT_SCREEN_WIDTH, height: AGENT_SCREEN_HEIGHT },
+    'the track opens at the one size the desk, the capture and the stage agree on',
+  )
+
+  for (let attempt = 0; attempt < 50 && published.length === 0; attempt += 1) {
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 20))
+  }
+  assert.equal(published.length, 1, 'the guest frame reached the publisher')
+  assert.equal(published[0]?.width, AGENT_SCREEN_WIDTH, 'published at the track contract width')
+  assert.equal(published[0]?.height, AGENT_SCREEN_HEIGHT, 'published at the track contract height')
+  assert.equal(
+    published[0]?.bytes,
+    AGENT_SCREEN_WIDTH * AGENT_SCREEN_HEIGHT * 4,
+    'packed RGBA, no padding — what the video source wants',
+  )
+
+  await live.call('close_desktop', {})
+  assert.equal(live.counters.framesStop, 1, 'closing the desktop stopped the guest capture')
+  assert.equal(closed, true, 'and unpublished the track')
+  await stopOffer()
+  console.log('desk: a desktop opened during a call casts to the stage, and closing it takes the track down')
 }
 
 // --- (f) dial separation: desktop forbidden does not touch the machine -------

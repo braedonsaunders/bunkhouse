@@ -9,3 +9,7 @@ dist/
 
 # Internal build spec — never commit (handed off out-of-band)
 docs/agent-desk.md
+
+# Python bytecode
+__pycache__/
+*.pyc
