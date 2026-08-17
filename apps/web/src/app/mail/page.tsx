@@ -27,7 +27,5 @@ export default async function MailRedirect({
   )
   const account = accounts.find((a) => a.id === params.mailbox) ?? accounts[0]
   if (!account) redirect('/organization')
-  redirect(
-    `/organization?person=${account.personId}&tab=mailbox${params.thread ? `&thread=${params.thread}` : ''}`,
-  )
+  redirect(`/organization/${account.personId}?section=inbox${params.thread ? `&thread=${params.thread}` : ''}`)
 }

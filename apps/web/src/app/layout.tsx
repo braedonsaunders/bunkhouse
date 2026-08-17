@@ -30,11 +30,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     : null
   const access = user && tenant ? await getTenantAccess() : null
   const allowedSections = user?.isSuperAdmin
-    ? ['home', 'agents', 'chat', 'roles', 'approvals', 'observatory', 'resources', 'settings']
+    ? ['home', 'agents', 'roles', 'approvals', 'observatory', 'resources', 'settings']
     : [
         access?.permissions.has('work.read') ? 'home' : null,
         access?.permissions.has('people.read') ? 'agents' : null,
-        access?.permissions.has('work.read') ? 'chat' : null,
         access?.permissions.has('roles.read') ? 'roles' : null,
         access?.permissions.has('approvals.read') ? 'approvals' : null,
         access?.permissions.has('observatory.read') ? 'observatory' : null,

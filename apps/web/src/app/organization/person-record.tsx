@@ -12,7 +12,7 @@ import { Pagination, parsePrefixedListParams, type ListSearchParams } from '@app
 import { isAiProvider, providerSpec } from '@appkit/ai'
 import { approvals, autonomySettings, departments, duties, memories, people, runs, tokenSpend } from '../../db/schema'
 import { db } from '../../db/client'
-import { listAiProviders } from '../../lib/ai'
+import { listAiProviders, resolveAgentAiConfig } from '../../lib/ai'
 import { getVoiceProviders, listRealtimeCapableProviders } from '../../lib/voice'
 import { createEmptyComposition, getAvatarComposition, loadAvatarPartLibrary } from '../../lib/avatars'
 import { AVATAR_PART_CATEGORIES } from '../../lib/avatar-parts'
@@ -26,15 +26,27 @@ import { VoiceConfigForm } from '../../components/voice-config-form'
 import { DutiesCard } from '../../components/duties-card'
 import { MailboxSection } from './mailbox-section'
 import { AssignmentsSection } from './assignments-section'
-import { AccountSection, AutonomySection, MemorySection, ModelSection, OverviewSection, PayrollSection } from './person-sections'
+import {
+  AccountSection,
+  AgentActivitySection,
+  AgentOverviewSection,
+  AgentRoleSection,
+  AutonomySection,
+  MemorySection,
+  ModelSection,
+  OverviewSection,
+  PayrollSection,
+} from './person-sections'
+import { AgentChatWorkspace, type ChatThreadDetail } from '../../components/chat-workspace'
+import { AgentRecordPage, AgentRecordSubsections, type AgentPageSection } from '../../components/agent-record-page'
+import { getThread, listThreads } from '../../lib/chat-threads'
+import { listResourceCatalog } from '../../lib/role-resources'
+import { agentBinding, bindsToAgent } from '../../lib/assignment'
+import { listRoles } from '../../lib/roles'
 
 type Person = typeof people.$inferSelect
 
-/**
- * The person record flyout, assembled once. Both organization surfaces — the
- * roster and the org chart — open the same drawer from `?person=<id>`, so the
- * record has a single definition and stays identical wherever it is opened.
- */
+/** Assemble the canonical agent page and the compact human record drawer. */
 export async function personDrawer({
   tenantId,
   roster,
@@ -44,6 +56,12 @@ export async function personDrawer({
   tab,
   mailThreadId,
   searchParams,
+  display = 'drawer',
+  pageAccess,
+  section,
+  chatThreadId,
+  profileSection,
+  workSection,
 }: {
   tenantId: string
   roster: Person[]
@@ -61,6 +79,18 @@ export async function personDrawer({
    * losing whichever person and tab are open.
    */
   searchParams?: ListSearchParams | undefined
+  /** Agents use a full record page; humans and compact organization surfaces use the drawer. */
+  display?: 'drawer' | 'page'
+  pageAccess?: {
+    userId: string
+    canReadWork: boolean
+    canReadMail: boolean
+    canCall: boolean
+  }
+  section?: string
+  chatThreadId?: string
+  profileSection?: string
+  workSection?: string
 }): Promise<ReactNode> {
   const selected = selectedId ? roster.find((person) => person.id === selectedId) : undefined
   if (!selected) return null
@@ -119,6 +149,10 @@ export async function personDrawer({
       .where(and(eq(approvals.personId, selected.id), sql`${approvals.status} in ('approved', 'rejected')`))
       .orderBy(desc(approvals.decidedAt))
       .limit(120)
+    const [pendingApprovalCount] = await app.db
+      .select({ total: sql<number>`count(*)`.mapWith(Number) })
+      .from(approvals)
+      .where(and(eq(approvals.personId, selected.id), eq(approvals.status, 'pending')))
     const byCategory = new Map<string, ('approved' | 'rejected')[]>()
     for (const row of decided) {
       const list = byCategory.get(row.category) ?? []
@@ -146,6 +180,7 @@ export async function personDrawer({
       notes,
       monthSpend: Number(spend?.cost ?? 0),
       recentRuns,
+      pendingApprovals: pendingApprovalCount?.total ?? 0,
       graduationSuggestions,
     }
   })
@@ -348,6 +383,303 @@ export async function personDrawer({
   // Reaching an agent is a property of the record, not of one of its tabs, so
   // the action sits in the drawer header wherever the record is opened from.
   const callAction = resolveCallAction(selected)
+
+  if (display === 'page' && isAgent) {
+    const activeRun = detail.recentRuns.find((run) =>
+      ['running', 'waiting_approval', 'waiting_reply'].includes(run.status),
+    ) ?? null
+    const nextDutyRow = [...detail.personDuties]
+      .filter((duty) => duty.enabled === 'on')
+      .sort((a, b) => {
+        if (!a.nextDueAt) return 1
+        if (!b.nextDueAt) return -1
+        return a.nextDueAt.getTime() - b.nextDueAt.getTime()
+      })[0]
+    const nextDuty = nextDutyRow
+      ? {
+          title: nextDutyRow.title,
+          schedule: scheduleToHuman({
+            kind: nextDutyRow.scheduleKind === 'once' ? 'once' : 'cron',
+            schedule: nextDutyRow.schedule,
+          }, nextDutyRow.timezone),
+          dueAt: nextDutyRow.nextDueAt ? nextDutyRow.nextDueAt.toLocaleString() : null,
+        }
+      : null
+
+    const [resourceCatalog, roles] = await Promise.all([
+      listResourceCatalog(tenantId),
+      listRoles(tenantId),
+    ])
+    const binding = agentBinding(selected)
+    const resourceCounts = {
+      procedures: resourceCatalog.procedures.filter((entry) => bindsToAgent(entry.assignment, binding)).length,
+      skills: resourceCatalog.skills.filter((entry) => bindsToAgent(entry.assignment, binding)).length,
+      notes: resourceCatalog.notes.filter((entry) => bindsToAgent(entry.assignment, binding)).length,
+      systems: resourceCatalog.systems.filter((entry) => bindsToAgent(entry.assignment, binding)).length,
+    }
+
+    const canReadWork = pageAccess?.canReadWork === true
+    const openThreads = canReadWork && pageAccess
+      ? await listThreads({ tenantId, userId: pageAccess.userId, personId: selected.id })
+      : []
+    const reachableThreads = chatThreadId && canReadWork && pageAccess
+      ? await listThreads({
+          tenantId,
+          userId: pageAccess.userId,
+          personId: selected.id,
+          includeArchived: true,
+        })
+      : openThreads
+    const visibleThreads = chatThreadId && reachableThreads.some((thread) => thread.id === chatThreadId)
+      ? reachableThreads
+      : openThreads
+    const selectedChatThreadId = chatThreadId && reachableThreads.some((thread) => thread.id === chatThreadId)
+      ? chatThreadId
+      : openThreads[0]?.id
+    const initialChat: ChatThreadDetail | null = selectedChatThreadId
+      ? await getThread(tenantId, selectedChatThreadId)
+      : null
+    const canStartChat = canReadWork && Boolean(await resolveAgentAiConfig(tenantId, selected.id))
+
+    const profileSections: AgentPageSection[] = [
+      {
+        key: 'identity',
+        label: 'Identity',
+        content: <OverviewSection person={selected} roster={rosterOptions} departments={detail.departments} />,
+      },
+      {
+        key: 'role',
+        label: 'Role & resources',
+        content: (
+          <AgentRoleSection
+            roleLabel={roles.find((role) => role.slug === selected.roleSlug)?.title ?? selected.roleSlug}
+            resourceCounts={resourceCounts}
+          />
+        ),
+      },
+      {
+        key: 'avatar',
+        label: 'Avatar',
+        content: (
+          <div className="min-h-[36rem] overflow-hidden rounded-lg border border-border bg-surface">
+            <AvatarStudio
+              personId={selected.id}
+              name={selected.name}
+              composition={figure}
+              parts={partLibrary}
+              categories={AVATAR_PART_CATEGORIES}
+            />
+          </div>
+        ),
+      },
+      {
+        key: 'model',
+        label: 'Model',
+        content: (
+          <ModelSection
+            person={selected}
+            providers={providers.map((provider) => ({
+              slug: provider.slug,
+              label: provider.label,
+              ...(provider.modelFast ? { modelFast: provider.modelFast } : {}),
+            }))}
+          />
+        ),
+      },
+      {
+        key: 'voice',
+        label: 'Voice',
+        content: (
+          <VoiceConfigForm
+            personId={selected.id}
+            name={selected.name}
+            current={selected.voiceConfig ?? null}
+            realtimeProviders={realtimeProviders}
+            speechConfigured={{
+              deepgram: Boolean(voiceProviders.deepgram),
+              elevenlabs: Boolean(voiceProviders.elevenlabs),
+            }}
+            cascadeModelSupported={cascadeModelSupported}
+            extension={selected.extension ?? ''}
+            catalogs={{
+              deepgramSttModels: DEEPGRAM_STT_MODELS,
+              elevenLabsTtsModels: ELEVENLABS_TTS_MODELS,
+              openaiRealtimeModels: OPENAI_REALTIME_MODELS,
+              openaiRealtimeVoices: OPENAI_REALTIME_VOICES,
+              geminiLiveModels: GEMINI_LIVE_MODELS,
+              geminiLiveVoices: GEMINI_LIVE_VOICES,
+            }}
+          />
+        ),
+      },
+      {
+        key: 'autonomy',
+        label: 'Autonomy',
+        content: <AutonomySection person={selected} dial={detail.dial} suggestions={detail.graduationSuggestions} />,
+      },
+      {
+        key: 'memory',
+        label: 'Memory',
+        content: (
+          <MemorySection
+            person={selected}
+            notes={detail.notes}
+            pagination={
+              <Pagination
+                basePath={`/organization/${selected.id}`}
+                currentParams={searchParams ?? {}}
+                total={detail.notesTotal}
+                page={notePage.page}
+                perPage={notePage.perPage}
+                pageParamKey="notePage"
+              />
+            }
+          />
+        ),
+      },
+      {
+        key: 'compensation',
+        label: 'Compensation',
+        content: <PayrollSection person={selected} monthSpend={detail.monthSpend} recentRuns={detail.recentRuns} />,
+      },
+    ]
+
+    const workSections: AgentPageSection[] = [
+      {
+        key: 'duties',
+        label: 'Duties',
+        content: (
+          <DutiesCard
+            personId={selected.id}
+            duties={detail.personDuties.map((duty) => {
+              const kind = duty.scheduleKind === 'once' ? ('once' as const) : ('cron' as const)
+              return {
+                id: duty.id,
+                title: duty.title,
+                instruction: duty.instruction,
+                scheduleKind: kind,
+                schedule: duty.schedule,
+                scheduleHuman: scheduleToHuman({ kind, schedule: duty.schedule }, duty.timezone),
+                endsAt: duty.endsAt ? duty.endsAt.toISOString() : null,
+                maxRuns: duty.maxRuns,
+                enabled: duty.enabled,
+                lastRunAt: duty.lastRunAt ? duty.lastRunAt.toISOString().slice(0, 16).replace('T', ' ') : '',
+              }
+            })}
+          />
+        ),
+      },
+      {
+        key: 'assignments',
+        label: 'Assignments',
+        content: <AssignmentsSection tenantId={tenantId} personId={selected.id} />,
+      },
+      {
+        key: 'activity',
+        label: 'Activity',
+        content: <AgentActivitySection recentRuns={detail.recentRuns} />,
+      },
+    ]
+
+    const pageSections: AgentPageSection[] = [
+      {
+        key: 'overview',
+        label: 'Overview',
+        content: (
+          <AgentOverviewSection
+            person={selected}
+            monthSpend={detail.monthSpend}
+            pendingApprovals={detail.pendingApprovals}
+            activeRun={activeRun}
+            nextDuty={nextDuty}
+            recentRuns={detail.recentRuns}
+          />
+        ),
+      },
+      ...(pageAccess?.canReadMail
+        ? [{
+            key: 'inbox',
+            label: 'Inbox',
+            content: (
+              <div className="h-[calc(100vh-13rem)] min-h-[36rem]">
+                <MailboxSection
+                  tenantId={tenantId}
+                  personId={selected.id}
+                  selectedThreadId={mailThreadId}
+                  error={mailboxError}
+                />
+              </div>
+            ),
+          } satisfies AgentPageSection]
+        : []),
+      ...(canReadWork
+        ? [{
+            key: 'chat',
+            label: 'Chat',
+            content: (
+              <AgentChatWorkspace
+                threads={visibleThreads}
+                agent={{ id: selected.id, name: selected.name, title: selected.title }}
+                avatar={
+                  <AvatarPortrait
+                    name={selected.name}
+                    composition={figure}
+                    parts={partLibrary}
+                    categories={AVATAR_PART_CATEGORIES}
+                    size={26}
+                  />
+                }
+                canStart={canStartChat}
+                initialThread={initialChat}
+              />
+            ),
+          } satisfies AgentPageSection,
+          {
+            key: 'work',
+            label: 'Work',
+            content: (
+              <AgentRecordSubsections
+                sections={workSections}
+                initialSection={workSection}
+                ariaLabel={`${selected.name}'s work`}
+              />
+            ),
+          } satisfies AgentPageSection]
+        : []),
+      {
+        key: 'profile',
+        label: 'Profile',
+        content: (
+          <AgentRecordSubsections
+            sections={profileSections}
+            initialSection={profileSection}
+            ariaLabel={`${selected.name}'s profile`}
+          />
+        ),
+      },
+    ]
+
+    return (
+      <AgentRecordPage
+        agentId={selected.id}
+        name={selected.name}
+        subtitle={`${selected.title}${manager ? ` · reports to ${manager.name}` : ''} · ${selected.email}`}
+        status={selected.status}
+        avatar={
+          <AvatarPortrait
+            name={selected.name}
+            composition={figure}
+            parts={partLibrary}
+            categories={AVATAR_PART_CATEGORIES}
+            size={72}
+          />
+        }
+        contactAction={pageAccess?.canCall && callAction ? <CallActionButton action={callAction} name={selected.name} /> : undefined}
+        sections={pageSections}
+        initialSection={mailboxError ? 'inbox' : section}
+      />
+    )
+  }
 
   return (
     <PersonDrawer

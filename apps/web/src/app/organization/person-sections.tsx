@@ -34,6 +34,192 @@ import type { PersonAccountAccess } from '../../lib/person-accounts'
 
 type Person = typeof people.$inferSelect
 
+type RecentRun = Pick<typeof runs.$inferSelect, 'id' | 'status' | 'summary' | 'startedAt'>
+
+function RunList({ runs: recentRuns }: { runs: RecentRun[] }) {
+  if (recentRuns.length === 0) {
+    return <p className="text-sm text-fg-muted">No runs yet — work appears here once this agent starts.</p>
+  }
+  return (
+    <div className="space-y-1">
+      {recentRuns.map((run) => (
+        <Link
+          key={run.id}
+          href={`/runs/${run.id}?from=person`}
+          className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 transition-colors hover:border-primary/50"
+        >
+          <span className="min-w-0 truncate">{run.summary ?? 'Working…'}</span>
+          <Badge variant={run.status === 'completed' ? 'default' : run.status === 'failed' ? 'destructive' : 'outline'}>
+            {run.status.replace('_', ' ')}
+          </Badge>
+        </Link>
+      ))}
+    </div>
+  )
+}
+
+/** The employee landing view: current state and the few facts needed at a glance. */
+export function AgentOverviewSection({
+  person,
+  monthSpend,
+  pendingApprovals,
+  activeRun,
+  nextDuty,
+  recentRuns,
+}: {
+  person: Person
+  monthSpend: number
+  pendingApprovals: number
+  activeRun: RecentRun | null
+  nextDuty: { title: string; schedule: string; dueAt: string | null } | null
+  recentRuns: RecentRun[]
+}) {
+  const salary = person.salary?.monthlyUsd ?? 0
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Status</p>
+            <p className="mt-2 text-xl font-semibold capitalize text-fg">{person.status}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Right now</p>
+            <p className="mt-2 truncate text-xl font-semibold text-fg">
+              {activeRun ? activeRun.status.replace('_', ' ') : 'Available'}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Approvals waiting</p>
+            <p className="mt-2 text-xl font-semibold tabular-nums text-fg">{pendingApprovals}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Salary used</p>
+            <p className="mt-2 text-xl font-semibold tabular-nums text-fg">
+              ${monthSpend.toFixed(2)} <span className="text-sm font-normal text-fg-muted">of ${salary}/mo</span>
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Current focus</CardTitle>
+            <CardDescription>What this employee is doing now.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {activeRun ? (
+              <Link href={`/runs/${activeRun.id}`} className="text-sm font-medium text-primary hover:underline">
+                {activeRun.summary ?? activeRun.status.replace('_', ' ')}
+              </Link>
+            ) : (
+              <p className="text-sm text-fg-muted">No work is running right now.</p>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Next duty</CardTitle>
+            <CardDescription>The next piece of standing work on their schedule.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {nextDuty ? (
+              <div className="space-y-1 text-sm">
+                <p className="font-medium text-fg">{nextDuty.title}</p>
+                <p className="text-fg-muted">{nextDuty.schedule}</p>
+                {nextDuty.dueAt ? <p className="text-xs text-fg-muted">Next due {nextDuty.dueAt}</p> : null}
+              </div>
+            ) : (
+              <p className="text-sm text-fg-muted">No enabled duties are scheduled.</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent activity</CardTitle>
+          <CardDescription>The latest governed runs on this employee’s record.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <RunList runs={recentRuns.slice(0, 4)} />
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+/** Work history without compensation, for the Work section. */
+export function AgentActivitySection({ recentRuns }: { recentRuns: RecentRun[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Activity</CardTitle>
+        <CardDescription>Recent runs and their full audit records.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <RunList runs={recentRuns} />
+      </CardContent>
+    </Card>
+  )
+}
+
+/** The job this employee holds and the governed resources that reach it. */
+export function AgentRoleSection({
+  roleLabel,
+  resourceCounts,
+}: {
+  roleLabel: string | null
+  resourceCounts: { procedures: number; skills: number; notes: number; systems: number }
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Role & resources</CardTitle>
+        <CardDescription>
+          The job this employee holds and the company resources that reach them through that role or a direct assignment.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Role</p>
+          <p className="mt-1 text-lg font-semibold text-fg">{roleLabel ?? 'No role assigned'}</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {(
+            [
+              ['Procedures', resourceCounts.procedures],
+              ['Skills', resourceCounts.skills],
+              ['Knowledge', resourceCounts.notes],
+              ['Systems', resourceCounts.systems],
+            ] as const
+          ).map(([label, count]) => (
+            <div key={label} className="rounded-lg border border-border bg-bg-subtle px-3 py-3">
+              <p className="text-xs text-fg-muted">{label}</p>
+              <p className="mt-1 text-xl font-semibold tabular-nums text-fg">{count}</p>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild size="sm" variant="outline">
+            <Link href="/roles">Manage roles</Link>
+          </Button>
+          <Button asChild size="sm" variant="outline">
+            <Link href="/resources">Open company resources</Link>
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 /** The human record's link to the platform account that can sign in. */
 export function AccountSection({ person, access }: { person: Person; access: PersonAccountAccess }) {
   const status = !access.current

@@ -74,9 +74,10 @@ function memoryChatStore(clock: () => Date) {
   const threads: StoredThread[] = []
   const messages: StoredMessage[] = []
   const store: ChatThreadStore = {
-    async listThreads({ tenantId, userId, includeArchived }): Promise<ChatThreadSummary[]> {
+    async listThreads({ tenantId, userId, includeArchived, personId }): Promise<ChatThreadSummary[]> {
       return threads
         .filter((thread) => thread.tenantId === tenantId && thread.userId === userId)
+        .filter((thread) => !personId || thread.personId === personId)
         .filter((thread) => includeArchived || thread.status === 'open')
         .sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime())
         .map((thread) => ({
@@ -387,6 +388,11 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   const archived = await listThreads({ tenantId: TENANT, userId: USER, includeArchived: true }, deps)
   assert.equal(archived.length, 1, 'and back in it when they are asked for')
   assert.equal(archived[0]?.status, 'closed')
+  assert.deepEqual(
+    await listThreads({ tenantId: TENANT, userId: USER, includeArchived: true, personId: OTHER_USER }, deps),
+    [],
+    'an agent profile never lists another agent’s conversations',
+  )
 
   // Hidden, never destroyed: the transcript and the run ids under it are the
   // whole reason this is an archive and not a delete.

@@ -14,8 +14,8 @@ const FIRST_SYNC_BUDGET_MS = 20_000
  * redirect built on it lands nowhere.
  */
 async function backToAgent(personId: string | null, error?: string): Promise<Response> {
-  const target = new URL(await appUrl('/organization'))
-  if (personId) target.searchParams.set('person', personId)
+  const target = new URL(await appUrl(personId ? `/organization/${personId}` : '/organization'))
+  if (personId) target.searchParams.set('section', 'inbox')
   if (error) target.searchParams.set('mailboxError', error)
   return Response.redirect(target, 302)
 }

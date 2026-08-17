@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { asc, eq, sql } from 'drizzle-orm'
 import { Button, EmptyState } from '@appkit/ui'
 import { approvals, people, runs, tokenSpend } from '../db/schema'
@@ -11,15 +12,14 @@ import { peopleInDepartment } from '../lib/whereabouts'
 import type { SceneKind } from '../components/scene-kinds'
 import { hasDrawnFigure, listAvatarCompositions, loadAvatarPartLibrary } from '../lib/avatars'
 import { AVATAR_PART_CATEGORIES } from '../lib/avatar-parts'
-import { personDrawer } from './organization/person-record'
 
 export const dynamic = 'force-dynamic'
 
 /**
  * The home screen is the floor: the agents on staff at work in a drawn office
  * environment, edge to edge, with one band of dashboard floating over it —
- * the KPIs and the two actions, nothing else. Clicking a figure opens their
- * record right here, over the floor; the page never changes beneath it.
+ * the KPIs and the two actions, nothing else. Clicking a figure opens that
+ * employee's canonical page.
  */
 export default async function HomePage({
   searchParams,
@@ -27,7 +27,7 @@ export default async function HomePage({
   searchParams: Promise<{ person?: string; dept?: string }>
 }) {
   const params = await searchParams
-  const selectedId = params.person
+  if (params.person) redirect(`/organization/${params.person}`)
   const tenantId = await resolveTenantId('work.read')
   const app = db()
 
@@ -270,9 +270,6 @@ export default async function HomePage({
       >
         {widgets}
       </Lobby>
-      {/* The record flyout opens over the floor — same drawer as the
-          directory, no page change beneath it. */}
-      {await personDrawer({ tenantId, roster: data.roster, selectedId, basePath: '/', searchParams: params })}
     </div>
   )
 }

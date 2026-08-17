@@ -8,23 +8,47 @@ import { PageTransition } from '@appkit/ui/page-transition'
 import { authClient } from '@/lib/auth-client'
 import { Logo } from '@/components/brand-logo'
 
-const navigation: SidebarNavGroup[] = [
-  { id: 'home', label: 'Home', items: [{ href: '/', label: 'Home', iconKey: 'home', exact: true, mobile: true }] },
+type NavigationGroup = Omit<SidebarNavGroup, 'items'> & {
+  items: Array<SidebarNavGroup['items'][number] & { section: string }>
+}
+
+/** Five operator destinations; related records live inside their workspace menu. */
+const navigation: NavigationGroup[] = [
   {
-    id: 'agents',
-    label: 'Agents',
-    // People and the org chart live behind the Agents page's own switcher —
-    // the sidebar names the destination, the page offers the views.
-    items: [{ href: '/organization', label: 'Agents', iconKey: 'hard-hat', mobile: true }],
+    id: 'home',
+    label: 'Home',
+    items: [{ section: 'home', href: '/', label: 'Home', iconKey: 'home', exact: true, mobile: true }],
   },
-  // Chat sits with the agents rather than under Work: it is a way of reaching
-  // one, the same as their mailbox, and the turn it produces is an ordinary run.
-  { id: 'chat', label: 'Chat', items: [{ href: '/chat', label: 'Chat', iconKey: 'message', mobile: true }] },
-  { id: 'roles', label: 'Roles', items: [{ href: '/roles', label: 'Roles', iconKey: 'clipboard' }] },
-  { id: 'approvals', label: 'Approvals', items: [{ href: '/approvals', label: 'Approvals', iconKey: 'list-checks', mobile: true }] },
-  { id: 'observatory', label: 'Observatory', items: [{ href: '/observatory', label: 'Observatory', iconKey: 'activity' }] },
-  { id: 'resources', label: 'Resources', items: [{ href: '/resources', label: 'Resources', iconKey: 'library' }] },
-  { id: 'settings', label: 'Settings', items: [{ href: '/admin/settings', label: 'Settings', iconKey: 'settings', mobile: true }] },
+  {
+    id: 'team',
+    label: 'Team',
+    iconKey: 'hard-hat',
+    items: [
+      { section: 'agents', href: '/organization', label: 'Agents', iconKey: 'hard-hat', mobile: true },
+      { section: 'agents', href: '/organization/people', label: 'People', iconKey: 'users' },
+      { section: 'agents', href: '/organization/chart', label: 'Org chart', iconKey: 'workflow' },
+      { section: 'roles', href: '/roles', label: 'Roles', iconKey: 'clipboard' },
+    ],
+  },
+  {
+    id: 'work',
+    label: 'Work',
+    iconKey: 'activity',
+    items: [
+      { section: 'observatory', href: '/observatory', label: 'Activity', iconKey: 'activity', mobile: true },
+      { section: 'approvals', href: '/approvals', label: 'Approvals', iconKey: 'list-checks', mobile: true },
+    ],
+  },
+  {
+    id: 'library',
+    label: 'Library',
+    items: [{ section: 'resources', href: '/resources', label: 'Library', iconKey: 'library' }],
+  },
+  {
+    id: 'settings',
+    label: 'Settings',
+    items: [{ section: 'settings', href: '/admin/settings', label: 'Settings', iconKey: 'settings', mobile: true }],
+  },
 ]
 
 export type FrameUser = { name: string; email: string; isSuperAdmin?: boolean }
@@ -52,6 +76,17 @@ export function AppFrame({
   allowedSections: string[]
 }) {
   const pathname = usePathname()
+  const visibleNavigation: SidebarNavGroup[] = navigation
+    .map((group) => ({
+      ...group,
+      items: group.items
+        .filter((item) => allowedSections.includes(item.section))
+        .map(({ section, ...item }) => {
+          void section
+          return item
+        }),
+    }))
+    .filter((group) => group.items.length > 0)
   // The sign-in screen and the guest meeting rooms render bare (no shell
   // chrome — a guest has no workspace to navigate) but keep the theme.
   if (pathname === '/login' || pathname.startsWith('/meet/')) {
@@ -79,7 +114,7 @@ export function AppFrame({
     <UiLinkProvider link={Link}>
       <ThemeProvider>
         <AppShell
-          groups={navigation.filter((group) => allowedSections.includes(group.id ?? ''))}
+          groups={visibleNavigation}
           pathname={pathname}
           brand={<Logo animated size={17} />}
           header={

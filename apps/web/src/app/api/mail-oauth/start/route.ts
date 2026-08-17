@@ -12,8 +12,8 @@ export const dynamic = 'force-dynamic'
  * redirect built on it lands nowhere.
  */
 async function backToAgent(personId: string, error?: string): Promise<Response> {
-  const target = new URL(await appUrl('/organization'))
-  if (personId) target.searchParams.set('person', personId)
+  const target = new URL(await appUrl(personId ? `/organization/${personId}` : '/organization'))
+  if (personId) target.searchParams.set('section', 'inbox')
   if (error) target.searchParams.set('mailboxError', error)
   return Response.redirect(target, 302)
 }

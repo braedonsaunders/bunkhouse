@@ -1,4 +1,5 @@
 import { asc } from 'drizzle-orm'
+import { redirect } from 'next/navigation'
 import type { OrgChartNode } from '@appkit/ui'
 import { EmptyState, FilterChips, PageContainer, PageHeader } from '@appkit/ui'
 import { OrganizationTabs } from '../../../components/organization-tabs'
@@ -34,6 +35,9 @@ export default async function OrgChartPage({
   const roster = await app.withTenantContext(tenantId, () =>
     app.db.select().from(people).orderBy(asc(people.name)),
   )
+  if (selectedId && roster.some((person) => person.id === selectedId && person.kind === 'agent')) {
+    redirect(`/organization/${selectedId}`)
+  }
   const [compositions, partLibrary] = await Promise.all([
     listAvatarCompositions(tenantId),
     loadAvatarPartLibrary(tenantId),
@@ -86,6 +90,7 @@ export default async function OrgChartPage({
       ) : (
         <OrgChartView
           people={nodes}
+          agentIds={charted.filter((person) => person.kind === 'agent').map((person) => person.id)}
           selectedId={selectedId}
           toolbar={
             <div className="flex items-center gap-3">

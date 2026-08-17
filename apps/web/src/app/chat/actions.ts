@@ -49,13 +49,14 @@ import {
 const CHAT_PATH = '/chat'
 
 export async function listThreadsAction(
-  options?: { includeArchived?: boolean },
+  options?: { includeArchived?: boolean; personId?: string },
 ): Promise<ChatThreadSummary[]> {
   const access = await requireTenantPermission('work.read')
   return listThreads({
     tenantId: access.tenantId,
     userId: access.user.id,
     includeArchived: options?.includeArchived === true,
+    ...(options?.personId ? { personId: options.personId } : {}),
   })
 }
 

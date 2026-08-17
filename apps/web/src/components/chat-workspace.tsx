@@ -17,11 +17,7 @@ import {
   Button,
   Card,
   ContextMenu,
-  Drawer,
   EmptyState,
-  Label,
-  PageHeader,
-  Select,
   cn,
   promptDialog,
   useContextMenu,
@@ -330,17 +326,19 @@ function ThreadList({
   )
 }
 
-export function ChatWorkspace({
+export function AgentChatWorkspace({
   threads: initialThreads,
-  agents,
-  avatars,
+  agent,
+  avatar,
+  canStart,
   initialThread,
 }: {
   threads: ChatThreadSummary[]
-  /** The agents that can hold a conversation — the roster, already filtered. */
-  agents: ChatAgentOption[]
-  /** Each agent's face, rendered on the server so this pane carries no part library. */
-  avatars: Record<string, React.ReactNode>
+  /** The profile owns the person context; every thread here belongs to this agent. */
+  agent: ChatAgentOption
+  avatar: React.ReactNode
+  /** False when no model is assigned, so starting a thread could only fail. */
+  canStart: boolean
   /** The thread named in the URL, already loaded, or null. */
   initialThread: ChatThreadDetail | null
 }) {
@@ -348,7 +346,6 @@ export function ChatWorkspace({
   const [detail, setDetail] = React.useState<ChatThreadDetail | null>(initialThread)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [composing, setComposing] = React.useState(false)
   const [deskChoice, setDeskChoice] = React.useState<boolean | null>(null)
   // Archived conversations are out of the list by default. The one exception
   // is arriving on a link to one: it would otherwise open in a pane with no row
@@ -376,18 +373,22 @@ export function ChatWorkspace({
       // The URL follows the thread without a navigation: a soft navigation
       // here would re-render the page from the server and take the panel's
       // live stream with it.
-      window.history.replaceState(null, '', `/chat?thread=${encodeURIComponent(threadId)}`)
+      window.history.replaceState(
+        null,
+        '',
+        `/organization/${encodeURIComponent(agent.id)}?section=chat&thread=${encodeURIComponent(threadId)}`,
+      )
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'That conversation could not be opened.')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [agent.id])
 
   /** The list as this pane is currently asking for it. */
   const fetchThreads = React.useCallback(
-    () => listThreadsAction({ includeArchived: showArchived }),
-    [showArchived],
+    () => listThreadsAction({ includeArchived: showArchived, personId: agent.id }),
+    [agent.id, showArchived],
   )
 
   /**
@@ -441,21 +442,20 @@ export function ChatWorkspace({
    * the opening message down a second road to the same run.
    */
   const startThread = React.useCallback(
-    async (personId: string) => {
-      const started = await startThreadAction(personId, '')
-      setComposing(false)
+    async () => {
+      const started = await startThreadAction(agent.id, '')
       const list = await fetchThreads().catch(() => threads)
       setThreads(list)
       await load(started.threadId)
     },
-    [fetchThreads, load, threads],
+    [agent.id, fetchThreads, load, threads],
   )
 
   const toggleArchived = React.useCallback(async (next: boolean) => {
     setShowArchived(next)
-    const list = await listThreadsAction({ includeArchived: next }).catch(() => null)
+    const list = await listThreadsAction({ includeArchived: next, personId: agent.id }).catch(() => null)
     if (list !== null) setThreads(list)
-  }, [])
+  }, [agent.id])
 
   /**
    * Naming a conversation by hand. The shared prompt is the app's way of
@@ -513,19 +513,19 @@ export function ChatWorkspace({
             <EmptyState
               title={threads.length === 0 ? 'No conversations yet' : 'Pick a conversation'}
               description={
-                agents.length === 0
-                  ? 'No agent on the roster has a model assigned yet, so there is nobody here to talk to. Assign one from an agent’s profile.'
+                !canStart
+                  ? `${agent.name} needs an assigned model before they can hold a conversation.`
                   : threads.length === 0
-                    ? 'Start one with any agent. What you agree here becomes a run on their record, the same as an email would.'
+                    ? `Start a conversation with ${agent.name}. What you agree here becomes a run on their record, the same as an email would.`
                     : 'Choose a conversation on the left, or start a new one.'
               }
               action={
-                agents.length === 0 ? (
+                !canStart ? (
                   <Button asChild size="sm" variant="outline">
-                    <Link href="/organization">Open the roster</Link>
+                    <Link href={`/organization/${agent.id}?section=profile`}>Open profile</Link>
                   </Button>
                 ) : (
-                  <Button type="button" size="sm" onClick={() => setComposing(true)}>
+                  <Button type="button" size="sm" onClick={() => void startThread()}>
                     <MessageSquarePlus aria-hidden className="size-4" />
                     New conversation
                   </Button>
@@ -570,171 +570,73 @@ export function ChatWorkspace({
   const deskVisible = deskOpen && detail !== null
 
   return (
-    // Mirrors @appkit/ui's PageContainer — the shell every other route in this
-    // app uses, always as `<PageContainer className="space-y-6">`. Chat cannot
-    // use it directly (its body must not scroll: the composer and the desk have
-    // to stay put, hence `lg:h-full` and the flex column below), but its
-    // heading has to land where every other page's heading lands, so the inset
-    // and the gap under the title are that shell's, class for class. Keep the
-    // two in step if PageContainer's padding ever moves.
-    <div className="app-scroll min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
-      <div className="reveal mx-auto flex w-full max-w-(--breakpoint-2xl) flex-col gap-6 p-4 sm:p-6 lg:h-full">
-        <PageHeader
-          className="shrink-0"
-          title="Chat"
-          description="Talk to an agent and watch it work. Every turn is a run on their record."
-          actions={
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              aria-pressed={deskOpen}
-              onClick={() => setDeskChoice(!deskOpen)}
-            >
-              {deskOpen ? (
-                <PanelRightClose aria-hidden className="size-4" />
-              ) : (
-                <Monitor aria-hidden className="size-4" />
-              )}
-              {deskOpen ? 'Hide desk' : 'Show desk'}
-            </Button>
-          }
-        />
-
-        {error !== null ? (
-          <p role="alert" className="shrink-0 text-sm text-danger">
-            {error}
-          </p>
-        ) : null}
-
-        {/* One card, three panes — divided, not spaced. Three cards with air
-            between them read as three separate screens; this is one screen
-            with the list, the conversation and the machine side by side in it,
-            so the seams are hairlines and the panes carry the padding.
-            `divide-*` puts them between the panes only, and follows the
-            stacking: a row rule below `lg`, a column rule above it. The middle
-            column is the only elastic one, so a wider window goes to the
-            conversation and the desk keeps its shape. */}
-        <Card
-          className={cn(
-            'grid divide-y divide-border overflow-hidden lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)] lg:divide-x lg:divide-y-0',
-            deskVisible
-              ? 'lg:grid-cols-[14rem_minmax(0,1fr)_minmax(0,22rem)] xl:grid-cols-[15rem_minmax(0,1fr)_minmax(0,28rem)]'
-              : 'lg:grid-cols-[15rem_minmax(0,1fr)]',
-          )}
+    <div className="flex min-h-[36rem] flex-col gap-3 lg:h-[calc(100vh-13rem)] lg:min-h-0">
+      <div className="flex shrink-0 items-center justify-between gap-3">
+        <p className="text-sm text-fg-muted">
+          Separate conversations keep different pieces of work from bleeding into one another.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-pressed={deskOpen}
+          onClick={() => setDeskChoice(!deskOpen)}
         >
-          <ThreadList
-            threads={threads}
-            activeId={activeId}
-            avatars={avatars}
-            onSelect={(id) => void load(id)}
-            onNew={() => setComposing(true)}
-            canStart={agents.length > 0}
-            showArchived={showArchived}
-            onShowArchived={(next) => void toggleArchived(next)}
-            onRename={(thread) => void renameThread(thread)}
-            onSetStatus={(thread, status) => void setThreadStatus(thread, status)}
-          />
-          {conversation}
-          {/* Unmounted rather than hidden when it is folded away: a pane that
-              is not on screen must not be holding a frame stream open. */}
-          {deskVisible ? (
-            <div className="min-h-0 max-lg:h-[34rem]">
-              {/* Keyed on the agent: a different desk is a different machine,
-                  and none of what was true about the last one — its screen,
-                  its frames, who was driving it — carries over. */}
-              <ChatDesk
-                key={detail.thread.personId}
-                personId={detail.thread.personId}
-                personName={detail.thread.personName}
-              />
-            </div>
-          ) : null}
-        </Card>
+          {deskOpen ? <PanelRightClose aria-hidden className="size-4" /> : <Monitor aria-hidden className="size-4" />}
+          {deskOpen ? 'Hide desk' : 'Show desk'}
+        </Button>
       </div>
 
-      <NewConversationDrawer
-        open={composing}
-        agents={agents}
-        onClose={() => setComposing(false)}
-        onStart={startThread}
-      />
-    </div>
-  )
-}
+      {error !== null ? (
+        <p role="alert" className="shrink-0 text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
 
-/**
- * Starting a conversation is choosing who it is with. The first thing said is
- * said in the thread itself, where every later turn is said — one road to the
- * run, and the opening message streams like the rest of them.
- */
-function NewConversationDrawer({
-  open,
-  agents,
-  onClose,
-  onStart,
-}: {
-  open: boolean
-  agents: ChatAgentOption[]
-  onClose: () => void
-  onStart: (personId: string) => Promise<void>
-}) {
-  const [personId, setPersonId] = React.useState(agents[0]?.id ?? '')
-  const [busy, setBusy] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
-
-  const submit = async () => {
-    if (personId === '') return
-    setBusy(true)
-    setError(null)
-    try {
-      await onStart(personId)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'That conversation could not be started.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Drawer
-      open={open}
-      onClose={onClose}
-      title="New conversation"
-      description="Pick who you are talking to. What you ask for becomes a run on their record."
-      size="md"
-      footer={
-        <div className="flex items-center gap-2">
-          <Button type="button" disabled={busy || personId === ''} onClick={() => void submit()}>
-            {busy ? <Loader2 aria-hidden className="size-4 animate-spin" /> : null}
-            Start the conversation
-          </Button>
-          <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
-            Cancel
-          </Button>
-        </div>
-      }
-    >
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="chat-agent">Agent</Label>
-          <Select id="chat-agent" value={personId} onChange={(event) => setPersonId(event.target.value)}>
-            {agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name} — {agent.title}
-              </option>
-            ))}
-          </Select>
-          <p className="text-xs text-fg-muted">
-            Only agents with a model assigned are listed — the rest have nothing to think with yet.
-          </p>
-        </div>
-        {error !== null ? (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
+      {/* One card, three panes — divided, not spaced. Three cards with air
+          between them read as three separate screens; this is one screen
+          with the list, the conversation and the machine side by side in it,
+          so the seams are hairlines and the panes carry the padding.
+          `divide-*` puts them between the panes only, and follows the
+          stacking: a row rule below `lg`, a column rule above it. The middle
+          column is the only elastic one, so a wider window goes to the
+          conversation and the desk keeps its shape. */}
+      <Card
+        className={cn(
+          'grid divide-y divide-border overflow-hidden lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)] lg:divide-x lg:divide-y-0',
+          deskVisible
+            ? 'lg:grid-cols-[14rem_minmax(0,1fr)_minmax(0,22rem)] xl:grid-cols-[15rem_minmax(0,1fr)_minmax(0,28rem)]'
+            : 'lg:grid-cols-[15rem_minmax(0,1fr)]',
+        )}
+      >
+        <ThreadList
+          threads={threads}
+          activeId={activeId}
+          avatars={{ [agent.id]: avatar }}
+          onSelect={(id) => void load(id)}
+          onNew={() => void startThread()}
+          canStart={canStart}
+          showArchived={showArchived}
+          onShowArchived={(next) => void toggleArchived(next)}
+          onRename={(thread) => void renameThread(thread)}
+          onSetStatus={(thread, status) => void setThreadStatus(thread, status)}
+        />
+        {conversation}
+        {/* Unmounted rather than hidden when it is folded away: a pane that
+            is not on screen must not be holding a frame stream open. */}
+        {deskVisible ? (
+          <div className="min-h-0 max-lg:h-[34rem]">
+            {/* Keyed on the agent: a different desk is a different machine,
+                and none of what was true about the last one — its screen,
+                its frames, who was driving it — carries over. */}
+            <ChatDesk
+              key={detail.thread.personId}
+              personId={detail.thread.personId}
+              personName={detail.thread.personName}
+            />
+          </div>
         ) : null}
-      </div>
-    </Drawer>
+      </Card>
+    </div>
   )
 }

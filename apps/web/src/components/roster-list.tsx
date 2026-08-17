@@ -99,6 +99,7 @@ export function RosterList({
   empty,
   selectedId,
   filters,
+  recordHrefBase,
 }: {
   rows: RosterRow[]
   columns: RecordColumn<RosterRow>[]
@@ -110,6 +111,8 @@ export function RosterList({
   selectedId?: string | undefined
   /** Toolbar filters (URL-driven), rendered beside the search box. */
   filters?: React.ReactNode
+  /** Full-page records use this base; omitted records continue to open as drawers. */
+  recordHrefBase?: string
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -173,7 +176,11 @@ export function RosterList({
         // loads. A bare push runs at click priority, which lets the page fall
         // back to the route-level spinner — the whole list disappearing and
         // coming back, which reads as the page reloading before the drawer opens.
-        startTransition(() => router.push(`${basePath}?person=${row.id}`, { scroll: false }))
+        startTransition(() =>
+          router.push(recordHrefBase ? `${recordHrefBase}/${row.id}` : `${basePath}?person=${row.id}`, {
+            scroll: false,
+          }),
+        )
       }}
       empty={empty}
     />

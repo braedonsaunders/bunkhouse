@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { asc } from 'drizzle-orm'
 import { Button, FilterChips, PageContainer, PageHeader } from '@appkit/ui'
 import { people } from '../../db/schema'
@@ -11,7 +12,6 @@ import { rosterModelCell } from '../../lib/model-assignment'
 import { OrganizationTabs } from '../../components/organization-tabs'
 import { RosterAvatar } from '../../components/roster-avatar'
 import { AGENT_COLUMNS, RosterList, type RosterRow } from '../../components/roster-list'
-import { personDrawer } from './person-record'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,7 +27,8 @@ export default async function AgentsPage({
   searchParams: Promise<{ person?: string; mailboxError?: string; tab?: string; thread?: string; status?: string }>
 }) {
   const params = await searchParams
-  const { person: selectedId, mailboxError, tab, thread } = params
+  const { person: selectedId } = params
+  if (selectedId) redirect(`/organization/${selectedId}`)
   const status = params.status ?? DEFAULT_STATUS
   const tenantId = await resolveTenantId('people.read')
   const app = db()
@@ -91,7 +92,7 @@ export default async function AgentsPage({
         rows={rows}
         columns={AGENT_COLUMNS}
         basePath={BASE_PATH}
-        selectedId={selectedId}
+        recordHrefBase="/organization"
         searchPlaceholder="Search agents…"
         filters={
           <FilterChips
@@ -119,16 +120,6 @@ export default async function AgentsPage({
               }
         }
       />
-      {await personDrawer({
-        tenantId,
-        roster,
-        selectedId,
-        basePath: BASE_PATH,
-        mailboxError,
-        tab,
-        mailThreadId: thread,
-        searchParams: params,
-      })}
     </PageContainer>
   )
 }

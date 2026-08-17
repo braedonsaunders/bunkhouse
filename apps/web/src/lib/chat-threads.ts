@@ -73,7 +73,12 @@ export type ChatThreadSummary = ChatThreadView & { lastMessageAt: string }
 export type ChatThreadStore = {
   /** `includeArchived` brings the closed conversations back into the answer;
    *  the default list is the live ones only. */
-  listThreads(args: { tenantId: string; userId: string; includeArchived: boolean }): Promise<ChatThreadSummary[]>
+  listThreads(args: {
+    tenantId: string
+    userId: string
+    includeArchived: boolean
+    personId?: string
+  }): Promise<ChatThreadSummary[]>
   readThread(args: { tenantId: string; threadId: string }): Promise<ChatThreadView | null>
   readMessages(args: { tenantId: string; threadId: string }): Promise<ChatMessageView[]>
   /** The agent's display name, or null when the person is not a live agent here. */
@@ -134,7 +139,7 @@ function messageView(row: {
  */
 export function dbChatThreadStore(): ChatThreadStore {
   return {
-    async listThreads({ tenantId, userId, includeArchived }) {
+    async listThreads({ tenantId, userId, includeArchived, personId }) {
       const app = db()
       const rows = await app.withTenantContext(tenantId, () =>
         app.db
@@ -153,6 +158,7 @@ export function dbChatThreadStore(): ChatThreadStore {
             and(
               eq(chatThreads.userId, userId),
               ...(includeArchived ? [] : [eq(chatThreads.status, 'open')]),
+              ...(personId ? [eq(chatThreads.personId, personId)] : []),
             ),
           )
           .orderBy(desc(chatThreads.lastMessageAt)),
@@ -373,13 +379,14 @@ async function runnerOf(deps: ChatThreadDeps): Promise<ChatRunner> {
  * thread, its messages and the runs under them are all still there.
  */
 export async function listThreads(
-  args: { tenantId: string; userId: string; includeArchived?: boolean },
+  args: { tenantId: string; userId: string; includeArchived?: boolean; personId?: string },
   deps: ChatThreadDeps = {},
 ): Promise<ChatThreadSummary[]> {
   return storeOf(deps).listThreads({
     tenantId: args.tenantId,
     userId: args.userId,
     includeArchived: args.includeArchived ?? false,
+    ...(args.personId ? { personId: args.personId } : {}),
   })
 }
 

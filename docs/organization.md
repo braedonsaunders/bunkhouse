@@ -4,7 +4,7 @@ The organization module is the roster and the org chart: every human employee an
 every AI agent in one company, joined by one formal reporting line. It replaces
 what was called the Directory.
 
-## Why one table, two pages
+## Why one table, two record experiences
 
 People and agents are the same record — `people`, discriminated by
 `person_kind` (`human` | `agent`). They must share a table because the reporting
@@ -19,18 +19,36 @@ model that is blank for the other half — and no honest heading covers both. So
 
 | Surface | Route | Shows |
 | --- | --- | --- |
+| Agents | `/organization` | AI employees: role, mailbox, model, extension, manager, status |
+| Agent record | `/organization/<agent-id>` | One AI employee's overview, inbox, chat, work, and profile |
 | People | `/organization/people` | Humans: job title, email, phone, manager, status |
-| Agents | `/organization` | Agents: role, mailbox, model, extension, manager, status |
 | Org chart | `/organization/chart` | Both, drawn as the reporting hierarchy |
 
-The sidebar names one destination — Agents — and the three surfaces sit behind
-that page's own switcher (the same control the observatory uses for
-Live/History), so the nav has no submenu. `/organization` redirects to Agents.
-`/organization/<id>` is the canonical deep
-link for callers that hold only an id — mail, approvals, runs, the PBX — and it
-resolves the record's kind before landing on the right roster with the drawer
-open. Every surface opens the **same** record drawer from `?person=<id>`; the
-drawer is assembled once, in `app/organization/person-record.tsx`.
+The primary navigation keeps five destinations: Home, Team, Work, Library, and
+Settings. Team groups Agents, People, Org chart, and Roles; Work groups Activity
+and Approvals. Chat and mail are not detached company-wide destinations: they
+belong to the AI employee who owns the conversations.
+
+`/organization/<id>` is the canonical deep link for any caller that holds an
+employee id — the lobby, roster, org chart, mail, approvals, runs, and PBX. An
+agent id opens a full record page. A human id resolves to the People roster and
+opens the compact record drawer, because humans do not have an AI work surface.
+
+The agent page uses a stable employee header and five primary sections:
+
+- **Overview** — current state, current focus, next duty, approvals, salary use,
+  and recent activity;
+- **Inbox** — the agent's real company mailbox and mail audit trail;
+- **Chat** — operator conversations scoped to this one agent;
+- **Work** — duties, governed assignments, and run activity;
+- **Profile** — identity, role and resources, avatar, model, voice, autonomy,
+  memory, and compensation.
+
+An agent can own any number of chat threads. The conversation list is always
+filtered by `person_id`; opening Chat selects the newest active thread by
+default, while operators can start another or reveal archived conversations.
+Legacy `/chat` and `/mail` links resolve their thread owner and redirect to the
+corresponding section on the canonical agent page.
 
 ## The reporting hierarchy
 

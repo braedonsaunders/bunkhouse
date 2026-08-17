@@ -17,8 +17,10 @@ export function OrgChartView({
   people,
   selectedId,
   toolbar,
+  agentIds,
 }: {
   people: OrgChartNode[]
+  agentIds: string[]
   selectedId?: string | undefined
   toolbar?: React.ReactNode
 }) {
@@ -52,7 +54,11 @@ export function OrgChartView({
     <OrgChart
       nodes={nodes}
       selectedId={selectedId ?? null}
-      onSelect={(id) => router.push(`/organization/chart?person=${id}`, { scroll: false })}
+      onSelect={(id) =>
+        router.push(agentIds.includes(id) ? `/organization/${id}` : `/organization/chart?person=${id}`, {
+          scroll: false,
+        })
+      }
       onReparent={reparent}
       labels={{
         topLevel: 'Top level',

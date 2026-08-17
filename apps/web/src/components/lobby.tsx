@@ -100,6 +100,7 @@ export function Lobby({
   categories,
   children,
   selectBasePath = '/organization',
+  personBasePath = '/organization',
   departments,
   departmentSlug,
 }: {
@@ -113,6 +114,8 @@ export function Lobby({
    * the flyout opens in place, over the floor, with no page change beneath it.
    */
   selectBasePath?: string
+  /** Canonical full-page employee records live under this path. */
+  personBasePath?: string
   /**
    * The company's places. Empty falls back to the old wallpaper behaviour, so a
    * deployment that has not migrated still gets a floor.
@@ -213,7 +216,7 @@ export function Lobby({
         // The only widget left over the floor is the HUD band across the top,
         // so that is the only place a walker must not stand.
         config={{ exclusionZones: [{ minX: 0, maxX: 100, minY: 0, maxY: 40 }] }}
-        onSelect={(id) => router.push(`${selectBasePath}?person=${id}`, { scroll: false })}
+        onSelect={(id) => router.push(`${personBasePath}/${id}`, { scroll: false })}
       />
       {children ? <div className="pointer-events-none absolute inset-0 z-[92]">{children}</div> : null}
       <div className="bh-hud absolute bottom-3 left-1/2 z-[95] flex -translate-x-1/2 items-center gap-1 rounded-full p-1">
