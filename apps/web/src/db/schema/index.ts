@@ -14,6 +14,7 @@ export * from './pbx'
 export * from './files'
 export * from './workspace'
 export * from './chat'
+export * from './chat-threads'
 export * from './templates'
 export * from './filing'
 export * from './browser'
@@ -36,6 +37,7 @@ import { PBX_TENANT_TABLES } from './pbx'
 import { FILES_TENANT_TABLES } from './files'
 import { WORKSPACE_TENANT_TABLES } from './workspace'
 import { CHAT_TENANT_TABLES } from './chat'
+import { CHAT_THREAD_TENANT_TABLES } from './chat-threads'
 import { TEMPLATES_TENANT_TABLES } from './templates'
 import { FILING_TENANT_TABLES } from './filing'
 import { BROWSER_TENANT_TABLES } from './browser'
@@ -60,6 +62,7 @@ export const BUNKHOUSE_TENANT_TABLES = [
   ...FILES_TENANT_TABLES,
   ...WORKSPACE_TENANT_TABLES,
   ...CHAT_TENANT_TABLES,
+  ...CHAT_THREAD_TENANT_TABLES,
   ...TEMPLATES_TENANT_TABLES,
   ...FILING_TENANT_TABLES,
   ...BROWSER_TENANT_TABLES,

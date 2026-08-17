@@ -17,6 +17,9 @@ const navigation: SidebarNavGroup[] = [
     // the sidebar names the destination, the page offers the views.
     items: [{ href: '/organization', label: 'Agents', iconKey: 'hard-hat', mobile: true }],
   },
+  // Chat sits with the agents rather than under Work: it is a way of reaching
+  // one, the same as their mailbox, and the turn it produces is an ordinary run.
+  { id: 'chat', label: 'Chat', items: [{ href: '/chat', label: 'Chat', iconKey: 'message', mobile: true }] },
   { id: 'roles', label: 'Roles', items: [{ href: '/roles', label: 'Roles', iconKey: 'clipboard' }] },
   { id: 'approvals', label: 'Approvals', items: [{ href: '/approvals', label: 'Approvals', iconKey: 'list-checks', mobile: true }] },
   { id: 'observatory', label: 'Observatory', items: [{ href: '/observatory', label: 'Observatory', iconKey: 'activity' }] },

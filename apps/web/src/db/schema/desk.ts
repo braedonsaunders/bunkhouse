@@ -54,6 +54,8 @@ export type DeskLedgerEventKind =
   | 'shell_command'
   | 'app_launch'
   | 'click'
+  /** A bare pointer move — only an operator driving by hand produces these. */
+  | 'move'
   | 'type'
   | 'key'
   | 'scroll'

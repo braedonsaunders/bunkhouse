@@ -225,6 +225,8 @@ export function guestWorkspacePath(relative: string): string {
 // because they are streams and not calls:
 //   · GET  /desks/:id/screen/frames  and POST /screen/frames/start|stop —
 //     the live view, in desk-cast.ts, which feeds them to the call stage.
+//     (`openDeskFrameStream` below is the OTHER consumer of the same
+//     endpoint: the browser proxy behind /api/desk/[personId]/frames.)
 //   · GET  /desks/:id/handover/stream (WS) — the handover relay; this module
 //     only composes its authenticated URL, below.
 // ---------------------------------------------------------------------------
@@ -510,6 +512,206 @@ export function deskHandoverStreamUrl(
     ? args.stream
     : `/desks/${encodeURIComponent(args.deskId)}/handover/stream`
   return `${runnerWsBase(runner)}${path}?token=${encodeURIComponent(runner.token)}`
+}
+
+// ---------------------------------------------------------------------------
+// The desk-v1 calls an OPERATOR makes, rather than an agent.
+//
+// An agent reaches the screen through its abilities, which carry a run context
+// (the ledger session, the step budget, the frame it is shown). A person
+// driving the same desk from the chat page has none of that and needs none of
+// it — but the runner's URL and bearer token must not leave this module, so
+// these are the door. Policy (feature gates, the dial) and the RECORD live one
+// layer up, in lib/chat-desk.ts; what is here is only the wire.
+// ---------------------------------------------------------------------------
+
+/** The desk-v1 `/screen/input` shape, exactly as the runner switches on it. */
+export type DeskInputAction =
+  | { action: 'move'; x: number; y: number }
+  | { action: 'click'; x: number; y: number; button?: 'left' | 'middle' | 'right' }
+  | { action: 'type'; text: string }
+  | { action: 'key'; combo: string }
+  | { action: 'scroll'; x: number; y: number; dx?: number; dy?: number }
+  | { action: 'drag'; from: { x: number; y: number }; to: { x: number; y: number } }
+
+export async function startDeskScreen(
+  args: { deskId: string; width: number; height: number },
+  deps: DeskClientDeps = {},
+): Promise<void> {
+  const runner = requireRunner(deps)
+  await runnerPost(runner, deps, `/desks/${encodeURIComponent(args.deskId)}/screen/start`, {
+    width: args.width,
+    height: args.height,
+  })
+}
+
+export async function stopDeskScreen(deskId: string, deps: DeskClientDeps = {}): Promise<void> {
+  const runner = requireRunner(deps)
+  await runnerPost(runner, deps, `/desks/${encodeURIComponent(deskId)}/screen/stop`, {})
+}
+
+export async function sendDeskInput(
+  args: { deskId: string; action: DeskInputAction },
+  deps: DeskClientDeps = {},
+): Promise<void> {
+  const runner = requireRunner(deps)
+  await runnerPost(runner, deps, `/desks/${encodeURIComponent(args.deskId)}/screen/input`, args.action)
+}
+
+/** Idempotent begin — a second call returns the handover already running. */
+export async function beginDeskHandover(
+  args: { deskId: string; ttlMs: number; scope: 'view' | 'control'; actor: string },
+  deps: DeskClientDeps = {},
+): Promise<{ url: string; streamUrl: string | null; expiresAt: string | null }> {
+  const runner = requireRunner(deps)
+  const begun = await runnerPost<{ url: string; stream?: string; expiresAt?: string }>(
+    runner,
+    deps,
+    `/desks/${encodeURIComponent(args.deskId)}/handover`,
+    { op: 'begin', ttlMs: args.ttlMs, scope: args.scope, actor: args.actor },
+  )
+  return {
+    url: begun.url,
+    streamUrl: begun.stream ? deskHandoverStreamUrl({ deskId: args.deskId, stream: begun.stream }, deps) : null,
+    expiresAt: begun.expiresAt ?? null,
+  }
+}
+
+export async function endDeskHandover(deskId: string, deps: DeskClientDeps = {}): Promise<void> {
+  const runner = requireRunner(deps)
+  await runnerPost(runner, deps, `/desks/${encodeURIComponent(deskId)}/handover`, { op: 'end' })
+}
+
+/**
+ * One still off the guest's compositor, base64 PNG. The polling fallback for
+ * a deployment whose event stream cannot get through (an old proxy, a CDN that
+ * buffers); the SSE pump above is the transport that should normally be used.
+ */
+export async function captureDeskFrame(
+  deskId: string,
+  deps: DeskClientDeps = {},
+): Promise<{ png: string; width: number; height: number }> {
+  const observation = await observeDesk(deskId, deps)
+  return { png: observation.png, width: observation.width, height: observation.height }
+}
+
+/** One frame as the browser proxy hands it on. */
+export type DeskWireFrame = { png: string; width: number; height: number; seq: number }
+
+/**
+ * The guest's live frames, re-framed for a browser.
+ *
+ * Subscribing IS starting the pump: the runner spins capture up for the first
+ * subscriber and stops it when the last one leaves, so a viewer closing the tab
+ * stops the guest capturing rather than leaving a picture nobody is looking at
+ * running. Deliberately not pinned (`/screen/frames/start`) for exactly that
+ * reason.
+ *
+ * The mask holds here for free (§3.14): the runner reads frames from
+ * `@appkit/desk`'s own `screen.frames()`, which withholds every frame while a
+ * handover is active. When a person has the screen, this stream simply goes
+ * quiet — nothing in this path can undo that, and nothing in this path should
+ * ever be pointed at a rawer source.
+ */
+export async function openDeskFrameStream(
+  args: { deskId: string; fps?: number; width?: number; height?: number; signal?: AbortSignal },
+  deps: DeskClientDeps = {},
+): Promise<ReadableStream<Uint8Array>> {
+  const runner = requireRunner(deps)
+  const request = deps.fetch ?? fetch
+  const query = new URLSearchParams({
+    fps: String(args.fps ?? 10),
+    width: String(args.width ?? AGENT_SCREEN_WIDTH),
+    height: String(args.height ?? AGENT_SCREEN_HEIGHT),
+  })
+  const response = await request(
+    `${runner.url}/desks/${encodeURIComponent(args.deskId)}/screen/frames?${query.toString()}`,
+    {
+      headers: { authorization: `Bearer ${runner.token}`, accept: 'text/event-stream' },
+      ...(args.signal ? { signal: args.signal } : {}),
+    },
+  )
+  if (!response.ok || !response.body) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(`The desk refused the frame stream (${response.status}) ${detail.slice(0, 200)}`.trim())
+  }
+  return reframeDeskFrames(response.body)
+}
+
+/**
+ * The runner's SSE ({ seq, width, height, data }) → the browser's SSE
+ * ({ png, width, height, seq }). One rename and nothing else: no re-encode, no
+ * buffering of a backlog, and the runner's address and token stay on this side
+ * of the boundary.
+ */
+export function reframeDeskFrames(upstream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  const reader = upstream.getReader()
+  const decoder = new TextDecoder()
+  const encoder = new TextEncoder()
+  let buffered = ''
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) {
+          controller.close()
+          return
+        }
+        buffered += decoder.decode(value, { stream: true })
+        let boundary = buffered.indexOf('\n\n')
+        let wrote = false
+        while (boundary !== -1) {
+          const record = buffered.slice(0, boundary)
+          buffered = buffered.slice(boundary + 2)
+          boundary = buffered.indexOf('\n\n')
+          const payload = record
+            .split('\n')
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trimStart())
+            .join('')
+          // Comment lines (the keepalive a still screen produces) carry no
+          // data; they are forwarded as a keepalive of our own so whatever
+          // sits between here and the browser leaves the connection alone.
+          if (!payload) {
+            controller.enqueue(encoder.encode(': keepalive\n\n'))
+            wrote = true
+            continue
+          }
+          const frame = parseUpstreamFrame(payload)
+          if (!frame) continue
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`))
+          wrote = true
+        }
+        if (wrote) return
+      }
+    },
+    cancel(reason) {
+      // The viewer left: drop the upstream subscription, which is what tells
+      // the runner to stop capturing.
+      void reader.cancel(reason).catch(() => undefined)
+    },
+  })
+}
+
+function parseUpstreamFrame(payload: string): DeskWireFrame | null {
+  try {
+    const value = JSON.parse(payload) as { seq?: unknown; width?: unknown; height?: unknown; data?: unknown }
+    if (typeof value.data !== 'string' || !value.data) return null
+    return {
+      png: value.data,
+      width: typeof value.width === 'number' ? value.width : AGENT_SCREEN_WIDTH,
+      height: typeof value.height === 'number' ? value.height : AGENT_SCREEN_HEIGHT,
+      seq: typeof value.seq === 'number' ? value.seq : 0,
+    }
+  } catch {
+    return null
+  }
+}
+
+function requireRunner(deps: DeskClientDeps): DeskRunner {
+  const runner = deps.runner ?? configuredDeskRunner()
+  if (!runner) throw new Error('No desk runner is configured.')
+  return runner
 }
 
 // ---------------------------------------------------------------------------
