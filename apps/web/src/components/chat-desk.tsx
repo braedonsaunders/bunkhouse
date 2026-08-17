@@ -88,6 +88,36 @@ const FRAME_STALE_MS = 8_000
 const FRAME_POLL_MS = 1_000
 
 /**
+ * The runner's video framing (`encodeVideoWireChunk` in
+ * apps/web/scripts/desk-runner.mts, mirrored here by hand — change both
+ * together): an 8-byte header then a fragmented-MP4 payload.
+ *
+ *   [magic:2 = 'DV'][kind:1][flags:1][length:4 BE][payload:length]
+ *
+ * kind 1 is the init segment, whose payload is [codecLength:1][codec][bytes];
+ * kind 2 is a media fragment. flags bit 0 marks a keyframe.
+ */
+const VIDEO_WIRE_HEADER_BYTES = 8
+const VIDEO_WIRE_KIND_INIT = 1
+const VIDEO_WIRE_KIND_MEDIA = 2
+
+/**
+ * How far behind the newest buffered moment the playhead may drift before it is
+ * moved forward.
+ *
+ * This is THE classic MediaSource live-streaming failure: a `<video>` plays at
+ * exactly 1x, every hiccup adds permanently to the gap between the playhead and
+ * the live edge, and half an hour later the operator is driving a desktop they
+ * are watching four seconds in the past. Nothing about that looks broken — the
+ * picture is smooth and the clicks land where they were aimed — which is why it
+ * has to be corrected rather than noticed.
+ */
+const VIDEO_LIVE_EDGE_SLACK_S = 0.35
+
+/** How much played video to keep buffered. Anything older is memory. */
+const VIDEO_BUFFER_KEEP_S = 4
+
+/**
  * How long to wait before asking again for a capture rate that had nothing to
  * apply to. The only way that happens is the race between this pane's own
  * subscription reaching the runner and the mode changing on top of it, so one
@@ -180,7 +210,14 @@ type DesktopInput =
  * any assumed scale. Get it wrong and every click lands slightly off, which
  * looks like a flaky desk rather than a broken sum.
  *
- * The image is laid out `object-contain`, so:
+ * ONE implementation for both the video view and the still-picture fallback,
+ * and for both the pane and the full-screen overlay. Every term comes from the
+ * element's live box and the picture's own intrinsic size, so a `<video>` four
+ * times the size of the `<img>` it replaced simply produces a scale four times
+ * larger. A second copy of this sum, drifting from the first, would show up as
+ * clicks that land near the target — which reads as a broken desk.
+ *
+ * The picture is laid out `object-contain`, so:
  *
  *   scale   = min(boxWidth / frameWidth, boxHeight / frameHeight)
  *   drawnW  = frameWidth * scale,  drawnH = frameHeight * scale
@@ -188,25 +225,32 @@ type DesktopInput =
  *   frameX  = (clientX - boxLeft - originX) / scale
  *   frameY  = (clientY - boxTop  - originY) / scale
  *
- * The frame's size is read from the decoded image (`naturalWidth`), not from
- * what the stream said it would be: the decoded picture is the thing the
- * coordinates are quoted against, and the two disagree the moment a
- * compositor hands back something other than the size it was asked for.
- *
- * Because every term comes from the element's live box, the pane and the
- * full-screen view need one function between them rather than one each: the
- * picture is four times the size in the overlay and the scale simply comes out
- * four times larger. A second copy of this sum, drifting from the first, would
- * show up as clicks that land near the target — which reads as a broken desk.
+ * The frame's size is read from the DECODED PICTURE — `videoWidth` on a video,
+ * `naturalWidth` on an image — and not from what the stream said it would be:
+ * the decoded picture is the thing the coordinates are quoted against, and the
+ * two disagree the moment a compositor hands back something other than the size
+ * it was asked for.
  *
  * A point in the letterbox belongs to no pixel of the frame, so it returns
  * null and nothing is sent.
  */
-function framePoint(image: HTMLImageElement, clientX: number, clientY: number): { x: number; y: number } | null {
-  const frameWidth = image.naturalWidth
-  const frameHeight = image.naturalHeight
+type DeskViewElement = HTMLImageElement | HTMLVideoElement
+
+/** The intrinsic pixel size of whatever is showing the desk. */
+function viewSize(element: DeskViewElement): { width: number; height: number } {
+  return element instanceof HTMLVideoElement
+    ? { width: element.videoWidth, height: element.videoHeight }
+    : { width: element.naturalWidth, height: element.naturalHeight }
+}
+
+function framePoint(
+  element: DeskViewElement,
+  clientX: number,
+  clientY: number,
+): { x: number; y: number } | null {
+  const { width: frameWidth, height: frameHeight } = viewSize(element)
   if (frameWidth === 0 || frameHeight === 0) return null
-  const box = image.getBoundingClientRect()
+  const box = element.getBoundingClientRect()
   if (box.width === 0 || box.height === 0) return null
   const scale = Math.min(box.width / frameWidth, box.height / frameHeight)
   const originX = (box.width - frameWidth * scale) / 2
@@ -227,15 +271,252 @@ function wheelPixels(event: WheelEvent): { dx: number; dy: number } {
 }
 
 /**
- * The live picture of the desk.
+ * The live picture of the desk, as VIDEO.
  *
- * Server-sent events are the preferred transport — the runner already pushes
- * frames that way and a still screen costs nothing on it. A deployment whose
- * frame stream is not answering (an older route, a proxy that will not carry
- * SSE) falls back to polling the single-frame endpoint, so the pane shows the
- * desk either way. The fallback is chosen on the stream's first failure with
- * nothing yet delivered: a stream that has been working and then drops is a
- * reconnect, which EventSource does by itself.
+ * This is the transport that makes the pane feel like a remote desktop. The
+ * still-picture stream below ships a whole encoded image per tick — around
+ * 500KB at this size — and the link between the guest and the host cannot carry
+ * thirty of those a second, so most of what the guest painted never arrived
+ * however fast it was asked for. H.264 ships the difference between pictures
+ * instead, which on a desktop is close to nothing.
+ *
+ * The bytes arrive as fragmented MP4 and go straight into a MediaSource, which
+ * is why fMP4 was chosen: the browser's own decoder does the work and nothing
+ * in this file parses a video codec. Two rules are load-bearing and both fail
+ * SILENTLY when broken — a black rectangle, no error, nothing in the console:
+ *
+ *   1. the init segment must be appended before any fragment, and again
+ *      whenever the encoder restarts and sends a new one;
+ *   2. the first fragment after that must be a keyframe. The runner holds both
+ *      of those, so this appends what it is given in the order it is given it.
+ *
+ * The codec string comes off the wire rather than being hardcoded: a
+ * MediaSource whose declared profile and level disagree with the bytes refuses
+ * the buffer, and refuses it quietly.
+ *
+ * Returns `unavailable` when the browser has no MediaSource, cannot decode
+ * H.264, or the stream will not open — the caller falls back to `useDeskFrames`
+ * below, which is why that path is still here.
+ */
+function useDeskVideo(
+  personId: string,
+  watching: boolean,
+  viewRef: React.RefObject<DeskViewElement | null>,
+): { live: boolean; unavailable: boolean } {
+  const [unavailable, setUnavailable] = React.useState(
+    // Read once, at first render: whether this browser has MediaSource at all
+    // cannot change, and asking inside the effect would be a setState that
+    // cascades a render for an answer that was already knowable.
+    () => typeof window !== 'undefined' && typeof window.MediaSource === 'undefined',
+  )
+  const [receivedAt, setReceivedAt] = React.useState(0)
+
+  React.useEffect(() => {
+    if (!watching || unavailable) return
+    // The shared view ref, which is the <video> exactly while this path is the
+    // one on screen. Reading it rather than holding a second ref is what keeps
+    // `framePoint` translating against the element the operator is clicking.
+    const video = viewRef.current
+    if (!(video instanceof HTMLVideoElement)) return
+    if (typeof window === 'undefined' || typeof window.MediaSource === 'undefined') return
+
+    const abort = new AbortController()
+    let stopped = false
+    const mediaSource = new MediaSource()
+    const objectUrl = URL.createObjectURL(mediaSource)
+    video.src = objectUrl
+
+    /** Appends are serialized: a SourceBuffer refuses one while it is updating. */
+    const queue: Uint8Array<ArrayBuffer>[] = []
+    let buffer: SourceBuffer | null = null
+    let codec: string | null = null
+
+    const fallBackToStills = (): void => {
+      if (stopped) return
+      setUnavailable(true)
+    }
+
+    const prune = (): void => {
+      if (!buffer || buffer.updating || buffer.buffered.length === 0) return
+      const keepFrom = video.currentTime - VIDEO_BUFFER_KEEP_S
+      if (buffer.buffered.start(0) < keepFrom - 1) {
+        try {
+          buffer.remove(0, keepFrom)
+        } catch {
+          // A remove that will not take is not worth failing the view over;
+          // the next updateend tries again.
+        }
+      }
+    }
+
+    /** Keep the playhead at the live edge — see VIDEO_LIVE_EDGE_SLACK_S. */
+    const chase = (): void => {
+      if (!buffer || buffer.buffered.length === 0) return
+      const end = buffer.buffered.end(buffer.buffered.length - 1)
+      if (end - video.currentTime > VIDEO_LIVE_EDGE_SLACK_S) {
+        video.currentTime = Math.max(0, end - 0.05)
+      }
+    }
+
+    const pump = (): void => {
+      if (stopped || !buffer || buffer.updating) return
+      const next = queue.shift()
+      if (!next) return
+      try {
+        buffer.appendBuffer(next)
+      } catch (error) {
+        // Quota is the one recoverable failure: drop what has already been
+        // played and try the same bytes again. Anything else means this
+        // MediaSource cannot carry the stream.
+        if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+          queue.unshift(next)
+          prune()
+          return
+        }
+        fallBackToStills()
+      }
+    }
+
+    const openBuffer = (mime: string): boolean => {
+      if (!MediaSource.isTypeSupported(mime)) return false
+      try {
+        buffer = mediaSource.addSourceBuffer(mime)
+      } catch {
+        return false
+      }
+      // 'sequence' would have the browser stamp its own timestamps; the
+      // encoder's are the ones the fragments were cut on.
+      buffer.mode = 'segments'
+      buffer.addEventListener('updateend', () => {
+        prune()
+        chase()
+        pump()
+      })
+      buffer.addEventListener('error', fallBackToStills)
+      return true
+    }
+
+    const onInit = (payload: Uint8Array): void => {
+      const nameLength = payload[0] ?? 0
+      const name = new TextDecoder().decode(payload.subarray(1, 1 + nameLength))
+      const bytes = new Uint8Array(payload.subarray(1 + nameLength))
+      if (!name) return
+      if (!buffer) {
+        codec = name
+        if (!openBuffer(`video/mp4; codecs="${name}"`)) {
+          // The browser cannot decode what the guest is producing. Nothing
+          // here can fix that, so fall back to stills rather than showing an
+          // empty rectangle forever.
+          fallBackToStills()
+          return
+        }
+      } else if (name !== codec) {
+        // A different codec on the same buffer is not something MediaSource
+        // will re-negotiate; a fresh subscription is the honest answer.
+        fallBackToStills()
+        return
+      }
+      // A re-appended init segment is how MSE is told the stream restarted,
+      // so an encoder that respawned continues into the same buffer.
+      queue.push(bytes)
+      pump()
+    }
+
+    const read = async (): Promise<void> => {
+      const response = await fetch(`/api/desk/${encodeURIComponent(personId)}/video`, {
+        cache: 'no-store',
+        signal: abort.signal,
+      })
+      if (!response.ok || !response.body) throw new Error(`the video stream refused (${response.status})`)
+      const reader = response.body.getReader()
+      // The header may straddle a read, and so may a payload, so the framing
+      // is decoded out of a running buffer rather than out of each chunk.
+      let held = new Uint8Array(0)
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done || stopped) break
+        if (!value) continue
+        const merged = new Uint8Array(held.length + value.length)
+        merged.set(held, 0)
+        merged.set(value, held.length)
+        held = merged
+        for (;;) {
+          if (held.length < VIDEO_WIRE_HEADER_BYTES) break
+          if (held[0] !== 0x44 || held[1] !== 0x56) throw new Error('the video stream lost its framing')
+          const kind = held[2]
+          const view = new DataView(held.buffer, held.byteOffset, held.byteLength)
+          const length = view.getUint32(4)
+          const end = VIDEO_WIRE_HEADER_BYTES + length
+          if (held.length < end) break
+          // Copied into its own ArrayBuffer rather than kept as a view: an
+          // append is asynchronous and a view would be pinned to — and read
+          // out of — a buffer the next read has already moved past.
+          const payload = new Uint8Array(held.subarray(VIDEO_WIRE_HEADER_BYTES, end))
+          held = held.subarray(end)
+          if (kind === VIDEO_WIRE_KIND_INIT) onInit(payload)
+          else if (kind === VIDEO_WIRE_KIND_MEDIA) {
+            queue.push(payload)
+            pump()
+          }
+          setReceivedAt(Date.now())
+        }
+      }
+    }
+
+    const start = (): void => {
+      // Muted and inline so nothing needs a click to begin: this is a picture
+      // of a machine, not media the operator asked to play.
+      video.muted = true
+      video.playsInline = true
+      void video.play().catch(() => undefined)
+      void read().catch((error: unknown) => {
+        if (abort.signal.aborted || stopped) return
+        console.warn('[desk] the video view fell back to stills:', error)
+        fallBackToStills()
+      })
+    }
+
+    mediaSource.addEventListener('sourceopen', start, { once: true })
+
+    return () => {
+      stopped = true
+      abort.abort()
+      // Order matters on teardown too: drop the element's hold on the
+      // MediaSource before the object URL goes, or Chromium logs a decode
+      // error for a source that vanished mid-append.
+      video.removeAttribute('src')
+      video.load()
+      URL.revokeObjectURL(objectUrl)
+    }
+  }, [personId, unavailable, viewRef, watching])
+
+  const [now, setNow] = React.useState(() => Date.now())
+  React.useEffect(() => {
+    if (receivedAt === 0) return
+    const interval = setInterval(() => setNow(Date.now()), 1_000)
+    return () => clearInterval(interval)
+  }, [receivedAt])
+
+  return {
+    live: watching && receivedAt > 0 && now - receivedAt < FRAME_STALE_MS,
+    unavailable,
+  }
+}
+
+/**
+ * The live picture of the desk, as STILL PICTURES.
+ *
+ * The fallback for a browser with no MediaSource or no H.264, kept working
+ * rather than removed: `useDeskVideo` above is the path a modern browser takes,
+ * and this is what is left when it cannot.
+ *
+ * Server-sent events are the preferred transport here — the runner already
+ * pushes frames that way and a still screen costs nothing on it. A deployment
+ * whose frame stream is not answering (an older route, a proxy that will not
+ * carry SSE) falls back again, to polling the single-frame endpoint, so the
+ * pane shows the desk either way. That fallback is chosen on the stream's first
+ * failure with nothing yet delivered: a stream that has been working and then
+ * drops is a reconnect, which EventSource does by itself.
  *
  * Both paths end at a `data:` URL so the rest of the pane never has to know
  * which one it is looking at, and so no object URL has to be revoked out from
@@ -377,7 +658,13 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   // the native wheel listener has to follow it there. A ref would be read once
   // and left bound to an element that is no longer on screen.
   const [surface, setSurface] = React.useState<HTMLDivElement | null>(null)
-  const imageRef = React.useRef<HTMLImageElement>(null)
+  /**
+   * Whichever element is showing the desk right now — the `<video>` on the
+   * ordinary path, the `<img>` on the fallback. One ref for both, because
+   * `framePoint` is one function for both and a click has to be translated
+   * against the picture that is actually on screen.
+   */
+  const viewRef = React.useRef<DeskViewElement | null>(null)
 
   /** The controls' own re-read, after they have changed something. */
   const refresh = React.useCallback(async () => {
@@ -435,7 +722,13 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   // it down and re-establish it. A re-subscribe restarts the guest's capture
   // pump, and the picture goes black at the exact moment somebody has made it
   // big enough to work in.
-  const { frame, live } = useDeskFrames(personId, screenOpen && !handover.active)
+  const watching = screenOpen && !handover.active
+  // Video is the ordinary path; stills are subscribed to only once video has
+  // reported that this browser cannot carry it, so the guest is never asked to
+  // run both encoders at once.
+  const { live: videoLive, unavailable: videoUnavailable } = useDeskVideo(personId, watching, viewRef)
+  const { frame, live: frameLive } = useDeskFrames(personId, watching && videoUnavailable)
+  const live = videoUnavailable ? frameLive : videoLive
 
   /**
    * Input is queued rather than fired: a `type` that overtakes the click that
@@ -704,7 +997,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     const state = scrollRef.current
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
-      const image = imageRef.current
+      const image = viewRef.current
       if (!image) return
       const point = framePoint(image, event.clientX, event.clientY)
       if (!point) return
@@ -742,7 +1035,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!drivingNow) return
-    const image = imageRef.current
+    const image = viewRef.current
     if (!image) return
     const point = framePoint(image, event.clientX, event.clientY)
     if (!point) return
@@ -756,7 +1049,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     const press = pressRef.current
     pressRef.current = null
     if (!drivingNow || !press) return
-    const image = imageRef.current
+    const image = viewRef.current
     if (!image) return
     event.preventDefault()
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -919,17 +1212,40 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
             reaches {personName}&apos;s context or the record until you hand it back.
           </p>
         </div>
+      ) : !videoUnavailable ? (
+        // The desk as video. Muted, inline and autoplaying because this is a
+        // picture of a machine rather than media anyone asked to play, and
+        // `controls` is deliberately absent: there is nothing to seek in a
+        // live view and a scrub bar over a desktop invites exactly the wrong
+        // gesture. `object-contain` keeps the desk's own shape at any size —
+        // the letterbox is the backdrop behind it, and `framePoint` knows a
+        // click that lands there belongs to no pixel.
+        //
+        // Kept mounted whether or not a picture has arrived: the MediaSource
+        // is attached to this element, so unmounting it while waiting would
+        // tear down the stream that is about to fill it.
+        <video
+          ref={(node) => {
+            viewRef.current = node
+          }}
+          aria-label={`${personName}'s desktop`}
+          muted
+          autoPlay
+          playsInline
+          disablePictureInPicture
+          className="size-full select-none object-contain"
+        />
       ) : frame ? (
-        // A plain <img>: the frame arrives as a data URL and there is nothing
-        // for an image optimizer to do with one. The src is swapped in place
-        // rather than the element being keyed, so the browser holds the last
-        // frame until the next has decoded and a live screen never blinks
-        // white between them. `object-contain` is what keeps the desk's own
-        // shape at any size — the letterbox is the backdrop behind it, and
-        // `framePoint` knows a click that lands there belongs to no pixel.
+        // The still-picture fallback. A plain <img>: the frame arrives as a
+        // data URL and there is nothing for an image optimizer to do with one.
+        // The src is swapped in place rather than the element being keyed, so
+        // the browser holds the last frame until the next has decoded and a
+        // live screen never blinks white between them.
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          ref={imageRef}
+          ref={(node) => {
+            viewRef.current = node
+          }}
           src={frame.src}
           alt={`${personName}'s desktop`}
           draggable={false}

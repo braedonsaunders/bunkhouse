@@ -154,6 +154,7 @@ async function main() {
     { op: 'clipboard-read' },
     { op: 'clipboard-write', text: 'hello' },
     { op: 'frames-start', fps: 5, width: 1280, height: 900 },
+    { op: 'video-start', fps: 30, width: 1280, height: 900 },
     { op: 'handover-begin', ttlMs: 60_000, scope: 'view' },
   ]
   for (const command of noScreen) {
@@ -166,12 +167,19 @@ async function main() {
   }
 
   // The two stops are idempotent even with nothing running.
-  for (const op of ['frames-stop', 'screen-stop', 'handover-end']) {
+  for (const op of ['frames-stop', 'video-stop', 'screen-stop', 'handover-end']) {
     const response = await client.call({ op })
     check(`${op} is idempotent`, response.ok === true, JSON.stringify(response))
   }
 
   process.stdout.write('validation\n')
+  const badFormat = await client.call({ op: 'frames-start', fps: 5, width: 1280, height: 900, format: 'webp' })
+  check(
+    'frames-start rejects a format nobody can encode',
+    badFormat.ok === false && /format must be png or jpeg/.test(badFormat.error),
+    JSON.stringify(badFormat),
+  )
+
   const badScreen = await client.call({ op: 'screen-start', width: 4, height: 4 })
   check(
     'screen-start rejects an absurd size before spawning anything',

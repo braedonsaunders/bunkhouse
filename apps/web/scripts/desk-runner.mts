@@ -18,6 +18,7 @@ import {
   type DeskHostVerification,
   type DeskJob,
   type DeskScreenHandle,
+  type DeskVideoChunk,
 } from '@appkit/desk'
 
 /**
@@ -44,9 +45,15 @@ import {
  *   POST /desks/:id/screen/focus                — activate a window via AT-SPI
  *   POST /desks/:id/screen/launch               — launch an app
  *   POST /desks/:id/screen/clipboard            — read/write
- *   POST /desks/:id/screen/frames/start|stop    — the live-view capture pump
+ *   POST /desks/:id/screen/frames/start|stop    — the still-picture capture pump
  *                                                 (start with pin:false = re-tune the rate)
- *   GET  /desks/:id/screen/frames               — SSE: base64 frames off that pump
+ *   GET  /desks/:id/screen/frames               — SSE: base64 stills off that pump,
+ *                                                 each { seq, width, height, at, format, data }
+ *   POST /desks/:id/screen/video/start|stop     — the live-view H.264 encode
+ *                                                 (start with pin:false = re-tune the rate)
+ *   GET  /desks/:id/screen/video                — the live view: a binary stream of
+ *                                                 length-prefixed fragmented-MP4 chunks
+ *                                                 (see encodeVideoWireChunk for the framing)
  *   POST /desks/:id/handover                    — begin/end, idempotent begin
  *   GET  /desks/:id/handover/stream (WS)        — relay the in-guest viewer outward
  *   POST /desks/:id/suspend                     — park the VM; disk persists
@@ -581,6 +588,7 @@ async function suspendDesk(deskId: string): Promise<void> {
   if (!host) throw new Error(refusalReason ?? 'This host cannot serve desks.')
   const entry = desks.get(deskId)
   closeFramePump(deskId)
+  closeVideoPump(deskId)
   if (entry) revokeHandover(entry)
   await host.suspend(deskId)
   desks.delete(deskId)
@@ -591,6 +599,7 @@ async function destroyDesk(deskId: string): Promise<void> {
   if (!host) throw new Error(refusalReason ?? 'This host cannot serve desks.')
   const entry = desks.get(deskId)
   closeFramePump(deskId)
+  closeVideoPump(deskId)
   if (entry) revokeHandover(entry)
   await host.destroy(deskId).catch(() => undefined)
   desks.delete(deskId)
@@ -798,6 +807,9 @@ function startFramePump(
           width: frame.width,
           height: frame.height,
           at: frame.at,
+          // Carried, never assumed: the guest picks the encoding and a
+          // consumer that guessed PNG would hand a decoder the wrong type.
+          format: frame.format,
           data: frame.data.toString('base64'),
         })
         for (const subscriber of pump.subscribers.values()) {
@@ -853,6 +865,259 @@ function liveFramePump(deskId: string): FramePump | null {
 
 function closeFramePump(deskId: string): void {
   framePumps.get(deskId)?.stop()
+}
+
+// --- the live view: one H.264 encode per desk, fanned out as bytes (§3.13) ---
+
+/**
+ * The video a desk is encoding, and everyone watching it.
+ *
+ * The same shape as the frame pump above and for the same reasons — one encode
+ * per desk however many subscribers, the rate a property of the pump, frames
+ * taken from `@appkit/desk`'s MASKED `screen.video()` so a handover suppresses
+ * the stream at the source. What is different is that video chunks only mean
+ * anything IN ORDER and ONLY AFTER the init segment.
+ *
+ * So the pump owns two pieces of resync state that the frame pump has no need
+ * for:
+ *
+ *   · `init` — the last init segment the guest sent. A subscriber that arrives
+ *     mid-stream is handed it before anything else. A consumer that never gets
+ *     it decodes nothing at all and shows a black rectangle with no error, so
+ *     this is not an optimisation, it is the difference between working and
+ *     silently not.
+ *
+ *   · a per-subscriber `ready` flag — after the init segment, a subscriber is
+ *     fed nothing until a chunk whose `keyframe` is true, because the middle of
+ *     a group of pictures decodes to nothing. The wait is bounded by the
+ *     guest's keyframe interval.
+ *
+ * An encoder restart (a died-and-respawned ffmpeg) sends a NEW init segment,
+ * which lands here as a fresh `init` and resets every subscriber to waiting for
+ * a keyframe — exactly the same path a late joiner takes.
+ */
+type VideoSubscriber = {
+  response: ServerResponse
+  /** False until this subscriber has been given init and then a keyframe. */
+  ready: boolean
+  /** The init segment this subscriber was given, so a new one is re-sent. */
+  init: Buffer | null
+}
+
+type VideoPump = {
+  fps: number
+  width: number
+  height: number
+  pinned: boolean
+  subscribers: Map<ServerResponse, VideoSubscriber>
+  closed: boolean
+  /** The last init segment and the codec it declared, for a late joiner. */
+  init: Buffer | null
+  codec: string | null
+  retune: (fps: number) => void
+  stop: () => void
+}
+
+const videoPumps = new Map<string, VideoPump>()
+
+/**
+ * The rate bounds the guest enforces (VIDEO_MIN_FPS/VIDEO_MAX_FPS in
+ * deploy/desk-image/agent/desk-guest-agent.mjs), clamped here for the same
+ * reason the frame rate is: the guest REFUSES a rate outside them, and a
+ * refused video-start ends the iterator, so a mistyped query parameter would
+ * take the live view down rather than being ignored.
+ */
+function clampVideoFps(fps: number): number {
+  if (!Number.isFinite(fps)) return 30
+  return Math.min(30, Math.max(1, Math.round(fps)))
+}
+
+/**
+ * One chunk on the wire to a subscriber.
+ *
+ * A length-prefixed BINARY framing, not SSE and not JSON: this is a continuous
+ * byte stream and base64-in-text would cost a third of it plus a decode per
+ * chunk in the browser, on the one path the whole change exists to make cheap.
+ * A plain chunked HTTP response is used rather than a websocket because the
+ * browser reaches this only through the app's authenticated proxy — the runner
+ * token must never reach a page — and a streaming response passes through that
+ * proxy untouched, where a websocket upgrade does not.
+ *
+ *   [magic:2 = 'DV'][kind:1][flags:1][length:4 BE][payload:length]
+ *
+ * kind 1 = init, 2 = media. flags bit 0 = keyframe. The init payload is
+ * preceded by its codec string as [codecLength:1][codec:codecLength] so a
+ * consumer can build its decoder from what the bytes actually are.
+ */
+const VIDEO_WIRE_MAGIC = Buffer.from('DV', 'latin1')
+const VIDEO_WIRE_KIND_INIT = 1
+const VIDEO_WIRE_KIND_MEDIA = 2
+
+function encodeVideoWireChunk(
+  kind: number,
+  keyframe: boolean,
+  payload: Buffer,
+): Buffer {
+  const header = Buffer.allocUnsafe(8)
+  VIDEO_WIRE_MAGIC.copy(header, 0)
+  header[2] = kind
+  header[3] = keyframe ? 1 : 0
+  header.writeUInt32BE(payload.length, 4)
+  return Buffer.concat([header, payload])
+}
+
+/** The init segment framed with the codec string a decoder has to be told. */
+function encodeVideoInit(codec: string, init: Buffer): Buffer {
+  const name = Buffer.from(codec, 'latin1').subarray(0, 255)
+  const body = Buffer.concat([Buffer.from([name.length]), name, init])
+  return encodeVideoWireChunk(VIDEO_WIRE_KIND_INIT, false, body)
+}
+
+/**
+ * How much unflushed video one subscriber's socket may hold before it is cut
+ * back to a keyframe. Smaller than the frame pump's cap because a fragment is
+ * a fraction of a picture: a subscriber holding megabytes of video is seconds
+ * behind, and seconds behind is not a live view.
+ */
+const VIDEO_SUBSCRIBER_BACKLOG_CAP_BYTES = 2 * 1024 * 1024
+
+function startVideoPump(
+  deskId: string,
+  screen: DeskScreenHandle,
+  options: { fps: number; width: number; height: number },
+): VideoPump {
+  const openIterator = (fps: number) =>
+    screen.video({ fps, width: options.width, height: options.height })[Symbol.asyncIterator]()
+  let source = openIterator(clampVideoFps(options.fps))
+  const pump: VideoPump = {
+    fps: clampVideoFps(options.fps),
+    width: options.width,
+    height: options.height,
+    pinned: false,
+    subscribers: new Map(),
+    closed: false,
+    init: null,
+    codec: null,
+    retune: (requested: number) => {
+      const fps = clampVideoFps(requested)
+      if (pump.closed || fps === pump.fps) return
+      const previous = source
+      pump.fps = fps
+      // ORDER IS LOAD-BEARING, exactly as on the frame pump: finishing the old
+      // iterator sends `video-stop` and opening the new one sends
+      // `video-start`, both written to the same vsock stream in call order and
+      // serialized by the guest. The other order would have the stop land on
+      // the encoder the start had just begun.
+      void previous.return?.().catch(() => undefined)
+      source = openIterator(fps)
+      // The new encoder emits a new init segment; until it lands, a subscriber
+      // has nothing it can decode, so nobody is ready.
+      pump.init = null
+      pump.codec = null
+      for (const subscriber of pump.subscribers.values()) subscriber.ready = false
+      console.log(`[desk-runner] video pump for ${deskId} re-tuned to ${fps}fps`)
+    },
+    stop: () => {
+      if (pump.closed) return
+      pump.closed = true
+      void source.return?.().catch(() => undefined)
+      for (const subscriber of pump.subscribers.keys()) subscriber.end()
+      pump.subscribers.clear()
+      if (videoPumps.get(deskId) === pump) videoPumps.delete(deskId)
+    },
+  }
+  videoPumps.set(deskId, pump)
+  void (async () => {
+    try {
+      for (;;) {
+        const reading = source
+        const next = await reading.next()
+        if (pump.closed) break
+        if (next.done) {
+          // A re-tune ends the iterator we were reading from; the next chunk
+          // comes off the new one.
+          if (reading !== source) continue
+          break
+        }
+        const chunk = next.value
+        if (chunk.kind === 'init') {
+          pump.init = chunk.data
+          pump.codec = chunk.codec
+          // Everyone must be re-primed: the stream this describes is not the
+          // stream they were watching.
+          for (const subscriber of pump.subscribers.values()) subscriber.ready = false
+        }
+        for (const subscriber of pump.subscribers.values()) {
+          writeVideoTo(pump, subscriber, chunk)
+        }
+      }
+    } catch (error) {
+      console.error(`[desk-runner] video pump for ${deskId} stopped: ${describe(error)}`)
+    } finally {
+      pump.stop()
+    }
+  })()
+  return pump
+}
+
+/**
+ * Hand one chunk to one subscriber, priming it first if it is not yet decoding.
+ *
+ * Never queues, for the same reason the frame pump never queues — but a drop
+ * here costs more, because a hole makes everything after it decode to nothing.
+ * So a backed-up subscriber is not handed the next chunk anyway; it is dropped
+ * back to waiting for a keyframe, which is the only place a decoder can be
+ * restarted cleanly.
+ */
+function writeVideoTo(pump: VideoPump, subscriber: VideoSubscriber, chunk: DeskVideoChunk): void {
+  const { response } = subscriber
+  if (response.writableEnded) return
+  if (response.writableLength > VIDEO_SUBSCRIBER_BACKLOG_CAP_BYTES) {
+    subscriber.ready = false
+    return
+  }
+  if (!pump.init || !pump.codec) return
+  if (subscriber.init !== pump.init) {
+    response.write(encodeVideoInit(pump.codec, pump.init))
+    subscriber.init = pump.init
+    subscriber.ready = false
+  }
+  if (chunk.kind === 'init') return
+  // Only a keyframe can start a decoder; anything before one is bytes that
+  // decode to nothing and a picture that never appears.
+  if (!subscriber.ready) {
+    if (!chunk.keyframe) return
+    subscriber.ready = true
+  }
+  response.write(encodeVideoWireChunk(VIDEO_WIRE_KIND_MEDIA, chunk.keyframe, chunk.data))
+}
+
+/**
+ * The video pump for this desk, started if there is none and RE-TUNED if there
+ * is one at a different rate — the same contract as `ensureFramePump`, so a
+ * viewer can change rate without dropping its subscription.
+ */
+function ensureVideoPump(
+  deskId: string,
+  screen: DeskScreenHandle,
+  options: { fps: number; width: number; height: number },
+): VideoPump {
+  const existing = videoPumps.get(deskId)
+  if (existing && !existing.closed) {
+    existing.retune(options.fps)
+    return existing
+  }
+  return startVideoPump(deskId, screen, options)
+}
+
+/** The running video pump for this desk, or null. Never starts one. */
+function liveVideoPump(deskId: string): VideoPump | null {
+  const pump = videoPumps.get(deskId)
+  return pump && !pump.closed ? pump : null
+}
+
+function closeVideoPump(deskId: string): void {
+  videoPumps.get(deskId)?.stop()
 }
 
 // --- the handover relay and its host-side TTL (§3.14) -----------------------
@@ -1499,6 +1764,7 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
     // The capture and any handover go down with the screen, in that order:
     // nothing may keep emitting frames off a compositor that is stopping.
     closeFramePump(deskId)
+    closeVideoPump(deskId)
     if (entry) revokeHandover(entry)
     if (entry?.handle.screen.running) await entry.handle.screen.stop()
     if (entry) entry.screen = null
@@ -1638,6 +1904,65 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
         // An unpinned pump exists only for its watchers; the last one leaving
         // stops the guest capturing rather than paying for a picture nobody
         // is looking at.
+        if (!pump.pinned && pump.subscribers.size === 0) pump.stop()
+      })
+      return
+    }
+
+    if (request.method === 'POST' && rest === '/screen/video/start') {
+      const body = await readBody(request)
+      const options = {
+        fps: numberOr(body.fps) ?? 30,
+        width: numberOr(body.width) ?? 1280,
+        height: numberOr(body.height) ?? 900,
+      }
+      const pump = ensureVideoPump(deskId, screen, options)
+      // pin:false is a RE-TUNE of a pump that is already running — the rate
+      // changes under the subscribers without any of them re-subscribing.
+      if (body.pin !== false) pump.pinned = true
+      reply(response, 200, { streaming: true, fps: pump.fps, width: pump.width, height: pump.height })
+      return
+    }
+
+    if (request.method === 'POST' && rest === '/screen/video/stop') {
+      closeVideoPump(deskId)
+      reply(response, 200, { streaming: false })
+      return
+    }
+
+    if (request.method === 'GET' && rest === '/screen/video') {
+      const asked = Number(url.searchParams.get('fps') ?? 30) || 30
+      // A subscription asks for a FLOOR, never a ceiling, exactly as the frame
+      // stream does: somebody arriving to watch must not slow down the encode
+      // another consumer is driving at.
+      const running = liveVideoPump(deskId)
+      const pump = ensureVideoPump(deskId, screen, {
+        fps: Math.max(asked, running?.fps ?? 0),
+        width: Number(url.searchParams.get('width') ?? 1280) || 1280,
+        height: Number(url.searchParams.get('height') ?? 900) || 900,
+      })
+      response.writeHead(200, {
+        'content-type': 'application/octet-stream',
+        'cache-control': 'no-store, no-transform',
+        connection: 'keep-alive',
+        // A proxy that buffers this turns a live view into a slideshow.
+        'x-accel-buffering': 'no',
+      })
+      response.flushHeaders()
+      const subscriber: VideoSubscriber = { response, ready: false, init: null }
+      pump.subscribers.set(response, subscriber)
+      // A late joiner is primed from whatever the pump already holds, rather
+      // than waiting for the encoder's next init segment — which, on a
+      // long-running encode, never comes.
+      if (pump.init && pump.codec) {
+        response.write(encodeVideoInit(pump.codec, pump.init))
+        subscriber.init = pump.init
+      }
+      response.on('close', () => {
+        pump.subscribers.delete(response)
+        // An unpinned pump exists only for its watchers; the last one leaving
+        // stops the guest encoding rather than paying for a picture nobody is
+        // looking at.
         if (!pump.pinned && pump.subscribers.size === 0) pump.stop()
       })
       return

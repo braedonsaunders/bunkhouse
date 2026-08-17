@@ -60,7 +60,16 @@ function deskCasts(): Map<string, BrowserCast> {
   return (registry.__bunkhouseDeskCasts ??= new Map())
 }
 
-/** One frame as the runner streams it: an encoded image, base64, plus its size. */
+/**
+ * One frame as the runner streams it: an encoded image, base64, plus its size.
+ *
+ * The encoding is deliberately NOT read here. sharp sniffs the format out of
+ * the bytes, so a guest that switched from PNG to JPEG — which it has, because
+ * a whole PNG per tick is what the guest→host link could not carry — needs no
+ * change on this side. What must not happen is this file starting to ASSUME
+ * one: the runner reports `format` on every frame for a consumer that has to
+ * name a media type, and this one does not.
+ */
 type WireFrame = { seq: number; width: number; height: number; data: string }
 
 function parseWireFrame(payload: string): WireFrame | null {

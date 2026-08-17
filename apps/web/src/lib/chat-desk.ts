@@ -19,11 +19,13 @@ import {
   endDeskHandover,
   leaseDesk,
   openDeskFrameStream,
+  openDeskVideoStream,
   recordDeskLedgerEvent,
   sendDeskInput,
   startDeskScreen,
   stopDeskScreen,
   tuneDeskFrames,
+  tuneDeskVideo,
   type DeskClientDeps,
   type DeskInputAction,
   type DeskLedgerStore,
@@ -654,6 +656,49 @@ export async function deskFrames(
 }
 
 /**
+ * The live view as video, gated exactly like everything else here and proxied.
+ *
+ * The caller gets the runner's binary chunk stream untouched — the runner's
+ * address and bearer token never leave the server, and nothing in between
+ * decodes a byte of it. This is what the pane actually watches; `deskFrames`
+ * below is the fallback for a browser that cannot play it.
+ */
+export async function deskVideo(
+  args: { tenantId: string; personId: string; signal?: AbortSignal },
+  deps: ChatDeskDeps = {},
+): Promise<{ stream: ReadableStream<Uint8Array> } | DeskRefusal> {
+  const admitted = await admit({ ...args, needsDesktop: true }, deps)
+  if (refused(admitted)) return admitted
+  try {
+    await leaseDesk(
+      {
+        deskId: admitted.deskId,
+        memoryMb: admitted.policy.memoryMb,
+        vcpus: admitted.policy.vcpus,
+        leaseMs: admitted.policy.leaseMs,
+      },
+      admitted.clientDeps,
+    )
+    const stream = await openDeskVideoStream(
+      {
+        deskId: admitted.deskId,
+        // A subscription starts at the watching rate and is raised the moment
+        // somebody takes the controls (`setDeskFrameRate`), without this
+        // stream being touched.
+        fps: AGENT_SCREEN_WATCHING_FPS,
+        width: AGENT_SCREEN_WIDTH,
+        height: AGENT_SCREEN_HEIGHT,
+        ...(args.signal ? { signal: args.signal } : {}),
+      },
+      admitted.clientDeps,
+    )
+    return { stream }
+  } catch (error) {
+    return { error: `The live view could not be opened: ${describeError(error)}` }
+  }
+}
+
+/**
  * How fast the live view should be captured, given what the operator is doing.
  *
  * DRIVING is a control loop with a person in it. The guest's own cursor is not
@@ -678,11 +723,18 @@ export async function setDeskFrameRate(
   const admitted = await admit({ ...args, needsDesktop: true }, deps)
   if (refused(admitted)) return admitted
   const fps = args.driving ? AGENT_SCREEN_DRIVING_FPS : AGENT_SCREEN_WATCHING_FPS
+  const geometry = { deskId: admitted.deskId, fps, width: AGENT_SCREEN_WIDTH, height: AGENT_SCREEN_HEIGHT }
   try {
-    const tuned = await tuneDeskFrames(
-      { deskId: admitted.deskId, fps, width: AGENT_SCREEN_WIDTH, height: AGENT_SCREEN_HEIGHT },
-      admitted.clientDeps,
-    )
+    // Both live-view pumps are re-tuned, because which one the pane is on
+    // depends on the browser: a viewer watching video and a viewer on the
+    // still-picture fallback must both speed up when the controls are taken.
+    // Neither call starts anything — with nothing running the runner answers
+    // `streaming: false` and changes nothing — so tuning the one that is idle
+    // costs a round trip and nothing else.
+    const [tuned] = await Promise.all([
+      tuneDeskVideo(geometry, admitted.clientDeps),
+      tuneDeskFrames(geometry, admitted.clientDeps).catch(() => undefined),
+    ])
     // `streaming: false` means there was no capture to re-tune — the caller
     // asked before its own subscription reached the runner. Reported rather
     // than smoothed over, so the caller can ask again instead of driving at

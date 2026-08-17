@@ -46,10 +46,10 @@
  *                CONTRACT comment above input().
  *
  *   Capture      framesStart() runs ONE long-lived `ffmpeg -f x11grab` and
- *                reads PNGs off its stdout. It only EMITS frames whose bytes
- *                changed (SHA-256 over the PNG), with a keepalive so a late
- *                subscriber is never left blank. A still screen costs one hash
- *                per frame and no transport (§3.13).
+ *                reads encoded images off its stdout. It only EMITS frames
+ *                whose bytes changed (SHA-256 over the image), with a keepalive
+ *                so a late subscriber is never left blank. A still screen costs
+ *                one hash per frame and no transport (§3.13).
  *
  *                The long-lived child is the point. This used to spawn
  *                ImageMagick `import` per tick, and a fork+exec+X-connect+PNG
@@ -61,6 +61,18 @@
  *                observe() still uses the single-shot `import`: a screenshot
  *                for a model is a different job with different quality needs,
  *                and it is taken once rather than thirty times a second.
+ *
+ *                FRAMES ARE JPEG BY DEFAULT, and that is the second half of the
+ *                same fix. With the encode no longer the ceiling the WIRE
+ *                became it: x11grab sustained 31fps of dense PNG at roughly
+ *                500KB a frame — about 15MB/s — which floods vsock, trips the
+ *                backlog guard below, and left ~2fps arriving at the operator
+ *                whether 5 or 30 were asked for. The same screen as MJPEG q4 is
+ *                roughly an order of magnitude smaller, and small frames are
+ *                what a person driving a desk actually needs. observe() is
+ *                UNCHANGED and stays lossless PNG: a model's vision and the
+ *                coordinate anchor are worth exact pixels, and they are asked
+ *                for rarely.
  *
  *   Handover     x11vnc bound to 127.0.0.1 only, with a guest-side TTL timer
  *                that kills it even if handoverEnd never arrives (§3.14). The
@@ -139,12 +151,24 @@ const FRAMES_KEEPALIVE_MS = 5_000
 const FRAME_PAYLOAD_CAP_BYTES = 6 * 1024 * 1024
 
 /**
- * The capture child's PNG encoder setting. zlib level 1 is deliberate: on a
- * nested VM the scarce resource is CPU, not the vsock between the guest and
- * the host, and a cheaper encode is what makes thirty frames a second possible
- * at all. It costs bytes on a link that is memory speed.
+ * The capture child's PNG encoder setting, for the `png` frame format. zlib
+ * level 1 is deliberate: encoding is the cost that has to stay off the guest's
+ * CPU, and a cheaper encode is what makes thirty frames a second possible at
+ * all. It costs bytes, which is exactly why `png` is no longer the default for
+ * frames — see FRAMES_JPEG_QUALITY.
  */
 const FRAMES_PNG_COMPRESSION = '1'
+/**
+ * The MJPEG quantiser for the `jpeg` frame format. ffmpeg's `-q:v` runs 2
+ * (best) to 31 (worst); 4 is near-transparent for a desktop — text stays
+ * crisp — at roughly a tenth of the bytes of a dense PNG of the same screen.
+ * That ratio is the whole point: the live view is bounded by the wire, not by
+ * the encoder, so the frame that arrives is worth more than the frame that
+ * would have been exact.
+ */
+const FRAMES_JPEG_QUALITY = '4'
+/** What framesStart() encodes when the host does not ask for a format. */
+const FRAMES_DEFAULT_FORMAT = 'jpeg'
 /** SIGTERM the capture child, then this long, then SIGKILL. */
 const FRAMES_TERMINATE_GRACE_MS = 1_500
 /** How long to wait before restarting a capture child that died. */
@@ -159,7 +183,7 @@ const FRAMES_RESTART_WINDOW_MS = 30_000
  */
 const FRAMES_WIRE_BACKLOG_CAP_BYTES = 8 * 1024 * 1024
 /**
- * The most bytes the PNG splitter will hold while waiting for one image to
+ * The most bytes a splitter will hold while waiting for one image to
  * complete. Anything beyond it means the stream is not what we think it is,
  * which is a restart rather than a leak.
  */
@@ -167,6 +191,54 @@ const FRAMES_SPLIT_BUFFER_CAP_BYTES = 48 * 1024 * 1024
 
 /** The eight bytes every PNG starts with. */
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+/**
+ * Video encoder settings, measured on the real nested guest at 1280x900 with
+ * the whole screen repainting every frame — the worst case a video codec can
+ * be handed, since nothing is left for inter-frame prediction to exploit.
+ *
+ *   png zlib1   53.8 MB/s   120% of a core
+ *   mjpeg q4    23.4 MB/s    60%
+ *   h264        1.49 MB/s    15-20%, and 29.9 of the 30 requested frames
+ *
+ * `ultrafast` and `zerolatency` are chosen for the two things a live view needs
+ * and a recording does not: the encode must cost a fraction of a 2-vCPU guest,
+ * and there must be no lookahead — B-frames and a frame-reordering delay would
+ * put encoder latency on exactly the keystroke an operator is waiting to see.
+ * The keyframe interval is the resync cost: a viewer that joins, or one that
+ * fell behind, waits up to this many frames for a picture, and every keyframe
+ * is a full-screen cost on a link that has none of them the rest of the time.
+ */
+const VIDEO_PRESET = 'ultrafast'
+const VIDEO_TUNE = 'zerolatency'
+const VIDEO_CRF = '28'
+const VIDEO_KEYFRAME_INTERVAL = '60'
+/** The rate bounds the host is held to, matching the frame path's. */
+const VIDEO_MIN_FPS = 1
+const VIDEO_MAX_FPS = 30
+/**
+ * The most bytes the fMP4 splitter will hold while waiting for one unit. Far
+ * smaller than the PNG cap because a fragment is a fraction of a picture:
+ * anything near this means the stream is not what we think it is.
+ */
+const VIDEO_SPLIT_BUFFER_CAP_BYTES = 16 * 1024 * 1024
+/**
+ * How much unwritten data may sit on the host connection before a media
+ * fragment is dropped.
+ *
+ * Dropping video is not like dropping a frame. A frame is whole, so the next
+ * one repairs the picture by itself; a fragment is a difference, so a hole
+ * makes every fragment after it decode to nothing until the next keyframe. So
+ * a drop here sets a flag and everything is dropped until a keyframe arrives —
+ * a deliberate second or two of the last good picture, rather than an
+ * indefinite stretch of corruption.
+ */
+const VIDEO_WIRE_BACKLOG_CAP_BYTES = 4 * 1024 * 1024
+/** SIGTERM the encoder, then this long, then SIGKILL. */
+const VIDEO_TERMINATE_GRACE_MS = 1_500
+const VIDEO_RESTART_DELAY_MS = 400
+const VIDEO_MAX_RESTARTS = 5
+const VIDEO_RESTART_WINDOW_MS = 30_000
 
 /** Handover bounds: at least a second, at most four hours. */
 const HANDOVER_MIN_TTL_MS = 1_000
@@ -471,6 +543,430 @@ function createPngSplitter({ onImage, onDesync, maxBufferedBytes = FRAMES_SPLIT_
   }
 }
 
+/** Read the width and height out of a JPEG's SOFn marker. */
+function jpegDimensions(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) {
+    throw new Error('the capture stream did not return a JPEG')
+  }
+  let offset = 2
+  while (offset + 4 <= buf.length) {
+    if (buf[offset] !== 0xff) throw new Error('a JPEG marker was expected and not found')
+    let marker = buf[offset + 1]
+    // 0xff is fill; the marker code is the first byte after the run of them.
+    while (marker === 0xff && offset + 2 < buf.length) {
+      offset += 1
+      marker = buf[offset + 1]
+    }
+    // SOFn carries the dimensions: 0xC0-0xCF except DHT (C4), JPG (C8), DAC (CC).
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      // [FF][Cn][length:2][precision:1][height:2][width:2]
+      if (offset + 9 > buf.length) break
+      return { height: buf.readUInt16BE(offset + 5), width: buf.readUInt16BE(offset + 7) }
+    }
+    if (marker === 0xd9 || marker === 0xda) break
+    const length = buf.readUInt16BE(offset + 2)
+    if (length < 2) break
+    offset += 2 + length
+  }
+  throw new Error('the JPEG carried no frame header')
+}
+
+/**
+ * Cut a stream of concatenated JPEGs into whole images.
+ *
+ * The PNG splitter's problem again, with a harder format. A naive scan for the
+ * FFD9 end-of-image marker is WRONG: those two bytes occur freely inside
+ * entropy-coded data, so a scan finds boundaries that are not there and cuts
+ * images in half. The only exact answer is to walk the marker structure the
+ * way the PNG splitter walks the chunk chain.
+ *
+ * Two kinds of marker have to be told apart. Most are [FF][code][length:2] and
+ * can be stepped over by their declared length. The scan header (SOS, FFDA) is
+ * followed by entropy-coded data that carries NO length at all and ends only at
+ * the next real marker — where "real" excludes a stuffed FF00 (an FF byte in
+ * the data), a run of FF fill bytes, and the restart markers FFD0-FFD7, all of
+ * which are legal inside the scan.
+ */
+function createJpegSplitter({ onImage, onDesync, maxBufferedBytes = FRAMES_SPLIT_BUFFER_CAP_BYTES }) {
+  let parts = []
+  let buffered = 0
+  let opened = false
+  /** How far into the current image the marker walk has reached. */
+  let scanned = 0
+  /** Whether `scanned` points into entropy-coded data rather than at a marker. */
+  let inEntropy = false
+  let broken = false
+
+  /** One byte at an absolute offset, or -1 past the end. */
+  function byteAt(offset) {
+    if (offset < 0 || offset >= buffered) return -1
+    let cursor = 0
+    for (const part of parts) {
+      const end = cursor + part.length
+      if (offset < end) return part[offset - cursor]
+      cursor = end
+    }
+    return -1
+  }
+
+  /**
+   * From `from`, the offset of the FF that begins the next real marker, or -1
+   * while what is buffered cannot yet decide. Each part is scanned with
+   * `indexOf` so the entropy-coded body is walked at memory speed rather than
+   * a byte at a time.
+   */
+  function nextMarkerAfterEntropy(from) {
+    let base = 0
+    let searchAt = from
+    for (const part of parts) {
+      const end = base + part.length
+      if (end <= searchAt) {
+        base = end
+        continue
+      }
+      let local = Math.max(0, searchAt - base)
+      for (;;) {
+        const hit = part.indexOf(0xff, local)
+        if (hit === -1) break
+        const following = byteAt(base + hit + 1)
+        if (following === -1) return -1
+        if (following !== 0x00 && following !== 0xff && !(following >= 0xd0 && following <= 0xd7)) {
+          return base + hit
+        }
+        // FF00 is a stuffed literal and FFD0-D7 a restart: step past both
+        // bytes. A run of FF fill steps one, because the next FF may itself
+        // be the one that begins the marker.
+        local = following === 0xff ? hit + 1 : hit + 2
+      }
+      base = end
+      searchAt = base
+    }
+    return -1
+  }
+
+  /** The byte length of the image at the front, or 0 while it is incomplete. */
+  function completeImageLength() {
+    if (!opened) {
+      if (buffered < 2) return 0
+      if (byteAt(0) !== 0xff || byteAt(1) !== 0xd8) {
+        broken = true
+        onDesync('the capture stream does not begin with a JPEG start-of-image marker')
+        return 0
+      }
+      opened = true
+      scanned = 2
+      inEntropy = false
+    }
+    for (;;) {
+      if (inEntropy) {
+        const marker = nextMarkerAfterEntropy(scanned)
+        if (marker === -1) return 0
+        scanned = marker
+        inEntropy = false
+      }
+      if (byteAt(scanned) !== 0xff) {
+        if (scanned >= buffered) return 0
+        broken = true
+        onDesync('a JPEG marker was expected and not found')
+        return 0
+      }
+      let markerAt = scanned
+      while (byteAt(markerAt + 1) === 0xff) markerAt += 1
+      const code = byteAt(markerAt + 1)
+      if (code === -1) return 0
+      if (code === 0xd9) return markerAt + 2 // EOI — the image ends here.
+      if (code === 0x01 || (code >= 0xd0 && code <= 0xd7)) {
+        scanned = markerAt + 2 // standalone marker, no length of its own
+        continue
+      }
+      const high = byteAt(markerAt + 2)
+      const low = byteAt(markerAt + 3)
+      if (high === -1 || low === -1) return 0
+      const length = (high << 8) | low
+      if (length < 2) {
+        broken = true
+        onDesync(`a JPEG segment claimed ${length} bytes, which cannot hold its own length`)
+        return 0
+      }
+      const next = markerAt + 2 + length
+      if (next > maxBufferedBytes) {
+        broken = true
+        onDesync(`a JPEG segment claimed ${length} bytes, which is past the ${maxBufferedBytes}-byte cap`)
+        return 0
+      }
+      scanned = next
+      // Everything after a scan header is entropy-coded until the next marker.
+      if (code === 0xda) inEntropy = true
+    }
+  }
+
+  function take(size) {
+    const joined = parts.length === 1 ? parts[0] : Buffer.concat(parts, buffered)
+    const image = joined.subarray(0, size)
+    const rest = joined.subarray(size)
+    parts = rest.length > 0 ? [Buffer.from(rest)] : []
+    buffered = rest.length
+    opened = false
+    scanned = 0
+    inEntropy = false
+    return image
+  }
+
+  return {
+    push(chunk) {
+      if (broken) return
+      parts.push(chunk)
+      buffered += chunk.length
+      for (;;) {
+        const size = completeImageLength()
+        if (broken || size === 0) break
+        onImage(take(size))
+      }
+      if (broken) return
+      if (buffered > maxBufferedBytes) {
+        broken = true
+        onDesync(`held ${buffered} bytes without a complete frame; the cap is ${maxBufferedBytes}`)
+      }
+    },
+  }
+}
+
+/**
+ * Cut a fragmented-MP4 byte stream into the INIT SEGMENT and then one unit per
+ * media fragment.
+ *
+ * Same problem as the PNG splitter and the same answer: a pipe hands the bytes
+ * over in chunks that have nothing to do with the format's own boundaries, so
+ * the boundary is read out of the format. ISO-BMFF is a chain of boxes —
+ * [size:4][type:4], with size 1 meaning a 64-bit largesize follows — which
+ * makes it exact rather than a guess. `-movflags +empty_moov` writes `ftyp`
+ * then `moov` (together the init segment a decoder needs before anything else
+ * can mean anything), then a `moof`+`mdat` pair per fragment.
+ *
+ * The walk is incremental (`scanned` remembers where it got to) and the held
+ * chunks are concatenated once per unit, so thirty fragments a second do not
+ * turn into buffer copying.
+ */
+function createFragmentedMp4Splitter({
+  onInit,
+  onFragment,
+  onDesync,
+  maxBufferedBytes = VIDEO_SPLIT_BUFFER_CAP_BYTES,
+}) {
+  let parts = []
+  let buffered = 0
+  /** How far into the unit being assembled the box walk has reached. */
+  let scanned = 0
+  let broken = false
+  let initSent = false
+  /** Whether a moof has been walked past since the last unit was handed over. */
+  let sawMoof = false
+
+  /** Copy a small range that may straddle the held chunks. */
+  function copyRange(offset, length) {
+    const out = Buffer.allocUnsafe(length)
+    let filled = 0
+    let cursor = 0
+    for (const part of parts) {
+      const end = cursor + part.length
+      if (end > offset) {
+        const from = Math.max(0, offset - cursor)
+        const take = Math.min(part.length - from, length - filled)
+        part.copy(out, filled, from, from + take)
+        filled += take
+        if (filled === length) break
+      }
+      cursor = end
+    }
+    return out
+  }
+
+  /** Take the first `size` bytes as one unit and keep the remainder. */
+  function take(size) {
+    const joined = parts.length === 1 ? parts[0] : Buffer.concat(parts, buffered)
+    const unit = joined.subarray(0, size)
+    const rest = joined.subarray(size)
+    // Copied rather than kept as a view: the remainder outlives the unit we are
+    // about to hand over, and a subarray would pin the whole joined buffer.
+    parts = rest.length > 0 ? [Buffer.from(rest)] : []
+    buffered = rest.length
+    scanned = 0
+    return unit
+  }
+
+  /**
+   * Walk complete top-level boxes. Returns `{ size, kind }` for a whole unit —
+   * everything from the front through the box that ends it — or null while the
+   * stream is still short of one.
+   */
+  function completeUnit() {
+    while (scanned + 8 <= buffered) {
+      const header = copyRange(scanned, 8)
+      let size = header.readUInt32BE(0)
+      const type = header.toString('latin1', 4, 8)
+      let headerBytes = 8
+      if (size === 1) {
+        if (scanned + 16 > buffered) return null
+        const large = copyRange(scanned + 8, 8).readBigUInt64BE(0)
+        if (large > BigInt(maxBufferedBytes)) {
+          broken = true
+          onDesync(`a ${type} box claimed ${large} bytes, past the ${maxBufferedBytes}-byte cap`)
+          return null
+        }
+        size = Number(large)
+        headerBytes = 16
+      }
+      if (size < headerBytes) {
+        broken = true
+        onDesync(`a ${type} box claimed ${size} bytes, which cannot hold its own header`)
+        return null
+      }
+      const end = scanned + size
+      if (end > maxBufferedBytes) {
+        broken = true
+        onDesync(`a ${type} box would need ${end} bytes, past the ${maxBufferedBytes}-byte cap`)
+        return null
+      }
+      if (end > buffered) return null
+      scanned = end
+      // The init segment ends at moov; a media fragment ends at the mdat that
+      // follows a moof. Anything else (styp, free) rides along with the unit
+      // it precedes, which is exactly where it belongs.
+      if (type === 'moov' && !initSent) return { size: end, kind: 'init' }
+      if (type === 'moof') sawMoof = true
+      else if (type === 'mdat') {
+        if (!sawMoof) {
+          broken = true
+          onDesync('an mdat arrived with no moof in front of it')
+          return null
+        }
+        sawMoof = false
+        return { size: end, kind: 'media' }
+      }
+    }
+    return null
+  }
+
+  return {
+    push(chunk) {
+      if (broken) return
+      parts.push(chunk)
+      buffered += chunk.length
+      for (;;) {
+        const unit = completeUnit()
+        if (broken || !unit) break
+        const bytes = take(unit.size)
+        if (unit.kind === 'init') {
+          initSent = true
+          onInit(bytes)
+        } else onFragment(bytes)
+      }
+      if (broken) return
+      if (buffered > maxBufferedBytes) {
+        broken = true
+        onDesync(`held ${buffered} bytes without a complete unit; the cap is ${maxBufferedBytes}`)
+      }
+    },
+  }
+}
+
+/**
+ * Find a descendant box by path and return its payload, or null. Enough of an
+ * ISO-BMFF reader for the two questions asked below and no more.
+ */
+function findBox(buffer, path) {
+  let region = buffer
+  for (const want of path) {
+    let offset = 0
+    let found = null
+    while (offset + 8 <= region.length) {
+      let size = region.readUInt32BE(offset)
+      const type = region.toString('latin1', offset + 4, offset + 8)
+      let headerBytes = 8
+      if (size === 1) {
+        if (offset + 16 > region.length) break
+        size = Number(region.readBigUInt64BE(offset + 8))
+        headerBytes = 16
+      }
+      if (size < headerBytes || offset + size > region.length) break
+      if (type === want) {
+        found = region.subarray(offset + headerBytes, offset + size)
+        break
+      }
+      offset += size
+    }
+    if (!found) return null
+    region = found
+  }
+  return region
+}
+
+/**
+ * The RFC 6381 codec string for the init segment's video track, e.g.
+ * `avc1.42C020`. READ OUT OF THE BYTES rather than assumed, because a
+ * MediaSource whose codec string disagrees with the profile and level the
+ * encoder actually chose refuses the buffer — and refuses it quietly enough
+ * that it presents as a video that never appears rather than as an error.
+ */
+function avcCodecFromInit(init) {
+  // stsd is a full box: four bytes of version/flags and four of entry count
+  // come before the sample entries, and an avc1 entry has 78 bytes of fixed
+  // visual fields before its own child boxes.
+  const stsd = findBox(init, ['moov', 'trak', 'mdia', 'minf', 'stbl', 'stsd'])
+  if (!stsd || stsd.length < 8) return null
+  const avc1 = findBox(stsd.subarray(8), ['avc1'])
+  if (!avc1 || avc1.length < 78) return null
+  const avcC = findBox(avc1.subarray(78), ['avcC'])
+  if (!avcC || avcC.length < 4) return null
+  const hex = (value) => value.toString(16).padStart(2, '0').toUpperCase()
+  return `avc1.${hex(avcC[1])}${hex(avcC[2])}${hex(avcC[3])}`
+}
+
+/**
+ * Whether a media fragment begins at a sync sample.
+ *
+ * This is what lets a relay resume a consumer correctly. A viewer that joined
+ * late, or one that was skipped while its link was backed up, can only be
+ * started at one of these: appending the middle of a group of pictures decodes
+ * to nothing, and shows as a picture that simply never arrives.
+ */
+function fragmentIsKeyframe(fragment) {
+  const traf = findBox(fragment, ['moof', 'traf'])
+  if (!traf) return false
+  let defaultFlags = null
+  let firstFlags = null
+  let offset = 0
+  while (offset + 8 <= traf.length) {
+    const size = traf.readUInt32BE(offset)
+    const type = traf.toString('latin1', offset + 4, offset + 8)
+    if (size < 8 || offset + size > traf.length) break
+    const body = traf.subarray(offset + 8, offset + size)
+    if (type === 'tfhd' && body.length >= 8) {
+      // [version:1][flags:3][track_ID:4], then whichever optional fields the
+      // flags say are present, in this order.
+      const flags = body.readUIntBE(1, 3)
+      let cursor = 8
+      if (flags & 0x000001) cursor += 8 // base_data_offset
+      if (flags & 0x000002) cursor += 4 // sample_description_index
+      if (flags & 0x000008) cursor += 4 // default_sample_duration
+      if (flags & 0x000010) cursor += 4 // default_sample_size
+      if (flags & 0x000020 && cursor + 4 <= body.length) defaultFlags = body.readUInt32BE(cursor)
+    } else if (type === 'trun' && body.length >= 8) {
+      const flags = body.readUIntBE(1, 3)
+      let cursor = 8 // past version/flags and sample_count
+      if (flags & 0x000001) cursor += 4 // data_offset
+      if (flags & 0x000004 && cursor + 4 <= body.length) firstFlags = body.readUInt32BE(cursor)
+    }
+    offset += size
+  }
+  const sampleFlags = firstFlags ?? defaultFlags
+  // ISO 14496-12: bit 16 of the sample flags is sample_is_non_sync_sample. A
+  // muxer that declared neither field is saying its samples are sync samples,
+  // so nothing at all reads as a keyframe rather than as a refusal to resume.
+  if (sampleFlags === null) return true
+  return (sampleFlags & 0x00010000) === 0
+}
+
 // --- the desktop tier -------------------------------------------------------
 
 /**
@@ -491,6 +987,15 @@ function createDesktopTier() {
    * null. `capture` is the long-lived ffmpeg child the PNGs come off.
    */
   let frames = null
+  /**
+   * `{ rate, seq, codec, awaitingKeyframe, stopped, encoder, restartTimer,
+   * restarts, restartWindowAt, sendEvent }` while video is running, else null.
+   * `encoder` is the long-lived ffmpeg child the fragmented MP4 comes off.
+   *
+   * Separate from `frames` on purpose: they are two encoders of the same
+   * screen for two different consumers, and either may run without the other.
+   */
+  let video = null
   /** `{ tracked, timer, url, scope }` or null. */
   let handover = null
   /**
@@ -1229,7 +1734,7 @@ function createDesktopTier() {
    * the alpha channel x11grab hands over and never uses, and the compression
    * level is the CPU/bytes trade-off documented on FRAMES_PNG_COMPRESSION.
    */
-  function captureArgs(rate, geometry) {
+  function captureArgs(rate, geometry, format) {
     return [
       '-hide_banner',
       '-loglevel', 'error',
@@ -1241,9 +1746,9 @@ function createDesktopTier() {
       '-i', DISPLAY,
       '-an',
       '-f', 'image2pipe',
-      '-vcodec', 'png',
-      '-pix_fmt', 'rgb24',
-      '-compression_level', FRAMES_PNG_COMPRESSION,
+      ...(format === 'png'
+        ? ['-vcodec', 'png', '-pix_fmt', 'rgb24', '-compression_level', FRAMES_PNG_COMPRESSION]
+        : ['-vcodec', 'mjpeg', '-q:v', FRAMES_JPEG_QUALITY]),
       // Push every frame down the pipe as it is encoded. Without this a small
       // frame can sit in ffmpeg's output buffer until the NEXT one displaces
       // it, which puts a whole frame interval of latency on exactly the change
@@ -1275,9 +1780,15 @@ function createDesktopTier() {
    * whatever was running. The gap is one process start, and the subscriber
    * keeps showing the last frame across it.
    */
-  async function framesStart({ fps, width, height }) {
+  async function framesStart({ fps, width, height, format }) {
     const screenNow = requireScreen()
     const rate = requireInteger(fps, 'fps', FRAMES_MIN_FPS, FRAMES_MAX_FPS)
+    if (format !== undefined && format !== 'png' && format !== 'jpeg') {
+      throw new Error('format must be png or jpeg')
+    }
+    // A host that does not ask gets JPEG: it is an order of magnitude smaller
+    // than PNG on the same screen, and the frame path's cost is bytes.
+    const encoding = format ?? FRAMES_DEFAULT_FORMAT
     const w = requireInteger(width, 'width', MIN_SCREEN_PX, MAX_SCREEN_PX)
     const h = requireInteger(height, 'height', MIN_SCREEN_PX, MAX_SCREEN_PX)
     if (w !== screenNow.width || h !== screenNow.height) {
@@ -1291,6 +1802,7 @@ function createDesktopTier() {
     stopFrames()
     const session = {
       rate,
+      format: encoding,
       seq: 0,
       lastHash: null,
       lastEmitAt: 0,
@@ -1303,17 +1815,17 @@ function createDesktopTier() {
     }
     frames = session
     startCapture(session)
-    log(`frames started at ${rate}fps`)
+    log(`frames started at ${rate}fps as ${encoding}`)
   }
 
-  /** One captured PNG, straight off the child's stdout. */
+  /** One captured image, straight off the child's stdout. */
   function onCapturedFrame(session, png) {
     if (session.stopped) return
     let size
     try {
-      size = pngDimensions(png)
+      size = session.format === 'png' ? pngDimensions(png) : jpegDimensions(png)
     } catch (error) {
-      log('discarding a frame that is not a PNG:', errorText(error))
+      log(`discarding a frame that is not a ${session.format}:`, errorText(error))
       return
     }
     const hash = createHash('sha256').update(png).digest('hex')
@@ -1340,6 +1852,7 @@ function createDesktopTier() {
       seq: session.seq,
       width: size.width,
       height: size.height,
+      format: session.format,
       data,
     })
   }
@@ -1363,12 +1876,13 @@ function createDesktopTier() {
     const tracked = spawnTracked(
       'ffmpeg (frames)',
       'ffmpeg',
-      captureArgs(session.rate, screenNow),
+      captureArgs(session.rate, screenNow, session.format),
       baseEnv(),
       { stdout: 'pipe' },
     )
     session.capture = tracked
-    const splitter = createPngSplitter({
+    const makeSplitter = session.format === 'png' ? createPngSplitter : createJpegSplitter
+    const splitter = makeSplitter({
       onImage: (png) => {
         if (session.stopped || session.capture !== tracked) return
         onCapturedFrame(session, png)
@@ -1434,6 +1948,279 @@ function createDesktopTier() {
 
   async function framesStop() {
     stopFrames()
+  }
+
+  // --- video ----------------------------------------------------------------
+
+  /**
+   * The x11grab-into-H.264 command line.
+   *
+   * The input half is the frame path's, for the same reasons: `-draw_mouse 0`
+   * because the operator's browser draws the only cursor there is, and
+   * `-framerate` as an INPUT option because it is the rate the X server is
+   * grabbed at rather than a rate something is resampled to.
+   *
+   * The output half is fragmented MP4, and that choice is load-bearing: a
+   * browser plays fMP4 through MediaSource directly, so nothing between here
+   * and the screen has to parse H.264 itself. The movflags are what make the
+   * stream playable as it arrives rather than only once it is complete —
+   * `empty_moov` puts the header up front instead of at the end (a live stream
+   * has no end), `frag_every_frame` cuts a fragment per picture so a fragment
+   * is never waiting on the next one, `frag_keyframe` guarantees a fragment
+   * boundary at every keyframe so a late viewer has somewhere to start,
+   * `default_base_moof`+`omit_tfhd_offset` are the self-contained-fragment
+   * pair a MediaSource expects, and `skip_trailer` drops the `mfra` index —
+   * a seek table for a recording, meaningless for a stream with no end, and
+   * bytes the splitter would hold forever waiting for a unit they never form.
+   */
+  function videoArgs(rate, geometry) {
+    return [
+      '-hide_banner',
+      '-loglevel', 'error',
+      '-nostdin',
+      '-f', 'x11grab',
+      '-draw_mouse', '0',
+      '-framerate', String(rate),
+      '-video_size', `${geometry.width}x${geometry.height}`,
+      '-i', DISPLAY,
+      '-an',
+      '-c:v', 'libx264',
+      '-preset', VIDEO_PRESET,
+      '-tune', VIDEO_TUNE,
+      // yuv420p rather than the rgb x11grab hands over: it is the only pixel
+      // format every browser decoder is required to accept.
+      '-pix_fmt', 'yuv420p',
+      '-g', VIDEO_KEYFRAME_INTERVAL,
+      '-crf', VIDEO_CRF,
+      '-f', 'mp4',
+      '-movflags',
+      '+frag_keyframe+frag_every_frame+empty_moov+default_base_moof+omit_tfhd_offset+skip_trailer',
+      '-flush_packets', '1',
+      '-',
+    ]
+  }
+
+  /**
+   * Encode the screen as video for as long as someone is watching (§3.13).
+   *
+   * This is the live view's real transport, and it exists because the frame
+   * path was never bounded by the encoder — it was bounded by BYTES. A whole
+   * picture per tick is 500KB whatever it is compressed with; a video codec
+   * ships the difference between pictures, and a desktop is mostly still, so
+   * the same screen costs about a fortieth as much. The numbers are on
+   * VIDEO_PRESET.
+   *
+   * NOTHING IS EVER QUEUED, exactly as on the frame path. The per-unit work is
+   * synchronous, and a consumer that cannot keep up is answered with a dropped
+   * fragment rather than a growing buffer — with the resync rule described on
+   * VIDEO_WIRE_BACKLOG_CAP_BYTES, because a hole in a video stream costs more
+   * than a missing frame does.
+   *
+   * There is no damage-skip here and there should not be: a still screen is
+   * already nearly free once the codec has seen it, and the encoder's own
+   * output is the honest measure of what changed.
+   *
+   * CHANGING THE RATE is a restart of the child, as it is for frames. The host
+   * asks by calling video-start again; the subscriber sees a new init segment
+   * and a keyframe, which is exactly what a decoder needs to carry on.
+   */
+  async function videoStart({ fps, width, height }) {
+    const screenNow = requireScreen()
+    const rate = requireInteger(fps, 'fps', VIDEO_MIN_FPS, VIDEO_MAX_FPS)
+    const w = requireInteger(width, 'width', MIN_SCREEN_PX, MAX_SCREEN_PX)
+    const h = requireInteger(height, 'height', MIN_SCREEN_PX, MAX_SCREEN_PX)
+    if (w !== screenNow.width || h !== screenNow.height) {
+      // We never rescale (see the coordinate contract): video goes out at the
+      // screen's real size and every chunk carries the real dimensions.
+      log(`video requested at ${w}x${h}; encoding at the screen's ${screenNow.width}x${screenNow.height}`)
+    }
+    const sendEvent = currentSendEvent()
+    if (!sendEvent) throw new Error('no host connection is available to receive video')
+
+    stopVideo()
+    const session = {
+      rate,
+      seq: 0,
+      codec: null,
+      /** True while waiting for a keyframe to resume after a dropped fragment. */
+      awaitingKeyframe: false,
+      stopped: false,
+      encoder: null,
+      restartTimer: null,
+      restarts: 0,
+      restartWindowAt: Date.now(),
+      sendEvent,
+    }
+    video = session
+    startVideoEncoder(session)
+    log(`video started at ${rate}fps`)
+  }
+
+  /** The init segment: the header without which nothing else decodes. */
+  function onVideoInit(session, bytes) {
+    if (session.stopped) return
+    const codec = avcCodecFromInit(bytes)
+    if (!codec) {
+      // Sending an init segment we cannot describe would have the consumer
+      // guess a codec string, and a MediaSource that is told the wrong one
+      // fails silently. Restarting is the honest answer.
+      log('the encoder produced an init segment with no readable avcC; restarting')
+      restartVideoEncoder(session)
+      return
+    }
+    session.codec = codec
+    const screenNow = screen
+    if (!screenNow) return
+    session.seq += 1
+    // Never dropped for backlog. A consumer without this decodes nothing at
+    // all, so it is the one thing worth waiting on a slow socket for.
+    session.awaitingKeyframe = false
+    session.sendEvent({
+      event: 'video-chunk',
+      seq: session.seq,
+      kind: 'init',
+      codec,
+      width: screenNow.width,
+      height: screenNow.height,
+      keyframe: false,
+      data: bytes.toString('base64'),
+    })
+    log(`video init segment sent (${bytes.length}B, codec ${codec})`)
+  }
+
+  /** One media fragment, straight off the encoder. */
+  function onVideoFragment(session, bytes) {
+    if (session.stopped || !session.codec) return
+    const screenNow = screen
+    if (!screenNow) return
+    const keyframe = fragmentIsKeyframe(bytes)
+    if (session.awaitingKeyframe && !keyframe) return
+    if (wireBacklogBytes() > VIDEO_WIRE_BACKLOG_CAP_BYTES) {
+      // The hole this makes cannot be repaired by the next fragment, so stop
+      // sending until a keyframe can start the decoder cleanly again.
+      session.awaitingKeyframe = true
+      return
+    }
+    const data = bytes.toString('base64')
+    if (data.length > FRAME_PAYLOAD_CAP_BYTES) {
+      log(`skipping a ${data.length}-byte video fragment; the payload cap is ${FRAME_PAYLOAD_CAP_BYTES}`)
+      session.awaitingKeyframe = true
+      return
+    }
+    session.awaitingKeyframe = false
+    session.seq += 1
+    session.sendEvent({
+      event: 'video-chunk',
+      seq: session.seq,
+      kind: 'media',
+      codec: session.codec,
+      width: screenNow.width,
+      height: screenNow.height,
+      keyframe,
+      data,
+    })
+  }
+
+  /**
+   * Start (or restart) the encoder for a session. Same policy as the frame
+   * capture: a child that dies is restarted, because a picture that goes black
+   * and says nothing is worse; a child that keeps dying is a fault and is said
+   * out loud rather than retried forever.
+   */
+  function startVideoEncoder(session) {
+    if (session.stopped) return
+    const screenNow = screen
+    if (!screenNow) {
+      log('stopping the video encode: the screen is gone')
+      stopVideo()
+      return
+    }
+    const tracked = spawnTracked(
+      'ffmpeg (video)',
+      'ffmpeg',
+      videoArgs(session.rate, screenNow),
+      baseEnv(),
+      { stdout: 'pipe' },
+    )
+    session.encoder = tracked
+    // A restarted encoder emits a fresh init segment, and the consumer needs
+    // it: the old one described a stream that has ended.
+    session.codec = null
+    const splitter = createFragmentedMp4Splitter({
+      onInit: (bytes) => {
+        if (session.stopped || session.encoder !== tracked) return
+        onVideoInit(session, bytes)
+      },
+      onFragment: (bytes) => {
+        if (session.stopped || session.encoder !== tracked) return
+        onVideoFragment(session, bytes)
+      },
+      onDesync: (reason) => {
+        if (session.stopped || session.encoder !== tracked) return
+        log('the video stream lost its framing; restarting ffmpeg:', reason)
+        void terminate(tracked, VIDEO_TERMINATE_GRACE_MS)
+      },
+    })
+    tracked.child.stdout.on('data', (chunk) => {
+      if (session.stopped || session.encoder !== tracked) return
+      splitter.push(chunk)
+    })
+    tracked.child.stdout.on('error', (error) => {
+      log('the video pipe failed:', errorText(error))
+    })
+    // 'close' rather than 'exit': it fires after stdout has drained, and it
+    // also fires when the spawn itself failed, which 'exit' does not.
+    tracked.child.once('close', () => {
+      if (session.stopped || session.encoder !== tracked) return
+      session.encoder = null
+      const now = Date.now()
+      if (now - session.restartWindowAt > VIDEO_RESTART_WINDOW_MS) {
+        session.restarts = 0
+        session.restartWindowAt = now
+      }
+      session.restarts += 1
+      const why = tracked.stderrTail.trim().slice(0, 512) || 'no output'
+      if (session.restarts > VIDEO_MAX_RESTARTS) {
+        log(
+          `the video encode died ${session.restarts} times in`,
+          `${VIDEO_RESTART_WINDOW_MS}ms; giving up rather than looping. ffmpeg said: ${why}`,
+        )
+        stopVideo()
+        return
+      }
+      log(`the video encode exited; restarting in ${VIDEO_RESTART_DELAY_MS}ms. ffmpeg said: ${why}`)
+      session.restartTimer = setTimeout(() => {
+        session.restartTimer = null
+        startVideoEncoder(session)
+      }, VIDEO_RESTART_DELAY_MS)
+    })
+  }
+
+  /** Take the encoder down; the 'close' handler restarts it. */
+  function restartVideoEncoder(session) {
+    const tracked = session.encoder
+    if (tracked) void terminate(tracked, VIDEO_TERMINATE_GRACE_MS)
+  }
+
+  /**
+   * Stop encoding, and take the child with it. An orphaned ffmpeg would hold an
+   * X connection open and go on encoding a screen nobody is watching — the
+   * exact cost this whole path exists to avoid.
+   */
+  function stopVideo() {
+    if (!video) return
+    const session = video
+    video = null
+    session.stopped = true
+    if (session.restartTimer) clearTimeout(session.restartTimer)
+    const tracked = session.encoder
+    session.encoder = null
+    if (tracked) void terminate(tracked, VIDEO_TERMINATE_GRACE_MS)
+    log('video stopped')
+  }
+
+  async function videoStop() {
+    stopVideo()
   }
 
   // --- handover -------------------------------------------------------------
@@ -1573,8 +2360,9 @@ function createDesktopTier() {
       try {
         sendEvent(event)
       } catch (error) {
-        log('could not push an event to the host; stopping frames:', errorText(error))
+        log('could not push an event to the host; stopping the live view:', errorText(error))
         stopFrames()
+        stopVideo()
       }
     }
   }
@@ -1598,18 +2386,21 @@ function createDesktopTier() {
   /**
    * The connection that owned the push channel has gone. Stop capturing rather
    * than shouting frames at a destroyed socket forever — the host restarts the
-   * stream when it reconnects.
+   * stream when it reconnects, and a restarted video stream begins with the
+   * init segment its consumer needs anyway.
    */
   function dropSendEvent(provider) {
     if (sendEventProvider !== provider) return
     sendEventProvider = () => null
     socketProvider = () => null
-    if (frames) log('the host connection closed; stopping frames')
+    if (frames || video) log('the host connection closed; stopping the live view')
     stopFrames()
+    stopVideo()
   }
 
   async function shutdown() {
     stopFrames()
+    stopVideo()
     await stopHandover()
     await screenStop()
   }
@@ -1625,6 +2416,8 @@ function createDesktopTier() {
     clipboardWrite,
     framesStart,
     framesStop,
+    videoStart,
+    videoStop,
     handoverBegin,
     handoverEnd,
     useSendEvent,
@@ -1798,6 +2591,8 @@ function createHandlers(getSendEvent, getSocket = () => null) {
     clipboardWrite: (call) => desktop.clipboardWrite(call),
     framesStart: (call) => desktop.framesStart(call),
     framesStop: () => desktop.framesStop(),
+    videoStart: (call) => desktop.videoStart(call),
+    videoStop: () => desktop.videoStop(),
     handoverBegin: (call) => desktop.handoverBegin(call),
     handoverEnd: () => desktop.handoverEnd(),
   }

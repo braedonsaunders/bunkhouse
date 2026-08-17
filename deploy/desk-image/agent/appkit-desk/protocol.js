@@ -91,6 +91,7 @@ export function parseGuestRequest(value) {
         case 'observe':
         case 'clipboard-read':
         case 'frames-stop':
+        case 'video-stop':
         case 'handover-end':
             return { id, op };
         case 'exec':
@@ -145,6 +146,15 @@ export function parseGuestRequest(value) {
         case 'clipboard-write':
             return { id, op, text: requireString(record, 'text') };
         case 'frames-start':
+            return {
+                id,
+                op,
+                fps: requirePositiveInteger(record, 'fps'),
+                width: requireDimension(record, 'width'),
+                height: requireDimension(record, 'height'),
+                format: optionalFrameFormat(record),
+            };
+        case 'video-start':
             return {
                 id,
                 op,
@@ -220,6 +230,19 @@ export function parseHostBoundMessage(value) {
                 seq: requireNonNegativeInteger(record, 'seq'),
                 width: requireDimension(record, 'width'),
                 height: requireDimension(record, 'height'),
+                data: requireUnboundedString(record, 'data'),
+                // Absent means png — see the field's contract on GuestEventMessage.
+                format: optionalFrameFormat(record) ?? 'png',
+            };
+        case 'video-chunk':
+            return {
+                event,
+                seq: requireNonNegativeInteger(record, 'seq'),
+                kind: parseVideoChunkKind(record.kind),
+                codec: requireString(record, 'codec'),
+                width: requireDimension(record, 'width'),
+                height: requireDimension(record, 'height'),
+                keyframe: record.keyframe === true,
                 data: requireUnboundedString(record, 'data'),
             };
         case 'window-focus':
@@ -339,6 +362,24 @@ function parsePointerButton(value) {
     if (value === 'left' || value === 'middle' || value === 'right')
         return value;
     throw new DeskProtocolError('button must be left, middle, or right.');
+}
+/**
+ * A frame format, when the field is present. Absent is `undefined` here and
+ * every caller decides what that means; on a frame event it means `png`,
+ * because that is what the field's absence used to imply.
+ */
+function optionalFrameFormat(record) {
+    const value = record.format;
+    if (value === undefined)
+        return undefined;
+    if (value === 'png' || value === 'jpeg')
+        return value;
+    throw new DeskProtocolError('format must be png or jpeg.');
+}
+function parseVideoChunkKind(value) {
+    if (value === 'init' || value === 'media')
+        return value;
+    throw new DeskProtocolError('video chunk kind must be init or media.');
 }
 function parseHandoverScope(value) {
     if (value === 'view' || value === 'control')

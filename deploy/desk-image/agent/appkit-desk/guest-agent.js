@@ -85,10 +85,21 @@ export function createGuestAgentCore(handlers, options = {}) {
                     fps: request.fps,
                     width: request.width,
                     height: request.height,
+                    format: request.format,
                 });
                 return {};
             case 'frames-stop':
                 await handlers.framesStop();
+                return {};
+            case 'video-start':
+                await handlers.videoStart({
+                    fps: request.fps,
+                    width: request.width,
+                    height: request.height,
+                });
+                return {};
+            case 'video-stop':
+                await handlers.videoStop();
                 return {};
             case 'handover-begin':
                 return handlers.handoverBegin({ ttlMs: request.ttlMs, scope: request.scope });

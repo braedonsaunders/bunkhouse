@@ -223,11 +223,16 @@ export function guestWorkspacePath(relative: string): string {
 //
 // Two of the endpoints are spoken elsewhere in this tier rather than here,
 // because they are streams and not calls:
+//   · GET  /desks/:id/screen/video   and POST /screen/video/start|stop —
+//     the live view a person drives by (`openDeskVideoStream` below, behind
+//     the browser proxy at /api/desk/[personId]/video; `tuneDeskVideo`
+//     beside it re-tunes that encode's rate in place).
 //   · GET  /desks/:id/screen/frames  and POST /screen/frames/start|stop —
-//     the live view, in desk-cast.ts, which feeds them to the call stage.
-//     (`openDeskFrameStream` below is the OTHER consumer of the same
-//     endpoint: the browser proxy behind /api/desk/[personId]/frames, and
-//     `tuneDeskFrames` beside it re-tunes that capture's rate in place.)
+//     still pictures, in desk-cast.ts, which decodes them into raw frames
+//     for the call stage's video track. (`openDeskFrameStream` below is the
+//     OTHER consumer of the same endpoint: the browser's fallback when
+//     MediaSource or H.264 is unavailable, behind
+//     /api/desk/[personId]/frames, with `tuneDeskFrames` beside it.)
 //   · GET  /desks/:id/handover/stream (WS) — the handover relay; this module
 //     only composes its authenticated URL, below.
 // ---------------------------------------------------------------------------
@@ -596,8 +601,14 @@ export async function captureDeskFrame(
   return { png: observation.png, width: observation.width, height: observation.height }
 }
 
-/** One frame as the browser proxy hands it on. */
-export type DeskWireFrame = { png: string; width: number; height: number; seq: number }
+/** One still as the browser proxy hands it on; `format` says how `data` is encoded. */
+export type DeskWireFrame = {
+  data: string
+  format: 'png' | 'jpeg'
+  width: number
+  height: number
+  seq: number
+}
 
 /**
  * The guest's live frames, re-framed for a browser.
@@ -637,6 +648,80 @@ export async function openDeskFrameStream(
     throw new Error(`The desk refused the frame stream (${response.status}) ${detail.slice(0, 200)}`.trim())
   }
   return reframeDeskFrames(response.body)
+}
+
+/**
+ * The guest's live view, as H.264.
+ *
+ * The live view's transport, and the reason it can keep up at all. The frame
+ * stream above ships a whole picture per tick — around 500KB of PNG at
+ * 1280x900 — and the guest→host vsock cannot carry thirty of those a second,
+ * so most of what the guest captured never arrived. Video ships the difference
+ * between pictures instead, which on a desktop is nearly nothing, and measured
+ * about a fortieth of the bytes for all thirty frames.
+ *
+ * The body is BINARY and passed through untouched: a stream of length-prefixed
+ * fragmented-MP4 chunks, framed by the runner (see `encodeVideoWireChunk` in
+ * apps/web/scripts/desk-runner.mts, which this mirrors by hand). It is not
+ * re-encoded, not base64'd and not buffered here — this tier exists to hold the
+ * runner's address and bearer token, not to touch the bytes.
+ *
+ * Subscribing IS starting the encode, and the last unsubscribe stops it, the
+ * same contract the frame stream has. The mask holds here for free: the runner
+ * reads from `@appkit/desk`'s `screen.video()`, which withholds everything
+ * while a handover is active.
+ */
+export async function openDeskVideoStream(
+  args: { deskId: string; fps?: number; width?: number; height?: number; signal?: AbortSignal },
+  deps: DeskClientDeps = {},
+): Promise<ReadableStream<Uint8Array>> {
+  const runner = requireRunner(deps)
+  const request = deps.fetch ?? fetch
+  const query = new URLSearchParams({
+    fps: String(args.fps ?? AGENT_SCREEN_WATCHING_FPS),
+    width: String(args.width ?? AGENT_SCREEN_WIDTH),
+    height: String(args.height ?? AGENT_SCREEN_HEIGHT),
+  })
+  const response = await request(
+    `${runner.url}/desks/${encodeURIComponent(args.deskId)}/screen/video?${query.toString()}`,
+    {
+      headers: { authorization: `Bearer ${runner.token}`, accept: 'application/octet-stream' },
+      ...(args.signal ? { signal: args.signal } : {}),
+    },
+  )
+  if (!response.ok || !response.body) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(`The desk refused the video stream (${response.status}) ${detail.slice(0, 200)}`.trim())
+  }
+  return response.body
+}
+
+/**
+ * Re-tune the rate of the video encode that is ALREADY running, without
+ * touching the subscription carrying it. Exactly `tuneDeskFrames`' contract and
+ * for exactly its reasons — see the comment there — against the video pump.
+ */
+export async function tuneDeskVideo(
+  args: { deskId: string; fps: number; width?: number; height?: number },
+  deps: DeskClientDeps = {},
+): Promise<{ streaming: boolean; fps: number }> {
+  const runner = requireRunner(deps)
+  const tuned = await runnerPost<{ streaming?: unknown; fps?: unknown }>(
+    runner,
+    deps,
+    `/desks/${encodeURIComponent(args.deskId)}/screen/video/start`,
+    {
+      fps: args.fps,
+      width: args.width ?? AGENT_SCREEN_WIDTH,
+      height: args.height ?? AGENT_SCREEN_HEIGHT,
+      pin: false,
+    },
+    10_000,
+  )
+  return {
+    streaming: tuned.streaming === true,
+    fps: typeof tuned.fps === 'number' ? tuned.fps : args.fps,
+  }
 }
 
 /**
@@ -681,10 +766,13 @@ export async function tuneDeskFrames(
 }
 
 /**
- * The runner's SSE ({ seq, width, height, data }) → the browser's SSE
- * ({ png, width, height, seq }). One rename and nothing else: no re-encode, no
- * buffering of a backlog, and the runner's address and token stay on this side
- * of the boundary.
+ * The runner's SSE → the browser's SSE. A re-frame and nothing else: no
+ * re-encode, no buffering of a backlog, and the runner's address and token stay
+ * on this side of the boundary.
+ *
+ * `format` is carried rather than assumed. The guest encodes stills as JPEG by
+ * default now, and a consumer that hardcoded `image/png` would hand the browser
+ * a data URL whose media type contradicts its bytes.
  */
 export function reframeDeskFrames(upstream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
   const reader = upstream.getReader()
@@ -737,10 +825,19 @@ export function reframeDeskFrames(upstream: ReadableStream<Uint8Array>): Readabl
 
 function parseUpstreamFrame(payload: string): DeskWireFrame | null {
   try {
-    const value = JSON.parse(payload) as { seq?: unknown; width?: unknown; height?: unknown; data?: unknown }
+    const value = JSON.parse(payload) as {
+      seq?: unknown
+      width?: unknown
+      height?: unknown
+      data?: unknown
+      format?: unknown
+    }
     if (typeof value.data !== 'string' || !value.data) return null
     return {
-      png: value.data,
+      data: value.data,
+      // A runner that predates the field only ever sent PNG, which is what its
+      // absence has always meant.
+      format: value.format === 'jpeg' ? 'jpeg' : 'png',
       width: typeof value.width === 'number' ? value.width : AGENT_SCREEN_WIDTH,
       height: typeof value.height === 'number' ? value.height : AGENT_SCREEN_HEIGHT,
       seq: typeof value.seq === 'number' ? value.seq : 0,
