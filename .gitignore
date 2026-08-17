@@ -15,3 +15,6 @@ docs/agent-desk.md
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Operator scratch: SSH private keys, desk tokens, host screenshots.
+tmp/
