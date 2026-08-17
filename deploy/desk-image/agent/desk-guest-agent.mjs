@@ -9,7 +9,7 @@
  *
  * This is the ONLY new attack surface in the desk design (spec §5.1, §8): a bug
  * here is a sandbox escape. It is deliberately small and dependency-free — only
- * node: built-ins plus the vendored, dependency-free @appkit/desk protocol core
+ * node: built-ins plus the staged, dependency-free @braedonsaunders/appkit-desk protocol core
  * in ./appkit-desk/. The core owns all contact with the wire (bounded frame
  * decoding, strict parsing, a closed dispatch switch); the handlers below own
  * all contact with the guest OS. A handler that throws becomes a clean error
@@ -76,7 +76,7 @@
  *
  *   Handover     x11vnc bound to 127.0.0.1 only, with a guest-side TTL timer
  *                that kills it even if handoverEnd never arrives (§3.14). The
- *                masking rules are enforced HOST-side by @appkit/desk; the
+ *                masking rules are enforced HOST-side by @braedonsaunders/appkit-desk; the
  *                guest simply keeps no record of handover input at all.
  */
 
@@ -1014,7 +1014,61 @@ function createDesktopTier() {
   }
 
   /**
+   * THE TWO VARIABLES THAT MAKE A PROCESS A SCREEN PROCESS.
+   *
+   * `DISPLAY` says which X server to draw on and `DBUS_SESSION_BUS_ADDRESS`
+   * says which session bus to talk to, and a desktop application needs BOTH.
+   * The split is not obvious and it cost us a bug: GTK tolerates a missing
+   * session bus and carries on, so Thunar opened and everything looked fine,
+   * while Chromium refuses one outright —
+   *
+   *   ERROR:dbus/bus.cc] Failed to connect to the bus:
+   *   Could not parse server address: Unknown address type
+   *
+   * — and dies before it ever maps a window. The launch returns ok, the caller
+   * observes, and there is nothing there. So the pair is named here, once, and
+   * every process that targets the screen is handed it from this one place
+   * rather than each caller remembering half of it.
+   *
+   * Null when no screen is running: there is nothing to point at, and pointing
+   * at a display that does not exist is worse than saying so.
+   */
+  function screenEnv() {
+    if (!screen) return null
+    return { DISPLAY, ...screen.sessionEnv }
+  }
+
+  /**
+   * Whether the session bus we started is still there.
+   *
+   * `dbus-launch` daemonizes, so the bus is not one of our tracked children and
+   * nothing tells us when it dies — but its address stays in `sessionEnv`, and
+   * handing a live-looking address to a dead socket is exactly the failure that
+   * looks like "the browser will not open" and reads like a product bug. A
+   * signal-0 to the pid is the cheap, honest test.
+   */
+  function sessionBusAlive() {
+    if (!screen) return false
+    const pid = screen.dbusPid
+    // No pid to check is not evidence of death: dbus-launch printed an address
+    // and we take it at its word rather than refusing a working session.
+    if (!Number.isInteger(pid) || pid <= 0) return true
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch (error) {
+      // EPERM means the process is there and simply not ours to signal.
+      return error != null && error.code === 'EPERM'
+    }
+  }
+
+  /**
    * The environment every desktop child and every tool call inherits.
+   *
+   * `screenEnv()` is folded in near the end so DISPLAY and the session bus
+   * reach every one of them — the desktop children, xdotool, wmctrl, xclip,
+   * import, x11vnc and both ffmpegs — from the same place, and only `extra`
+   * may override it.
    *
    * The accessibility variables are what make the OPPORTUNISTIC half of §3.10
    * possible: GTK loads its ATK bridge only when GTK_MODULES asks for it and
@@ -1027,15 +1081,21 @@ function createDesktopTier() {
     return {
       ...env,
       DISPLAY,
-      HOME: process.env.HOME ?? '/root',
-      XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR ?? '/run/desk-agent',
+      // `||`, NOT `??`. systemd starts this unit with HOME set to the EMPTY
+      // STRING rather than unset, and `??` passes an empty string straight
+      // through — so every desktop child was being told its home directory is
+      // "", and writing its profile relative to whatever the cwd happened to
+      // be. Measured on the real desk: Chromium's crash database landed in
+      // `/tmp/.config/chromium`.
+      HOME: process.env.HOME || '/root',
+      XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR || '/run/desk-agent',
       XDG_CURRENT_DESKTOP: 'XFCE',
       XDG_SESSION_TYPE: 'x11',
       GTK_MODULES: 'gail:atk-bridge',
       QT_ACCESSIBILITY: '1',
       QT_LINUX_ACCESSIBILITY_ALWAYS_ON: '1',
       GNOME_ACCESSIBILITY: '1',
-      ...(screen ? screen.sessionEnv : {}),
+      ...(screenEnv() ?? {}),
       ...extra,
     }
   }
@@ -1627,12 +1687,26 @@ function createDesktopTier() {
 
   async function launch({ appId, args }) {
     requireScreen()
+    // A dead session bus is REFUSED rather than launched into. Without this,
+    // the one failure mode that matters here is completely silent: the spawn
+    // succeeds, we log "launched chromium", the caller is told ok — and the
+    // application exits on its own a moment later because it could not reach
+    // the bus, leaving an observe() with no window in it and nothing anywhere
+    // saying why. See screenEnv().
+    if (!sessionBusAlive()) {
+      throw new Error(
+        `the desktop session bus is gone (dbus-daemon pid ${screen?.dbusPid ?? 'unknown'} has exited), `
+        + 'so an application launched now would have no bus to talk to and would exit unseen; '
+        + 'restart the screen (screen-stop then screen-start) to get a new session',
+      )
+    }
     const program = requireLaunchable(appId)
     const argv = Array.isArray(args) ? args : []
     if (argv.length > 64) throw new Error('launch accepts at most 64 arguments')
     const cleanArgv = argv.map((value, index) => requireText(value, `args[${index}]`, 4096))
     // Detached and unref'd: the app outlives this call and this connection, and
     // we deliberately do not wait for a window to appear — the caller observes.
+    // baseEnv() is what carries DISPLAY and DBUS_SESSION_BUS_ADDRESS in.
     const child = spawn(program, cleanArgv, {
       env: baseEnv(),
       detached: true,
@@ -1972,12 +2046,32 @@ function createDesktopTier() {
    * pair a MediaSource expects, and `skip_trailer` drops the `mfra` index —
    * a seek table for a recording, meaningless for a stream with no end, and
    * bytes the splitter would hold forever waiting for a unit they never form.
+   *
+   * EVERY OPTION HERE THAT COSTS TIME IS SPELLED OUT rather than left to a
+   * preset, because the presets do not promise it. `-tune zerolatency` happens
+   * to imply `bframes=0`, `rc-lookahead=0` and `sync-lookahead=0` today; `-bf 0`
+   * says the part that matters out loud, so a later change of preset or tune
+   * cannot quietly reintroduce frame reordering — one B-frame is one whole
+   * frame interval of delay on exactly the keystroke somebody is waiting to
+   * see. `-fflags nobuffer` and `-flags low_delay` are the same statement on
+   * the demux side, and `-probesize`/`-analyzeduration` stop ffmpeg spending
+   * the first fraction of a second deciding what x11grab is — which is the one
+   * source it already knows everything about.
+   *
+   * `-g` is NOT a latency control and is deliberately left where it is. There
+   * is no lookahead, so a keyframe interval buys nothing back in delay; it is
+   * the resync cost documented on VIDEO_KEYFRAME_INTERVAL, and shortening it
+   * would only spend bitrate.
    */
   function videoArgs(rate, geometry) {
     return [
       '-hide_banner',
       '-loglevel', 'error',
       '-nostdin',
+      '-fflags', 'nobuffer',
+      '-flags', 'low_delay',
+      '-probesize', '32',
+      '-analyzeduration', '0',
       '-f', 'x11grab',
       '-draw_mouse', '0',
       '-framerate', String(rate),
@@ -1987,6 +2081,8 @@ function createDesktopTier() {
       '-c:v', 'libx264',
       '-preset', VIDEO_PRESET,
       '-tune', VIDEO_TUNE,
+      // No frame reordering, said explicitly — see the note above.
+      '-bf', '0',
       // yuv420p rather than the rgb x11grab hands over: it is the only pixel
       // format every browser decoder is required to accept.
       '-pix_fmt', 'yuv420p',
@@ -2230,7 +2326,7 @@ function createDesktopTier() {
    * The runner owns exposing it outward (it already relays the vsock/websocket
    * path), so nothing here ever listens on a routable address.
    *
-   * MASKING (§3.14) is enforced HOST-side by @appkit/desk: while a handover is
+   * MASKING (§3.14) is enforced HOST-side by @braedonsaunders/appkit-desk: while a handover is
    * active it drops input events, frames, window focus and the clipboard before
    * they reach the recording port. This file deliberately does NOT re-implement
    * that — and deliberately keeps NO record of handover input either. x11vnc
@@ -2406,6 +2502,8 @@ function createDesktopTier() {
   }
 
   return {
+    screenEnv,
+    sessionBusAlive,
     screenStart,
     screenStop,
     observe,
@@ -2460,6 +2558,34 @@ function createHandlers(getSendEvent, getSocket = () => null) {
   /** jobId -> ChildProcess, for jobSignal and exit reporting. */
   const jobs = new Map()
 
+  /**
+   * DISPLAY and DBUS_SESSION_BUS_ADDRESS for the MACHINE tier — exec and
+   * jobStart — whenever a screen is running.
+   *
+   * This is a deliberate decision and not an oversight in either direction.
+   * exec is the agent's shell; a shell is not inherently a screen process, and
+   * for `ls` or `git` these two variables mean nothing. But an agent that has a
+   * desktop open and types `chromium` — or `xdg-open`, or a test runner that
+   * drives a browser — is doing the one thing that needs them, and having that
+   * fail with a dbus error while `launch` works is a distinction nobody can be
+   * expected to hold. So the screen's session is offered here too. It is only
+   * ever offered: when there is no screen nothing is added, and a caller who
+   * sets DISPLAY itself keeps its own value, because an explicit env from the
+   * host is a statement of intent and this is only a default.
+   *
+   * The bus's liveness is NOT enforced here the way `launch` enforces it —
+   * refusing to run `ls` because a dbus-daemon died would be absurd — but it is
+   * logged, so a shell that hits the same wall has the reason in the journal.
+   */
+  function withScreenEnv(env) {
+    const session = desktop.screenEnv()
+    if (!session) return env ?? null
+    if (!desktop.sessionBusAlive()) {
+      log('the desktop session bus has exited; a command that needs it will fail until the screen is restarted')
+    }
+    return env ? { ...session, ...env } : { ...process.env, ...session }
+  }
+
   // The desktop tier outlives any single connection, but its frame loop pushes
   // over whichever connection is current — and reads that connection's own
   // backlog, so a host that cannot keep up costs frames rather than memory.
@@ -2471,13 +2597,14 @@ function createHandlers(getSendEvent, getSocket = () => null) {
      * a hard timeout that SIGKILLs the process, and each stream capped at 1 MiB.
      */
     exec({ command, args, cwd, env, timeoutMs }) {
+      const runEnv = withScreenEnv(env)
       return new Promise((resolve) => {
         const child = execFile(
           command,
           args,
           {
             ...(cwd ? { cwd } : {}),
-            ...(env ? { env } : {}),
+            ...(runEnv ? { env: runEnv } : {}),
             ...(timeoutMs ? { timeout: timeoutMs } : {}),
             killSignal: 'SIGKILL',
             maxBuffer: OUTPUT_CAP_BYTES,
@@ -2539,9 +2666,13 @@ function createHandlers(getSendEvent, getSocket = () => null) {
      */
     async jobStart({ command, args, cwd, env }) {
       const jobId = randomUUID()
+      // Same reasoning as exec's, and more so: a keepAlive job is how the
+      // in-guest browser is started, which is the exact process that needs the
+      // session bus.
+      const jobEnv = withScreenEnv(env)
       const child = spawn(command, args, {
         ...(cwd ? { cwd } : {}),
-        ...(env ? { env } : {}),
+        ...(jobEnv ? { env: jobEnv } : {}),
         detached: true,
         stdio: 'ignore',
         windowsHide: true,

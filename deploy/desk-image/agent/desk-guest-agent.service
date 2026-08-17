@@ -16,6 +16,13 @@ Type=simple
 # lives directly at /run/desk-guest-agent.sock, created and removed by the agent.
 RuntimeDirectory=desk-agent
 RuntimeDirectoryMode=0700
+# systemd starts a service with HOME set to the EMPTY STRING, not unset — so
+# every process the agent starts, and every shell the agent runs, inherited a
+# home directory of "" and wrote its dotfiles relative to whatever the working
+# directory happened to be. Measured on the real desk: Chromium's crash
+# database landed in /tmp/.config/chromium. Saying it here fixes it at the
+# source, for the desktop tier and the machine tier at once.
+Environment=HOME=/root
 ExecStart=/usr/bin/node /opt/desk-agent/desk-guest-agent.mjs
 Restart=always
 RestartSec=1

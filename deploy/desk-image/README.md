@@ -19,16 +19,11 @@ deploy/desk-image/
 │   ├── package.json               # marks /opt/desk-agent as ESM inside the image
 │   ├── desk-guest-agent.service   # systemd: run the agent as root on a UNIX socket
 │   ├── desk-vsock-bridge.service  # systemd: socat vsock:5252 -> that UNIX socket
-│   └── appkit-desk/               # vendored, dependency-free @appkit/desk protocol core
-│       ├── guest-agent.js         #   runGuestAgent() — binds the pure core to a stream
-│       ├── protocol.js            #   framed-JSON encode/decode/validate
-│       └── events.js              #   (type-only; kept so the tree is self-contained)
 ```
 
-The `appkit-desk/` copies come from `apps/web/node_modules/@appkit/desk/`. They
-are committed so the image tree is self-contained: the build copies this whole
-`agent/` directory to `/opt/desk-agent/` in the guest, and it must run there
-without an npm install.
+The build stages the dependency-free protocol core from the installed
+`apps/web/node_modules/@braedonsaunders/appkit-desk/` package into `/opt/desk-agent/appkit-desk/`.
+Run `pnpm install` before building the image; no package source is copied into this repo.
 
 ## Building
 
@@ -87,7 +82,7 @@ console=ttyS0 root=/dev/vda3 rw
    node /opt/desk-agent/desk-guest-agent.mjs  (root; UNIX socket server)
         │
         ▼
- runGuestAgent({ stream, handlers })   ← the vendored @appkit/desk core
+ runGuestAgent({ stream, handlers })   ← the staged @braedonsaunders/appkit-desk core
 ```
 
 The agent is a plain UNIX-socket server; socat owns all the vsock specifics, so
@@ -189,7 +184,7 @@ exposing it outward. A guest-side timer kills x11vnc when `ttlMs` elapses even
 if `handover-end` never arrives; `handover-end` is idempotent, and stopping the
 screen stops the handover and the frame loop too.
 
-The **masking rules are enforced host-side** by `@appkit/desk`, which drops
+The **masking rules are enforced host-side** by `@braedonsaunders/appkit-desk`, which drops
 input events, frames, window focus and clipboard reads while a handover is
 active. The guest deliberately does not re-implement that — and deliberately
 keeps *no record of handover input at all*: x11vnc injects through XTEST without

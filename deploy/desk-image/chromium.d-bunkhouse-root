@@ -1,0 +1,34 @@
+# Chromium on a desk runs as root, and Chromium will not.
+#
+# Installed at /etc/chromium.d/zz-bunkhouse-root, which Debian's /usr/bin/chromium
+# launcher sources before exec'ing the real binary. The name sorts last so this
+# is the final word on the flag set.
+#
+# WHY IT IS NEEDED. The in-guest agent runs as root by design — it execs
+# arbitrary commands on the agent's behalf, and desk-guest-agent.service says
+# so — which makes root the user behind every `launch`, every job, and every
+# shell an agent types into. Chromium refuses that outright:
+#
+#   ERROR:content/browser/zygote_host/zygote_host_impl_linux.cc:101]
+#   Running as root without --no-sandbox is not supported.
+#
+# and, crucially, it refuses SILENTLY as far as the desk is concerned: the
+# process exits before it maps a window, so `launch chromium` returns ok, the
+# agent observes, and there is simply nothing there. That is the whole of the
+# "the browser will not open" report. GTK applications were never affected,
+# which is why Thunar opening made it look like the display was fine.
+#
+# WHY THE ENVIRONMENT COULD NOT CARRY IT. The obvious fix — export
+# CHROMIUM_FLAGS from the agent — does not work: /usr/bin/chromium sets
+# `CHROMIUM_FLAGS=""` near the top and only then sources this directory, so an
+# inherited value is discarded. This directory is the supported hook.
+#
+# WHAT IT GIVES UP: nothing that was holding anything. A desk's boundary is the
+# microVM and the host-side iptables rules in front of its tap — enforcement
+# deliberately lives outside the guest, because the agent has root inside it.
+# Chromium's own sandbox was never part of that boundary.
+#
+# --disable-dev-shm-usage is NOT set here: Debian's own /etc/chromium.d/dev-shm
+# already adds it whenever /dev/shm is under 3.8GB, which on a desk it always
+# is. Saying it twice would only make the two disagree later.
+export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-sandbox"

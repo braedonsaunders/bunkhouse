@@ -644,7 +644,7 @@ export type DeskWireFrame = {
  * reason.
  *
  * The mask holds here for free (§3.14): the runner reads frames from
- * `@appkit/desk`'s own `screen.frames()`, which withholds every frame while a
+ * `@braedonsaunders/appkit-desk`'s own `screen.frames()`, which withholds every frame while a
  * handover is active. When a person has the screen, this stream simply goes
  * quiet — nothing in this path can undo that, and nothing in this path should
  * ever be pointed at a rawer source.
@@ -692,7 +692,7 @@ export async function openDeskFrameStream(
  *
  * Subscribing IS starting the encode, and the last unsubscribe stops it, the
  * same contract the frame stream has. The mask holds here for free: the runner
- * reads from `@appkit/desk`'s `screen.video()`, which withholds everything
+ * reads from `@braedonsaunders/appkit-desk`'s `screen.video()`, which withholds everything
  * while a handover is active.
  */
 export async function openDeskVideoStream(
@@ -1907,7 +1907,7 @@ export function deskAbilities(args: {
             ? deskHandoverStreamUrl({ deskId: live.deskId, stream: begun.stream }, ctx.deps)
             : null
           // The boundary, and only the boundary. What the person then does on
-          // that screen is masked inside @appkit/desk and reaches no port here.
+          // that screen is masked inside @braedonsaunders/appkit-desk and reaches no port here.
           await appendSerialized(ctx, live, 'handover_begin', { actor: person.name, scope, reason })
           return {
             granted: true,

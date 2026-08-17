@@ -17,7 +17,7 @@ Two modes:
 
     atspi-dump.py dump [--max-depth N] [--max-nodes M] [--budget-seconds S]
         Print the focused window's tree as one A11yNode JSON object, matching
-        @appkit/desk's `A11yNode`:
+        @braedonsaunders/appkit-desk's `A11yNode`:
             { id, role, name, actions, bounds, children }
         `id` is a STRUCTURAL PATH: "0" is the root, "0/3/1" is the second child
         of the fourth child of the root. The path is stable within one dump and

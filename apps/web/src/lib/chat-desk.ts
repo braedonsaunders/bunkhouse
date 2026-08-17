@@ -520,7 +520,7 @@ const TAKEOVER_TTL_MINUTES = 15
  * Begin or end a handover — the masked mode (§3.14).
  *
  * While a person has the screen this way, NOTHING they do is recorded and
- * nothing they see reaches the agent's context: `@appkit/desk` withholds
+ * nothing they see reaches the agent's context: `@braedonsaunders/appkit-desk` withholds
  * frames for the duration, so even the live view goes quiet at the source.
  * What is recorded is the boundary and only the boundary — who took it, at
  * what scope, and for how long. That masking is load-bearing: it is what makes

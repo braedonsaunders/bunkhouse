@@ -41,6 +41,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 AGENT_SRC_DIR="${SCRIPT_DIR}/agent"
+APPKIT_DESK_DIR="${REPO_ROOT}/apps/web/node_modules/@braedonsaunders/appkit-desk"
 BASE_IMAGE_TS="${REPO_ROOT}/apps/web/src/lib/base-image.ts"
 
 # Where the outputs land. Override with OUT_DIR=... ; this is the "disks root".
@@ -67,6 +68,11 @@ require_cmd() {
 
 for cmd in qemu-img virt-resize virt-customize virt-get-kernel curl; do
   require_cmd "$cmd"
+done
+
+for module in events.js guest-agent.js protocol.js; do
+  [ -f "${APPKIT_DESK_DIR}/${module}" ] || \
+    die "missing ${APPKIT_DESK_DIR}/${module}; run pnpm install before building the image"
 done
 
 [ -f "${BASE_IMAGE_TS}" ] || die "cannot find base-image.ts at ${BASE_IMAGE_TS}"
@@ -177,16 +183,26 @@ fi
 STAGE_DIR="$(mktemp -d)"
 trap 'rm -rf "${STAGE_DIR}"' EXIT
 mkdir -p "${STAGE_DIR}/desk-agent"
-# The agent + its vendored @appkit/desk modules + the package.json that marks
-# /opt/desk-agent as ESM (there is no parent package.json inside the guest).
+# The agent + the published @braedonsaunders/appkit-desk protocol modules + the package.json
+# that marks /opt/desk-agent as ESM (there is no parent package.json inside the guest).
 cp "${AGENT_SRC_DIR}/desk-guest-agent.mjs" "${STAGE_DIR}/desk-agent/"
 cp "${AGENT_SRC_DIR}/package.json" "${STAGE_DIR}/desk-agent/"
-cp -R "${AGENT_SRC_DIR}/appkit-desk" "${STAGE_DIR}/desk-agent/"
+mkdir -p "${STAGE_DIR}/desk-agent/appkit-desk"
+for module in events.js guest-agent.js protocol.js; do
+  cp "${APPKIT_DESK_DIR}/${module}" "${STAGE_DIR}/desk-agent/appkit-desk/"
+done
 # The AT-SPI reader the agent shells out to for opportunistic accessibility
 # (§3.10). It must land beside the agent: the agent resolves it relative to its
 # own path, so /opt/desk-agent/atspi-dump.py is the contract.
 cp "${AGENT_SRC_DIR}/atspi-dump.py" "${STAGE_DIR}/desk-agent/"
 chmod 0755 "${STAGE_DIR}/desk-agent/atspi-dump.py"
+
+# The one flag that makes a browser open on a desk at all — the file itself
+# carries the whole explanation. Staged under its installed name so the
+# --copy-in below lands it as /etc/chromium.d/zz-bunkhouse-root, which is where
+# Debian's chromium launcher looks and which sorts after Debian's own files.
+mkdir -p "${STAGE_DIR}/chromium.d"
+cp "${SCRIPT_DIR}/chromium.d-bunkhouse-root" "${STAGE_DIR}/chromium.d/zz-bunkhouse-root"
 
 log "step 3: customizing ${BASE_RAW}"
 virt-customize -a "${BASE_RAW}" \
@@ -194,6 +210,8 @@ virt-customize -a "${BASE_RAW}" \
   --install "$(IFS=,; echo "${APT_PACKAGES[*]}")" \
   --run-command 'mkdir -p /opt' \
   --copy-in "${STAGE_DIR}/desk-agent:/opt" \
+  --run-command 'mkdir -p /etc/chromium.d' \
+  --copy-in "${STAGE_DIR}/chromium.d/zz-bunkhouse-root:/etc/chromium.d" \
   --copy-in "${AGENT_SRC_DIR}/desk-guest-agent.service:/etc/systemd/system" \
   --copy-in "${AGENT_SRC_DIR}/desk-vsock-bridge.service:/etc/systemd/system" \
   --run-command 'id -u agent >/dev/null 2>&1 || useradd -m -s /bin/bash agent' \

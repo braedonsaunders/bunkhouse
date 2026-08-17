@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { EyeOff, Loader2, Maximize2, Minimize2, Monitor, MonitorOff, MousePointer2, ShieldAlert } from 'lucide-react'
-import { Badge, Button, EmptyState, cn } from '@appkit/ui'
+import { Badge, Button, EmptyState, cn } from '@braedonsaunders/appkit-ui'
 import { AGENT_SCREEN_HEIGHT, AGENT_SCREEN_WIDTH } from '../lib/agent-screen'
 import {
   closeDesktopAction,
@@ -122,7 +122,8 @@ const VIDEO_WIRE_KIND_MEDIA = 2
 
 /**
  * How far behind the newest buffered moment the playhead may drift before it is
- * moved forward.
+ * chased, where it is chased back to, and how far behind is far enough to be
+ * worth a visible seek.
  *
  * This is THE classic MediaSource live-streaming failure: a `<video>` plays at
  * exactly 1x, every hiccup adds permanently to the gap between the playhead and
@@ -130,8 +131,34 @@ const VIDEO_WIRE_KIND_MEDIA = 2
  * are watching four seconds in the past. Nothing about that looks broken — the
  * picture is smooth and the clicks land where they were aimed — which is why it
  * has to be corrected rather than noticed.
+ *
+ * THE MEASUREMENT THAT SET THESE. Keystroke to picture ON THE WIRE is ~66ms
+ * median: the guest and the transport are not what an operator is feeling. What
+ * was left was this — the gap between the newest byte the browser holds and the
+ * moment it is drawing — and it was allowed to be 350ms, which is five times
+ * everything upstream of it put together. So the slack is now a frame or two
+ * rather than a third of a second.
+ *
+ * TIGHTENING IT IS ONLY HALF THE FIX, and on its own it would be a worse view
+ * than before: correcting the drift by SEEKING at 120ms means seeking many
+ * times a minute, and each seek is a decoder flush — a visible stutter, right
+ * where the operator is looking. So the ordinary correction is not a seek at
+ * all. It is a small rise in playback rate, held until the playhead has eaten
+ * the gap: 8% faster is imperceptible on a picture of a desktop (there is no
+ * audio to pitch-shift and no motion whose speed anyone knows) and it converges
+ * a 120ms gap in about a second and a half. The seek is kept for the case it is
+ * actually good at — a stall of half a second or more, where no survivable rate
+ * would catch up in reasonable time and the gap is already obvious.
+ *
+ * SLACK and TARGET are two numbers rather than one on purpose: coming back to
+ * exactly the threshold would have the nudge switch on and off every few
+ * frames. Nudging starts above SLACK and stops below TARGET, and in between
+ * whatever it was doing continues.
  */
-const VIDEO_LIVE_EDGE_SLACK_S = 0.35
+const VIDEO_LIVE_EDGE_SLACK_S = 0.12
+const VIDEO_LIVE_EDGE_TARGET_S = 0.05
+const VIDEO_LIVE_EDGE_SEEK_S = 0.5
+const VIDEO_CATCHUP_RATE = 1.08
 
 /** How much played video to keep buffered. Anything older is memory. */
 const VIDEO_BUFFER_KEEP_S = 4
@@ -532,15 +559,34 @@ function useDeskVideo(personId: string, watching: boolean, view: DeskViewElement
     const chase = (): void => {
       if (!buffer || buffer.buffered.length === 0) return
       const end = buffer.buffered.end(buffer.buffered.length - 1)
-      if (end - video.currentTime > VIDEO_LIVE_EDGE_SLACK_S) {
-        video.currentTime = Math.max(0, end - 0.05)
+      const behind = end - video.currentTime
+      if (behind > VIDEO_LIVE_EDGE_SEEK_S) {
+        // Far enough behind that no survivable rate would close it: take the
+        // stutter, which is cheaper than the wait.
+        video.currentTime = Math.max(0, end - VIDEO_LIVE_EDGE_TARGET_S)
+        if (video.playbackRate !== 1) video.playbackRate = 1
+        return
       }
+      if (behind > VIDEO_LIVE_EDGE_SLACK_S) {
+        if (video.playbackRate !== VIDEO_CATCHUP_RATE) video.playbackRate = VIDEO_CATCHUP_RATE
+        return
+      }
+      if (behind <= VIDEO_LIVE_EDGE_TARGET_S && video.playbackRate !== 1) video.playbackRate = 1
+      // Between TARGET and SLACK nothing changes — see the note on the
+      // constants: that band is the hysteresis that stops the rate flapping.
     }
 
     const pump = (): void => {
       if (stopped || !buffer || buffer.updating) return
-      const next = queue.shift()
-      if (!next) return
+      if (queue.length === 0) return
+      // EVERYTHING WAITING GOES IN ONE APPEND. A SourceBuffer takes one append
+      // at a time and answers with an `updateend` event, so appending N held
+      // fragments one at a time costs N trips through the event loop before the
+      // newest picture is decodable — and the newest picture is the only one
+      // the operator is waiting for. Fragments concatenate: an fMP4 fragment is
+      // a self-contained moof+mdat pair, and a run of them is a valid append.
+      const next = queue.length === 1 ? queue[0]! : concatChunks(queue)
+      queue.length = 0
       try {
         buffer.appendBuffer(next)
       } catch (error) {
@@ -676,6 +722,10 @@ function useDeskVideo(personId: string, watching: boolean, view: DeskViewElement
       // of a machine, not media the operator asked to play.
       video.muted = true
       video.playsInline = true
+      // A fresh attempt starts at 1x. The element survives a reconnect, and
+      // inheriting the previous attempt's catch-up rate would have the new
+      // stream running fast with nothing to catch up to.
+      video.playbackRate = 1
       void video.play().catch(() => undefined)
       void read()
         .then(() => restart('the stream closed'))
@@ -735,6 +785,23 @@ function useDeskVideo(personId: string, watching: boolean, view: DeskViewElement
     // path has its own reconnect once video has stood down.
     reconnecting: reconnecting && watching && !unavailable,
   }
+}
+
+/**
+ * Join the fragments waiting for one append into a single buffer — see `pump`.
+ * Its own ArrayBuffer, because an append is asynchronous and a view onto a
+ * buffer the reader has moved past is bytes nobody can promise are still there.
+ */
+function concatChunks(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
+  let total = 0
+  for (const part of parts) total += part.length
+  const merged = new Uint8Array(total)
+  let at = 0
+  for (const part of parts) {
+    merged.set(part, at)
+    at += part.length
+  }
+  return merged
 }
 
 /** A media failure in words, for the one console line each of them is worth. */
@@ -1069,6 +1136,29 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   // what keeps a click from being sent at a desktop that has already gone.
   const drivingNow = driving && screenOpen && !handover.active
 
+  /**
+   * TAKING THE CONTROLS OPENS THE DESK FULL SCREEN.
+   *
+   * Somebody who has just taken a real desktop's mouse and keyboard is going to
+   * work in it, and working in a pane-sized picture of a 1280x900 screen means
+   * aiming at targets a third of their real size. Making that a second, manual
+   * step is asking the operator to do something they always want done.
+   *
+   * ONE-WAY, deliberately. Stopping driving does NOT bring the desk back to its
+   * pane: watching full screen is a perfectly good thing to be doing, and
+   * shrinking the window out from under somebody because they handed the mouse
+   * back would be the view deciding what they meant. The way out stays what it
+   * always was — the button in the header, the button in the footer, Escape,
+   * Shift+F — and every one of them still works.
+   *
+   * The control handler expands in the same state transition that begins
+   * driving. The control is only offered for an open screen, so the full-window
+   * layer can never open over an empty desk.
+   *
+   * This is a CSS state and nothing more (see `expanded`): the `<video>`, its
+   * MediaSource and its SourceBuffer are the same objects on both sides of the
+   * transition, so nothing is re-parented and nothing goes blank.
+   */
   // Focus is what makes the keyboard live, so it is taken for the person
   // rather than left as a step they have to guess at when they take the
   // controls. Nothing competes for it across the full-screen transition any
@@ -1246,6 +1336,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
       return
     }
     setControlError(null)
+    setExpanded(true)
     setDriving(true)
   }
 

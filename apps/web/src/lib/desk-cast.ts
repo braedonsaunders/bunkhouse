@@ -25,7 +25,7 @@ import {
  *
  * Two things follow from where the frames come from, and both matter:
  *
- *   1. **The mask holds.** The runner reads frames from `@appkit/desk`'s
+ *   1. **The mask holds.** The runner reads frames from `@braedonsaunders/appkit-desk`'s
  *      `handle.screen.frames()`, which withholds every frame while a handover
  *      is active. So when a person takes the screen, this cast goes quiet at
  *      the source — not because anything here checks, but because there is

@@ -19,7 +19,7 @@ import {
   type DeskJob,
   type DeskScreenHandle,
   type DeskVideoChunk,
-} from '@appkit/desk'
+} from '@braedonsaunders/appkit-desk'
 import {
   deskIdentityMatches,
   signDeskHandoverCapability,
@@ -103,7 +103,7 @@ const GUEST_PREFIX_LENGTH = 24
  * are ports on the very address the tap already carries — the redirect never
  * leaves the namespace and its target cannot move when a container restarts.
  * They are the proxy's TRANSPARENT listeners, one per pre-DNAT port, because
- * @appkit/egress-proxy recovers the original port from the listener it was
+ * @braedonsaunders/appkit-egress-proxy recovers the original port from the listener it was
  * reached on (there is no SO_ORIGINAL_DST from Node).
  */
 const EGRESS_HTTP_PORT = Number(process.env.BUNKHOUSE_EGRESS_HTTP_PORT ?? 3129)
@@ -260,7 +260,7 @@ function buffer(deskId: string): { events: BufferedEvent[]; nextSeq: number; wai
  * The onEvent port: every typed desk event is buffered per desk, with a
  * monotone seq, until the web tier drains it into the ledger. The record is
  * not this runner's — losing this process loses at most the undrained tail,
- * never the persisted history. Handover masking is upstream in @appkit/desk:
+ * never the persisted history. Handover masking is upstream in @braedonsaunders/appkit-desk:
  * during a handover the only events that ever arrive here are the boundaries.
  */
 function onDeskEvent(event: DeskEvent): void {
@@ -289,7 +289,7 @@ const HOST_GATEWAY_ADDR = guestAddressFor(1)
 
 const execFileAsync = promisify(execFile)
 
-/** The tap for a desk. `dsk<n>` matches @appkit/desk's own naming. */
+/** The tap for a desk. `dsk<n>` matches @braedonsaunders/appkit-desk's own naming. */
 function tapDeviceFor(index: number): string {
   return `dsk${index}`
 }
@@ -703,7 +703,7 @@ function startExecution(
 /**
  * The frames a desk is emitting, and everyone watching them.
  *
- * MASKING (§3.14, and the contract on @appkit/desk's DeskPorts): frames are
+ * MASKING (§3.14, and the contract on @braedonsaunders/appkit-desk's DeskPorts): frames are
  * taken from `handle.screen.frames()` — the package's MASKED host API — and
  * never from the machine's raw event subscription. That is the whole safety
  * argument for this relay: inside the package, the frame subscriber drops
@@ -885,7 +885,7 @@ function closeFramePump(deskId: string): void {
  *
  * The same shape as the frame pump above and for the same reasons — one encode
  * per desk however many subscribers, the rate a property of the pump, frames
- * taken from `@appkit/desk`'s MASKED `screen.video()` so a handover suppresses
+ * taken from `@braedonsaunders/appkit-desk`'s MASKED `screen.video()` so a handover suppresses
  * the stream at the source. What is different is that video chunks only mean
  * anything IN ORDER and ONLY AFTER the init segment.
  *
@@ -1448,6 +1448,23 @@ async function ensureGuestBrowser(entry: DeskEntry): Promise<string> {
       command: '/usr/bin/chromium',
       args: [
         '--headless=new',
+        // THE GUEST AGENT IS ROOT (desk-guest-agent.service says why), and so
+        // is everything it starts. Chromium refuses outright:
+        //
+        //   ERROR:zygote_host_impl_linux.cc] Running as root without
+        //   --no-sandbox is not supported.
+        //
+        // It exits before it opens the debugging port, so the only symptom out
+        // here is this function's own timeout — "The in-guest browser did not
+        // come up" — with the actual reason on a stderr nobody was reading.
+        // The guest's per-desk boundary is the microVM, not Chromium's own
+        // sandbox, so this gives up nothing that was holding.
+        '--no-sandbox',
+        // A microVM's /dev/shm is small, and Chromium's default is to put its
+        // shared-memory regions there and crash when it cannot. Debian's
+        // launcher adds this itself below a 3.8GB threshold, but only when it
+        // is the launcher that runs — so it is said here rather than relied on.
+        '--disable-dev-shm-usage',
         `--remote-debugging-port=${CDP_PORT}`,
         '--remote-debugging-address=0.0.0.0',
         `--user-data-dir=${BROWSER_PROFILE_DIR}`,
@@ -1457,6 +1474,11 @@ async function ensureGuestBrowser(entry: DeskEntry): Promise<string> {
         '--mute-audio',
         '--hide-scrollbars',
       ],
+      // DISPLAY and DBUS_SESSION_BUS_ADDRESS are NOT passed here and must not
+      // be: this browser is headless and may well be running on a desk with no
+      // screen at all. The guest agent adds the screen's session to a job's
+      // environment by itself when there IS one (see withScreenEnv there), so
+      // the two cases are handled in the one place that knows the answer.
       keepAlive: true,
     })
   }
@@ -1639,6 +1661,8 @@ function openEventStream(response: ServerResponse): void {
     'x-accel-buffering': 'no',
   })
   response.flushHeaders()
+  // And no Nagle either — same reasoning as the video subscriber's.
+  response.socket?.setNoDelay(true)
 }
 
 function waitFor(register: (wake: () => void) => void, ms: number): Promise<void> {
@@ -2006,6 +2030,17 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
         'x-accel-buffering': 'no',
       })
       response.flushHeaders()
+      // NAGLE OFF, and this is a latency fix rather than a tidy-up.
+      //
+      // One fragment of this stream is one FRAME, and on a mostly-still
+      // desktop that is a few hundred bytes — far under an MSS. Nagle holds a
+      // sub-MSS write until the previous segment is acknowledged, and the peer
+      // is under no obligation to acknowledge promptly (delayed ACK waits up to
+      // 40ms for something to piggyback on). The two together are the classic
+      // small-write stall: the guest encoded the picture in time, the runner
+      // wrote it in time, and the kernel sat on it. It costs a packet per frame
+      // to switch off, which is exactly what a live view wants to spend.
+      response.socket?.setNoDelay(true)
       const subscriber: VideoSubscriber = { response, ready: false, init: null }
       pump.subscribers.set(response, subscriber)
       // A late joiner is primed from whatever the pump already holds, rather
