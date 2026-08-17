@@ -99,7 +99,19 @@ volumes:
   # over NFS is the wrong tool (locking, latency, and a corrupted overlay on a
   # dropped mount); workspace files still flow through the web tier and its
   # NFS-backed volume, not through here.
+  #
+  # BUNKHOUSE_AGENT_DISKS_HOST must name a directory on a REFLINK-CAPABLE
+  # filesystem — XFS (mkfs.xfs -m reflink=1) or Btrfs. Each desk's disk is a
+  # `cp --reflink=auto` clone of the golden base: on XFS that is a block-
+  # sharing clone measured at 0.04s, and on ext4 the same command silently
+  # falls back to copying the whole image — about 5GB per desk, per boot. It
+  # still works; it just turns an instant lease into a minute of disk I/O.
   agent-disks:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${BUNKHOUSE_AGENT_DISKS_HOST:-/mnt/agent-disks}
   # The one governed hole in the per-agent boundary: the company shared
   # folder, mounted into each guest via virtio-fs (docs/agent-desk.md §3.12).
   shared-folder:
@@ -113,6 +125,7 @@ services:
       context: ..
       dockerfile: deploy/desk-runner.Dockerfile
       args:
+        BUNKHOUSE_IMAGE: ${BUNKHOUSE_IMAGE:-ghcr.io/braedonsaunders/bunkhouse}
         BUNKHOUSE_TAG: ${BUNKHOUSE_TAG:-latest}
     # The guest disk assets (base.raw + vmlinux) are produced by
     # deploy/desk-image/build-golden-image.sh and live in the agent-disks
@@ -124,6 +137,12 @@ services:
     # The one capability this whole file exists to grant.
     devices:
       - /dev/kvm
+      # NET_ADMIN is permission to configure a tap; /dev/net/tun is the thing
+      # that actually creates one. Without this node the runner starts, refuses
+      # every desk, and reports `ip tuntap add: open: No such file or
+      # directory` — correct, fail-closed, and baffling until you know that the
+      # capability and the device are two separate grants.
+      - /dev/net/tun
     # The second one, and the header explains the trade: without it there is
     # no TAP and no DNAT, and therefore no enforced egress.
     cap_add:
@@ -157,7 +176,23 @@ services:
         # rejected by object storage before this was understood.
         aliases:
           - bunkhouse-desk
-    # No ports. It is reachable on the internal network and nowhere else.
+    # Ports, and why this is not simply "none".
+    #
+    # When the runner shares an overlay network with the web tier it needs no
+    # published port at all, and BUNKHOUSE_DESK_BIND should stay at its default
+    # — 127.0.0.1, reachable from nowhere but this host.
+    #
+    # A DEDICATED desk host (spec §3.5) is a different machine from the one
+    # running the app, and deliberately so: the nested-virtualisation trade is
+    # wrong to make on the VM holding the provider keys and the database. Such
+    # a host is not on that overlay network, so the app can only reach it
+    # across the LAN, which means publishing this port. Set
+    # BUNKHOUSE_DESK_BIND to that host's LAN address (never 0.0.0.0) and point
+    # BUNKHOUSE_DESK_URL at it. What guards the port then is the same thing
+    # that guarded the retired shell runner: a constant-time bearer token, and
+    # a service that refuses to start without one.
+    ports:
+      - '${BUNKHOUSE_DESK_BIND:-127.0.0.1}:8080:8080'
     restart: always
     healthcheck:
       test:
@@ -191,7 +226,7 @@ services:
   # cannot read SO_ORIGINAL_DST: the port a guest asked for is carried by
   # which listener the flow landed on. 3128 stays for explicit proxying.
   egress-proxy:
-    image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
+    image: ${BUNKHOUSE_IMAGE:-ghcr.io/braedonsaunders/bunkhouse}:${BUNKHOUSE_TAG:-latest}
     command:
       - sh
       - -c

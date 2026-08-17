@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash, timingSafeEqual } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { connect as tcpConnect } from 'node:net'
 import { join } from 'node:path'
@@ -8,7 +8,9 @@ import type { Duplex } from 'node:stream'
 import { promisify } from 'node:util'
 import {
   cleanDeskId,
+  createCloudHypervisorBackend,
   createDeskHost,
+  DEFAULT_RUNTIME_DIR,
   verifyDeskHost,
   type DeskEvent,
   type DeskHandle,
@@ -102,6 +104,52 @@ const EGRESS_HTTPS_PORT = Number(process.env.BUNKHOUSE_EGRESS_HTTPS_PORT ?? 3130
  * flow anywhere the policy would not.
  */
 const GUEST_DNS = process.env.BUNKHOUSE_GUEST_DNS ?? '1.1.1.1'
+
+/**
+ * The kernel command line every desk — and the boot probe — starts with.
+ * Partition 3 holds the golden root after virt-resize moved it there (the
+ * package default `root=/dev/vda` is wrong for this image), and the serial
+ * console carries guest boot logs to the VMM. One constant on purpose: a
+ * probe that boots differently from a desk answers a different question, and
+ * a panicking probe is indistinguishable from a host without KVM.
+ */
+/**
+ * How long to wait for a freshly booted guest agent to answer on vsock.
+ *
+ * The package default is twenty seconds, which is right for a microVM on bare
+ * metal. A desk here is an L2 guest — a Cloud Hypervisor VM inside a Hyper-V
+ * VM — and a measured cold boot of this image is 120-140s. Twenty seconds
+ * would fail every first lease and report a host that cannot run desks, so
+ * this is sized against the real number with room over it, and every desk and
+ * the boot probe share the one backend so they cannot disagree.
+ */
+const GUEST_CONNECT_TIMEOUT_MS = Number(process.env.BUNKHOUSE_DESK_CONNECT_MS ?? 300_000)
+
+const deskBackend = createCloudHypervisorBackend({
+  connectTimeoutMs: GUEST_CONNECT_TIMEOUT_MS,
+  // Poll for the guest agent every second, not ten times a second. The
+  // package's 100ms default is sized for a microVM that is up almost at once;
+  // here the guest is still booting for its first ten-plus seconds, and every
+  // attempt in that window is a fresh CONNECT into Cloud Hypervisor's vsock
+  // multiplexer that the guest cannot answer. A thousand of those buys
+  // nothing and is a poor neighbour to the device we are waiting on.
+  connectRetryDelayMs: Number(process.env.BUNKHOUSE_DESK_RETRY_MS ?? 1_000),
+})
+
+/**
+ * The kernel command line every desk — and the boot probe — starts with.
+ *
+ * Partition 3 holds the golden root after virt-resize moved it there, so the
+ * package default `root=/dev/vda` is wrong for this image.
+ *
+ * And deliberately NO `console=`. The plan boots every desk with `--serial off
+ * --console off`, so naming ttyS0 here points the kernel and systemd at a
+ * console device that does not exist: the guest stalls late in boot, the agent
+ * never reaches vsock, and the whole thing reads as a host that cannot run VMs
+ * at all. The same image answers in about ten seconds with the console unset.
+ * Only add one alongside a `--serial file=` when debugging a boot.
+ */
+const GUEST_KERNEL_CMDLINE = process.env.BUNKHOUSE_GUEST_CMDLINE ?? 'root=/dev/vda3 rw'
 
 /**
  * The handover's two guest-side ports.
@@ -1586,19 +1634,58 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   })
 }
 
+/**
+ * Delete every desk tap left in this namespace before probing.
+ *
+ * A tap outlives the VMM that opened it. If a desk's VMM is killed — or the
+ * boot probe's own VM is left running by a previous container — the device
+ * stays, still claimed, and the next VM to name it dies instantly with
+ * `ConfigureTap: Resource busy`. The package reports that as "the VMM exited
+ * before the guest agent came up", which is indistinguishable from a host
+ * that cannot virtualise at all, and it is sticky: every subsequent boot
+ * fails the same way until something removes the device.
+ *
+ * This process has just started, so nothing it is responsible for can
+ * legitimately own one of these yet: any that exist are debris.
+ */
+async function reclaimStaleTaps(): Promise<void> {
+  const listed = await run('ip', ['-o', 'link', 'show']).catch(() => '')
+  const stale = [...listed.matchAll(/^\d+:\s+(dsk\w+)[@:]/gm)].map((match) => match[1])
+  for (const device of stale) {
+    if (device === undefined) continue
+    await run('ip', ['link', 'del', device]).catch(() => undefined)
+    console.log(`[desk-runner] reclaimed a stale tap left by an earlier run: ${device}`)
+  }
+}
+
 server.listen(PORT, () => {
   console.log(`[desk-runner] listening on ${PORT}; disks ${DISKS_ROOT}; shared folder ${SHARED_FOLDER}`)
   void verifyNetAdmin()
-    .then(() =>
-      verifyDeskHost({
+    .then(async () => {
+      // Cloud Hypervisor creates its API and vsock sockets in this directory
+      // and will not create the directory itself: without it the VMM dies at
+      // once with "Error creation API server's socket", which surfaces from
+      // the package as the far less helpful "the VMM exited before the guest
+      // agent came up".
+      await mkdir(DEFAULT_RUNTIME_DIR, { recursive: true })
+      await reclaimStaleTaps()
+      return verifyDeskHost({
         kernelPath: join(DISKS_ROOT, 'vmlinux'),
         // The Debian cloud kernel is modular; without its initramfs the probe
         // VM panics before the guest agent answers and vsock reads as
         // unsupported.
         initramfsPath: join(DISKS_ROOT, 'initrd'),
         baseImagePath: join(DISKS_ROOT, 'base.raw'),
-      }),
-    )
+        kernelCmdline: GUEST_KERNEL_CMDLINE,
+        // Clone the probe's throwaway disk where every other desk disk lives.
+        // The default is the OS tmpdir, which in a container is the writable
+        // overlay: no reflink there, so a 20GB base is COPIED, slowly, into a
+        // layer that was never sized for it — and the probe times out looking
+        // like a host that cannot boot a VM at all.
+        scratchDir: join(DISKS_ROOT, 'overlays'),
+        backend: deskBackend,
+      })
+    })
     .then((result) => {
       verification = result
       if (!result.supported) {
@@ -1612,10 +1699,8 @@ server.listen(PORT, () => {
         imageRoot: DISKS_ROOT,
         capacity: CAPACITY,
         idleSuspendMs: IDLE_SUSPEND_MS,
-        // Partition 3 holds the golden root after virt-resize moved it (the
-        // package default root=/dev/vda is wrong here); serial console on
-        // ttyS0 so guest boot logs reach the VMM.
-        kernelCmdline: 'console=ttyS0 root=/dev/vda3 rw',
+        kernelCmdline: GUEST_KERNEL_CMDLINE,
+        backend: deskBackend,
         ports: {
           // Governance deliberately does NOT live here (spec §3.22): the dial
           // and the feature gate are enforced in bunkhouse's tier before a

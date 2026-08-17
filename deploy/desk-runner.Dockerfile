@@ -16,8 +16,13 @@
 # DEFAULT_QEMU_IMG_PATH): cloud-hypervisor at /usr/bin/cloud-hypervisor and
 # qemu-img at /usr/bin/qemu-img. This image puts them exactly there.
 
+# The base is the app image, by repository and tag. Both are build args so the
+# desk host can layer onto an image it built locally (`--build-arg
+# BUNKHOUSE_IMAGE=bunkhouse --build-arg BUNKHOUSE_TAG=local`) without needing
+# registry credentials on a machine whose only job is booting microVMs.
+ARG BUNKHOUSE_IMAGE=ghcr.io/braedonsaunders/bunkhouse
 ARG BUNKHOUSE_TAG=latest
-FROM ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG}
+FROM ${BUNKHOUSE_IMAGE}:${BUNKHOUSE_TAG}
 
 # qemu-img (from qemu-utils) is how the runner materialises each desk's raw
 # overlay; the reflink copy of the raw base itself is a plain `cp`, already in
