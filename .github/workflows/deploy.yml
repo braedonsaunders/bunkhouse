@@ -170,6 +170,14 @@ jobs:
           # public, and one company's NFS export is not part of the product.
           NFS_ADDR: ${{ vars.BUNKHOUSE_NFS_ADDR }}
           NFS_EXPORT: ${{ vars.BUNKHOUSE_NFS_EXPORT }}
+          # Where the agent desks live. The runner is on its own host (it needs
+          # nested virtualisation, which the Dokploy VM deliberately does not
+          # have), so the app reaches it across the LAN and the bearer token is
+          # what guards that hop. Both are configuration, not product: the
+          # address is a repository variable and the token a secret. Leave
+          # either unset and the desk abilities simply fail closed.
+          DESK_URL: ${{ vars.BUNKHOUSE_DESK_URL }}
+          DESK_TOKEN: ${{ secrets.BUNKHOUSE_DESK_TOKEN }}
         run: |
           set -euo pipefail
           # Fail here, naming the variable, rather than letting an empty value
@@ -193,6 +201,17 @@ jobs:
           upsert BUNKHOUSE_TAG "$NEW_TAG"
           upsert BUNKHOUSE_NFS_ADDR "$NFS_ADDR"
           upsert BUNKHOUSE_NFS_EXPORT "$NFS_EXPORT"
+
+          # The desk pair is optional on purpose. A deployment without a desk
+          # host is a supported shape — it is the one every developer without
+          # KVM already runs — so an unset address must leave whatever Dokploy
+          # already holds alone rather than blanking it.
+          if [ -n "${DESK_URL:-}" ]; then
+            upsert BUNKHOUSE_DESK_URL "$DESK_URL"
+          fi
+          if [ -n "${DESK_TOKEN:-}" ]; then
+            upsert BUNKHOUSE_DESK_TOKEN "$DESK_TOKEN"
+          fi
 
           # LiveKit, SIP, and egress use the same HA Redis deployment already
           # configured for Bunkhouse. Their config schema needs separate
