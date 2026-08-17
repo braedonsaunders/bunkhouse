@@ -46,10 +46,10 @@ on:
         description: 'From the app container, reach the shell sandbox and run a real command through it'
         type: boolean
         default: false
-      deskProbe:
-        description: 'From the app container, try to reach the desk runner and show why it cannot'
-        type: boolean
-        default: false
+      deskOps:
+        description: "Desk host: 'probe' to see why the app cannot reach it, 'token' for a worker join token, 'rotate' to invalidate a printed one"
+        type: string
+        default: ''
       tidyAgents:
         description: 'Agent housekeeping: DRY RUN counts only, unless tidyApply is also ticked'
         type: boolean
@@ -470,7 +470,7 @@ jobs:
       # what the daemon has allocated, and whether the address answers — so the
       # answer is evidence rather than inference.
       - name: Reach the desk runner from the app container
-        if: ${{ inputs.deskProbe }}
+        if: ${{ inputs.deskOps == 'probe' }}
         run: |
           set -uo pipefail
           cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
@@ -500,6 +500,27 @@ jobs:
           docker info --format 'swarm={{.Swarm.LocalNodeState}} manager={{.Swarm.ControlAvailable}} nodes={{.Swarm.Nodes}}' 2>&1 || true
           echo "--- the daemon's default address pools ---"
           docker info --format '{{json .DefaultAddressPools}}' 2>/dev/null || echo "  (none reported; Swarm default is 10.0.0.0/8 in /24 blocks)"
+
+      # A worker join token is a credential, and printing one into a build log
+      # leaves it there for as long as the log is kept. It is here anyway
+      # because the alternative is worse — a token pasted through a chat window
+      # or a person copying it by hand — and because unlike most credentials
+      # this one is cheap to invalidate: run this again with deskOps=rotate
+      # the moment the node has joined, and the printed copy is worthless.
+      - name: Worker join token
+        if: ${{ inputs.deskOps == 'token' }}
+        run: |
+          set -uo pipefail
+          echo "manager: $(docker info --format '{{.Swarm.NodeAddr}}'):2377"
+          echo "token: $(docker swarm join-token worker -q)"
+          echo "::warning::A join token was printed. Re-run this workflow with deskOps=rotate once the node has joined."
+
+      - name: Rotate the worker join token
+        if: ${{ inputs.deskOps == 'rotate' }}
+        run: |
+          set -uo pipefail
+          docker swarm join-token --rotate worker >/dev/null
+          echo "Worker join token rotated; any previously printed copy no longer works."
 
       # read-only aggregates with no message bodies or addresses in it.
       - name: Spend and activity report
