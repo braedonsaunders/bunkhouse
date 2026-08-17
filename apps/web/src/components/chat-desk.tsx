@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { EyeOff, Loader2, Maximize2, Minimize2, Monitor, MonitorOff, MousePointer2, ShieldAlert } from 'lucide-react'
-import { Badge, Button, Drawer, EmptyState, cn } from '@appkit/ui'
+import { Badge, Button, EmptyState, cn } from '@appkit/ui'
 import { AGENT_SCREEN_HEIGHT, AGENT_SCREEN_WIDTH } from '../lib/agent-screen'
 import {
   closeDesktopAction,
@@ -43,11 +43,30 @@ import {
  *
  * The pane is a third of a card, which is enough to watch a machine and not
  * enough to work one, so the same desk can be opened full screen. That is one
- * picture in two frames rather than two views: the frame stream, the status
- * poll, the driving mode and the typing buffer all live here and are untouched
- * by the move, the input surface is a single element that is re-parented into
- * the overlay, and the coordinate translation is the one `framePoint` reading
- * the live box — so a click lands on the same pixel at either size.
+ * picture at two SIZES rather than two views, and — since the picture became a
+ * `<video>` fed by a MediaSource — that has to be meant literally:
+ *
+ *   FULL SCREEN IS A CSS STATE ON THE ELEMENT THAT IS ALREADY THERE. Nothing is
+ *   re-parented, portalled, or handed to an overlay component.
+ *
+ * The earlier design moved one input surface between the pane and an appkit
+ * `Drawer`. That was harmless while the picture was an `<img>` — a re-created
+ * `<img>` with the same `src` simply repaints — and fatal for a `<video>`: a
+ * `Drawer` portals to `document.body`, so the surface's position in the React
+ * tree changed, React unmounted the old element and created a new one, and the
+ * new one had no MediaSource, no SourceBuffer and nobody appending to it. The
+ * picture went black on entering full screen and stayed black on leaving it,
+ * because nothing in the old design re-established any of that. So the surface
+ * now lives at ONE position in the tree for the whole life of an open screen
+ * and `showExpanded` only swaps its class list (`fixed inset-0` and a chrome of
+ * its own instead of a box in the pane). React reconciles the same element type
+ * at the same position, so the DOM node — and the media pipeline hanging off
+ * it — survives the transition by construction rather than by luck.
+ *
+ * The rest is unchanged by the move on purpose: the video stream, the status
+ * poll, the driving mode and the typing buffer all live above it, and the
+ * coordinate translation is the one `framePoint` reading the element's live box
+ * — so a click lands on the same pixel at either size.
  */
 
 /** The desk's answer for one agent, as the server action reports it. */
@@ -118,6 +137,50 @@ const VIDEO_LIVE_EDGE_SLACK_S = 0.35
 const VIDEO_BUFFER_KEEP_S = 4
 
 /**
+ * How long the encode may go silent before the stream is treated as dead.
+ *
+ * H.264 at a fixed rate emits a fragment per frame whether or not the desktop
+ * repainted — a still screen costs a few dozen bytes, not nothing — so silence
+ * is not "the desk is idle", it is "the pipe is gone". The desk suspending and
+ * resuming, the runner's pump dying, and a proxy quietly holding the connection
+ * open with nothing behind it all look exactly like this and nothing else
+ * reports them: the fetch does not fail, the element does not error, the
+ * picture simply stops. Generous enough that a slow guest is not mistaken for a
+ * dead one.
+ */
+const VIDEO_SILENCE_MS = 12_000
+
+/**
+ * How long an attempt must have been delivering pictures before its next
+ * failure is treated as a fresh one rather than as another of the same.
+ * Comfortably longer than a reconnect takes, so a stream that is failing in a
+ * loop cannot keep buying itself a new budget.
+ */
+const VIDEO_HEALTHY_MS = 5_000
+
+/**
+ * The backoff between attempts to re-open the stream, doubled each time and
+ * capped. Short at the start because most breaks are one hiccup and the
+ * operator is looking at the screen; capped because a desk that is genuinely
+ * gone must not be hammered.
+ */
+const VIDEO_RECONNECT_BASE_MS = 400
+const VIDEO_RECONNECT_MAX_MS = 4_000
+
+/**
+ * How many times in a row the stream may be re-opened before the still-picture
+ * fallback takes over.
+ *
+ * Bounded rather than endless, and the terminal state is stills rather than
+ * nothing: a browser or a deployment that cannot carry video at all would
+ * otherwise reconnect forever behind a "reconnecting" badge, when what the
+ * operator needs is the slower picture that does work. The count is consecutive
+ * within one live view — a stream that comes back and runs gets the whole
+ * budget again, because the failure that matters is the one that will not heal.
+ */
+const VIDEO_RECONNECT_ATTEMPTS = 5
+
+/**
  * How long to wait before asking again for a capture rate that had nothing to
  * apply to. The only way that happens is the race between this pane's own
  * subscription reaching the runner and the mode changing on top of it, so one
@@ -140,13 +203,12 @@ const RELEASE_CHORD_MS = 500
  * How long an Escape that was given to the guest keeps the full-screen view
  * from being closed by that same press.
  *
- * While someone is driving, every Escape belongs to the desktop, so the
- * overlay declares that with `data-ui-overlay` and the surface never gets
- * closed out from under a task. That attribute is read by the overlay when the
- * key is pressed, and React has already re-rendered by then if the press was
- * the second of the pair that stops driving — the attribute is gone, and the
- * same keystroke that handed control back would also collapse the view. This
- * window is what makes the two separate acts: stop driving, then leave.
+ * While someone is driving, every Escape belongs to the desktop and the
+ * full-screen view refuses the key outright. The press that needs this window
+ * is the SECOND of the release chord: it stops driving, and by the time
+ * anything asks whether the desktop still owns Escape, it does not — so the one
+ * keystroke that handed control back would also collapse the view. This window
+ * is what makes those two separate acts: stop driving, then leave.
  */
 const GUEST_ESCAPE_GRACE_MS = 250
 
@@ -177,6 +239,16 @@ const NAMED_KEYS: Record<string, string> = {
 }
 
 const MOUSE_BUTTONS: Record<number, 'left' | 'middle' | 'right'> = { 0: 'left', 1: 'middle', 2: 'right' }
+
+/**
+ * What Tab may reach inside the full-screen view. The same list appkit's own
+ * overlays trap on, restated here because this surface cannot BE one of them —
+ * see the note at the top: a `<video>` that goes into a portalled panel is a
+ * `<video>` that has been re-created, and re-creating it is the whole bug.
+ */
+const FOCUSABLE =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), ' +
+  'select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 /**
  * Ask the desk what it is doing, with the failure as an ordinary answer. The
@@ -211,11 +283,14 @@ type DesktopInput =
  * looks like a flaky desk rather than a broken sum.
  *
  * ONE implementation for both the video view and the still-picture fallback,
- * and for both the pane and the full-screen overlay. Every term comes from the
- * element's live box and the picture's own intrinsic size, so a `<video>` four
- * times the size of the `<img>` it replaced simply produces a scale four times
- * larger. A second copy of this sum, drifting from the first, would show up as
- * clicks that land near the target — which reads as a broken desk.
+ * and for both the pane and the full-screen view — which are the SAME element
+ * measured at two sizes, so there is not even a second box for a second copy of
+ * this sum to disagree about. Every term comes from the element's live box and
+ * the picture's own intrinsic size, so going full screen simply produces a
+ * larger scale on the next call and nothing here has to be told it happened.
+ * This is the part that breaks silently when a layout changes: a second copy of
+ * this sum, drifting from the first, shows up as clicks that land NEAR the
+ * target, which reads as a broken desk rather than as a broken sum.
  *
  * The picture is laid out `object-contain`, so:
  *
@@ -295,14 +370,37 @@ function wheelPixels(event: WheelEvent): { dx: number; dy: number } {
  * the buffer, and refuses it quietly.
  *
  * Returns `unavailable` when the browser has no MediaSource, cannot decode
- * H.264, or the stream will not open — the caller falls back to `useDeskFrames`
- * below, which is why that path is still here.
+ * H.264, or the stream has failed past its retry budget — the caller falls back
+ * to `useDeskFrames` below, which is why that path is still here.
+ *
+ * IT RECOVERS BY ITSELF, which is the other half of the point. A MediaSource
+ * has a great many ways to stop and almost all of them are silent: the source
+ * ends or closes, the SourceBuffer errors, the decoder gives up, the HTTP
+ * stream is closed by something in the middle, the desk suspends and resumes,
+ * the encoder respawns with a different codec. Every one of them leaves a
+ * `<video>` showing its last frame forever with nothing in the console, so
+ * every one of them is caught here and answered the same way: abandon this
+ * attempt, open a NEW stream with a fresh MediaSource and a fresh init segment,
+ * and say "reconnecting" while it happens. A live view that cannot survive one
+ * hiccup is a live view that is black in front of a customer.
+ *
+ * There is never more than one stream open. Re-opening is done by bumping
+ * `attempt`, which is a dependency of the effect, so React runs this effect's
+ * cleanup — which aborts the fetch — before the next one starts. The runner
+ * fans one encode out to many subscribers and would not refuse a second, but a
+ * second connection is still a second copy of every byte and the sequencing
+ * makes it impossible rather than merely unlikely.
  */
-function useDeskVideo(
-  personId: string,
-  watching: boolean,
-  viewRef: React.RefObject<DeskViewElement | null>,
-): { live: boolean; unavailable: boolean } {
+type DeskVideoView = {
+  /** A picture arrived recently enough to call the view live. */
+  live: boolean
+  /** Video cannot carry this desk here; the still-picture path should take over. */
+  unavailable: boolean
+  /** The stream broke and is being re-opened. */
+  reconnecting: boolean
+}
+
+function useDeskVideo(personId: string, watching: boolean, view: DeskViewElement | null): DeskVideoView {
   const [unavailable, setUnavailable] = React.useState(
     // Read once, at first render: whether this browser has MediaSource at all
     // cannot change, and asking inside the effect would be a setState that
@@ -310,18 +408,52 @@ function useDeskVideo(
     () => typeof window !== 'undefined' && typeof window.MediaSource === 'undefined',
   )
   const [receivedAt, setReceivedAt] = React.useState(0)
+  /**
+   * The retry counter, and the effect's own restart key. Raising `attempt` is
+   * the ONLY way this hook re-opens a stream, which is what guarantees the old
+   * one has been torn down first.
+   */
+  const [attempt, setAttempt] = React.useState(0)
+  const [reconnecting, setReconnecting] = React.useState(false)
+  /**
+   * Consecutive failures. A ref rather than state because the retries ARE the
+   * effect re-running, so this has to survive them without causing one.
+   */
+  const failuresRef = React.useRef(0)
+
+  // A new screen — or a new agent, or the far side of a handover — starts with
+  // the whole budget: what the bound is counting is failures that will not heal
+  // within one live view, not ones from an hour ago. Declared before the
+  // subscription effect so it has already run when that one opens its stream on
+  // the same commit, and it touches nothing but the ref — the "reconnecting"
+  // claim is stood down by the first chunk that arrives, which is the only
+  // moment it stops being true.
+  React.useEffect(() => {
+    failuresRef.current = 0
+  }, [personId, watching])
 
   React.useEffect(() => {
     if (!watching || unavailable) return
-    // The shared view ref, which is the <video> exactly while this path is the
-    // one on screen. Reading it rather than holding a second ref is what keeps
-    // `framePoint` translating against the element the operator is clicking.
-    const video = viewRef.current
-    if (!(video instanceof HTMLVideoElement)) return
+    // The element the picture is actually being shown in, taken as a value so
+    // that a `<video>` which somehow WERE re-created would re-establish the
+    // stream instead of leaving this effect appending into a dead one. It is
+    // the same node `framePoint` measures, which is what keeps a click landing
+    // on the pixel it was aimed at.
+    if (!(view instanceof HTMLVideoElement)) return
     if (typeof window === 'undefined' || typeof window.MediaSource === 'undefined') return
+    const video = view
 
     const abort = new AbortController()
     let stopped = false
+    let retry: ReturnType<typeof setTimeout> | null = null
+    let watchdog: ReturnType<typeof setInterval> | null = null
+    /** When this attempt opened, when the last chunk arrived, and when that was last reported upwards. */
+    const openedAt = Date.now()
+    let chunkAt = 0
+    let reportedAt = 0
+    /** Whether this attempt has carried anything at all, for the badge. */
+    let carrying = false
+
     const mediaSource = new MediaSource()
     const objectUrl = URL.createObjectURL(mediaSource)
     video.src = objectUrl
@@ -331,9 +463,48 @@ function useDeskVideo(
     let buffer: SourceBuffer | null = null
     let codec: string | null = null
 
-    const fallBackToStills = (): void => {
+    /**
+     * This browser cannot carry the desk as video at all. Permanent, so it is
+     * NOT retried: the same codec would arrive on the next attempt and be
+     * refused the same way.
+     */
+    const fallBackToStills = (why: string): void => {
       if (stopped) return
+      stopped = true
+      console.warn(`[desk] the video view fell back to stills: ${why}`)
+      setReconnecting(false)
       setUnavailable(true)
+    }
+
+    /**
+     * The stream broke in a way a fresh one might not. Abandon this attempt and
+     * schedule another; when the budget is gone, take the stills path rather
+     * than leaving a black rectangle and a spinner in front of somebody.
+     */
+    const restart = (why: string): void => {
+      if (stopped) return
+      stopped = true
+      abort.abort()
+      // A stream that RAN is a stream that can run, so its next failure starts
+      // the budget over. "Ran" is a span of delivered pictures rather than a
+      // single chunk, deliberately: a runner that hands out one keyframe and
+      // dies would otherwise reset the budget every time and be reconnected to
+      // forever, which is the loop the bound exists to prevent.
+      if (chunkAt !== 0 && chunkAt - openedAt >= VIDEO_HEALTHY_MS) failuresRef.current = 0
+      const failures = failuresRef.current
+      failuresRef.current = failures + 1
+      if (failures >= VIDEO_RECONNECT_ATTEMPTS) {
+        console.warn(`[desk] the video view gave up after ${failures} attempts: ${why}`)
+        setReconnecting(false)
+        setUnavailable(true)
+        return
+      }
+      console.warn(`[desk] re-opening the video stream (attempt ${failures + 1}): ${why}`)
+      setReconnecting(true)
+      retry = setTimeout(
+        () => setAttempt((previous) => previous + 1),
+        Math.min(VIDEO_RECONNECT_BASE_MS * 2 ** failures, VIDEO_RECONNECT_MAX_MS),
+      )
     }
 
     const prune = (): void => {
@@ -349,7 +520,15 @@ function useDeskVideo(
       }
     }
 
-    /** Keep the playhead at the live edge — see VIDEO_LIVE_EDGE_SLACK_S. */
+    /**
+     * Keep the playhead at the live edge — see VIDEO_LIVE_EDGE_SLACK_S.
+     *
+     * Unchanged by the full-screen transition on purpose, and it has to be:
+     * the element, the MediaSource and this buffer are the same objects on both
+     * sides of it, so the playhead is chased at pane size and at full size by
+     * the same code with the same numbers. A view that quietly stopped chasing
+     * when it got big would drift into a lag nobody could account for.
+     */
     const chase = (): void => {
       if (!buffer || buffer.buffered.length === 0) return
       const end = buffer.buffered.end(buffer.buffered.length - 1)
@@ -365,15 +544,16 @@ function useDeskVideo(
       try {
         buffer.appendBuffer(next)
       } catch (error) {
-        // Quota is the one recoverable failure: drop what has already been
-        // played and try the same bytes again. Anything else means this
-        // MediaSource cannot carry the stream.
+        // Quota is the one failure this attempt can absorb: drop what has
+        // already been played and try the same bytes again. Anything else —
+        // InvalidStateError from a source that closed under us, most often — is
+        // this MediaSource being finished, which a new one fixes.
         if (error instanceof DOMException && error.name === 'QuotaExceededError') {
           queue.unshift(next)
           prune()
           return
         }
-        fallBackToStills()
+        restart(`an append was refused (${describeMediaError(error)})`)
       }
     }
 
@@ -392,7 +572,7 @@ function useDeskVideo(
         chase()
         pump()
       })
-      buffer.addEventListener('error', fallBackToStills)
+      buffer.addEventListener('error', () => restart('the source buffer errored'))
       return true
     }
 
@@ -404,22 +584,38 @@ function useDeskVideo(
       if (!buffer) {
         codec = name
         if (!openBuffer(`video/mp4; codecs="${name}"`)) {
-          // The browser cannot decode what the guest is producing. Nothing
-          // here can fix that, so fall back to stills rather than showing an
-          // empty rectangle forever.
-          fallBackToStills()
+          // The browser cannot decode what the guest is producing. A retry
+          // would be handed the same codec, so this is the stills path.
+          fallBackToStills(`this browser cannot decode ${name}`)
           return
         }
       } else if (name !== codec) {
         // A different codec on the same buffer is not something MediaSource
-        // will re-negotiate; a fresh subscription is the honest answer.
-        fallBackToStills()
+        // will re-negotiate — but a NEW MediaSource negotiates it from
+        // scratch, so this is a reconnect rather than a defeat.
+        restart(`the encoder changed codec (${codec} → ${name})`)
         return
       }
       // A re-appended init segment is how MSE is told the stream restarted,
       // so an encoder that respawned continues into the same buffer.
       queue.push(bytes)
       pump()
+    }
+
+    /** One chunk landed: the view is alive and is no longer reconnecting. */
+    const noteChunk = (): void => {
+      const at = Date.now()
+      chunkAt = at
+      if (!carrying) {
+        carrying = true
+        setReconnecting(false)
+      }
+      // At most twice a second. The freshness claim is only ever read against a
+      // one-second tick, and a setState per frame is thirty renders a second
+      // for a number nothing looks at that closely.
+      if (at - reportedAt < 500) return
+      reportedAt = at
+      setReceivedAt(at)
     }
 
     const read = async (): Promise<void> => {
@@ -444,8 +640,8 @@ function useDeskVideo(
           if (held.length < VIDEO_WIRE_HEADER_BYTES) break
           if (held[0] !== 0x44 || held[1] !== 0x56) throw new Error('the video stream lost its framing')
           const kind = held[2]
-          const view = new DataView(held.buffer, held.byteOffset, held.byteLength)
-          const length = view.getUint32(4)
+          const frame = new DataView(held.buffer, held.byteOffset, held.byteLength)
+          const length = frame.getUint32(4)
           const end = VIDEO_WIRE_HEADER_BYTES + length
           if (held.length < end) break
           // Copied into its own ArrayBuffer rather than kept as a view: an
@@ -458,10 +654,22 @@ function useDeskVideo(
             queue.push(payload)
             pump()
           }
-          setReceivedAt(Date.now())
+          noteChunk()
         }
       }
     }
+
+    // A live view is never paused. Leaving full screen, a tab coming back to
+    // the foreground, or a browser's own power-saving heuristic can all pause
+    // a media element, and a paused live view does not announce itself — it
+    // shows a perfectly sharp picture of a moment that has passed.
+    const onPause = (): void => {
+      if (stopped) return
+      void video.play().catch(() => undefined)
+    }
+    const onError = (): void => restart(`the element reported media error ${video.error?.code ?? 'unknown'}`)
+    const onSourceEnded = (): void => restart('the media source ended')
+    const onSourceClose = (): void => restart('the media source closed')
 
     const start = (): void => {
       // Muted and inline so nothing needs a click to begin: this is a picture
@@ -469,18 +677,41 @@ function useDeskVideo(
       video.muted = true
       video.playsInline = true
       void video.play().catch(() => undefined)
-      void read().catch((error: unknown) => {
-        if (abort.signal.aborted || stopped) return
-        console.warn('[desk] the video view fell back to stills:', error)
-        fallBackToStills()
-      })
+      void read()
+        .then(() => restart('the stream closed'))
+        .catch((error: unknown) => {
+          if (abort.signal.aborted || stopped) return
+          restart(describeMediaError(error))
+        })
+      // The opening counts too: a connection the runner accepted and then never
+      // encoded into is exactly as blank as one that stopped, and neither of
+      // them reports itself.
+      watchdog = setInterval(() => {
+        if (stopped) return
+        if (Date.now() - (chunkAt === 0 ? openedAt : chunkAt) > VIDEO_SILENCE_MS) {
+          restart(chunkAt === 0 ? 'the stream never started' : 'the stream went silent')
+        }
+      }, 1_000)
     }
 
     mediaSource.addEventListener('sourceopen', start, { once: true })
+    mediaSource.addEventListener('sourceended', onSourceEnded)
+    mediaSource.addEventListener('sourceclose', onSourceClose)
+    video.addEventListener('pause', onPause)
+    video.addEventListener('error', onError)
 
     return () => {
+      // `stopped` first: tearing the element down fires `pause`, `error` and
+      // `sourceclose`, none of which are a broken stream when we are the ones
+      // breaking it, and every one of which would otherwise book a retry.
       stopped = true
       abort.abort()
+      if (retry !== null) clearTimeout(retry)
+      if (watchdog !== null) clearInterval(watchdog)
+      video.removeEventListener('pause', onPause)
+      video.removeEventListener('error', onError)
+      mediaSource.removeEventListener('sourceended', onSourceEnded)
+      mediaSource.removeEventListener('sourceclose', onSourceClose)
       // Order matters on teardown too: drop the element's hold on the
       // MediaSource before the object URL goes, or Chromium logs a decode
       // error for a source that vanished mid-append.
@@ -488,7 +719,7 @@ function useDeskVideo(
       video.load()
       URL.revokeObjectURL(objectUrl)
     }
-  }, [personId, unavailable, viewRef, watching])
+  }, [attempt, personId, unavailable, view, watching])
 
   const [now, setNow] = React.useState(() => Date.now())
   React.useEffect(() => {
@@ -500,7 +731,16 @@ function useDeskVideo(
   return {
     live: watching && receivedAt > 0 && now - receivedAt < FRAME_STALE_MS,
     unavailable,
+    // Nothing is being re-opened when nothing is being watched, and the stills
+    // path has its own reconnect once video has stood down.
+    reconnecting: reconnecting && watching && !unavailable,
   }
+}
+
+/** A media failure in words, for the one console line each of them is worth. */
+function describeMediaError(error: unknown): string {
+  if (error instanceof DOMException) return `${error.name}: ${error.message}`
+  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -641,30 +881,38 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     active: false,
     url: null,
   })
-  /** Whether the desk is filling the window rather than sitting in its pane. */
+  /**
+   * Whether the desk is filling the window rather than sitting in its pane.
+   *
+   * A CSS state and nothing else. There is no second copy of the view, no
+   * overlay component holding the picture, and therefore nothing to hand back
+   * and forth — which is exactly why there is no longer a "presence" flag
+   * beside this one: the element it used to protect is never moved now.
+   */
   const [expanded, setExpanded] = React.useState(false)
-  /**
-   * Whether the full-screen view is on screen at all — which includes the
-   * moment it is sliding out. `expanded` is the intent; this is the presence,
-   * and the two differ for the length of the exit. That difference is what
-   * keeps the pane from drawing a second picture while the overlay is still
-   * holding the only one: there is one input surface and one image ref, and
-   * two of them alive at once would leave both pointing at a dead element.
-   */
-  const [overlayPresent, setOverlayPresent] = React.useState(false)
 
-  // The input surface is held as state rather than in a ref because it is the
-  // same element in two places: expanding re-parents it into the overlay, and
-  // the native wheel listener has to follow it there. A ref would be read once
-  // and left bound to an element that is no longer on screen.
+  // The three elements this pane addresses directly, held as state rather than
+  // in refs so that anything reading them re-runs when they arrive. Native
+  // listeners (the wheel) and measurements (`framePoint`) have to be bound to
+  // the element that is actually on screen, and a ref read once inside an
+  // effect is bound to whatever was there at the time.
+  //
+  //   · `surface` — the input target that covers the picture.
+  //   · `shell`   — the box the surface lives in, which IS the full-screen
+  //                 view when it is expanded (see the note at the top).
+  //   · `view`    — whichever element is showing the desk: the `<video>` on
+  //                 the ordinary path, the `<img>` on the still fallback. One
+  //                 value for both, because `framePoint` is one function for
+  //                 both and a click has to be translated against the picture
+  //                 that is actually on screen.
+  //
+  // The state setters are passed as the callback refs themselves: they are
+  // stable across renders, so React attaches them once instead of detaching
+  // and re-attaching — which, on the `<video>`, would be a fresh ref call on
+  // every render of a screen that is meant never to move.
   const [surface, setSurface] = React.useState<HTMLDivElement | null>(null)
-  /**
-   * Whichever element is showing the desk right now — the `<video>` on the
-   * ordinary path, the `<img>` on the fallback. One ref for both, because
-   * `framePoint` is one function for both and a click has to be translated
-   * against the picture that is actually on screen.
-   */
-  const viewRef = React.useRef<DeskViewElement | null>(null)
+  const [shell, setShell] = React.useState<HTMLDivElement | null>(null)
+  const [view, setView] = React.useState<DeskViewElement | null>(null)
 
   /** The controls' own re-read, after they have changed something. */
   const refresh = React.useCallback(async () => {
@@ -717,16 +965,24 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   // its duration, so holding the stream open would only keep a socket alive
   // to carry silence.
   //
-  // The one subscription for both views, deliberately: it is asked for here,
-  // above the pane and the full-screen overlay alike, so expanding cannot tear
-  // it down and re-establish it. A re-subscribe restarts the guest's capture
-  // pump, and the picture goes black at the exact moment somebody has made it
-  // big enough to work in.
+  // EXACTLY ONE subscription per open screen, however the view is arranged.
+  // It is asked for here, above both sizes of the view, and it depends on
+  // nothing that changes when the desk fills the window — so expanding cannot
+  // open a second stream and cannot tear this one down. Both would be visible:
+  // the runner fans one encode out to many subscribers, so a second connection
+  // is a second copy of every byte, and dropping the last subscriber stops the
+  // guest's encoder outright, which puts a black rectangle and a wait for the
+  // next keyframe at the exact moment somebody has made the desk big enough to
+  // work in.
   const watching = screenOpen && !handover.active
   // Video is the ordinary path; stills are subscribed to only once video has
   // reported that this browser cannot carry it, so the guest is never asked to
   // run both encoders at once.
-  const { live: videoLive, unavailable: videoUnavailable } = useDeskVideo(personId, watching, viewRef)
+  const {
+    live: videoLive,
+    unavailable: videoUnavailable,
+    reconnecting,
+  } = useDeskVideo(personId, watching, view)
   const { frame, live: frameLive } = useDeskFrames(personId, watching && videoUnavailable)
   const live = videoUnavailable ? frameLive : videoLive
 
@@ -814,13 +1070,12 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   const drivingNow = driving && screenOpen && !handover.active
 
   // Focus is what makes the keyboard live, so it is taken for the person
-  // rather than left as a step they have to guess at — both when they take the
-  // controls and after the surface has moved between the pane and the overlay,
-  // which the overlay would otherwise end by focusing its own close button.
+  // rather than left as a step they have to guess at when they take the
+  // controls. Nothing competes for it across the full-screen transition any
+  // more — the surface is not re-parented, so it simply keeps the focus it
+  // had — but a fresh drive still has to begin somewhere.
   React.useEffect(() => {
     if (!drivingNow || !surface) return
-    // On a beat, so the overlay's own opening focus — set on the same commit —
-    // has already happened and this is the one that stands.
     const timer = setTimeout(() => surface.focus(), 0)
     return () => clearTimeout(timer)
   }, [drivingNow, surface])
@@ -865,21 +1120,15 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   }, [drivingNow, handover.active, personId, screenOpen])
 
   // A screen that has gone takes the full-screen view with it: there is
-  // nothing left to fill a window with, and an overlay over a closed desktop
-  // is a wall in front of the conversation. Derived from the screen rather
-  // than corrected after the fact — the same reason `drivingNow` is.
+  // nothing left to fill a window with, and a full-viewport layer over a closed
+  // desktop is a wall in front of the conversation. Derived from the screen
+  // rather than corrected after the fact — the same reason `drivingNow` is.
   const showExpanded = expanded && screenOpen
 
   /** The moment an Escape was handed to the guest — see GUEST_ESCAPE_GRACE_MS. */
   const guestEscapeAtRef = React.useRef(0)
 
-  // Presence and intent are raised in the same act, so the pane hands the
-  // picture over and the overlay takes it on one commit rather than either
-  // rendering it twice or neither rendering it at all.
-  const expand = React.useCallback(() => {
-    setOverlayPresent(true)
-    setExpanded(true)
-  }, [])
+  const expand = React.useCallback(() => setExpanded(true), [])
 
   const collapse = React.useCallback(() => {
     // Driving is not stopped on the way out: the pane drives too, and yanking
@@ -887,12 +1136,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     // half-done. What is refused is the Escape that belonged to the desktop.
     if (Date.now() - guestEscapeAtRef.current < GUEST_ESCAPE_GRACE_MS) return
     setExpanded(false)
-    // Presence is normally given up when the exit animation reports itself
-    // finished. With nothing on screen to animate there is no such moment, and
-    // a pane still pointing at a view that is not there would have no picture
-    // in it at all.
-    if (!showExpanded) setOverlayPresent(false)
-  }, [showExpanded])
+  }, [])
 
   // A key for it, so the operator who is about to work in the desk does not
   // have to go to the mouse to make it big enough to work in. Deliberately
@@ -919,6 +1163,82 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [collapse, drivingNow, expand, screenOpen, showExpanded])
+
+  /**
+   * Escape leaves the full-screen view — unless the desktop owns it.
+   *
+   * On `document` rather than on the shell because a click on the letterbox
+   * leaves focus on the body, and a way out that depends on where focus
+   * happens to be is not a way out. While somebody is driving, the surface's
+   * own handler stops the event before it ever reaches here AND this refuses it
+   * anyway: the key belongs to the guest, and the release chord's second press
+   * is covered by the stamp `collapse` reads.
+   */
+  React.useEffect(() => {
+    if (!showExpanded) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || drivingNow) return
+      event.preventDefault()
+      collapse()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [collapse, drivingNow, showExpanded])
+
+  /**
+   * The rest of the modal semantics the `Drawer` used to supply, on the shell
+   * that already holds the picture — because the picture cannot go into a
+   * `Drawer` without being re-created (see the note at the top of this file).
+   *
+   * Focus moves in when the view opens and back to whatever opened it when it
+   * closes. Only when it is not already inside: the surface lives in this same
+   * shell at both sizes, so somebody who was driving in the pane keeps the
+   * keyboard they were driving with rather than having it taken and given back.
+   *
+   * Scroll is deliberately NOT locked. The application shell is `h-screen
+   * overflow-hidden`, so the document does not scroll at all, and a second,
+   * uncounted lock on `document.body` would fight appkit's ref-counted one the
+   * first time any other overlay opened.
+   */
+  React.useEffect(() => {
+    if (!showExpanded || !shell) return
+    const restoreTo = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    if (!shell.contains(document.activeElement)) shell.focus()
+    return () => {
+      if (restoreTo && restoreTo.isConnected) restoreTo.focus()
+    }
+  }, [shell, showExpanded])
+
+  /**
+   * Tab stays inside the full-screen view, so the controls under it cannot be
+   * reached by a keyboard that is looking at something else.
+   *
+   * A React handler on the shell rather than a document listener, which gets
+   * the driving case for free: while the keys belong to the guest the surface
+   * stops propagation, so this never sees the Tab it would otherwise have
+   * stolen from the desktop.
+   */
+  const onShellKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!showExpanded || event.key !== 'Tab' || !shell) return
+    const focusable = Array.from(shell.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+      (element) => element.offsetParent !== null || element === document.activeElement,
+    )
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (!first || !last) {
+      event.preventDefault()
+      shell.focus()
+      return
+    }
+    const active = document.activeElement
+    if (event.shiftKey && (active === first || !shell.contains(active))) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
 
   const toggleDriving = () => {
     if (driving) {
@@ -989,17 +1309,15 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   // while the guest is being scrolled is unusable.
   const scrollRef = React.useRef({ dx: 0, dy: 0, x: 0, y: 0, timer: null as ReturnType<typeof setTimeout> | null })
   React.useEffect(() => {
-    // Bound to the surface element itself rather than to a ref read once: the
-    // same surface is re-parented when the desk goes full screen, and this has
-    // to follow it there.
-    if (!surface || !drivingNow) return
+    // Bound to the elements themselves rather than to refs read once, so a
+    // surface or a picture that were ever replaced would carry the listener
+    // and the measurement with them instead of silently leaving both behind.
+    if (!surface || !view || !drivingNow) return
     const element = surface
     const state = scrollRef.current
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
-      const image = viewRef.current
-      if (!image) return
-      const point = framePoint(image, event.clientX, event.clientY)
+      const point = framePoint(view, event.clientX, event.clientY)
       if (!point) return
       const { dx, dy } = wheelPixels(event)
       state.dx += dx
@@ -1028,16 +1346,14 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
         state.timer = null
       }
     }
-  }, [drivingNow, sendInput, surface])
+  }, [drivingNow, sendInput, surface, view])
 
   const pressRef = React.useRef<{ x: number; y: number; button: 'left' | 'middle' | 'right' } | null>(null)
   const escapeRef = React.useRef(0)
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!drivingNow) return
-    const image = viewRef.current
-    if (!image) return
-    const point = framePoint(image, event.clientX, event.clientY)
+    if (!drivingNow || !view) return
+    const point = framePoint(view, event.clientX, event.clientY)
     if (!point) return
     event.preventDefault()
     surface?.focus()
@@ -1048,9 +1364,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   const onPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     const press = pressRef.current
     pressRef.current = null
-    if (!drivingNow || !press) return
-    const image = viewRef.current
-    if (!image) return
+    if (!drivingNow || !press || !view) return
     event.preventDefault()
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
@@ -1058,7 +1372,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     // Anything typed so far belongs before the pointer lands, or it arrives in
     // whatever the click focused instead.
     flushTyping()
-    const point = framePoint(image, event.clientX, event.clientY)
+    const point = framePoint(view, event.clientX, event.clientY)
     // A release that left the picture still ended a gesture that started
     // inside it: the press point is the honest fallback.
     const to = point ?? press
@@ -1079,8 +1393,9 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
       const second = at - escapeRef.current < RELEASE_CHORD_MS
       escapeRef.current = second ? 0 : at
       // Both Escapes of the pair are the desktop's, so neither may also be
-      // read as "close the full-screen view" by the overlay this surface may
-      // be sitting in — the stamp is what `collapse` refuses on.
+      // read as "close the full-screen view" — the stamp is what `collapse`
+      // refuses on, and it is the second press that needs it (the first is
+      // still refused by `drivingNow`, which is true until this one lands).
       guestEscapeAtRef.current = at
       // The first Escape still goes to the guest — an Escape that does nothing
       // for half a second would make dialogs unclosable. The second one, in
@@ -1163,13 +1478,15 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   )
 
   /**
-   * The picture and the input target, as one element rendered in one place at
-   * a time — the pane's screen box, or the full-screen overlay.
+   * The picture and the input target: ONE element tree, rendered at ONE place
+   * in this component for as long as a screen is open.
    *
-   * It is written once rather than twice on purpose: the refs, the handlers
-   * and the classes are the same at either size, so there is one input
-   * surface, one `framePoint` reading its live box, and no second <img>
-   * quietly competing for the image ref.
+   * Not "one of two", and not "written once and used twice" — literally one,
+   * and it never moves. Everything below hangs off that: the `<video>` keeps
+   * its MediaSource across a full-screen transition because React has no
+   * reason to unmount it, there is only ever one element competing for the
+   * view state, and `framePoint` measures whichever element that is against
+   * its own live box, so a click lands on the same pixel at either size.
    */
   const liveScreen = (
     // The surface is the input target, not the picture: it keeps its box
@@ -1181,10 +1498,11 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
       role={drivingNow ? 'application' : undefined}
       aria-label={drivingNow ? `${personName}'s desktop — your keyboard and mouse are on it` : undefined}
       // While the desk is full screen and being driven, the desktop owns
-      // Escape. This is the attribute appkit's overlays read to know that
-      // something in front of them has claimed the key, and it is what stops
-      // the release chord's first Escape from closing the view instead of
-      // reaching the guest. The stamp in `collapse` covers the second one.
+      // Escape, and this declares that to anything else that might answer it.
+      // This view's own handler refuses the key on `drivingNow` directly —
+      // it does not read this attribute — but appkit's dialogs and drawers DO,
+      // and one of them opening over a driven desktop must not be closed by a
+      // keystroke that was meant for the guest.
       data-ui-overlay={showExpanded && drivingNow ? 'desk-driving' : undefined}
       onKeyDown={onKeyDown}
       onPointerDown={onPointerDown}
@@ -1221,13 +1539,13 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
         // the letterbox is the backdrop behind it, and `framePoint` knows a
         // click that lands there belongs to no pixel.
         //
-        // Kept mounted whether or not a picture has arrived: the MediaSource
-        // is attached to this element, so unmounting it while waiting would
-        // tear down the stream that is about to fill it.
+        // Kept mounted whether or not a picture has arrived, and — the reason
+        // this whole file was rearranged — kept mounted across the full-screen
+        // transition: the MediaSource, its SourceBuffer and the reader feeding
+        // it all hang off THIS node, and React re-creating it destroys every
+        // one of them with nothing left to notice or repair the loss.
         <video
-          ref={(node) => {
-            viewRef.current = node
-          }}
+          ref={setView}
           aria-label={`${personName}'s desktop`}
           muted
           autoPlay
@@ -1243,9 +1561,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
         // live screen never blinks white between them.
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          ref={(node) => {
-            viewRef.current = node
-          }}
+          ref={setView}
           src={frame.src}
           alt={`${personName}'s desktop`}
           draggable={false}
@@ -1262,14 +1578,30 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     </div>
   )
 
-  /** Whether the picture on screen is current, said over the picture itself. */
+  /**
+   * Whether the picture on screen is current, said over the picture itself.
+   *
+   * Three states rather than two, because a stream that has dropped and a
+   * desktop that is not repainting look identical and are not the same thing.
+   * "Reconnecting" is a corner badge and a spinner rather than a dialog or a
+   * cleared picture: the last frame is still the best guess at what is on that
+   * machine, and whipping it away to say so would be a worse view of the desk
+   * than a slightly stale one with a note on it.
+   */
   const liveBadge = handover.active ? null : (
-    <span className="pointer-events-none absolute right-2 top-2 flex items-center gap-1.5 rounded-full border border-border bg-surface/90 px-2 py-1 text-xs font-medium text-fg-muted backdrop-blur">
-      <span
-        aria-hidden
-        className={cn('inline-block size-1.5 rounded-full', live ? 'animate-pulse bg-primary' : 'bg-fg-subtle')}
-      />
-      {live ? 'Live' : 'Waiting for a repaint'}
+    <span
+      role="status"
+      className="pointer-events-none absolute right-2 top-2 flex items-center gap-1.5 rounded-full border border-border bg-surface/90 px-2 py-1 text-xs font-medium text-fg-muted backdrop-blur"
+    >
+      {reconnecting ? (
+        <Loader2 aria-hidden className="size-3 animate-spin text-fg-subtle" />
+      ) : (
+        <span
+          aria-hidden
+          className={cn('inline-block size-1.5 rounded-full', live ? 'animate-pulse bg-primary' : 'bg-fg-subtle')}
+        />
+      )}
+      {reconnecting ? 'Reconnecting…' : live ? 'Live' : 'Waiting for a repaint'}
     </span>
   )
 
@@ -1442,43 +1774,123 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
         </p>
       </div>
     )
-  } else if (overlayPresent) {
-    // The one picture is in the full-screen view, so the pane says where it
-    // went instead of drawing a second copy of a screen there is only one of.
-    body = (
-      <div className="space-y-4">
-        <DeskScreenBox className="border-dashed bg-bg-subtle">
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-8 text-center">
-            <Maximize2 aria-hidden className="size-6 text-fg-subtle" />
-            <p className="text-sm text-fg-muted">
-              {personName}&apos;s desktop is filling the window. Nothing has been closed — the screen, the controls and
-              the record are all in there.
-            </p>
-          </div>
-        </DeskScreenBox>
-        <Button type="button" variant="outline" onClick={collapse}>
-          <Minimize2 aria-hidden className="size-4" />
-          Bring the desk back to this pane
-        </Button>
-      </div>
-    )
   } else {
-    body = (
-      <div className="space-y-3">
-        <DeskScreenBox
+    // The open screen is NOT part of this chain. It is rendered below, in a
+    // slot of its own that holds nothing else, so no change of status can
+    // reconcile something else into the position the picture lives at.
+    body = null
+  }
+
+  /**
+   * The open screen, at whichever size it is being looked at.
+   *
+   * Read this as one element with two class lists, because that is exactly what
+   * it is. `shell` is the box: in the pane it is the desk-shaped screen box, at
+   * full size it is a `fixed inset-0` modal with its own header and footer. The
+   * picture area inside it, the surface inside that, and the `<video>` inside
+   * that are the same nodes in both — the same positions in the same parents,
+   * so React has nothing to unmount and the media pipeline is untouched by the
+   * transition.
+   *
+   * `fixed` is viewport-relative here because nothing between this and `<body>`
+   * establishes a containing block — no `transform`, no `filter`, no
+   * `contain` — and `z-[60]` is comparable with appkit's overlays for the same
+   * reason: no ancestor opens a stacking context either. Both are worth knowing
+   * if the chat page's chrome is ever rebuilt.
+   */
+  const liveBlock = (
+    <div>
+      {/* The pane keeps saying where the desk went while it is filling the
+          window. `space-y-*` is deliberately not used on this wrapper: it puts
+          a margin on its children, and a margin on a `fixed inset-0` element
+          is resolved against the insets — which would inset the "full" screen
+          by three quarters of a rem. */}
+      {showExpanded ? (
+        <div className="space-y-4">
+          <DeskScreenBox className="border-dashed bg-bg-subtle">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-8 text-center">
+              <Maximize2 aria-hidden className="size-6 text-fg-subtle" />
+              <p className="text-sm text-fg-muted">
+                {personName}&apos;s desktop is filling the window. Nothing has been closed — the screen, the controls
+                and the record are all in there.
+              </p>
+            </div>
+          </DeskScreenBox>
+          <Button type="button" variant="outline" onClick={collapse}>
+            <Minimize2 aria-hidden className="size-4" />
+            Bring the desk back to this pane
+          </Button>
+        </div>
+      ) : null}
+
+      <div
+        ref={setShell}
+        // Focusable but not tabbable: the full-screen view has to be able to
+        // hold the keyboard when nothing inside it has taken it, and must not
+        // become a tab stop in the pane.
+        tabIndex={-1}
+        role={showExpanded ? 'dialog' : undefined}
+        aria-modal={showExpanded ? true : undefined}
+        aria-label={showExpanded ? `${personName}'s desk, full screen` : undefined}
+        onKeyDown={onShellKeyDown}
+        style={
+          showExpanded
+            ? undefined
+            : { aspectRatio: `${AGENT_SCREEN_WIDTH} / ${AGENT_SCREEN_HEIGHT}` }
+        }
+        className={cn(
+          'outline-none',
+          showExpanded
+            ? 'fixed inset-0 z-[60] flex flex-col bg-surface'
+            : cn(
+                'relative w-full overflow-hidden rounded-lg border border-border bg-overlay transition-shadow',
+                drivingNow && 'ring-2 ring-warning ring-offset-2 ring-offset-surface',
+              ),
+        )}
+      >
+        {showExpanded ? (
+          <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface px-4">
+            <span className="truncate text-sm font-medium text-fg">{personName}&apos;s desk</span>
+            <span className="flex shrink-0 items-center gap-1.5">
+              {statusBadge}
+              {/* The way out is always visible, whatever the keyboard is doing:
+                  while somebody is driving, Escape belongs to the desktop. */}
+              <Button type="button" variant="ghost" size="icon" className="size-7" onClick={collapse}>
+                <Minimize2 aria-hidden className="size-4" />
+                <span className="sr-only">Return {personName}&apos;s desktop to its pane</span>
+              </Button>
+            </span>
+          </header>
+        ) : null}
+
+        {/* The picture area. A positioned box in both layouts — filling the
+            screen box in the pane, taking what the header and footer leave at
+            full size — because the surface inside it is `absolute inset-0` and
+            `framePoint` measures the picture's own rect against it. */}
+        <div
           className={cn(
-            'transition-shadow',
-            drivingNow && 'ring-2 ring-warning ring-offset-2 ring-offset-surface',
+            'relative bg-overlay',
+            showExpanded
+              ? cn('min-h-0 flex-1 overflow-hidden', drivingNow && 'ring-2 ring-inset ring-warning')
+              : 'absolute inset-0',
           )}
         >
           {liveScreen}
           {liveBadge}
-        </DeskScreenBox>
-        {notice}
-        {controls}
+        </div>
+
+        {showExpanded ? (
+          <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-bg-subtle px-4 py-3">
+            <div className="min-w-0 flex-1">{notice}</div>
+            {controls}
+          </footer>
+        ) : null}
       </div>
-    )
-  }
+
+      {showExpanded ? null : <div className="mt-3">{notice}</div>}
+      {showExpanded ? null : <div className="mt-3">{controls}</div>}
+    </div>
+  )
 
   // A pane, not a card: the surface and its border belong to the one card the
   // chat screen draws around all three columns (components/chat-workspace.tsx).
@@ -1487,48 +1899,18 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
       {header}
       <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-3">
         {body}
+        {/* Its own slot, never shared with anything else. React matches
+            children by position, so a picture that shares a slot with the
+            status messages above is a picture that can be reconciled away by
+            an unrelated change of status — and, being a `<video>` fed by a
+            MediaSource, cannot come back from that. */}
+        {screenOpen ? liveBlock : null}
         {controlError !== null ? (
           <p role="alert" className="mt-3 text-sm text-danger">
             {controlError}
           </p>
         ) : null}
       </div>
-
-      {/* The same desk, given the window. A Drawer at full size is this app's
-          full-bleed surface — portalled, modal, focus-trapped, scroll-locked
-          and Escape-aware — so the full-screen desk is that rather than a
-          hand-rolled layer with a z-index nobody can account for. The body
-          takes the whole panel below the header, on the same dark backdrop the
-          pane's screen box uses, so the letterbox around a desk of a different
-          shape reads as the edge of the screen rather than as a rendering
-          fault. The close control is the panel's own, and it is never
-          suppressed: the way out is always visible. */}
-      <Drawer
-        open={showExpanded}
-        onClose={collapse}
-        onExitComplete={() => setOverlayPresent(false)}
-        size="full"
-        disableFullscreen
-        title={`${personName}'s desk`}
-        description="The same screen, the same controls, and the same record — with room to work in."
-        headerActions={statusBadge}
-        // Positioned and unpadded, so the surface can be the whole of it: the
-        // picture is measured against this box by `framePoint`, and a scrollbar
-        // or a stray inch of padding would be measured with it.
-        bodyClassName={cn(
-          'relative overflow-hidden bg-overlay',
-          drivingNow && 'ring-2 ring-inset ring-warning',
-        )}
-        footer={
-          <div className="flex w-full flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0 flex-1">{notice}</div>
-            {controls}
-          </div>
-        }
-      >
-        {liveScreen}
-        {liveBadge}
-      </Drawer>
     </div>
   )
 }
