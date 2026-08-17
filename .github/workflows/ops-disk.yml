@@ -493,6 +493,11 @@ jobs:
             sub="$(docker network inspect "$n" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null)"
             [ -n "$sub" ] && printf '  %-28s %s\n' "$n" "$sub"
           done
+          echo "--- can a plain compose container join dokploy-network? ---"
+          docker network inspect dokploy-network \
+            --format 'scope={{.Scope}} driver={{.Driver}} attachable={{.Attachable}} ingress={{.Ingress}}' 2>&1 || true
+          echo "--- swarm membership of this node ---"
+          docker info --format 'swarm={{.Swarm.LocalNodeState}} manager={{.Swarm.ControlAvailable}} nodes={{.Swarm.Nodes}}' 2>&1 || true
           echo "--- the daemon's default address pools ---"
           docker info --format '{{json .DefaultAddressPools}}' 2>/dev/null || echo "  (none reported; Swarm default is 10.0.0.0/8 in /24 blocks)"
 
