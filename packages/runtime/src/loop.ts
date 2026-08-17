@@ -12,6 +12,7 @@ import { compactMessages, COMPACT_KEEP_RECENT } from './compaction'
 import { reportedCostUsd, usageAccountingOptions } from './cost'
 import { buildRunInstruction, buildSystemPrompt } from './prompt'
 import { loadSkillAbility, type BoundSkill } from './skills'
+import { createRedactingSink, normalizeSecrets, redactSecrets, redactSecretValue } from './redaction'
 import type {
   ApprovalGate,
   AutonomyResolver,
@@ -74,6 +75,8 @@ export type RunAgentArgs = {
    * uses, and for the same reason.
    */
   isCancelled?: () => Promise<boolean>
+  /** Additional credentials held by application adapters during this run. */
+  runSecrets?: readonly string[]
 }
 
 /**
@@ -124,35 +127,47 @@ const MAX_STEP_INPUT_TOKENS = 500_000
  * with priorMessages + the approved tool result.
  */
 export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
+  const providerKey = typeof args.agent.ai.apiKey === 'string' ? args.agent.ai.apiKey : ''
+  const runSecrets = normalizeSecrets([providerKey, ...(args.runSecrets ?? [])])
+  const sink = createRedactingSink(args.sink, runSecrets)
   const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
 
   const remaining = await args.budget.remainingUsd()
   if (remaining <= 0 && args.budget.overagePolicy === 'pause') {
-    await args.sink.event({
+    await sink.event({
       kind: 'error',
       message: 'Salary budget exhausted and overage policy is pause; run not started.',
     })
-    return { status: 'budget_paused', usage, messages: args.priorMessages ?? [] }
+    return {
+      status: 'budget_paused',
+      usage,
+      messages: redactSecretValue(args.priorMessages ?? [], runSecrets),
+    }
   }
 
   const model = getModel(args.agent.ai, 'smart')
   if (!model) {
     const message = `No model available for ${args.agent.name} (provider ${args.agent.ai.provider}).`
-    await args.sink.event({ kind: 'error', message })
-    return { status: 'failed', error: message, usage, messages: args.priorMessages ?? [] }
+    await sink.event({ kind: 'error', message })
+    return {
+      status: 'failed',
+      error: redactSecrets(message, runSecrets),
+      usage,
+      messages: redactSecretValue(args.priorMessages ?? [], runSecrets),
+    }
   }
 
   const state: GovernanceState = args.state ?? { pendingApprovalId: null, pendingWait: null }
   const skills = args.skills ?? []
   const abilities = [
     ...args.abilities,
-    citeProcedureAbility({ sink: args.sink, procedures: args.procedures }),
+    citeProcedureAbility({ sink, procedures: args.procedures }),
     // Offered only when the agent actually has skills, so an agent with none
     // is never told about a tool that can only answer "you have no skills".
     ...(skills.length > 0
       ? [
           loadSkillAbility({
-            sink: args.sink,
+            sink,
             skills,
             ...(args.materializeSkill ? { materialize: args.materializeSkill } : {}),
           }),
@@ -163,10 +178,11 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
     abilities,
     autonomy: args.autonomy,
     approvals: args.approvals,
-    sink: args.sink,
+    sink,
     state,
     describeAction: args.describeAction,
     ...(args.toolDeadlineMs ? { deadlineMs: args.toolDeadlineMs } : {}),
+    secrets: runSecrets,
   })
 
   const system = buildSystemPrompt({
@@ -181,7 +197,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
   const images = args.input.type === 'email' ? (args.input.images ?? []) : []
   const instruction = buildRunInstruction(args.input)
   const messages: ModelMessage[] = [
-    ...(args.priorMessages ?? []),
+    ...redactSecretValue(args.priorMessages ?? [], runSecrets),
     {
       role: 'user',
       content:
@@ -251,7 +267,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
         if (trimmedChars <= 0) return {}
         if (!compactionAnnounced) {
           compactionAnnounced = true
-          await args.sink.event({
+          await sink.event({
             kind: 'message',
             text: `Trimmed ${trimmedResults} earlier tool result(s) from the working context to keep this run affordable. The most recent ${COMPACT_KEEP_RECENT} are unchanged.`,
           })
@@ -274,13 +290,13 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
           lastCall = signature
           if (repeats >= NO_PROGRESS_REPEATS && !stuck) {
             stuck = true
-            await args.sink.event({
+            await sink.event({
               kind: 'error',
               message: `Stopped: ${call.toolName} was called ${repeats} times with the same input and nothing changed. Whatever this run was trying is not going to work this way.`,
             })
           }
           const ability = abilities.find((a) => a.name === call.toolName)
-          await args.sink.event({
+          await sink.event({
             kind: 'tool_call',
             toolName: call.toolName,
             // Same resolution the governed wrapper used, so the ledger records
@@ -295,17 +311,17 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
           // by the ability itself; the ledger keeps what happened, not a
           // second copy of the bytes.
           const { rest } = takeAbilityFrame(toolResult.output)
-          await args.sink.event({
+          await sink.event({
             kind: 'tool_result',
             toolName: toolResult.toolName,
             output: rest,
           })
         }
-        if (step.text) await args.sink.event({ kind: 'message', text: step.text })
+        if (step.text) await sink.event({ kind: 'message', text: step.text })
         // What the provider says the step cost, where it says anything. Null
         // means it did not, and the sink prices the tokens itself.
         const reported = providerOptions ? reportedCostUsd(step.response.body) : null
-        await args.sink.spend({
+        await sink.spend({
           provider: args.agent.ai.provider,
           model: args.agent.ai.modelSmart ?? '',
           inputTokens: step.usage.inputTokens ?? 0,
@@ -320,7 +336,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
         const stepInput = step.usage.inputTokens ?? 0
         if (stepInput > MAX_STEP_INPUT_TOKENS && !bloated) {
           bloated = true
-          await args.sink.event({
+          await sink.event({
             kind: 'error',
             message: `Stopped: one step sent ${stepInput.toLocaleString()} input tokens, past the ${MAX_STEP_INPUT_TOKENS.toLocaleString()} ceiling. The context is carrying far more than this work needs, and every further step would cost more than the last.`,
           })
@@ -330,7 +346,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
         // would otherwise reach — which for a long run may be hours away.
         if (!cancelled && args.isCancelled && (await args.isCancelled().catch(() => false))) {
           cancelled = true
-          await args.sink.event({
+          await sink.event({
             kind: 'message',
             text: 'Stopped by an operator. Ending here; everything done up to this point is kept.',
           })
@@ -339,7 +355,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
           const left = await args.budget.remainingUsd().catch(() => 1)
           if (left <= 0) {
             budgetExhausted = true
-            await args.sink.event({
+            await sink.event({
               kind: 'message',
               text: 'Stopping here: the salary budget for this agent is spent.',
             })
@@ -348,7 +364,10 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
       },
     })
 
-    const transcript: ModelMessage[] = [...messages, ...result.response.messages]
+    const transcript = redactSecretValue<ModelMessage[]>(
+      [...messages, ...result.response.messages],
+      runSecrets,
+    )
     // Out of money is not a failure and not a success: the work that was done
     // is kept, and the outcome says plainly why it stopped where it did.
     if (budgetExhausted) return { status: 'budget_paused', usage, messages: transcript }
@@ -361,10 +380,20 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
     if (state.pendingWait) {
       return { status: 'waiting_reply', wait: state.pendingWait, usage, messages: transcript }
     }
-    return { status: 'completed', summary: result.text, usage, messages: transcript }
+    return {
+      status: 'completed',
+      summary: redactSecrets(result.text, runSecrets),
+      usage,
+      messages: transcript,
+    }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    await args.sink.event({ kind: 'error', message })
-    return { status: 'failed', error: message, usage, messages }
+    const message = redactSecrets(error instanceof Error ? error.message : String(error), runSecrets)
+    await sink.event({ kind: 'error', message })
+    return {
+      status: 'failed',
+      error: message,
+      usage,
+      messages: redactSecretValue(messages, runSecrets),
+    }
   }
 }

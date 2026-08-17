@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { connect as tcpConnect } from 'node:net'
@@ -20,6 +20,12 @@ import {
   type DeskScreenHandle,
   type DeskVideoChunk,
 } from '@appkit/desk'
+import {
+  deskIdentityMatches,
+  signDeskHandoverCapability,
+  verifyDeskHandoverCapability,
+  type DeskHandoverScope,
+} from '../src/lib/desk-security'
 
 /**
  * The desk runner: the only process allowed to boot a microVM. It has no
@@ -198,6 +204,9 @@ type DeskEntry = {
   handoverPort: number
   /** Host-side TTL deadline; the relay refuses past it and the timer revokes. */
   handoverExpiresAt: number
+  /** Scope and nonce are part of the browser capability and die on revoke. */
+  handoverScope: DeskHandoverScope | null
+  handoverNonce: string | null
   /** Live relay sockets, so an expiry can cut them rather than wait them out. */
   handoverSockets: Set<Duplex>
   handoverTimer: ReturnType<typeof setTimeout> | null
@@ -573,6 +582,8 @@ async function ensureDesk(
     handoverUrl: null,
     handoverPort: HANDOVER_FALLBACK_PORT,
     handoverExpiresAt: 0,
+    handoverScope: null,
+    handoverNonce: null,
     handoverSockets: new Set(),
     handoverTimer: null,
     browserPath: null,
@@ -1137,6 +1148,8 @@ function revokeHandover(entry: DeskEntry): void {
   const wasOpen = entry.handoverUrl !== null
   entry.handoverUrl = null
   entry.handoverExpiresAt = 0
+  entry.handoverScope = null
+  entry.handoverNonce = null
   for (const socket of entry.handoverSockets.values()) socket.destroy()
   entry.handoverSockets.clear()
   const screen = entry.screen
@@ -1374,6 +1387,25 @@ function handoverPortFrom(url: string): number {
   }
 }
 
+function handoverStreamPath(deskId: string, entry: DeskEntry): string {
+  if (!entry.handoverScope || !entry.handoverNonce || entry.handoverExpiresAt <= Date.now()) {
+    throw new Error('No live handover capability can be minted for this desk.')
+  }
+  const value = {
+    deskId,
+    scope: entry.handoverScope,
+    expiresAt: entry.handoverExpiresAt,
+    nonce: entry.handoverNonce,
+  }
+  const query = new URLSearchParams({
+    expires: String(value.expiresAt),
+    scope: value.scope,
+    nonce: value.nonce,
+    capability: signDeskHandoverCapability(TOKEN, value),
+  })
+  return `/desks/${encodeURIComponent(deskId)}/handover/stream?${query.toString()}`
+}
+
 // --- the in-guest browser and its CDP relay ---------------------------------
 
 /**
@@ -1486,16 +1518,18 @@ function relayGuestSocket(args: {
 /** Route an upgrade to the CDP relay or the handover relay, or refuse it. */
 function relayUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
   const url = new URL(request.url ?? '/', 'http://desk-runner')
-  // The token rides the query string because a websocket dial cannot carry a
-  // bearer header everywhere; it is compared in constant time all the same.
-  if (!tokenMatches(url.searchParams.get('token') ?? '')) {
-    socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n')
-    return
-  }
 
   const browser = /^\/desks\/([^/]+)\/browser(\/devtools\/.*)$/.exec(url.pathname)
   if (browser) {
-    const entry = desks.get(decodeURIComponent(browser[1] ?? ''))
+    const deskId = decodeURIComponent(browser[1] ?? '')
+    if (
+      !tokenMatches(url.searchParams.get('token') ?? '') ||
+      !deskIdentityMatches(TOKEN, deskId, url.searchParams.get('identity') ?? '')
+    ) {
+      socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n')
+      return
+    }
+    const entry = desks.get(deskId)
     if (!entry) {
       socket.end('HTTP/1.1 404 Not Found\r\n\r\n')
       return
@@ -1513,7 +1547,8 @@ function relayUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): v
 
   const handover = /^\/desks\/([^/]+)\/handover\/stream$/.exec(url.pathname)
   if (handover) {
-    const entry = desks.get(decodeURIComponent(handover[1] ?? ''))
+    const deskId = decodeURIComponent(handover[1] ?? '')
+    const entry = desks.get(deskId)
     // Fail closed on every arm of it: no desk, no live handover, or one whose
     // TTL has run out gets nothing. The deadline is checked HERE and not only
     // by the expiry timer, so a clock that slipped or a timer that did not
@@ -1525,6 +1560,20 @@ function relayUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): v
     if (entry.handoverExpiresAt <= Date.now()) {
       revokeHandover(entry)
       socket.end('HTTP/1.1 410 Gone\r\n\r\n')
+      return
+    }
+    const scope = url.searchParams.get('scope')
+    const expiresAt = Number(url.searchParams.get('expires'))
+    const nonce = url.searchParams.get('nonce') ?? ''
+    const capability = url.searchParams.get('capability') ?? ''
+    if (
+      (scope !== 'view' && scope !== 'control') ||
+      scope !== entry.handoverScope ||
+      expiresAt !== entry.handoverExpiresAt ||
+      nonce !== entry.handoverNonce ||
+      !verifyDeskHandoverCapability(TOKEN, { deskId, scope, expiresAt, nonce }, capability)
+    ) {
+      socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n')
       return
     }
     entry.handoverSockets.add(socket)
@@ -1660,6 +1709,10 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       reply(response, 404, { error: 'execution not found or expired' })
       return
     }
+    if (!deskIdentityMatches(TOKEN, execution.deskId, String(request.headers['x-bunkhouse-desk-identity'] ?? ''))) {
+      reply(response, 401, { error: 'desk identity does not match' })
+      return
+    }
     if (!execution.snapshot.done && url.searchParams.get('wait')) {
       await waitFor((wake) => execution.waiters.push(wake), LONG_POLL_MS)
     }
@@ -1680,6 +1733,10 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
     return
   }
   const rest = deskMatch[2] ?? ''
+  if (!deskIdentityMatches(TOKEN, deskId, String(request.headers['x-bunkhouse-desk-identity'] ?? ''))) {
+    reply(response, 401, { error: 'desk identity does not match' })
+    return
+  }
 
   if (request.method === 'POST' && rest === '/lease') {
     const body = await readBody(request)
@@ -1981,7 +2038,6 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
 
     if (request.method === 'POST' && rest === '/handover') {
       const body = await readBody(request)
-      const streamPath = `/desks/${encodeURIComponent(deskId)}/handover/stream`
       if (body.op === 'end') {
         // revokeHandover ends it in the package (which files the boundary and
         // its duration) and cuts every viewer already spliced through.
@@ -1999,20 +2055,23 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
           return
         }
         reply(response, 200, {
-          url: entry.handoverUrl,
-          stream: streamPath,
+          url: handoverStreamPath(deskId, entry),
+          stream: handoverStreamPath(deskId, entry),
           expiresAt: new Date(entry.handoverExpiresAt).toISOString(),
         })
         return
       }
       const ttlMs = numberOr(body.ttlMs) ?? 15 * 60_000
+      const scope: DeskHandoverScope = body.scope === 'view' ? 'view' : 'control'
       const { url: handoverUrl } = await screen.handover.begin({
         ttlMs,
-        scope: body.scope === 'view' ? 'view' : 'control',
+        scope,
         ...(typeof body.actor === 'string' ? { actor: body.actor } : {}),
       })
       entry.handoverUrl = handoverUrl
       entry.handoverPort = handoverPortFrom(handoverUrl)
+      entry.handoverScope = scope
+      entry.handoverNonce = randomBytes(18).toString('base64url')
       try {
         await exposeGuestHandover(entry, ttlMs)
       } catch (error) {
@@ -2023,9 +2082,10 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
         return
       }
       armHandoverExpiry(entry, ttlMs)
+      const stream = handoverStreamPath(deskId, entry)
       reply(response, 200, {
-        url: handoverUrl,
-        stream: streamPath,
+        url: stream,
+        stream,
         expiresAt: new Date(entry.handoverExpiresAt).toISOString(),
       })
       return

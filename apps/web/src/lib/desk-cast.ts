@@ -2,6 +2,7 @@ import 'server-only'
 import { Buffer } from 'node:buffer'
 import sharp from 'sharp'
 import { AGENT_SCREEN_FPS, AGENT_SCREEN_HEIGHT, AGENT_SCREEN_WIDTH } from './agent-screen'
+import { deskIdentity } from './desk-security'
 import {
   agentScreenOpenerFor,
   exactBytes,
@@ -50,6 +51,15 @@ export type DeskCastArgs = {
   deskId: string
   runner: DeskCastRunner
   fetch?: typeof fetch
+}
+
+function runnerHeaders(runner: DeskCastRunner, deskId: string, accept?: string): Record<string, string> {
+  return {
+    'content-type': 'application/json',
+    authorization: `Bearer ${runner.token}`,
+    'x-bunkhouse-desk-identity': deskIdentity(runner.token, deskId),
+    ...(accept ? { accept } : {}),
+  }
 }
 
 /** The desk casts currently running, one per run at most. */
@@ -127,7 +137,7 @@ export async function startDeskCast(args: DeskCastArgs): Promise<BrowserCast | n
       // runs. The pump stops on its own when the last subscriber leaves.
       await request(`${runner.url}/desks/${encodeURIComponent(deskId)}/screen/frames/stop`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${runner.token}` },
+        headers: runnerHeaders(runner, deskId),
         body: '{}',
         signal: AbortSignal.timeout(5_000),
       }).catch(() => undefined)
@@ -141,7 +151,7 @@ export async function startDeskCast(args: DeskCastArgs): Promise<BrowserCast | n
   let response: Response
   try {
     response = await request(stream, {
-      headers: { authorization: `Bearer ${runner.token}`, accept: 'text/event-stream' },
+      headers: runnerHeaders(runner, deskId, 'text/event-stream'),
       signal: abort.signal,
     })
     if (!response.ok || !response.body) throw new Error(`the runner refused the frame stream (${response.status})`)

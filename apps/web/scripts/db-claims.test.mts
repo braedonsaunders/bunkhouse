@@ -341,8 +341,8 @@ await assert.rejects(
     [REPORT, TENANT, `marla-${REPORT.slice(0, 8)}@example.test`, LEGACY_PERSON],
   )
 
-  process.env.BUNKHOUSE_DB_URL = url
-  process.env.BUNKHOUSE_SUPER_URL = url
+  process.env.BUNKHOUSE_DB_URL = process.env.BUNKHOUSE_TEST_APP_URL ?? url
+  process.env.BUNKHOUSE_SUPER_URL = process.env.BUNKHOUSE_TEST_SUPER_URL ?? url
   const { ensurePersonForMembership } = await import('../src/lib/person-accounts.ts')
   const first = await ensurePersonForMembership({ tenantId: TENANT, userId: OWNER_USER, adoptLegacyOwner: true })
   const second = await ensurePersonForMembership({ tenantId: TENANT, userId: OWNER_USER, adoptLegacyOwner: true })

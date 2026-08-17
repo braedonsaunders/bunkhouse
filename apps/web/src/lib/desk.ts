@@ -21,6 +21,7 @@ import { saveFile } from './files'
 import { AGENT_SCREEN_HEIGHT, AGENT_SCREEN_WATCHING_FPS, AGENT_SCREEN_WIDTH } from './agent-screen'
 import { startDeskCast, stopDeskCast } from './desk-cast'
 import { getDeskPolicy, type DeskFeatures, type DeskPolicy } from './desk-policy'
+import { deskIdentity } from './desk-security'
 
 /**
  * The desk: each agent's own Debian machine — a terminal, a filesystem,
@@ -283,8 +284,22 @@ export type DeskObservationView = {
   focused: { id: string; title: string; appId: string | null } | null
 }
 
-function headers(runner: DeskRunner): Record<string, string> {
-  return { 'content-type': 'application/json', authorization: `Bearer ${runner.token}` }
+export function deskRunnerHeaders(
+  runner: DeskRunner,
+  deskId: string,
+  extra: Record<string, string> = {},
+): Record<string, string> {
+  return {
+    'content-type': 'application/json',
+    authorization: `Bearer ${runner.token}`,
+    'x-bunkhouse-desk-identity': deskIdentity(runner.token, deskId),
+    ...extra,
+  }
+}
+
+function deskIdFromPath(path: string): string | null {
+  const match = /^\/desks\/([^/]+)/.exec(path)
+  return match ? decodeURIComponent(match[1] ?? '') : null
 }
 
 async function runnerPost<T>(
@@ -297,7 +312,7 @@ async function runnerPost<T>(
   const request = deps.fetch ?? fetch
   const response = await request(`${runner.url}${path}`, {
     method: 'POST',
-    headers: headers(runner),
+    headers: deskRunnerHeaders(runner, deskIdFromPath(path) ?? ''),
     body: JSON.stringify(body ?? {}),
     signal: AbortSignal.timeout(timeoutMs),
   })
@@ -313,10 +328,11 @@ async function runnerGet<T>(
   deps: DeskClientDeps,
   path: string,
   timeoutMs = 30_000,
+  deskId = deskIdFromPath(path) ?? '',
 ): Promise<T> {
   const request = deps.fetch ?? fetch
   const response = await request(`${runner.url}${path}`, {
-    headers: headers(runner),
+    headers: deskRunnerHeaders(runner, deskId),
     signal: AbortSignal.timeout(timeoutMs),
   })
   if (!response.ok) {
@@ -374,7 +390,12 @@ export async function execOnDesk(
     try {
       const response = await request(
         `${runner.url}/desks/${encodeURIComponent(args.deskId)}/executions`,
-        { method: 'POST', headers: headers(runner), body, signal: AbortSignal.timeout(10_000) },
+        {
+          method: 'POST',
+          headers: deskRunnerHeaders(runner, args.deskId),
+          body,
+          signal: AbortSignal.timeout(10_000),
+        },
       )
       if (!response.ok) {
         const detail = (await response.text().catch(() => '')).slice(0, 300)
@@ -392,7 +413,7 @@ export async function execOnDesk(
     try {
       const response = await request(
         `${runner.url}/executions/${encodeURIComponent(executionId)}?wait=1`,
-        { headers: headers(runner), signal: AbortSignal.timeout(30_000) },
+        { headers: deskRunnerHeaders(runner, args.deskId), signal: AbortSignal.timeout(30_000) },
       )
       if (response.status === 404) {
         return failedExec(executionId, 'The desk command result expired before it was collected.')
@@ -491,7 +512,8 @@ export async function connectDeskBrowser(
   return {
     browserWSEndpoint:
       `${runnerWsBase(runner)}/desks/${encodeURIComponent(deskId)}/browser${path}` +
-      `?token=${encodeURIComponent(runner.token)}`,
+      `?token=${encodeURIComponent(runner.token)}` +
+      `&identity=${encodeURIComponent(deskIdentity(runner.token, deskId))}`,
   }
 }
 
@@ -502,9 +524,8 @@ function runnerWsBase(runner: DeskRunner): string {
 /**
  * The outward end of a handover (§3.14). The guest's own viewer answers on
  * guest localhost and is reachable from nowhere but the runner; the runner
- * splices bytes to it over this authenticated, TTL-bounded path, the same way
- * it relays CDP. The token rides the query string because a websocket dial
- * cannot carry our bearer header everywhere.
+ * splices bytes to it over a least-privilege capability bound to this desk,
+ * scope and deadline. The runner bearer never reaches the browser.
  */
 export function deskHandoverStreamUrl(
   args: { deskId: string; stream: string },
@@ -514,10 +535,10 @@ export function deskHandoverStreamUrl(
   if (!runner) return null
   // The path comes from the runner, but it is never trusted as an address:
   // only the runner's own base can be dialled.
-  const path = args.stream.startsWith('/')
-    ? args.stream
-    : `/desks/${encodeURIComponent(args.deskId)}/handover/stream`
-  return `${runnerWsBase(runner)}${path}?token=${encodeURIComponent(runner.token)}`
+  const parsed = new URL(args.stream, 'http://desk-runner')
+  const expected = `/desks/${encodeURIComponent(args.deskId)}/handover/stream`
+  if (parsed.pathname !== expected || !parsed.searchParams.has('capability')) return null
+  return `${runnerWsBase(runner)}${parsed.pathname}${parsed.search}`
 }
 
 // ---------------------------------------------------------------------------
@@ -576,9 +597,12 @@ export async function beginDeskHandover(
     `/desks/${encodeURIComponent(args.deskId)}/handover`,
     { op: 'begin', ttlMs: args.ttlMs, scope: args.scope, actor: args.actor },
   )
+  const streamUrl = begun.stream
+    ? deskHandoverStreamUrl({ deskId: args.deskId, stream: begun.stream }, deps)
+    : null
   return {
-    url: begun.url,
-    streamUrl: begun.stream ? deskHandoverStreamUrl({ deskId: args.deskId, stream: begun.stream }, deps) : null,
+    url: streamUrl ?? begun.url,
+    streamUrl,
     expiresAt: begun.expiresAt ?? null,
   }
 }
@@ -639,7 +663,7 @@ export async function openDeskFrameStream(
   const response = await request(
     `${runner.url}/desks/${encodeURIComponent(args.deskId)}/screen/frames?${query.toString()}`,
     {
-      headers: { authorization: `Bearer ${runner.token}`, accept: 'text/event-stream' },
+      headers: deskRunnerHeaders(runner, args.deskId, { accept: 'text/event-stream' }),
       ...(args.signal ? { signal: args.signal } : {}),
     },
   )
@@ -685,7 +709,7 @@ export async function openDeskVideoStream(
   const response = await request(
     `${runner.url}/desks/${encodeURIComponent(args.deskId)}/screen/video?${query.toString()}`,
     {
-      headers: { authorization: `Bearer ${runner.token}`, accept: 'application/octet-stream' },
+      headers: deskRunnerHeaders(runner, args.deskId, { accept: 'application/octet-stream' }),
       ...(args.signal ? { signal: args.signal } : {}),
     },
   )
@@ -1887,7 +1911,7 @@ export function deskAbilities(args: {
           await appendSerialized(ctx, live, 'handover_begin', { actor: person.name, scope, reason })
           return {
             granted: true,
-            url: begun.url,
+            url: streamUrl ?? begun.url,
             ...(streamUrl ? { streamUrl } : {}),
             ...(begun.expiresAt ? { expiresAt: begun.expiresAt } : {}),
             scope,

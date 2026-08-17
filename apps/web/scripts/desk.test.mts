@@ -138,9 +138,10 @@ function fakeRunner() {
     }
     if (method === 'POST' && /\/handover$/.test(url.pathname)) {
       counters.handover += 1
+      const stream = `${url.pathname}/stream?expires=1786896900000&scope=control&nonce=0123456789abcdef&capability=signed`
       return Response.json({
-        url: 'https://desk.example/handover/one-stable-url',
-        stream: `${url.pathname}/stream`,
+        url: stream,
+        stream,
         expiresAt: '2026-08-16T12:15:00.000Z',
       })
     }
@@ -278,7 +279,9 @@ function build(runId: string) {
   const input = { reason: 'Complete the 2FA login with the code on your phone.', scope: 'control', ttlMinutes: 15 }
   const first = await call('request_takeover', input)
   assert.equal(first.granted, true)
-  assert.equal(first.url, 'https://desk.example/handover/one-stable-url')
+  assert.match(String(first.url), /^ws:\/\/desk\.internal\/desks\//)
+  assert.doesNotMatch(String(first.url), /token=secret/, 'the runner bearer never reaches the browser')
+  assert.match(String(first.url), /capability=signed/, 'the handover has only its scoped capability')
   // The approval executor replays the SAME input later, possibly in another
   // process — the second call must land on the same handover, not error.
   const replay = await call('request_takeover', input)

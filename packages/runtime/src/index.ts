@@ -26,6 +26,15 @@ export { runAgent, type RunAgentArgs } from './loop'
 export { connectMcpServers, type McpConnection, type McpServerConfig } from './mcp'
 export { isNetsuiteMcp, shimNetsuiteTools } from './netsuite-shim'
 export { loadSkillAbility, renderSkillIndex, type BoundSkill } from './skills'
+export {
+  REDACTED_SECRET,
+  containsSecret,
+  createRedactingSink,
+  createStreamingRedactor,
+  normalizeSecrets,
+  redactSecrets,
+  redactSecretValue,
+} from './redaction'
 export type {
   ActionCategory,
   ApprovalGate,

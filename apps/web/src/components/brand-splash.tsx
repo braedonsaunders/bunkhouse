@@ -4,10 +4,9 @@
 // to complete, even when the route resolves instantly. <SplashScreen /> is a
 // fixed overlay mounted once in the root layout: it renders visible on every
 // document load, then fades out once BOTH the minimum duration has elapsed
-// AND no route fallback is holding it open. Route loading fallbacks mount
-// <SplashHold /> to keep it up while content streams. The minimum counts from
-// hydration, because the logo's roof geometry is measured client-side — the
-// draw can't start any earlier.
+// The minimum counts from hydration, because the logo's roof geometry is
+// measured client-side — the draw can't start any earlier. Route fallbacks
+// render their own bounded spinner and never control this document overlay.
 //
 // The splash is a COLD-START moment and nothing else. It used to re-show
 // whenever a hold arrived, which sounds reasonable until you notice that
@@ -23,34 +22,13 @@ const MIN_VISIBLE_MS = 2000 // full build-in completes at ~1.5s
 const REDUCED_MOTION_MIN_MS = 500 // static logo — no reason to linger
 const FADE_MS = 400
 
-let holds = 0
 /** Set once the splash has faded out. It never comes back in this document. */
 let retired = false
-const listeners = new Set<() => void>()
-const notify = () => listeners.forEach((l) => l())
-
-/**
- * Keeps the splash on screen while mounted — but only while it is still up.
- * Render inside route loading fallbacks: on a cold load it holds the splash
- * until content is ready, and on every navigation after that it does nothing.
- */
-export function SplashHold() {
-  useEffect(() => {
-    holds++
-    notify()
-    return () => {
-      holds--
-      notify()
-    }
-  }, [])
-  return null
-}
 
 type Phase = 'visible' | 'fading' | 'gone'
 
 export function SplashScreen() {
   const [phase, setPhase] = useState<Phase>('visible')
-  const phaseRef = useRef<Phase>('visible')
   const shownAt = useRef(0)
 
   useEffect(() => {
@@ -58,7 +36,6 @@ export function SplashScreen() {
     let fadeT: ReturnType<typeof setTimeout> | undefined
     let goneT: ReturnType<typeof setTimeout> | undefined
     const apply = (p: Phase) => {
-      phaseRef.current = p
       setPhase(p)
     }
 
@@ -66,12 +43,6 @@ export function SplashScreen() {
       if (retired) return
       clearTimeout(fadeT)
       clearTimeout(goneT)
-      if (holds > 0) {
-        // A hold arriving mid-fade keeps the already-drawn logo up. Once the
-        // splash is gone it stays gone, so there is no re-show path.
-        if (phaseRef.current === 'fading') apply('visible')
-        return
-      }
       const min = window.matchMedia('(prefers-reduced-motion: reduce)').matches
         ? REDUCED_MOTION_MIN_MS
         : MIN_VISIBLE_MS
@@ -85,10 +56,8 @@ export function SplashScreen() {
       }, remaining)
     }
 
-    listeners.add(sync)
     sync()
     return () => {
-      listeners.delete(sync)
       clearTimeout(fadeT)
       clearTimeout(goneT)
     }

@@ -1,6 +1,7 @@
 import { tool, type Tool, type ToolSet } from 'ai'
 import { z } from 'zod'
 import type { ActionCategory, ApprovalGate, AutonomyResolver, RunSink } from './types'
+import { containsSecret, normalizeSecrets, redactSecrets, redactSecretValue } from './redaction'
 
 /**
  * An ability is a tool plus the action category the autonomy dial governs it
@@ -273,8 +274,11 @@ export function governedToolSet(args: {
   describeAction?: (toolName: string, input: unknown) => string
   /** How long one tool call may take. Short on a live call, generous offline. */
   deadlineMs?: number
+  /** Credentials held by this run. They may never cross a tool boundary. */
+  secrets?: readonly string[]
 }): ToolSet {
   const deadlineMs = args.deadlineMs ?? DEFAULT_TOOL_DEADLINE_MS
+  const secrets = normalizeSecrets(args.secrets ?? [])
   // Same tool, same failure, over and over — one open breaker per run.
   const breakers = new Map<string, { failures: number; error: string }>()
   // Notify-level notices already written this run. Three parallel NetSuite
@@ -294,6 +298,15 @@ export function governedToolSet(args: {
     set[ability.name] = {
       ...base,
       execute: async (input: unknown, options: unknown) => {
+        // A credential in model-authored tool input is a leak in progress.
+        // Refuse instead of replacing it and carrying out an action different
+        // from the one an operator would read or approve.
+        if (containsSecret(input, secrets)) {
+          return {
+            error: 'This action was blocked because it contained a protected credential.',
+            note: 'Do not repeat, quote, save, or send the credential. Continue through the connected system without exposing its authentication material.',
+          }
+        }
         // An ungoverned ability — reading a page, a search, a calculation — has
         // no dial to consult, but it still has to come back. It used to skip
         // this wrapper entirely, so when one threw there was no result, no
@@ -364,9 +377,11 @@ export function governedToolSet(args: {
           )
           // Working again clears the count: a flaky endpoint is not a broken one.
           breakers.delete(ability.name)
-          return result
+          // Tool output becomes model input. Sanitize it before a connector can
+          // echo its own authentication material into the model or transcript.
+          return redactSecretValue(result, secrets)
         } catch (error) {
-          const message = describeThrown(error)
+          const message = redactSecrets(describeThrown(error), secrets)
           const prior = breakers.get(ability.name)
           const failures = prior && prior.error === message ? prior.failures + 1 : 1
           breakers.set(ability.name, { failures, error: message })

@@ -479,6 +479,8 @@ export type LiveRun = {
    * mid-conversation, which is latency a caller can hear.
    */
   abilities: Ability[]
+  /** Credentials held by the call's already-connected adapters. */
+  secrets: string[]
   /** Fires when the call ends: work in flight stops rather than outliving it. */
   abortSignal: AbortSignal
 }
@@ -784,6 +786,10 @@ export async function executeAgentRun(args: {
         },
         budget: foundation.budget,
         sink,
+        runSecrets: [
+          ...(assembled?.secrets ?? live?.secrets ?? []),
+          ...(process.env.BUNKHOUSE_DESK_TOKEN ? [process.env.BUNKHOUSE_DESK_TOKEN] : []),
+        ],
         ...(live ? { abortSignal: live.abortSignal, toolDeadlineMs: LIVE_TOOL_DEADLINE_MS } : {}),
       }).finally(async () => {
         // A live run borrows both: the integrations and the browser belong to the

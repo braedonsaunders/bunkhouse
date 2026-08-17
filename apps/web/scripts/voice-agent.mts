@@ -1647,6 +1647,7 @@ export default defineAgent({
       runId: session.runId ?? session.id,
       trigger: { type: 'chat', conversationId: session.id },
       abilities: assembled.abilities,
+      secrets: assembled.secrets,
       // Read once, before the first intent: whether this agent's browser is
       // genuinely usable on this call, or whether every page it opens would
       // park on a sign-off. An agent left with no way to read a page at all

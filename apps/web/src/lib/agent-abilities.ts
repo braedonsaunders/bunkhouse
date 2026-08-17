@@ -739,6 +739,7 @@ export async function connectIntegrationAbilities(
 ): Promise<{
   abilities: Ability[]
   failures: string[]
+  secrets: string[]
   close: () => Promise<void>
 }> {
   // Only the systems this agent has been given. A connection nobody assigned to
@@ -747,10 +748,17 @@ export async function connectIntegrationAbilities(
   const entries = (await listMcpIntegrations(tenantId)).filter((entry) => bindsToAgent(entry.assignment, agent))
   const abilities: Ability[] = []
   const failures: string[] = []
+  const secrets: string[] = []
   const closers: (() => Promise<void>)[] = []
   for (const entry of entries) {
     try {
       const headers = await resolveIntegrationHeaders(tenantId, entry)
+      for (const value of Object.values(headers ?? {})) {
+        if (!value.trim()) continue
+        secrets.push(value)
+        const credential = value.match(/^\S+\s+(.+)$/)?.[1]?.trim()
+        if (credential) secrets.push(credential)
+      }
       const connection = await connectMcpServers([
         {
           slug: entry.slug,
@@ -768,6 +776,7 @@ export async function connectIntegrationAbilities(
   return {
     abilities,
     failures,
+    secrets,
     close: async () => {
       await Promise.allSettled(closers.map((close) => close()))
     },
@@ -799,7 +808,12 @@ export async function assembleAbilities(args: {
   rootRunId?: string
   /** How many colleagues this work has already passed between before now. */
   handoffDepth?: number
-}): Promise<{ abilities: Ability[]; integrationFailures: string[]; close: () => Promise<void> }> {
+}): Promise<{
+  abilities: Ability[]
+  integrationFailures: string[]
+  secrets: string[]
+  close: () => Promise<void>
+}> {
   const { tenantId, person, runId } = args
   const integrations = await connectIntegrationAbilities(tenantId, agentBinding(person))
   // Who counts as a colleague, read once. Mail to one of these is internal
@@ -850,5 +864,10 @@ export async function assembleAbilities(args: {
     ...((person.proactivity ?? 'duties') !== 'reactive' ? schedulingAbilities({ tenantId, person }) : []),
     ...integrations.abilities,
   ]
-  return { abilities, integrationFailures: integrations.failures, close: integrations.close }
+  return {
+    abilities,
+    integrationFailures: integrations.failures,
+    secrets: integrations.secrets,
+    close: integrations.close,
+  }
 }

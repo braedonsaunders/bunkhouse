@@ -239,6 +239,8 @@ export function createCallWorker(args: {
   trigger: RunTrigger
   /** The agent's whole ability set, assembled once for this call. */
   abilities: Ability[]
+  /** Credentials held by those already-connected abilities. */
+  secrets: string[]
   /**
    * A model that can look at a picture, or null when the company has connected
    * nothing that can. Resolved once, before the first word: whether an agent
@@ -476,7 +478,7 @@ export function createCallWorker(args: {
           pageAccess,
         }),
       },
-      live: { runId, event, abilities, abortSignal: stopping.signal },
+      live: { runId, event, abilities, secrets: args.secrets, abortSignal: stopping.signal },
     })
 
     switch (outcome.status) {

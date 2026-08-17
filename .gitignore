@@ -6,6 +6,8 @@ dist/
 *.tsbuildinfo
 .DS_Store
 .agent-homes/
+apps/web/test-results/
+apps/web/playwright-report/
 
 # Internal build spec — never commit (handed off out-of-band)
 docs/agent-desk.md
