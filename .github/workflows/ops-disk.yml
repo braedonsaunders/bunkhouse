@@ -46,6 +46,10 @@ on:
         description: 'From the app container, reach the shell sandbox and run a real command through it'
         type: boolean
         default: false
+      deskProbe:
+        description: 'From the app container, try to reach the desk runner and show why it cannot'
+        type: boolean
+        default: false
       tidyAgents:
         description: 'Agent housekeeping: DRY RUN counts only, unless tidyApply is also ticked'
         type: boolean
@@ -457,6 +461,41 @@ jobs:
       # needs the whole night at once, which the observatory cannot show. The
       # report runs INSIDE the running web container so the database URL stays
       # where it already is — nothing here handles a secret, and the query is
+      # An agent reported `EHOSTUNREACH` reaching the desk runner while the
+      # same address answered instantly from a laptop on the VPN. That gap is
+      # almost always an overlay subnet swallowing a LAN address: Swarm hands
+      # out overlay networks from 10.0.0.0/8 in /24 blocks, so if one of them
+      # covers the desk host, every container routes to it into the overlay and
+      # never onto the wire. This prints the container's own view — its routes,
+      # what the daemon has allocated, and whether the address answers — so the
+      # answer is evidence rather than inference.
+      - name: Reach the desk runner from the app container
+        if: ${{ inputs.deskProbe }}
+        run: |
+          set -uo pipefail
+          cid="$(docker ps --filter 'name=_web' --filter 'status=running' --format '{{.ID}}' | head -1)"
+          if [ -z "$cid" ]; then echo "::error::No running web container on this node"; exit 1; fi
+          echo "--- what the app is configured to talk to ---"
+          docker exec "$cid" sh -c 'echo "BUNKHOUSE_DESK_URL=${BUNKHOUSE_DESK_URL:-<unset>}"; echo "token set: $([ -n "${BUNKHOUSE_DESK_TOKEN:-}" ] && echo yes || echo no)"'
+          echo "--- the container's routing table ---"
+          docker exec "$cid" sh -c 'ip route 2>/dev/null || cat /proc/net/route' || true
+          echo "--- can it reach the desk runner? ---"
+          docker exec "$cid" node -e '
+            const url = process.env.BUNKHOUSE_DESK_URL;
+            if (!url) { console.log("BUNKHOUSE_DESK_URL is not set in this container"); process.exit(0); }
+            const started = Date.now();
+            fetch(new URL("/health", url), { headers: { authorization: `Bearer ${process.env.BUNKHOUSE_DESK_TOKEN ?? ""}` } })
+              .then(async (r) => console.log(`reached it: HTTP ${r.status} in ${Date.now() - started}ms`))
+              .catch((e) => console.log(`could NOT reach it: ${e.cause?.code ?? ""} ${e.cause?.message ?? e.message}`));
+          ' || true
+          echo "--- docker networks on this node, and their subnets ---"
+          for n in $(docker network ls --format '{{.Name}}'); do
+            sub="$(docker network inspect "$n" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null)"
+            [ -n "$sub" ] && printf '  %-28s %s\n' "$n" "$sub"
+          done
+          echo "--- the daemon's default address pools ---"
+          docker info --format '{{json .DefaultAddressPools}}' 2>/dev/null || echo "  (none reported; Swarm default is 10.0.0.0/8 in /24 blocks)"
+
       # read-only aggregates with no message bodies or addresses in it.
       - name: Spend and activity report
         if: ${{ inputs.spendReportHours != '' }}
