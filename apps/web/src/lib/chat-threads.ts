@@ -30,6 +30,9 @@ import { replyTextForOutcome } from './chat-reply'
 
 export type ChatMessageRole = 'user' | 'agent' | 'system'
 
+/** `open` is a live conversation; `closed` is one the reader has archived. */
+export type ChatThreadStatus = 'open' | 'closed'
+
 export type ChatMessageView = {
   id: string
   seq: number
@@ -45,9 +48,17 @@ export type ChatThreadView = {
    *  exist for the instant before its first message — but a blank row in a
    *  list is not a title, so the view resolves one. */
   title: string
+  /**
+   * Whether that title is the thread's own or only the placeholder above.
+   *
+   * This is what keeps a name someone chose: the first message's auto-title is
+   * only ever written into a thread that has none, and `title` alone cannot
+   * answer that question because the view has already resolved the null away.
+   */
+  titled: boolean
   personId: string
   personName: string
-  status: 'open' | 'closed'
+  status: ChatThreadStatus
   /** The human whose conversation this is. A thread is between one person and
    *  one agent; a colleague may not post into it. */
   userId: string
@@ -60,7 +71,9 @@ export type ChatThreadSummary = ChatThreadView & { lastMessageAt: string }
 // ---------------------------------------------------------------------------
 
 export type ChatThreadStore = {
-  listThreads(args: { tenantId: string; userId: string }): Promise<ChatThreadSummary[]>
+  /** `includeArchived` brings the closed conversations back into the answer;
+   *  the default list is the live ones only. */
+  listThreads(args: { tenantId: string; userId: string; includeArchived: boolean }): Promise<ChatThreadSummary[]>
   readThread(args: { tenantId: string; threadId: string }): Promise<ChatThreadView | null>
   readMessages(args: { tenantId: string; threadId: string }): Promise<ChatMessageView[]>
   /** The agent's display name, or null when the person is not a live agent here. */
@@ -80,6 +93,20 @@ export type ChatThreadStore = {
     runId?: string | null
   }): Promise<ChatMessageView>
   touchThread(args: { tenantId: string; threadId: string; title?: string | null; at: Date }): Promise<void>
+  /**
+   * A deliberate change to the conversation record itself — its name, or
+   * whether it is archived. Separate from `touchThread` because that one is the
+   * conversation moving under its own weight and this one is a person's
+   * decision: it stamps `updated_by` with the hand that made it, which is what
+   * the audit columns are for.
+   */
+  updateThread(args: {
+    tenantId: string
+    threadId: string
+    updatedBy: string
+    title?: string
+    status?: ChatThreadStatus
+  }): Promise<void>
 }
 
 function messageView(row: {
@@ -107,7 +134,7 @@ function messageView(row: {
  */
 export function dbChatThreadStore(): ChatThreadStore {
   return {
-    async listThreads({ tenantId, userId }) {
+    async listThreads({ tenantId, userId, includeArchived }) {
       const app = db()
       const rows = await app.withTenantContext(tenantId, () =>
         app.db
@@ -122,12 +149,18 @@ export function dbChatThreadStore(): ChatThreadStore {
           })
           .from(chatThreads)
           .innerJoin(people, eq(people.id, chatThreads.personId))
-          .where(eq(chatThreads.userId, userId))
+          .where(
+            and(
+              eq(chatThreads.userId, userId),
+              ...(includeArchived ? [] : [eq(chatThreads.status, 'open')]),
+            ),
+          )
           .orderBy(desc(chatThreads.lastMessageAt)),
       )
       return rows.map((row) => ({
         id: row.id,
         title: row.title ?? UNTITLED_THREAD,
+        titled: row.title !== null,
         personId: row.personId,
         personName: row.personName,
         status: row.status,
@@ -152,7 +185,7 @@ export function dbChatThreadStore(): ChatThreadStore {
           .where(eq(chatThreads.id, threadId))
           .limit(1),
       )
-      return row ? { ...row, title: row.title ?? UNTITLED_THREAD } : null
+      return row ? { ...row, title: row.title ?? UNTITLED_THREAD, titled: row.title !== null } : null
     },
     async readMessages({ tenantId, threadId }) {
       const app = db()
@@ -225,6 +258,20 @@ export function dbChatThreadStore(): ChatThreadStore {
         await app.db
           .update(chatThreads)
           .set({ lastMessageAt: at, updatedAt: new Date(), ...(title === undefined ? {} : { title }) })
+          .where(eq(chatThreads.id, threadId))
+      })
+    },
+    async updateThread({ tenantId, threadId, updatedBy, title, status }) {
+      const app = db()
+      await app.withTenant(tenantId, async () => {
+        await app.db
+          .update(chatThreads)
+          .set({
+            ...(title === undefined ? {} : { title }),
+            ...(status === undefined ? {} : { status }),
+            updatedAt: new Date(),
+            updatedBy,
+          })
           .where(eq(chatThreads.id, threadId))
       })
     },
@@ -317,12 +364,23 @@ async function runnerOf(deps: ChatThreadDeps): Promise<ChatRunner> {
 // Reads
 // ---------------------------------------------------------------------------
 
+/**
+ * The reader's own conversations, newest first.
+ *
+ * Archived ones are left out unless they are asked for: archiving is how a
+ * finished conversation stops crowding the list, and a list that still showed
+ * it would have achieved nothing. Nothing is destroyed by leaving it out — the
+ * thread, its messages and the runs under them are all still there.
+ */
 export async function listThreads(
-  tenantId: string,
-  userId: string,
+  args: { tenantId: string; userId: string; includeArchived?: boolean },
   deps: ChatThreadDeps = {},
 ): Promise<ChatThreadSummary[]> {
-  return storeOf(deps).listThreads({ tenantId, userId })
+  return storeOf(deps).listThreads({
+    tenantId: args.tenantId,
+    userId: args.userId,
+    includeArchived: args.includeArchived ?? false,
+  })
 }
 
 export async function getThread(
@@ -347,9 +405,10 @@ export const UNTITLED_THREAD = 'New conversation'
 
 /**
  * A thread's title is its opening line, tidied — so the list reads as a list of
- * topics rather than a column of timestamps. Derived once, never re-derived:
- * renaming a conversation because its third message changed subject would make
- * the list move under the reader.
+ * topics rather than a column of timestamps. Derived once, into a thread that
+ * has no title at all, and never again: re-deriving it because the third
+ * message changed subject would make the list move under the reader, and it
+ * would silently undo a name the reader had chosen for themselves.
  */
 export function titleFromMessage(body: string): string | null {
   const first = body.trim().split('\n').find((line) => line.trim().length > 0)
@@ -357,6 +416,20 @@ export function titleFromMessage(body: string): string | null {
   const flat = first.replace(/\s+/g, ' ').trim()
   if (!flat) return null
   return flat.length > TITLE_MAX ? `${flat.slice(0, TITLE_MAX - 1).trimEnd()}…` : flat
+}
+
+/**
+ * A name a person typed, made fit for a one-line list: whitespace collapsed
+ * (a pasted paragraph is not a title), then held to the same length the
+ * derived titles are held to. Over-length is refused rather than silently
+ * clipped — quietly keeping something other than what was typed is the kind of
+ * small lie that makes an operator distrust the whole surface.
+ */
+function cleanTitle(title: string): { title: string } | { error: string } {
+  const flat = title.replace(/\s+/g, ' ').trim()
+  if (!flat) return { error: 'Give the conversation a name.' }
+  if (flat.length > TITLE_MAX) return { error: `A conversation name is at most ${TITLE_MAX} characters.` }
+  return { title: flat }
 }
 
 // ---------------------------------------------------------------------------
@@ -384,6 +457,73 @@ export async function startThread(
     title: first ? titleFromMessage(first) : null,
   })
   return { threadId }
+}
+
+/**
+ * The one gate on changing a conversation record.
+ *
+ * Tenant isolation is enforced underneath by RLS; this is the second half of
+ * it, and it is the same rule `sendMessage` keeps. A colleague in the same
+ * company may read a thread, but a thread is between one person and one agent —
+ * they may not put words in it, and they may not rename or archive it either.
+ * The sentence is deliberately identical to the one a refused post gets.
+ */
+async function ownedThread(
+  args: { tenantId: string; threadId: string; userId: string },
+  store: ChatThreadStore,
+): Promise<ChatThreadView> {
+  const thread = await store.readThread({ tenantId: args.tenantId, threadId: args.threadId })
+  if (!thread) throw new Error('That conversation no longer exists.')
+  if (thread.userId !== args.userId) throw new Error('That conversation belongs to someone else.')
+  return thread
+}
+
+/**
+ * Name a conversation by hand.
+ *
+ * Once named, it stays named: `sendMessage` only ever derives a title into a
+ * thread that has none (`ChatThreadView.titled`), so the next message cannot
+ * quietly rename this one back to whatever it happens to open with.
+ */
+export async function renameThread(
+  args: { tenantId: string; threadId: string; userId: string; title: string },
+  deps: ChatThreadDeps = {},
+): Promise<{ title: string }> {
+  const cleaned = cleanTitle(args.title)
+  if ('error' in cleaned) throw new Error(cleaned.error)
+  const store = storeOf(deps)
+  await ownedThread(args, store)
+  await store.updateThread({
+    tenantId: args.tenantId,
+    threadId: args.threadId,
+    updatedBy: args.userId,
+    title: cleaned.title,
+  })
+  return { title: cleaned.title }
+}
+
+/**
+ * Archive a conversation, or bring it back.
+ *
+ * This is the only way a thread leaves the list, and it is deliberately not a
+ * delete. A thread is a view onto runs — its messages carry the `run_id` of the
+ * governed work they produced — so destroying it would orphan those references
+ * and erase evidence, which is exactly what an append-only history forbids
+ * (AGENTS.md). Closing it hides it and keeps every word.
+ */
+export async function setThreadStatus(
+  args: { tenantId: string; threadId: string; userId: string; status: ChatThreadStatus },
+  deps: ChatThreadDeps = {},
+): Promise<{ status: ChatThreadStatus }> {
+  const store = storeOf(deps)
+  await ownedThread(args, store)
+  await store.updateThread({
+    tenantId: args.tenantId,
+    threadId: args.threadId,
+    updatedBy: args.userId,
+    status: args.status,
+  })
+  return { status: args.status }
 }
 
 /**
@@ -513,7 +653,11 @@ export async function sendMessage(
       tenantId: args.tenantId,
       threadId: args.threadId,
       at: new Date(asked.at),
-      ...(thread.title ? {} : { title: titleFromMessage(body) }),
+      // `titled`, not `title`: the view always resolves a name to show, so the
+      // title string is never empty and testing it would mean the first message
+      // of a thread opened empty (the streaming path) never named it — and a
+      // thread the reader had renamed would be at risk of being renamed back.
+      ...(thread.titled ? {} : { title: titleFromMessage(body) }),
     })
 
     const run = await runnerOf(deps)

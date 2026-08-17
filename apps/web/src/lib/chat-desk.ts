@@ -3,7 +3,12 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { ActionCategory, AutonomyLevel } from '@bunkhouse/runtime'
 import { deskEvents, deskSessions, people, runs, type DeskLedgerEventDetail, type DeskLedgerEventKind } from '../db/schema'
 import { db } from '../db/client'
-import { AGENT_SCREEN_FPS, AGENT_SCREEN_HEIGHT, AGENT_SCREEN_WIDTH } from './agent-screen'
+import {
+  AGENT_SCREEN_DRIVING_FPS,
+  AGENT_SCREEN_HEIGHT,
+  AGENT_SCREEN_WATCHING_FPS,
+  AGENT_SCREEN_WIDTH,
+} from './agent-screen'
 import { getDeskPolicy, resolveDeskFeatures, type DeskFeatures, type DeskPolicy } from './desk-policy'
 import {
   beginDeskHandover,
@@ -18,6 +23,7 @@ import {
   sendDeskInput,
   startDeskScreen,
   stopDeskScreen,
+  tuneDeskFrames,
   type DeskClientDeps,
   type DeskInputAction,
   type DeskLedgerStore,
@@ -631,7 +637,10 @@ export async function deskFrames(
     const stream = await openDeskFrameStream(
       {
         deskId: admitted.deskId,
-        fps: AGENT_SCREEN_FPS,
+        // A subscription starts at the watching rate. It is raised the moment
+        // somebody takes the controls (`setDeskFrameRate`) and lowered again
+        // when they let go, without this stream being touched.
+        fps: AGENT_SCREEN_WATCHING_FPS,
         width: AGENT_SCREEN_WIDTH,
         height: AGENT_SCREEN_HEIGHT,
         ...(args.signal ? { signal: args.signal } : {}),
@@ -641,6 +650,46 @@ export async function deskFrames(
     return { stream }
   } catch (error) {
     return { error: `The live view could not be opened: ${describeError(error)}` }
+  }
+}
+
+/**
+ * How fast the live view should be captured, given what the operator is doing.
+ *
+ * DRIVING is a control loop with a person in it. The guest's own cursor is not
+ * in the picture, so the only pointer the operator can see is their own, and a
+ * desktop that repaints five times a second under it feels broken however
+ * correct the clicks are. WATCHING is a glance, and a glance does not need to
+ * be paid for at thirty frames a second on a nested VM.
+ *
+ * Same gates as everything else here, and no ledger entry: a rate is not an
+ * act on the agent's machine, it is how often we ask to see it. Taking the
+ * controls IS recorded — every input this pane forwards lands on the run
+ * record — and that is the event worth having.
+ *
+ * The rate belongs to the desk's one capture, not to a viewer, so this is
+ * honest about what it changes: with two people watching, the faster of them
+ * sets the pace for both.
+ */
+export async function setDeskFrameRate(
+  args: { tenantId: string; personId: string; driving: boolean },
+  deps: ChatDeskDeps = {},
+): Promise<{ ok: true; fps: number; streaming: boolean } | DeskRefusal> {
+  const admitted = await admit({ ...args, needsDesktop: true }, deps)
+  if (refused(admitted)) return admitted
+  const fps = args.driving ? AGENT_SCREEN_DRIVING_FPS : AGENT_SCREEN_WATCHING_FPS
+  try {
+    const tuned = await tuneDeskFrames(
+      { deskId: admitted.deskId, fps, width: AGENT_SCREEN_WIDTH, height: AGENT_SCREEN_HEIGHT },
+      admitted.clientDeps,
+    )
+    // `streaming: false` means there was no capture to re-tune — the caller
+    // asked before its own subscription reached the runner. Reported rather
+    // than smoothed over, so the caller can ask again instead of driving at
+    // the watching rate and blaming the machine.
+    return { ok: true, fps: tuned.fps, streaming: tuned.streaming }
+  } catch (error) {
+    return { error: `The live view's rate could not be changed: ${describeError(error)}` }
   }
 }
 

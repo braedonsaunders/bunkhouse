@@ -45,10 +45,22 @@
  *   Coordinates  1:1 with observe(), no scaling anywhere. See the COORDINATE
  *                CONTRACT comment above input().
  *
- *   Capture      framesStart() captures at the requested fps but only EMITS
- *                frames whose bytes changed (SHA-256 over the PNG), with a
- *                keepalive so a late subscriber is never left blank. A still
- *                screen costs one hash per tick and no transport (§3.13).
+ *   Capture      framesStart() runs ONE long-lived `ffmpeg -f x11grab` and
+ *                reads PNGs off its stdout. It only EMITS frames whose bytes
+ *                changed (SHA-256 over the PNG), with a keepalive so a late
+ *                subscriber is never left blank. A still screen costs one hash
+ *                per frame and no transport (§3.13).
+ *
+ *                The long-lived child is the point. This used to spawn
+ *                ImageMagick `import` per tick, and a fork+exec+X-connect+PNG
+ *                encode on a NESTED VM costs tens of milliseconds before a
+ *                pixel is read — which put a hard ceiling on the rate well
+ *                under the ten it was asking for, so an operator driving the
+ *                desk saw a slideshow. One process, started once, holds its X
+ *                connection open and hands over a frame per grab interval.
+ *                observe() still uses the single-shot `import`: a screenshot
+ *                for a model is a different job with different quality needs,
+ *                and it is taken once rather than thirty times a second.
  *
  *   Handover     x11vnc bound to 127.0.0.1 only, with a guest-side TTL timer
  *                that kills it even if handoverEnd never arrives (§3.14). The
@@ -125,6 +137,36 @@ const FRAMES_MAX_FPS = 30
 const FRAMES_KEEPALIVE_MS = 5_000
 /** The protocol's frame limit is 8 MiB; refuse to even try above this. */
 const FRAME_PAYLOAD_CAP_BYTES = 6 * 1024 * 1024
+
+/**
+ * The capture child's PNG encoder setting. zlib level 1 is deliberate: on a
+ * nested VM the scarce resource is CPU, not the vsock between the guest and
+ * the host, and a cheaper encode is what makes thirty frames a second possible
+ * at all. It costs bytes on a link that is memory speed.
+ */
+const FRAMES_PNG_COMPRESSION = '1'
+/** SIGTERM the capture child, then this long, then SIGKILL. */
+const FRAMES_TERMINATE_GRACE_MS = 1_500
+/** How long to wait before restarting a capture child that died. */
+const FRAMES_RESTART_DELAY_MS = 400
+/** More restarts than this inside the window below is a fault, not a blip. */
+const FRAMES_MAX_RESTARTS = 5
+const FRAMES_RESTART_WINDOW_MS = 30_000
+/**
+ * How much unwritten data may be sitting on the host connection before a frame
+ * is DROPPED rather than added to it. A slow consumer must cost frames, never
+ * memory: the next repaint is a better frame than a stale one delivered late.
+ */
+const FRAMES_WIRE_BACKLOG_CAP_BYTES = 8 * 1024 * 1024
+/**
+ * The most bytes the PNG splitter will hold while waiting for one image to
+ * complete. Anything beyond it means the stream is not what we think it is,
+ * which is a restart rather than a leak.
+ */
+const FRAMES_SPLIT_BUFFER_CAP_BYTES = 48 * 1024 * 1024
+
+/** The eight bytes every PNG starts with. */
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
 /** Handover bounds: at least a second, at most four hours. */
 const HANDOVER_MIN_TTL_MS = 1_000
@@ -255,9 +297,17 @@ function runTool(bin, args, options = {}) {
  * Spawn a long-lived session process and keep a tail of its stderr, so a
  * failure to start can be reported with the reason the program gave rather
  * than a bare exit code.
+ *
+ * `options.stdout: 'pipe'` is for the one child whose OUTPUT is the point —
+ * the frame capture, which streams PNGs. Everything else discards stdout: a
+ * pipe nobody reads fills at about 64KB and then blocks the child forever.
  */
-function spawnTracked(name, bin, args, env) {
-  const child = spawn(bin, args, { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
+function spawnTracked(name, bin, args, env, options = {}) {
+  const child = spawn(bin, args, {
+    env,
+    stdio: ['ignore', options.stdout === 'pipe' ? 'pipe' : 'ignore', 'pipe'],
+    windowsHide: true,
+  })
   const tracked = { name, child, stderrTail: '', exited: false }
   child.stderr.on('data', (chunk) => {
     tracked.stderrTail = (tracked.stderrTail + chunk.toString('utf8')).slice(-2048)
@@ -309,11 +359,116 @@ function terminate(tracked, graceMs = TERMINATE_GRACE_MS) {
 
 /** Read the width and height straight out of a PNG's IHDR. */
 function pngDimensions(buf) {
-  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-  if (!Buffer.isBuffer(buf) || buf.length < 24 || !buf.subarray(0, 8).equals(signature)) {
+  if (!Buffer.isBuffer(buf) || buf.length < 24 || !buf.subarray(0, 8).equals(PNG_SIGNATURE)) {
     throw new Error('the screenshot tool did not return a PNG')
   }
   return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) }
+}
+
+/**
+ * Cut a stream of concatenated PNGs into whole images.
+ *
+ * `ffmpeg -f image2pipe -vcodec png -` writes one complete PNG after another
+ * with nothing between them, and a pipe hands them over in chunks that have
+ * nothing to do with image boundaries: half a frame, then a frame and a half.
+ * So the boundary has to be read out of the format itself. PNG makes that
+ * exact rather than a guess — an 8-byte signature, then a chain of
+ * [length:4][type:4][data:length][crc:4] chunks ending at IEND — so this walks
+ * the chunk chain and hands over each image the moment its IEND has landed.
+ * Scanning for the signature instead would be a guess: those bytes can occur
+ * inside compressed image data.
+ *
+ * The walk is incremental (`scanned` remembers where it got to) and the held
+ * chunks are only concatenated once per image, so a 30fps stream does not
+ * spend its time copying buffers.
+ */
+function createPngSplitter({ onImage, onDesync, maxBufferedBytes = FRAMES_SPLIT_BUFFER_CAP_BYTES }) {
+  /** The chunks we are holding, oldest first, and their total length. */
+  let parts = []
+  let buffered = 0
+  /** Whether the signature at the front has been checked for the image in hand. */
+  let opened = false
+  /** How far into the current image the chunk walk has reached. */
+  let scanned = 0
+  let broken = false
+
+  /** Copy a small range that may straddle the held chunks. */
+  function copyRange(offset, length) {
+    const out = Buffer.allocUnsafe(length)
+    let filled = 0
+    let cursor = 0
+    for (const part of parts) {
+      const end = cursor + part.length
+      if (end > offset) {
+        const from = Math.max(0, offset - cursor)
+        const take = Math.min(part.length - from, length - filled)
+        part.copy(out, filled, from, from + take)
+        filled += take
+        if (filled === length) break
+      }
+      cursor = end
+    }
+    return out
+  }
+
+  /** The byte length of the image at the front, or 0 while it is incomplete. */
+  function completeImageLength() {
+    if (!opened) {
+      if (buffered < PNG_SIGNATURE.length) return 0
+      if (!copyRange(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+        broken = true
+        onDesync('the capture stream does not begin with a PNG signature')
+        return 0
+      }
+      opened = true
+      scanned = PNG_SIGNATURE.length
+    }
+    // A chunk header is 8 bytes; its CRC is 4 more after the data.
+    while (scanned + 8 <= buffered) {
+      const header = copyRange(scanned, 8)
+      const length = header.readUInt32BE(0)
+      const type = header.toString('latin1', 4, 8)
+      const next = scanned + 12 + length
+      if (type === 'IEND') return next <= buffered ? next : 0
+      if (next > maxBufferedBytes) {
+        broken = true
+        onDesync(`a PNG chunk claimed ${length} bytes, which is past the ${maxBufferedBytes}-byte cap`)
+        return 0
+      }
+      scanned = next
+    }
+    return 0
+  }
+
+  /** Take the first `size` bytes as one image and keep the remainder. */
+  function take(size) {
+    const joined = parts.length === 1 ? parts[0] : Buffer.concat(parts, buffered)
+    const image = joined.subarray(0, size)
+    const rest = joined.subarray(size)
+    parts = rest.length > 0 ? [rest] : []
+    buffered = rest.length
+    opened = false
+    scanned = 0
+    return image
+  }
+
+  return {
+    push(chunk) {
+      if (broken) return
+      parts.push(chunk)
+      buffered += chunk.length
+      for (;;) {
+        const size = completeImageLength()
+        if (broken || size === 0) break
+        onImage(take(size))
+      }
+      if (broken) return
+      if (buffered > maxBufferedBytes) {
+        broken = true
+        onDesync(`held ${buffered} bytes without a complete frame; the cap is ${maxBufferedBytes}`)
+      }
+    },
+  }
 }
 
 // --- the desktop tier -------------------------------------------------------
@@ -330,7 +485,11 @@ function createDesktopTier() {
    * screen is up, otherwise null.
    */
   let screen = null
-  /** `{ timer, seq, lastHash, lastEmitAt, sendEvent, fps, stopped }` or null. */
+  /**
+   * `{ rate, seq, lastHash, lastEmitAt, stopped, capture, restartTimer,
+   * restarts, restartWindowAt, sendEvent }` while frames are running, else
+   * null. `capture` is the long-lived ffmpeg child the PNGs come off.
+   */
   let frames = null
   /** `{ tracked, timer, url, scope }` or null. */
   let handover = null
@@ -787,8 +946,11 @@ function createDesktopTier() {
    * ONE TO ONE. That holds because the chain is identity end to end:
    *
    *   Xvfb runs at exactly the width/height screen-start asked for;
-   *   `import -window root` captures that framebuffer unscaled;
-   *   observe() reports the dimensions read out of the captured PNG itself;
+   *   `import -window root` captures that framebuffer unscaled, and the frame
+   *     path's `ffmpeg -f x11grab -video_size <the screen's own size>` grabs
+   *     the same framebuffer unscaled too — neither ever resamples;
+   *   observe() reports the dimensions read out of the captured PNG itself,
+   *     and each emitted frame reports its own PNG's dimensions likewise;
    *   xdotool addresses the same root window in the same pixel space.
    *
    * There is NO scaling step anywhere in this file, and none may be added. If
@@ -1057,17 +1219,61 @@ function createDesktopTier() {
   // --- capture --------------------------------------------------------------
 
   /**
+   * The x11grab command line for one rate. `-draw_mouse 0` keeps the guest's
+   * own pointer out of the picture, which is what `import -window root` does
+   * too — the operator's browser draws the only cursor there is, and two
+   * pointers that disagree by a frame's latency are worse than one.
+   *
+   * `-framerate` is an INPUT option here: it is the rate the X server is
+   * grabbed at, not a rate something is resampled to afterwards. rgb24 drops
+   * the alpha channel x11grab hands over and never uses, and the compression
+   * level is the CPU/bytes trade-off documented on FRAMES_PNG_COMPRESSION.
+   */
+  function captureArgs(rate, geometry) {
+    return [
+      '-hide_banner',
+      '-loglevel', 'error',
+      '-nostdin',
+      '-f', 'x11grab',
+      '-draw_mouse', '0',
+      '-framerate', String(rate),
+      '-video_size', `${geometry.width}x${geometry.height}`,
+      '-i', DISPLAY,
+      '-an',
+      '-f', 'image2pipe',
+      '-vcodec', 'png',
+      '-pix_fmt', 'rgb24',
+      '-compression_level', FRAMES_PNG_COMPRESSION,
+      // Push every frame down the pipe as it is encoded. Without this a small
+      // frame can sit in ffmpeg's output buffer until the NEXT one displaces
+      // it, which puts a whole frame interval of latency on exactly the change
+      // an operator is waiting to see.
+      '-flush_packets', '1',
+      '-',
+    ]
+  }
+
+  /**
    * DAMAGE-AWARE EMISSION (§3.13): a still screen must cost almost nothing.
    *
-   * The loop captures at the requested fps and hashes each PNG; an identical
-   * consecutive frame is NOT emitted, so a desk that nobody is touching sends
-   * one keepalive every FRAMES_KEEPALIVE_MS and nothing else. The keepalive is
-   * what stops a subscriber who joined during a still period from staring at
-   * a blank stage.
+   * One long-lived `ffmpeg -f x11grab` grabs at the requested rate and writes
+   * PNGs down a pipe; every image is hashed and an identical consecutive frame
+   * is NOT emitted, so a desk nobody is touching sends one keepalive every
+   * FRAMES_KEEPALIVE_MS and nothing else. The keepalive is what stops a
+   * subscriber who joined during a still period from staring at a blank stage.
    *
-   * The loop is single-flight — the next tick is scheduled only after the
-   * current capture has finished — so a slow capture or a slow consumer can
-   * never pile up work.
+   * NOTHING IS EVER QUEUED. The work per frame — a SHA-256 and a base64 — is
+   * synchronous, so frames cannot overlap the way a spawn-per-tick could, and
+   * a consumer that cannot keep up is answered with a DROPPED frame rather
+   * than a growing buffer (FRAMES_WIRE_BACKLOG_CAP_BYTES). A dropped frame
+   * costs nothing: the next repaint carries the whole screen anyway, and its
+   * hash will differ from the last one we actually sent because a drop
+   * deliberately does not record one.
+   *
+   * CHANGING THE RATE is a restart of the child with a new `-framerate`: the
+   * host asks by calling frames-start again, and the first act here is to stop
+   * whatever was running. The gap is one process start, and the subscriber
+   * keeps showing the last frame across it.
    */
   async function framesStart({ fps, width, height }) {
     const screenNow = requireScreen()
@@ -1084,65 +1290,145 @@ function createDesktopTier() {
 
     stopFrames()
     const session = {
+      rate,
       seq: 0,
       lastHash: null,
       lastEmitAt: 0,
       stopped: false,
-      timer: null,
-      intervalMs: Math.max(1, Math.round(1000 / rate)),
+      capture: null,
+      restartTimer: null,
+      restarts: 0,
+      restartWindowAt: Date.now(),
       sendEvent,
     }
     frames = session
-
-    const tick = async () => {
-      if (session.stopped) return
-      try {
-        const shot = await capture()
-        if (session.stopped) return
-        const hash = createHash('sha256').update(shot.png).digest('hex')
-        const now = Date.now()
-        const changed = hash !== session.lastHash
-        const keepalive = now - session.lastEmitAt >= FRAMES_KEEPALIVE_MS
-        if (changed || keepalive) {
-          const data = shot.png.toString('base64')
-          if (data.length > FRAME_PAYLOAD_CAP_BYTES) {
-            log(`skipping a ${data.length}-byte frame; the payload cap is ${FRAME_PAYLOAD_CAP_BYTES}`)
-          } else {
-            session.seq += 1
-            session.lastHash = hash
-            session.lastEmitAt = now
-            session.sendEvent({
-              event: 'frame',
-              seq: session.seq,
-              width: shot.width,
-              height: shot.height,
-              data,
-            })
-          }
-        }
-      } catch (error) {
-        // A capture failure must not kill the loop silently, and must not spin:
-        // log it and let the normal interval apply.
-        log('frame capture failed:', errorText(error))
-        if (!screen) {
-          log('stopping the frame loop: the screen is gone')
-          stopFrames()
-          return
-        }
-      }
-      if (session.stopped) return
-      session.timer = setTimeout(tick, session.intervalMs)
-    }
-
-    session.timer = setTimeout(tick, 0)
+    startCapture(session)
     log(`frames started at ${rate}fps`)
   }
 
+  /** One captured PNG, straight off the child's stdout. */
+  function onCapturedFrame(session, png) {
+    if (session.stopped) return
+    let size
+    try {
+      size = pngDimensions(png)
+    } catch (error) {
+      log('discarding a frame that is not a PNG:', errorText(error))
+      return
+    }
+    const hash = createHash('sha256').update(png).digest('hex')
+    const now = Date.now()
+    const changed = hash !== session.lastHash
+    const keepalive = now - session.lastEmitAt >= FRAMES_KEEPALIVE_MS
+    if (!changed && !keepalive) return
+    if (wireBacklogBytes() > FRAMES_WIRE_BACKLOG_CAP_BYTES) {
+      // Dropped, and deliberately NOT recorded as the last hash: the next
+      // frame must still count as a change, or a consumer that fell behind
+      // once would be left holding a stale picture until something else moved.
+      return
+    }
+    const data = png.toString('base64')
+    if (data.length > FRAME_PAYLOAD_CAP_BYTES) {
+      log(`skipping a ${data.length}-byte frame; the payload cap is ${FRAME_PAYLOAD_CAP_BYTES}`)
+      return
+    }
+    session.seq += 1
+    session.lastHash = hash
+    session.lastEmitAt = now
+    session.sendEvent({
+      event: 'frame',
+      seq: session.seq,
+      width: size.width,
+      height: size.height,
+      data,
+    })
+  }
+
+  /**
+   * Start (or restart) the capture child for a session.
+   *
+   * A child that dies is restarted, because the alternative is a picture that
+   * goes black and says nothing. A child that keeps dying is a fault, and is
+   * said out loud rather than retried forever: FRAMES_MAX_RESTARTS inside
+   * FRAMES_RESTART_WINDOW_MS ends the session with the reason ffmpeg gave.
+   */
+  function startCapture(session) {
+    if (session.stopped) return
+    const screenNow = screen
+    if (!screenNow) {
+      log('stopping the frame capture: the screen is gone')
+      stopFrames()
+      return
+    }
+    const tracked = spawnTracked(
+      'ffmpeg (frames)',
+      'ffmpeg',
+      captureArgs(session.rate, screenNow),
+      baseEnv(),
+      { stdout: 'pipe' },
+    )
+    session.capture = tracked
+    const splitter = createPngSplitter({
+      onImage: (png) => {
+        if (session.stopped || session.capture !== tracked) return
+        onCapturedFrame(session, png)
+      },
+      onDesync: (reason) => {
+        if (session.stopped || session.capture !== tracked) return
+        log('the capture stream lost its framing; restarting ffmpeg:', reason)
+        void terminate(tracked, FRAMES_TERMINATE_GRACE_MS)
+      },
+    })
+    tracked.child.stdout.on('data', (chunk) => {
+      if (session.stopped || session.capture !== tracked) return
+      splitter.push(chunk)
+    })
+    tracked.child.stdout.on('error', (error) => {
+      log('the capture pipe failed:', errorText(error))
+    })
+    // 'close' rather than 'exit': it fires after stdout has been drained, and
+    // it also fires when the spawn itself failed (a missing ffmpeg), which
+    // 'exit' does not.
+    tracked.child.once('close', () => {
+      if (session.stopped || session.capture !== tracked) return
+      session.capture = null
+      const now = Date.now()
+      if (now - session.restartWindowAt > FRAMES_RESTART_WINDOW_MS) {
+        session.restarts = 0
+        session.restartWindowAt = now
+      }
+      session.restarts += 1
+      const why = tracked.stderrTail.trim().slice(0, 512) || 'no output'
+      if (session.restarts > FRAMES_MAX_RESTARTS) {
+        log(
+          `the frame capture died ${session.restarts} times in`,
+          `${FRAMES_RESTART_WINDOW_MS}ms; giving up rather than looping. ffmpeg said: ${why}`,
+        )
+        stopFrames()
+        return
+      }
+      log(`the frame capture exited; restarting in ${FRAMES_RESTART_DELAY_MS}ms. ffmpeg said: ${why}`)
+      session.restartTimer = setTimeout(() => {
+        session.restartTimer = null
+        startCapture(session)
+      }, FRAMES_RESTART_DELAY_MS)
+    })
+  }
+
+  /**
+   * Stop capturing, and take the child with it. An orphaned ffmpeg would hold
+   * an X connection open and go on grabbing a screen nobody is watching, which
+   * is the exact cost this whole path exists to avoid.
+   */
   function stopFrames() {
     if (!frames) return
-    frames.stopped = true
-    if (frames.timer) clearTimeout(frames.timer)
+    const session = frames
     frames = null
+    session.stopped = true
+    if (session.restartTimer) clearTimeout(session.restartTimer)
+    const tracked = session.capture
+    session.capture = null
+    if (tracked) void terminate(tracked, FRAMES_TERMINATE_GRACE_MS)
     log('frames stopped')
   }
 
@@ -1278,6 +1564,8 @@ function createDesktopTier() {
    * it fails.
    */
   let sendEventProvider = () => null
+  /** The socket behind that channel, for reading how backed up it is. */
+  let socketProvider = () => null
   function currentSendEvent() {
     const sendEvent = sendEventProvider()
     if (!sendEvent) return null
@@ -1290,8 +1578,21 @@ function createDesktopTier() {
       }
     }
   }
-  function useSendEvent(provider) {
+
+  /**
+   * How many bytes the host connection has accepted but not yet written. This
+   * is the only honest measure of a slow consumer available in here — the push
+   * channel itself reports nothing — and it is what lets the frame path drop a
+   * frame instead of handing Node a queue to grow.
+   */
+  function wireBacklogBytes() {
+    const socket = socketProvider()
+    return socket && typeof socket.writableLength === 'number' ? socket.writableLength : 0
+  }
+
+  function useSendEvent(provider, socket = () => null) {
     sendEventProvider = provider
+    socketProvider = socket
   }
 
   /**
@@ -1302,6 +1603,7 @@ function createDesktopTier() {
   function dropSendEvent(provider) {
     if (sendEventProvider !== provider) return
     sendEventProvider = () => null
+    socketProvider = () => null
     if (frames) log('the host connection closed; stopping frames')
     stopFrames()
   }
@@ -1361,13 +1663,14 @@ function detectVirtioGpu() {
  * push channel, wired here so a detached job can emit its `job-exit` event to the
  * host when the child finally exits.
  */
-function createHandlers(getSendEvent) {
+function createHandlers(getSendEvent, getSocket = () => null) {
   /** jobId -> ChildProcess, for jobSignal and exit reporting. */
   const jobs = new Map()
 
   // The desktop tier outlives any single connection, but its frame loop pushes
-  // over whichever connection is current.
-  desktop.useSendEvent(getSendEvent)
+  // over whichever connection is current — and reads that connection's own
+  // backlog, so a host that cannot keep up costs frames rather than memory.
+  desktop.useSendEvent(getSendEvent, getSocket)
 
   return {
     /**
@@ -1518,7 +1821,7 @@ function main() {
     // Late-binding closure: jobStart may fire an event after the handshake, so
     // it reads `running.sendEvent` at emit time rather than capturing early.
     const getSendEvent = () => (running ? running.sendEvent : null)
-    const handlers = createHandlers(getSendEvent)
+    const handlers = createHandlers(getSendEvent, () => connection)
     running = runGuestAgent({ stream: connection, handlers })
     // The desktop tier's frame loop pushes over this connection; when it goes,
     // so does the loop.

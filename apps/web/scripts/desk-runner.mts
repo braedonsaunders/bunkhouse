@@ -45,6 +45,7 @@ import {
  *   POST /desks/:id/screen/launch               — launch an app
  *   POST /desks/:id/screen/clipboard            — read/write
  *   POST /desks/:id/screen/frames/start|stop    — the live-view capture pump
+ *                                                 (start with pin:false = re-tune the rate)
  *   GET  /desks/:id/screen/frames               — SSE: base64 frames off that pump
  *   POST /desks/:id/handover                    — begin/end, idempotent begin
  *   GET  /desks/:id/handover/stream (WS)        — relay the in-guest viewer outward
@@ -693,7 +694,10 @@ function startExecution(
  * subscription.
  *
  * One pump per desk, however many subscribers: the guest encodes once, and a
- * second viewer costs a socket rather than a second capture.
+ * second viewer costs a socket rather than a second capture. The rate is a
+ * property of the pump rather than of a subscription, for the same reason:
+ * whoever wants it faster (an operator who has taken the controls) speeds up
+ * the one capture, and everybody watching gets the same picture.
  */
 type FramePump = {
   fps: number
@@ -703,32 +707,73 @@ type FramePump = {
   pinned: boolean
   subscribers: Set<ServerResponse>
   closed: boolean
+  /** Change the rate of the capture that is already running. */
+  retune: (fps: number) => void
   stop: () => void
 }
 
 const framePumps = new Map<string, FramePump>()
+
+/**
+ * How much unflushed frame data one subscriber's socket may be holding before
+ * it is skipped. One 1280x900 PNG frame is comfortably under this; a viewer
+ * that is more than a frame behind is a viewer whose link cannot carry the
+ * rate, and the honest answer is a dropped frame rather than a queue.
+ */
+const SUBSCRIBER_BACKLOG_CAP_BYTES = 4 * 1024 * 1024
+
+/**
+ * The rate bounds the GUEST enforces (FRAMES_MIN_FPS/FRAMES_MAX_FPS in
+ * deploy/desk-image/agent/desk-guest-agent.mjs). Clamped here rather than
+ * passed on: the guest REFUSES a rate outside them, and a refused frames-start
+ * ends the iterator — so a mistyped query parameter would take a live view
+ * down instead of being ignored.
+ */
+function clampFps(fps: number): number {
+  if (!Number.isFinite(fps)) return 10
+  return Math.min(30, Math.max(1, Math.round(fps)))
+}
 
 function startFramePump(
   deskId: string,
   screen: DeskScreenHandle,
   options: { fps: number; width: number; height: number },
 ): FramePump {
-  const iterator = screen
-    .frames({ fps: options.fps, width: options.width, height: options.height })
-    [Symbol.asyncIterator]()
+  const openIterator = (fps: number) =>
+    screen.frames({ fps, width: options.width, height: options.height })[Symbol.asyncIterator]()
+  // The live source. A re-tune swaps it, and the read loop below notices the
+  // swap by identity rather than by the old iterator ending — which it also
+  // does, because ending it is how the guest is told to stop the old rate.
+  let source = openIterator(clampFps(options.fps))
   const pump: FramePump = {
-    fps: options.fps,
+    fps: clampFps(options.fps),
     width: options.width,
     height: options.height,
     pinned: false,
     subscribers: new Set(),
     closed: false,
+    retune: (requested: number) => {
+      const fps = clampFps(requested)
+      if (pump.closed || fps === pump.fps) return
+      const previous = source
+      pump.fps = fps
+      // ORDER IS LOAD-BEARING. Finishing the old iterator sends `frames-stop`
+      // to the guest and opening the new one sends `frames-start`; both are
+      // written to the same vsock stream in call order and the guest agent
+      // serializes what it reads, so stop-then-start leaves the capture
+      // running at the new rate. The other order would have the stop land on
+      // the capture the start had just begun, and the picture would die
+      // quietly — which is the one failure mode a live view must not have.
+      void previous.return?.().catch(() => undefined)
+      source = openIterator(fps)
+      console.log(`[desk-runner] frame pump for ${deskId} re-tuned to ${fps}fps`)
+    },
     stop: () => {
       if (pump.closed) return
       pump.closed = true
       // Cancel the iterator rather than waiting for a frame that may never
       // come: a still screen emits nothing, so `break` alone would hang.
-      void iterator.return?.().catch(() => undefined)
+      void source.return?.().catch(() => undefined)
       for (const subscriber of pump.subscribers.values()) subscriber.end()
       pump.subscribers.clear()
       if (framePumps.get(deskId) === pump) framePumps.delete(deskId)
@@ -738,8 +783,15 @@ function startFramePump(
   void (async () => {
     try {
       for (;;) {
-        const next = await iterator.next()
-        if (next.done || pump.closed) break
+        const reading = source
+        const next = await reading.next()
+        if (pump.closed) break
+        if (next.done) {
+          // A re-tune ends the iterator we were reading from. That is not the
+          // end of the stream — the next frame comes off the new one.
+          if (reading !== source) continue
+          break
+        }
         const frame = next.value
         const payload = JSON.stringify({
           seq: frame.seq,
@@ -750,8 +802,13 @@ function startFramePump(
         })
         for (const subscriber of pump.subscribers.values()) {
           // Never queue: a subscriber that cannot keep up drops frames rather
-          // than growing a buffer in the one process that boots microVMs.
+          // than growing a buffer in the one process that boots microVMs. At
+          // thirty frames a second that stopped being theoretical — a socket
+          // that is already holding a frame it has not flushed is skipped
+          // rather than handed a second one, and it catches up on the next
+          // frame the guest paints.
           if (subscriber.writableEnded) continue
+          if (subscriber.writableLength > SUBSCRIBER_BACKLOG_CAP_BYTES) continue
           subscriber.write(`data: ${payload}\n\n`)
         }
       }
@@ -764,14 +821,34 @@ function startFramePump(
   return pump
 }
 
+/**
+ * The pump for this desk, started if there is none — and RE-TUNED if there is
+ * one and the caller asked for a different rate. Re-tuning rather than
+ * ignoring the number is what lets a viewer change the rate without dropping
+ * its subscription: the socket carrying the picture is untouched and only the
+ * guest's capture changes speed.
+ *
+ * The geometry is not re-tuned. Frames go out at the screen's real size and
+ * never rescale (the coordinate contract), so a different width or height is a
+ * different screen, not a different capture.
+ */
 function ensureFramePump(
   deskId: string,
   screen: DeskScreenHandle,
   options: { fps: number; width: number; height: number },
 ): FramePump {
   const existing = framePumps.get(deskId)
-  if (existing && !existing.closed) return existing
+  if (existing && !existing.closed) {
+    existing.retune(options.fps)
+    return existing
+  }
   return startFramePump(deskId, screen, options)
+}
+
+/** The running pump for this desk, or null. Never starts one. */
+function liveFramePump(deskId: string): FramePump | null {
+  const pump = framePumps.get(deskId)
+  return pump && !pump.closed ? pump : null
 }
 
 function closeFramePump(deskId: string): void {
@@ -1507,12 +1584,23 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
 
     if (request.method === 'POST' && rest === '/screen/frames/start') {
       const body = await readBody(request)
-      const pump = ensureFramePump(deskId, screen, {
+      const options = {
         fps: numberOr(body.fps) ?? 10,
         width: numberOr(body.width) ?? 1280,
         height: numberOr(body.height) ?? 900,
-      })
-      pump.pinned = true
+      }
+      // `pin: false` makes this a RE-TUNE and nothing else: change the rate of
+      // a capture that is already running, and if none is, say so and start
+      // nothing. A pump with no subscribers is a guest painting for nobody,
+      // and only an explicit (pinned) start is allowed to create one.
+      const pin = body.pin !== false
+      const running = liveFramePump(deskId)
+      if (!pin && !running) {
+        reply(response, 200, { streaming: false, fps: options.fps, width: options.width, height: options.height })
+        return
+      }
+      const pump = ensureFramePump(deskId, screen, options)
+      if (pin) pump.pinned = true
       reply(response, 200, { streaming: true, fps: pump.fps, width: pump.width, height: pump.height })
       return
     }
@@ -1524,8 +1612,14 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
     }
 
     if (request.method === 'GET' && rest === '/screen/frames') {
+      const asked = Number(url.searchParams.get('fps') ?? 10) || 10
+      // A subscription asks for a FLOOR, never a ceiling: somebody arriving to
+      // watch must not slow down the capture another consumer is driving at.
+      // Lowering it again is the explicit re-tune's job (POST .../frames/start
+      // with pin:false), which sets the rate exactly.
+      const running = liveFramePump(deskId)
       const pump = ensureFramePump(deskId, screen, {
-        fps: Number(url.searchParams.get('fps') ?? 10) || 10,
+        fps: Math.max(asked, running?.fps ?? 0),
         width: Number(url.searchParams.get('width') ?? 1280) || 1280,
         height: Number(url.searchParams.get('height') ?? 900) || 900,
       })

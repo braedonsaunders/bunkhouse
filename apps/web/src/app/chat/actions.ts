@@ -5,9 +5,12 @@ import { requireTenantPermission, type TenantAccess } from '../../lib/tenant'
 import {
   getThread,
   listThreads,
+  renameThread,
   sendMessage,
+  setThreadStatus,
   startThread,
   type ChatMessageView,
+  type ChatThreadStatus,
   type ChatThreadSummary,
   type ChatThreadView,
 } from '../../lib/chat-threads'
@@ -17,6 +20,7 @@ import {
   openDesktop,
   parseDeskInput,
   sendDesktopInput,
+  setDeskFrameRate,
   setTakeover,
   type ChatDeskStatus,
 } from '../../lib/chat-desk'
@@ -44,9 +48,15 @@ import {
 
 const CHAT_PATH = '/chat'
 
-export async function listThreadsAction(): Promise<ChatThreadSummary[]> {
+export async function listThreadsAction(
+  options?: { includeArchived?: boolean },
+): Promise<ChatThreadSummary[]> {
   const access = await requireTenantPermission('work.read')
-  return listThreads(access.tenantId, access.user.id)
+  return listThreads({
+    tenantId: access.tenantId,
+    userId: access.user.id,
+    includeArchived: options?.includeArchived === true,
+  })
 }
 
 export async function getThreadAction(
@@ -100,6 +110,63 @@ export async function sendMessageAction(
   })
   revalidatePath(CHAT_PATH)
   return result
+}
+
+// ---------------------------------------------------------------------------
+// Keeping the list — naming a conversation, and putting one away
+// ---------------------------------------------------------------------------
+
+/**
+ * Both of these change a governed record, so both are `work.manage` — the same
+ * permission saying something in the thread needs, because a conversation
+ * someone may not post into is not one they may rename or file away either.
+ *
+ * Ownership on top of that is `lib/chat-threads.ts`'s: the thread is re-read
+ * there and refused unless it belongs to the caller. Neither of these actions
+ * trusts the id it is handed for anything but the lookup.
+ *
+ * There is deliberately no delete. A thread is a view onto runs and its
+ * messages carry the run ids that did the work; archiving takes it out of the
+ * list, which is what was actually wanted, without erasing the record.
+ */
+export async function renameThreadAction(
+  threadId: string,
+  title: string,
+): Promise<{ ok: true; title: string } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  if (!threadId) return { error: 'No conversation was named.' }
+  try {
+    const { title: named } = await renameThread({
+      tenantId: access.tenantId,
+      threadId,
+      userId: access.user.id,
+      title,
+    })
+    revalidatePath(CHAT_PATH)
+    return { ok: true, title: named }
+  } catch (reason) {
+    // A blank name, an over-long one, somebody else's conversation: ordinary
+    // answers of "no" that belong beside the list, not on an error screen.
+    return { error: reason instanceof Error ? reason.message : 'That conversation could not be renamed.' }
+  }
+}
+
+export async function setThreadStatusAction(
+  threadId: string,
+  status: ChatThreadStatus,
+): Promise<{ ok: true; status: ChatThreadStatus } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  if (!threadId) return { error: 'No conversation was named.' }
+  // A server action is a public endpoint: the type says `open | closed`, the
+  // caller is whatever posted to it.
+  if (status !== 'open' && status !== 'closed') return { error: 'That is not something a conversation can be.' }
+  try {
+    await setThreadStatus({ tenantId: access.tenantId, threadId, userId: access.user.id, status })
+    revalidatePath(CHAT_PATH)
+    return { ok: true, status }
+  } catch (reason) {
+    return { error: reason instanceof Error ? reason.message : 'That conversation could not be changed.' }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +225,25 @@ export async function takeoverAction(
   const access = await requireTenantPermission('work.manage')
   if (!personId) return { error: 'No agent selected.' }
   return setTakeover({ tenantId: access.tenantId, personId, actor: actorFor(access), enabled })
+}
+
+/**
+ * How fast the desk's live capture should run: fast while the operator is
+ * driving, slow while they are only watching. It re-tunes the capture that is
+ * already running rather than opening anything, so the picture on screen never
+ * drops out when the mode changes.
+ *
+ * `work.manage` like the rest of the desk family, and gated by lib/chat-desk.ts
+ * exactly the same way — asking a machine to paint faster is asking something
+ * of that machine.
+ */
+export async function setDeskFrameRateAction(
+  personId: string,
+  driving: boolean,
+): Promise<{ ok: true; fps: number; streaming: boolean } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  if (!personId) return { error: 'No agent selected.' }
+  return setDeskFrameRate({ tenantId: access.tenantId, personId, driving })
 }
 
 /** One input on the agent's screen, in the desk-v1 shape. */

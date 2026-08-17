@@ -6,8 +6,9 @@
 # into — point BUNKHOUSE_AGENT_DISKS at it):
 #   - base.raw   a RAW Debian 12 image, root grown to 20G, with the XFCE desktop
 #                set, Chromium, LibreOffice, git, the desktop tier's drivers
-#                (Xvfb, xdotool, wmctrl, ImageMagick, xclip, x11vnc, AT-SPI),
-#                PLUS node + socat + the desk guest agent baked in and enabled.
+#                (Xvfb, xdotool, wmctrl, ImageMagick, ffmpeg, xclip, x11vnc,
+#                AT-SPI), PLUS node + socat + the desk guest agent baked in and
+#                enabled.
 #   - vmlinux    the guest kernel extracted from that image, for Cloud
 #                Hypervisor direct-kernel boot.
 #   - initrd     the matching initramfs (the modular cloud kernel needs it).
@@ -96,7 +97,8 @@ mkdir -p "${OUT_DIR}"
 #   x11-utils       xdpyinfo / xprop — display-ready and window-manager probes
 #   xdotool         all input injection, and the focused-window query
 #   wmctrl          the EWMH window list behind observe().windows
-#   imagemagick     `import` — the unscaled root-window PNG capture
+#   imagemagick     `import` — the unscaled root-window PNG capture for observe()
+#   ffmpeg          x11grab — the long-lived capture behind the live frame stream
 #   xclip           clipboard read/write
 #   x11vnc          the handover server, bound to guest localhost only
 #   at-spi2-core    the accessibility bus (opportunistic perception, §3.10)
@@ -113,6 +115,7 @@ DESKTOP_TIER_PACKAGES=(
   xdotool
   wmctrl
   imagemagick
+  ffmpeg
   xclip
   x11vnc
   at-spi2-core
@@ -251,7 +254,7 @@ cat <<SUMMARY
   host over vsock port 5252 on first boot with no network install.
 
   Desktop tier: /opt/desk-agent/atspi-dump.py ships beside the agent, and the
-  session's binaries (Xvfb, xdotool, wmctrl, import, xclip, x11vnc, dbus-launch,
-  xfsettingsd) are installed. The desk still boots to multi-user; the screen
-  starts only when the host asks for one.
+  session's binaries (Xvfb, xdotool, wmctrl, import, ffmpeg, xclip, x11vnc,
+  dbus-launch, xfsettingsd) are installed. The desk still boots to multi-user;
+  the screen starts only when the host asks for one.
 SUMMARY

@@ -2,20 +2,39 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Loader2, MessageSquarePlus, Monitor, PanelRightClose } from 'lucide-react'
+import {
+  Archive,
+  ArchiveRestore,
+  Loader2,
+  MessageSquarePlus,
+  Monitor,
+  MoreHorizontal,
+  PanelRightClose,
+  Pencil,
+} from 'lucide-react'
 import {
   Badge,
   Button,
   Card,
+  ContextMenu,
   Drawer,
   EmptyState,
   Label,
   PageHeader,
   Select,
   cn,
+  promptDialog,
+  useContextMenu,
+  type ContextMenuEntry,
 } from '@appkit/ui'
 import { AgentPanel, type AgentMessage } from '@appkit/ai/react'
-import { getThreadAction, listThreadsAction, startThreadAction } from '../app/chat/actions'
+import {
+  getThreadAction,
+  listThreadsAction,
+  renameThreadAction,
+  setThreadStatusAction,
+  startThreadAction,
+} from '../app/chat/actions'
 import { ChatDesk } from './chat-desk'
 
 /**
@@ -30,6 +49,9 @@ import { ChatDesk } from './chat-desk'
  * replays in the observatory.
  */
 
+/** `closed` is archived: out of the default list, still entirely on the record. */
+export type ChatThreadStatus = 'open' | 'closed'
+
 export type ChatThreadSummary = {
   id: string
   title: string
@@ -37,7 +59,7 @@ export type ChatThreadSummary = {
   personName: string
   /** ISO — the ledger's own stamp, formatted where it is read. */
   lastMessageAt: string
-  status: string
+  status: ChatThreadStatus
 }
 
 /** One persisted turn. */
@@ -51,7 +73,7 @@ export type ChatMessageRecord = {
 }
 
 export type ChatThreadDetail = {
-  thread: { id: string; title: string; personId: string; personName: string; status: string }
+  thread: { id: string; title: string; personId: string; personName: string; status: ChatThreadStatus }
   messages: ChatMessageRecord[]
 }
 
@@ -173,6 +195,10 @@ function ThreadList({
   onSelect,
   onNew,
   canStart,
+  showArchived,
+  onShowArchived,
+  onRename,
+  onSetStatus,
 }: {
   threads: ChatThreadSummary[]
   activeId: string | null
@@ -180,35 +206,95 @@ function ThreadList({
   onSelect: (id: string) => void
   onNew: () => void
   canStart: boolean
+  showArchived: boolean
+  onShowArchived: (next: boolean) => void
+  onRename: (thread: ChatThreadSummary) => void
+  onSetStatus: (thread: ChatThreadSummary, status: ChatThreadStatus) => void
 }) {
+  // One menu for the whole list, opened against whichever row asked for it —
+  // `useContextMenu` is a hook, so a controller per row is not a thing that can
+  // exist inside the map.
+  const menu = useContextMenu()
+  const [target, setTarget] = React.useState<ChatThreadSummary | null>(null)
+
+  const openMenuFor = (thread: ChatThreadSummary, open: () => void): void => {
+    setTarget(thread)
+    open()
+  }
+
+  const items: ContextMenuEntry[] =
+    target === null
+      ? []
+      : [
+          {
+            key: 'rename',
+            label: 'Rename…',
+            icon: Pencil,
+            onSelect: () => onRename(target),
+          },
+          {
+            key: 'status',
+            label: target.status === 'closed' ? 'Unarchive' : 'Archive',
+            icon: target.status === 'closed' ? ArchiveRestore : Archive,
+            onSelect: () => onSetStatus(target, target.status === 'closed' ? 'open' : 'closed'),
+          },
+        ]
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
       {/* The same h-12 rule the panel's own header carries, so the three panes
           start on one line across the card. */}
-      <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface px-4">
+      <header className="flex h-12 shrink-0 items-center justify-between gap-1 border-b border-border bg-surface px-4">
         <span className="truncate text-sm font-medium text-fg">Conversations</span>
-        {canStart ? (
-          <Button type="button" size="sm" variant="outline" className="h-7 px-2" onClick={onNew}>
-            <MessageSquarePlus aria-hidden className="size-4" />
-            New
+        <span className="flex shrink-0 items-center gap-1">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2"
+            aria-pressed={showArchived}
+            aria-label={showArchived ? 'Hide archived conversations' : 'Show archived conversations'}
+            title={showArchived ? 'Hide archived' : 'Show archived'}
+            onClick={() => onShowArchived(!showArchived)}
+          >
+            <Archive aria-hidden className="size-4" />
           </Button>
-        ) : null}
+          {canStart ? (
+            <Button type="button" size="sm" variant="outline" className="h-7 px-2" onClick={onNew}>
+              <MessageSquarePlus aria-hidden className="size-4" />
+              New
+            </Button>
+          ) : null}
+        </span>
       </header>
       <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-2 max-lg:max-h-64">
         {threads.length === 0 ? (
           <p className="py-6 text-sm text-fg-muted">
-            No conversations yet. Start one and it appears here, alongside the run record it produces.
+            {showArchived
+              ? 'No conversations yet. Start one and it appears here, alongside the run record it produces.'
+              : 'No open conversations. Start one, or show the archived ones.'}
           </p>
         ) : (
           <ul className="space-y-1">
             {threads.map((thread) => (
-              <li key={thread.id}>
+              // The row is the menu's target either way — right-click anywhere
+              // on it, or the button, which is the same menu somewhere a
+              // keyboard can reach. A right-click-only menu is invisible to
+              // anyone not using a mouse.
+              <li
+                key={thread.id}
+                className="relative"
+                onContextMenu={(event) => openMenuFor(thread, () => menu.onContextMenu(event))}
+              >
                 <button
                   type="button"
                   aria-current={thread.id === activeId ? 'true' : undefined}
                   onClick={() => onSelect(thread.id)}
                   className={cn(
-                    'flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left transition-colors',
+                    // Room on the right for the actions button, which sits over
+                    // the row rather than inside it: a button within a button is
+                    // not markup a browser will honour.
+                    'flex w-full items-start gap-2 rounded-lg py-2 pl-2 pr-9 text-left transition-colors',
                     thread.id === activeId ? 'bg-primary-subtle' : 'hover:bg-surface-hover',
                   )}
                 >
@@ -221,15 +307,25 @@ function ThreadList({
                   </span>
                   {thread.status === 'closed' ? (
                     <Badge variant="outline" className="shrink-0">
-                      closed
+                      archived
                     </Badge>
                   ) : null}
+                </button>
+                <button
+                  type="button"
+                  aria-haspopup="menu"
+                  aria-label={`Actions for ${thread.title}`}
+                  onClick={(event) => openMenuFor(thread, () => menu.openBelow(event.currentTarget))}
+                  className="absolute right-1 top-1.5 rounded p-1 text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
+                >
+                  <MoreHorizontal aria-hidden className="size-4" />
                 </button>
               </li>
             ))}
           </ul>
         )}
       </div>
+      <ContextMenu open={menu.open} position={menu.position} items={items} onClose={menu.close} />
     </div>
   )
 }
@@ -254,6 +350,10 @@ export function ChatWorkspace({
   const [error, setError] = React.useState<string | null>(null)
   const [composing, setComposing] = React.useState(false)
   const [deskChoice, setDeskChoice] = React.useState<boolean | null>(null)
+  // Archived conversations are out of the list by default. The one exception
+  // is arriving on a link to one: it would otherwise open in a pane with no row
+  // behind it and no way back to itself.
+  const [showArchived, setShowArchived] = React.useState(initialThread?.thread.status === 'closed')
 
   const wide = useWideViewport()
   // One preference, resolved against the viewport: untouched, the desk is
@@ -284,23 +384,33 @@ export function ChatWorkspace({
     }
   }, [])
 
+  /** The list as this pane is currently asking for it. */
+  const fetchThreads = React.useCallback(
+    () => listThreadsAction({ includeArchived: showArchived }),
+    [showArchived],
+  )
+
   /**
-   * What the pane learns after a turn: the run the turn produced, and where
-   * the conversation now sits in the list. Refreshed rather than guessed —
-   * the run id is written by the run, not by anything here.
+   * What the pane learns after something happens to a thread: the run a turn
+   * produced, the name it now carries, and where it sits in the list.
+   * Refreshed rather than guessed — the run id is written by the run, and the
+   * ordering by the ledger, not by anything here.
    */
-  const refreshAfterTurn = React.useCallback(async (threadId: string) => {
-    try {
-      const [loaded, list] = await Promise.all([getThreadAction(threadId), listThreadsAction()])
-      setThreads(list)
-      if (loaded === null) return
-      // Only the record around the thread is taken: the panel holds the turn
-      // that has just streamed, in far more detail than the stored bodies.
-      setDetail((current) => (current && current.thread.id === threadId ? loaded : current))
-    } catch {
-      // The list simply stays as it was; nothing the reader did has been lost.
-    }
-  }, [])
+  const refreshThread = React.useCallback(
+    async (threadId: string) => {
+      try {
+        const [loaded, list] = await Promise.all([getThreadAction(threadId), fetchThreads()])
+        setThreads(list)
+        if (loaded === null) return
+        // Only the record around the thread is taken: the panel holds the turn
+        // that has just streamed, in far more detail than the stored bodies.
+        setDetail((current) => (current && current.thread.id === threadId ? loaded : current))
+      } catch {
+        // The list simply stays as it was; nothing the reader did has been lost.
+      }
+    },
+    [fetchThreads],
+  )
 
   const send = React.useCallback(
     async (prompt: string, signal: AbortSignal): Promise<Response> => {
@@ -318,11 +428,11 @@ export function ChatWorkspace({
       void response
         .clone()
         .text()
-        .then(() => refreshAfterTurn(threadId))
+        .then(() => refreshThread(threadId))
         .catch(() => undefined)
       return response
     },
-    [activeId, refreshAfterTurn],
+    [activeId, refreshThread],
   )
 
   /**
@@ -334,11 +444,60 @@ export function ChatWorkspace({
     async (personId: string) => {
       const started = await startThreadAction(personId, '')
       setComposing(false)
-      const list = await listThreadsAction().catch(() => threads)
+      const list = await fetchThreads().catch(() => threads)
       setThreads(list)
       await load(started.threadId)
     },
-    [load, threads],
+    [fetchThreads, load, threads],
+  )
+
+  const toggleArchived = React.useCallback(async (next: boolean) => {
+    setShowArchived(next)
+    const list = await listThreadsAction({ includeArchived: next }).catch(() => null)
+    if (list !== null) setThreads(list)
+  }, [])
+
+  /**
+   * Naming a conversation by hand. The shared prompt is the app's way of
+   * asking for one short string, and it hands back a trimmed value or nothing;
+   * the name is checked again on the server, which is where it counts.
+   */
+  const renameThread = React.useCallback(
+    async (thread: ChatThreadSummary) => {
+      const next = await promptDialog({
+        title: 'Rename conversation',
+        label: 'Name',
+        initialValue: thread.title,
+        confirmLabel: 'Rename',
+      })
+      if (next === null || next === thread.title) return
+      setError(null)
+      const result = await renameThreadAction(thread.id, next)
+      if ('error' in result) {
+        setError(result.error)
+        return
+      }
+      await refreshThread(thread.id)
+    },
+    [refreshThread],
+  )
+
+  /**
+   * Archiving, and bringing one back. Never a delete: the conversation's
+   * messages carry the ids of the runs that did the work, so putting it away is
+   * the most that may happen to it.
+   */
+  const setThreadStatus = React.useCallback(
+    async (thread: ChatThreadSummary, status: ChatThreadStatus) => {
+      setError(null)
+      const result = await setThreadStatusAction(thread.id, status)
+      if ('error' in result) {
+        setError(result.error)
+        return
+      }
+      await refreshThread(thread.id)
+    },
+    [refreshThread],
   )
 
   const conversation = (
@@ -382,7 +541,10 @@ export function ChatWorkspace({
             // Keyed by the thread: the panel seeds its transcript once, so a
             // different conversation has to be a different panel.
             key={detail.thread.id}
-            enabled
+            // An archived conversation is closed to new turns on the server, so
+            // the composer is closed here too rather than offering a Send that
+            // is only going to be refused.
+            enabled={detail.thread.status === 'open'}
             initialMessages={detail.messages.map(toAgentMessage)}
             send={send}
             labels={{
@@ -390,6 +552,9 @@ export function ChatWorkspace({
               welcomeTitle: `Ask ${detail.thread.personName} for something`,
               welcomeDescription:
                 'Anything they do lands on their run record, and on their desk if the work needs one.',
+              disabledTitle: 'This conversation is archived',
+              disabledDescription:
+                'Everything said in it is still here, and so are its run records. Unarchive it from the list to carry on.',
               placeholder: `Message ${detail.thread.personName}…`,
               failed:
                 'That turn did not finish. Nothing has been lost — ask again, or open the run record to see how far it got.',
@@ -405,8 +570,15 @@ export function ChatWorkspace({
   const deskVisible = deskOpen && detail !== null
 
   return (
+    // Mirrors @appkit/ui's PageContainer — the shell every other route in this
+    // app uses, always as `<PageContainer className="space-y-6">`. Chat cannot
+    // use it directly (its body must not scroll: the composer and the desk have
+    // to stay put, hence `lg:h-full` and the flex column below), but its
+    // heading has to land where every other page's heading lands, so the inset
+    // and the gap under the title are that shell's, class for class. Keep the
+    // two in step if PageContainer's padding ever moves.
     <div className="app-scroll min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
-      <div className="mx-auto flex w-full max-w-(--breakpoint-2xl) flex-col gap-3 p-3 sm:p-4 lg:h-full">
+      <div className="reveal mx-auto flex w-full max-w-(--breakpoint-2xl) flex-col gap-6 p-4 sm:p-6 lg:h-full">
         <PageHeader
           className="shrink-0"
           title="Chat"
@@ -458,6 +630,10 @@ export function ChatWorkspace({
             onSelect={(id) => void load(id)}
             onNew={() => setComposing(true)}
             canStart={agents.length > 0}
+            showArchived={showArchived}
+            onShowArchived={(next) => void toggleArchived(next)}
+            onRename={(thread) => void renameThread(thread)}
+            onSetStatus={(thread, status) => void setThreadStatus(thread, status)}
           />
           {conversation}
           {/* Unmounted rather than hidden when it is folded away: a pane that

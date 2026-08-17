@@ -14,13 +14,28 @@ delete process.env.BUNKHOUSE_DESK_TOKEN
 import type { ChatRunner, ChatThreadStore, ChatThreadSummary } from '../src/lib/chat-threads'
 import type { ChatDeskDeps } from '../src/lib/chat-desk'
 
-const { conversationIdFor, listThreads, getThread, sendMessage, startThread, titleFromMessage } = await import(
-  '../src/lib/chat-threads'
-)
+const {
+  conversationIdFor,
+  listThreads,
+  getThread,
+  renameThread,
+  sendMessage,
+  setThreadStatus,
+  startThread,
+  titleFromMessage,
+} = await import('../src/lib/chat-threads')
 
-const { closeDesktop, deskStatus, openDesktop, parseDeskInput, sendDesktopInput, setTakeover } = await import(
-  '../src/lib/chat-desk'
-)
+const {
+  closeDesktop,
+  deskStatus,
+  openDesktop,
+  parseDeskInput,
+  sendDesktopInput,
+  setDeskFrameRate,
+  setTakeover,
+} = await import('../src/lib/chat-desk')
+
+const { AGENT_SCREEN_DRIVING_FPS, AGENT_SCREEN_WATCHING_FPS } = await import('../src/lib/agent-screen')
 
 const { DEFAULT_DESK_POLICY } = await import('../src/lib/desk-policy')
 
@@ -42,6 +57,7 @@ type StoredThread = {
   title: string | null
   status: 'open' | 'closed'
   lastMessageAt: Date
+  updatedBy: string | null
 }
 
 type StoredMessage = {
@@ -58,13 +74,15 @@ function memoryChatStore(clock: () => Date) {
   const threads: StoredThread[] = []
   const messages: StoredMessage[] = []
   const store: ChatThreadStore = {
-    async listThreads({ tenantId, userId }): Promise<ChatThreadSummary[]> {
+    async listThreads({ tenantId, userId, includeArchived }): Promise<ChatThreadSummary[]> {
       return threads
         .filter((thread) => thread.tenantId === tenantId && thread.userId === userId)
+        .filter((thread) => includeArchived || thread.status === 'open')
         .sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime())
         .map((thread) => ({
           id: thread.id,
           title: thread.title ?? 'New conversation',
+          titled: thread.title !== null,
           personId: thread.personId,
           personName: 'Avery',
           status: thread.status,
@@ -78,6 +96,7 @@ function memoryChatStore(clock: () => Date) {
       return {
         id: thread.id,
         title: thread.title ?? 'New conversation',
+        titled: thread.title !== null,
         personId: thread.personId,
         personName: 'Avery',
         status: thread.status,
@@ -102,7 +121,16 @@ function memoryChatStore(clock: () => Date) {
     },
     async createThread({ tenantId, userId, personId, title }) {
       const id = `thread-${threads.length + 1}`
-      threads.push({ id, tenantId, userId, personId, title, status: 'open', lastMessageAt: clock() })
+      threads.push({
+        id,
+        tenantId,
+        userId,
+        personId,
+        title,
+        status: 'open',
+        lastMessageAt: clock(),
+        updatedBy: userId,
+      })
       return id
     },
     async appendMessage({ threadId, role, body, runId }) {
@@ -127,6 +155,13 @@ function memoryChatStore(clock: () => Date) {
       if (!thread) return
       thread.lastMessageAt = at
       if (title !== undefined) thread.title = title
+    },
+    async updateThread({ threadId, updatedBy, title, status }) {
+      const thread = threads.find((row) => row.id === threadId)
+      if (!thread) return
+      if (title !== undefined) thread.title = title
+      if (status !== undefined) thread.status = status
+      thread.updatedBy = updatedBy
     },
   }
   return { store, threads, messages }
@@ -192,7 +227,7 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   assert.equal(sent.messages[1]?.runId, 'run-1', 'the reply carries the run it came from')
   assert.equal(messages.length, 2)
 
-  const listed = await listThreads(TENANT, USER, deps)
+  const listed = await listThreads({ tenantId: TENANT, userId: USER }, deps)
   assert.equal(listed.length, 1)
   assert.equal(listed[0]?.title, 'Book the dentist for Thursday morning.', 'the list reads as topics')
   console.log('chat: a message becomes a run through executeAgentRun, with the bridge’s own trigger and input')
@@ -282,6 +317,135 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   assert.equal(titleFromMessage('x'.repeat(200))?.length, 72)
 }
 
+// --- (c2) a name someone chose outlives the next message --------------------
+//
+// The auto-title exists so the list reads as topics; it must never be the
+// reason a conversation someone deliberately named goes back to being called
+// after its opening line.
+{
+  let tick = 0
+  const clock = () => new Date(Date.parse('2026-08-17T12:00:00.000Z') + (tick += 60_000))
+  const { store, threads } = memoryChatStore(clock)
+  const { run } = fakeRunner()
+  const deps = { store, run, now: clock }
+
+  // Opened empty — the streaming path — so the first message is what names it.
+  const { threadId } = await startThread({ tenantId: TENANT, userId: USER, personId: AGENT }, deps)
+  await sendMessage({ tenantId: TENANT, threadId, userId: USER, body: 'Chase the Kirby invoice.' }, deps)
+  assert.equal(
+    (await getThread(TENANT, threadId, deps))!.thread.title,
+    'Chase the Kirby invoice.',
+    'an unnamed thread takes its name from the first thing said in it',
+  )
+
+  const renamed = await renameThread(
+    { tenantId: TENANT, threadId, userId: USER, title: '  Kirby   receivables \n ' },
+    deps,
+  )
+  assert.equal(renamed.title, 'Kirby receivables', 'the name is trimmed and flattened to one line')
+  assert.equal(threads[0]?.updatedBy, USER, 'and the audit column says whose hand did it')
+
+  await sendMessage({ tenantId: TENANT, threadId, userId: USER, body: 'Actually, ring them instead.' }, deps)
+  assert.equal(
+    (await getThread(TENANT, threadId, deps))!.thread.title,
+    'Kirby receivables',
+    'the next message does NOT rename it back',
+  )
+
+  await assert.rejects(
+    () => renameThread({ tenantId: TENANT, threadId, userId: USER, title: '   ' }, deps),
+    /Give the conversation a name/,
+  )
+  await assert.rejects(
+    () => renameThread({ tenantId: TENANT, threadId, userId: USER, title: 'x'.repeat(73) }, deps),
+    /at most 72 characters/,
+  )
+  assert.equal((await getThread(TENANT, threadId, deps))!.thread.title, 'Kirby receivables', 'and neither stuck')
+  console.log('chat: a manual name sticks, is tidied, and is never overwritten by a later message')
+}
+
+// --- (c3) archiving hides a conversation; nothing deletes one ----------------
+{
+  const clock = () => new Date('2026-08-17T12:00:00.000Z')
+  const { store, messages } = memoryChatStore(clock)
+  const { run } = fakeRunner()
+  const deps = { store, run, now: clock }
+
+  const { threadId } = await startThread(
+    { tenantId: TENANT, userId: USER, personId: AGENT, firstMessage: 'Reconcile the float.' },
+    deps,
+  )
+  await sendMessage({ tenantId: TENANT, threadId, userId: USER, body: 'Reconcile the float.' }, deps)
+  const before = messages.length
+
+  await setThreadStatus({ tenantId: TENANT, threadId, userId: USER, status: 'closed' }, deps)
+  assert.deepEqual(
+    await listThreads({ tenantId: TENANT, userId: USER }, deps),
+    [],
+    'an archived conversation is out of the default list',
+  )
+  const archived = await listThreads({ tenantId: TENANT, userId: USER, includeArchived: true }, deps)
+  assert.equal(archived.length, 1, 'and back in it when they are asked for')
+  assert.equal(archived[0]?.status, 'closed')
+
+  // Hidden, never destroyed: the transcript and the run ids under it are the
+  // whole reason this is an archive and not a delete.
+  assert.equal(messages.length, before, 'archiving wrote nothing to the transcript and removed nothing')
+  const stillThere = await getThread(TENANT, threadId, deps)
+  assert.equal(stillThere?.messages.length, before, 'and the conversation still reads back in full')
+  assert.equal(stillThere?.messages.at(-1)?.runId, 'run-1', 'with the run it produced still joined to it')
+
+  // Closed means closed: no new turn may be added to an archive.
+  await assert.rejects(
+    () => sendMessage({ tenantId: TENANT, threadId, userId: USER, body: 'One more thing.' }, deps),
+    /closed/,
+  )
+
+  await setThreadStatus({ tenantId: TENANT, threadId, userId: USER, status: 'open' }, deps)
+  assert.equal(
+    (await listThreads({ tenantId: TENANT, userId: USER }, deps)).length,
+    1,
+    'and it can be brought back',
+  )
+  console.log('chat: archiving takes a conversation out of the list and destroys nothing; it comes back whole')
+}
+
+// --- (c4) somebody else's conversation is not theirs to keep ----------------
+//
+// The same rule that stops a colleague posting into a thread (block c) stops
+// them renaming it or filing it away: reading is shared, keeping is not.
+{
+  const clock = () => new Date('2026-08-17T12:00:00.000Z')
+  const { store } = memoryChatStore(clock)
+  const { run } = fakeRunner()
+  const deps = { store, run, now: clock }
+
+  const { threadId } = await startThread(
+    { tenantId: TENANT, userId: USER, personId: AGENT, firstMessage: 'My own conversation.' },
+    deps,
+  )
+
+  await assert.rejects(
+    () => renameThread({ tenantId: TENANT, threadId, userId: OTHER_USER, title: 'Mine now' }, deps),
+    /belongs to someone else/,
+  )
+  await assert.rejects(
+    () => setThreadStatus({ tenantId: TENANT, threadId, userId: OTHER_USER, status: 'closed' }, deps),
+    /belongs to someone else/,
+  )
+
+  const mine = await listThreads({ tenantId: TENANT, userId: USER }, deps)
+  assert.equal(mine.length, 1, 'the conversation is untouched')
+  assert.equal(mine[0]?.title, 'My own conversation.', 'still called what its owner called it')
+  assert.equal(mine[0]?.status, 'open', 'and still open')
+  assert.deepEqual(
+    await listThreads({ tenantId: TENANT, userId: OTHER_USER, includeArchived: true }, deps),
+    [],
+    'and never appeared on the other user’s list to begin with',
+  )
+  console.log('chat: another user can neither rename nor archive a conversation that is not theirs')
+}
+
 // ---------------------------------------------------------------------------
 // The desk half
 // ---------------------------------------------------------------------------
@@ -335,6 +499,11 @@ function fakeDeskRunner() {
       return body?.op === 'end'
         ? Response.json({ ended: true })
         : Response.json({ url: 'https://desk.example/handover/abc', stream: `${url.pathname}/stream` })
+    }
+    if (/\/screen\/frames\/start$/.test(url.pathname)) {
+      // The runner answers with the rate the capture is now running at, and
+      // whether there was one to re-tune at all.
+      return Response.json({ streaming: true, fps: body?.fps, width: body?.width, height: body?.height })
     }
     return Response.json({ ok: true })
   }) as typeof fetch
@@ -564,6 +733,40 @@ function deskDeps(
     'a handover records no input events at all — the guest withholds them at the source',
   )
   console.log('chat desk: a takeover records begin and end with actor, scope and duration — and no keystrokes')
+}
+
+// --- (h) the live view's rate follows what the operator is doing -------------
+//
+// Driving is a control loop with a person in it and gets the fast rate;
+// watching is a glance and gets the slow one. Both re-tune the capture that is
+// already running (`pin: false`) rather than starting one — a rate is not a
+// reason to make a guest paint for nobody — and neither writes to the ledger,
+// because how often we ask to see a screen is not an act on it.
+{
+  const driving = deskDeps()
+  const fast = await setDeskFrameRate({ tenantId: TENANT, personId: AGENT, driving: true }, driving.deps)
+  assert.ok('ok' in fast && fast.fps === AGENT_SCREEN_DRIVING_FPS, 'driving asks for the fast rate')
+  const fastCall = driving.calls.find((call) => /\/screen\/frames\/start$/.test(call.path))
+  assert.ok(fastCall, 'the rate is changed on the running capture, through the runner')
+  assert.equal(fastCall!.method, 'POST')
+  assert.equal(fastCall!.body?.fps, AGENT_SCREEN_DRIVING_FPS)
+  assert.equal(fastCall!.body?.pin, false, 're-tune only: it may never start a capture nobody is watching')
+  assert.equal(driving.events.length, 0, 'a capture rate is not a step on the run record')
+
+  const watching = deskDeps()
+  const slow = await setDeskFrameRate({ tenantId: TENANT, personId: AGENT, driving: false }, watching.deps)
+  assert.ok('ok' in slow && slow.fps === AGENT_SCREEN_WATCHING_FPS, 'letting go asks for the slow one again')
+  assert.ok(
+    AGENT_SCREEN_WATCHING_FPS < AGENT_SCREEN_DRIVING_FPS,
+    'watching must cost the guest less than driving, or the whole switch is pointless',
+  )
+
+  // Same gates as everything else on this desk.
+  const forbidden = deskDeps({ level: 'forbidden' })
+  const refused = await setDeskFrameRate({ tenantId: TENANT, personId: AGENT, driving: true }, forbidden.deps)
+  assert.ok('error' in refused, 'a forbidden dial refuses the rate change too')
+  assert.equal(forbidden.calls.length, 0, 'and the runner is never touched')
+  console.log('chat desk: the capture rate follows driving vs watching, re-tunes in place, and is gated')
 }
 
 console.log(

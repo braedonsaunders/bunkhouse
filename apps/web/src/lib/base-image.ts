@@ -112,12 +112,30 @@ export const BASE_IMAGE_TOOLS: readonly AgentToolManifest[] = [
     bins: [{ name: 'wmctrl', bin: 'wmctrl', healthCheckArgs: ['-m'] }],
   }),
   defineAgentTool({
+    id: 'ffmpeg',
+    name: 'FFmpeg',
+    description:
+      'The live view\'s capture. One long-lived `ffmpeg -f x11grab -draw_mouse 0` per open '
+      + 'stream grabs :99 at the requested rate and writes PNGs down a pipe, which is what '
+      + 'makes a driven desk feel like a desk: a process spawn and an X connection per frame '
+      + 'cannot hold thirty a second on a nested VM, and the operator sees a slideshow. '
+      + 'observe() deliberately does NOT use it — a single still for a model is a different '
+      + 'job (§3.13).',
+    sourceKind: 'apt-package',
+    risk: 'low',
+    aptPackage: 'ffmpeg',
+    aptVersion: '7:5.1.6-0+deb12u1',
+    capabilities: ['desktop'],
+    bins: [{ name: 'ffmpeg', bin: 'ffmpeg', healthCheckArgs: ['-version'] }],
+  }),
+  defineAgentTool({
     id: 'imagemagick',
     name: 'ImageMagick',
     description:
-      'Provides `import`, which captures the root window of :99 as an UNSCALED PNG. Both '
-      + 'observe() and the frame loop go through it; the PNG\'s own IHDR is what the '
-      + 'observation reports as its dimensions.',
+      'Provides `import`, which captures the root window of :99 as an UNSCALED PNG. observe() '
+      + 'goes through it — one still, on demand, for the model to look at; the PNG\'s own '
+      + 'IHDR is what the observation reports as its dimensions. The live frame stream is '
+      + 'ffmpeg\'s job, above.',
     sourceKind: 'apt-package',
     risk: 'low',
     aptPackage: 'imagemagick',

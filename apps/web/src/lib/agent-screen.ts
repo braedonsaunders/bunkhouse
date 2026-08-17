@@ -55,3 +55,22 @@ export const AGENT_SCREEN_HEIGHT = 900
  * actually repainted.
  */
 export const AGENT_SCREEN_FPS = 10
+
+/**
+ * The two rates the live desk pane asks for, chosen by what the operator is
+ * DOING rather than fixed at one compromise.
+ *
+ * Driving is a control loop with a person in it: they move the mouse, and the
+ * only pointer they can see is their own, so the picture under it has to keep
+ * up or the machine feels broken. Thirty is the point where dragging a window
+ * and watching text appear read as the desktop responding rather than as a
+ * slideshow, and it is the guest agent's own ceiling (FRAMES_MAX_FPS).
+ *
+ * Watching is a glance: five is plenty to see what an agent is doing, and it
+ * costs almost nothing to ask for, because the capture is damage-driven — a
+ * still screen emits one keepalive every few seconds whatever the rate is. The
+ * cost of a high rate is paid only while something is actually repainting,
+ * which is exactly when a person is driving.
+ */
+export const AGENT_SCREEN_DRIVING_FPS = 30
+export const AGENT_SCREEN_WATCHING_FPS = 5

@@ -18,7 +18,7 @@ import {
 } from '../db/schema'
 import { db } from '../db/client'
 import { saveFile } from './files'
-import { AGENT_SCREEN_HEIGHT, AGENT_SCREEN_WIDTH } from './agent-screen'
+import { AGENT_SCREEN_HEIGHT, AGENT_SCREEN_WATCHING_FPS, AGENT_SCREEN_WIDTH } from './agent-screen'
 import { startDeskCast, stopDeskCast } from './desk-cast'
 import { getDeskPolicy, type DeskFeatures, type DeskPolicy } from './desk-policy'
 
@@ -226,7 +226,8 @@ export function guestWorkspacePath(relative: string): string {
 //   · GET  /desks/:id/screen/frames  and POST /screen/frames/start|stop —
 //     the live view, in desk-cast.ts, which feeds them to the call stage.
 //     (`openDeskFrameStream` below is the OTHER consumer of the same
-//     endpoint: the browser proxy behind /api/desk/[personId]/frames.)
+//     endpoint: the browser proxy behind /api/desk/[personId]/frames, and
+//     `tuneDeskFrames` beside it re-tunes that capture's rate in place.)
 //   · GET  /desks/:id/handover/stream (WS) — the handover relay; this module
 //     only composes its authenticated URL, below.
 // ---------------------------------------------------------------------------
@@ -620,7 +621,7 @@ export async function openDeskFrameStream(
   const runner = requireRunner(deps)
   const request = deps.fetch ?? fetch
   const query = new URLSearchParams({
-    fps: String(args.fps ?? 10),
+    fps: String(args.fps ?? AGENT_SCREEN_WATCHING_FPS),
     width: String(args.width ?? AGENT_SCREEN_WIDTH),
     height: String(args.height ?? AGENT_SCREEN_HEIGHT),
   })
@@ -636,6 +637,47 @@ export async function openDeskFrameStream(
     throw new Error(`The desk refused the frame stream (${response.status}) ${detail.slice(0, 200)}`.trim())
   }
   return reframeDeskFrames(response.body)
+}
+
+/**
+ * Re-tune the rate of a capture that is ALREADY running, without touching the
+ * subscription that is carrying it.
+ *
+ * The rate a live view wants is not a constant: while somebody is driving, the
+ * picture under their cursor has to keep up with their hand; while they are
+ * only watching, a glance a second is plenty and the guest should not be
+ * paying for more. Both are the same stream — re-subscribing to change the
+ * number would drop the runner's pump (the last subscriber leaving is what
+ * stops it), restart the guest's capture, and put a visible hitch in the
+ * picture at exactly the moment somebody reached for the controls.
+ *
+ * So this is a SIDE CALL: `POST /screen/frames/start` with the new fps and
+ * `pin: false`, which the runner reads as "re-tune what is running". It never
+ * starts a capture — with nothing running it answers `streaming: false` and
+ * changes nothing, because a pump with no subscribers is a picture nobody is
+ * looking at.
+ */
+export async function tuneDeskFrames(
+  args: { deskId: string; fps: number; width?: number; height?: number },
+  deps: DeskClientDeps = {},
+): Promise<{ streaming: boolean; fps: number }> {
+  const runner = requireRunner(deps)
+  const tuned = await runnerPost<{ streaming?: unknown; fps?: unknown }>(
+    runner,
+    deps,
+    `/desks/${encodeURIComponent(args.deskId)}/screen/frames/start`,
+    {
+      fps: args.fps,
+      width: args.width ?? AGENT_SCREEN_WIDTH,
+      height: args.height ?? AGENT_SCREEN_HEIGHT,
+      pin: false,
+    },
+    10_000,
+  )
+  return {
+    streaming: tuned.streaming === true,
+    fps: typeof tuned.fps === 'number' ? tuned.fps : args.fps,
+  }
 }
 
 /**

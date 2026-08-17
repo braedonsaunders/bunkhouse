@@ -10,6 +10,7 @@ import {
   deskStatusAction,
   openDesktopAction,
   sendDesktopInputAction,
+  setDeskFrameRateAction,
   takeoverAction,
 } from '../app/chat/actions'
 
@@ -85,6 +86,14 @@ const FRAME_STALE_MS = 8_000
 
 /** The polling fallback's interval when the frame stream is unavailable. */
 const FRAME_POLL_MS = 1_000
+
+/**
+ * How long to wait before asking again for a capture rate that had nothing to
+ * apply to. The only way that happens is the race between this pane's own
+ * subscription reaching the runner and the mode changing on top of it, so one
+ * beat is the whole of the wait.
+ */
+const FRAME_RATE_RETRY_MS = 750
 
 /**
  * How long typed characters are gathered before they are sent as one `type`.
@@ -523,6 +532,45 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     return () => clearTimeout(timer)
   }, [drivingNow, surface])
 
+  /**
+   * The rate the desk is captured at follows the mode, on the same flag the
+   * input surface uses.
+   *
+   * Driving is a control loop with a person in it: the guest's own cursor is
+   * not in the picture, so the only pointer they can see is their own, and the
+   * desktop under it has to keep up with their hand. Watching is a glance, and
+   * a glance does not need to be paid for at the driving rate on a machine
+   * that is also doing the agent's work.
+   *
+   * This is a side call, NOT a re-subscription: the frame stream above is left
+   * alone and only the guest's capture changes speed, so the picture never
+   * blinks out at the moment somebody reaches for the controls. It re-tunes
+   * what is running and starts nothing — which is why the one case it retries
+   * is the race where this asks before its own subscription has reached the
+   * runner and there is not yet a capture to re-tune.
+   */
+  React.useEffect(() => {
+    if (!screenOpen || handover.active) return
+    let cancelled = false
+    let retry: ReturnType<typeof setTimeout> | null = null
+    const ask = async () => {
+      try {
+        const result = await setDeskFrameRateAction(personId, drivingNow)
+        if (cancelled || 'error' in result || result.streaming) return
+        retry = setTimeout(() => void ask(), FRAME_RATE_RETRY_MS)
+      } catch {
+        // The picture keeps arriving at whatever rate it already had, so a
+        // failure here is worth no words in front of the operator: it is a
+        // slower desk, not a broken one.
+      }
+    }
+    void ask()
+    return () => {
+      cancelled = true
+      if (retry !== null) clearTimeout(retry)
+    }
+  }, [drivingNow, handover.active, personId, screenOpen])
+
   // A screen that has gone takes the full-screen view with it: there is
   // nothing left to fill a window with, and an overlay over a closed desktop
   // is a wall in front of the conversation. Derived from the screen rather
@@ -852,7 +900,16 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
         if (drivingNow) event.preventDefault()
       }}
       onBlur={() => flushTyping()}
-      className={cn('absolute inset-0 outline-none', drivingNow && 'cursor-crosshair')}
+      // The ORDINARY ARROW while driving, deliberately. The guest's own pointer
+      // is not in the picture — the capture composites no cursor, by design, so
+      // there are never two pointers a frame's latency apart — which makes the
+      // local one the only pointer the operator has, and it has to read as the
+      // pointer of the desktop it is pointing at. A
+      // crosshair says "drag out a region", which is not what this is: it is a
+      // desktop you click on. Watching is marked by the warning ring and the
+      // badge rather than by a cursor, so the picture is never dressed up as
+      // something to interact with when it is not.
+      className={cn('absolute inset-0 outline-none', drivingNow && 'cursor-default')}
     >
       {handover.active ? (
         <div className="flex size-full flex-col items-center justify-center gap-2 px-8 text-center">

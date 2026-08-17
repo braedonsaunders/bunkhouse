@@ -54,10 +54,15 @@ export default async function ChatPage({
 
   const threads = await listThreadsAction()
 
-  // Only a thread that is actually on this tenant's list is opened: a stale or
-  // guessed id in the URL lands on the empty pane, not on an error page.
+  // Only a thread that is actually on this reader's list is opened: a stale or
+  // guessed id in the URL lands on the empty pane, not on an error page. The
+  // guard looks at the whole set rather than the visible one — archiving takes
+  // a conversation out of the list, not out of reach, so a link to one still
+  // opens it (and the pane shows the archived ones so it is not there alone).
+  const reachable =
+    requestedThreadId === undefined ? threads : await listThreadsAction({ includeArchived: true })
   const initialThread: ChatThreadDetail | null =
-    requestedThreadId && threads.some((thread) => thread.id === requestedThreadId)
+    requestedThreadId && reachable.some((thread) => thread.id === requestedThreadId)
       ? await getThreadAction(requestedThreadId)
       : null
 
