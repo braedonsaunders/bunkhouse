@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash, timingSafeEqual } from 'node:crypto'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { connect as tcpConnect } from 'node:net'
 import { join } from 'node:path'
@@ -123,7 +123,7 @@ const GUEST_DNS = process.env.BUNKHOUSE_GUEST_DNS ?? '1.1.1.1'
  * this is sized against the real number with room over it, and every desk and
  * the boot probe share the one backend so they cannot disagree.
  */
-const GUEST_CONNECT_TIMEOUT_MS = Number(process.env.BUNKHOUSE_DESK_CONNECT_MS ?? 300_000)
+const GUEST_CONNECT_TIMEOUT_MS = Number(process.env.BUNKHOUSE_DESK_CONNECT_MS ?? 120_000)
 
 const deskBackend = createCloudHypervisorBackend({
   connectTimeoutMs: GUEST_CONNECT_TIMEOUT_MS,
@@ -133,7 +133,7 @@ const deskBackend = createCloudHypervisorBackend({
   // attempt in that window is a fresh CONNECT into Cloud Hypervisor's vsock
   // multiplexer that the guest cannot answer. A thousand of those buys
   // nothing and is a poor neighbour to the device we are waiting on.
-  connectRetryDelayMs: Number(process.env.BUNKHOUSE_DESK_RETRY_MS ?? 1_000),
+  connectRetryDelayMs: Number(process.env.BUNKHOUSE_DESK_RETRY_MS ?? 2_000),
 })
 
 /**
@@ -385,6 +385,32 @@ function deskRules(tap: string, guest: string): {
  * chains that are created if missing, flushed, and refilled, and the jump into
  * each built-in chain is added only when `-C` says it is not already there.
  */
+/**
+ * Turn on IPv4 forwarding, tolerating a container that already has it.
+ *
+ * ip_forward is namespaced, so a desk's traffic cannot leave its tap without
+ * it. But /proc/sys is mounted READ-ONLY in a container, and NET_ADMIN does
+ * not change that: the value has to be set at create time (the compose file
+ * does, via `sysctls`), and writing it from in here fails with EROFS even
+ * when it is already exactly what we want. So read first, and only complain
+ * if forwarding is genuinely off and we cannot turn it on — otherwise a
+ * correctly configured host refuses every desk over a write it never needed
+ * to make.
+ */
+async function enableForwarding(): Promise<void> {
+  const path = '/proc/sys/net/ipv4/ip_forward'
+  const current = await readFile(path, 'utf8').catch(() => '')
+  if (current.trim() === '1') return
+  try {
+    await writeFile(path, '1')
+  } catch (error) {
+    throw new Error(
+      `IPv4 forwarding is off and ${path} is not writable (${error instanceof Error ? error.message : String(error)}). ` +
+        "Set it on the container instead — deploy/desk-runner.compose.yaml's `sysctls`.",
+    )
+  }
+}
+
 async function installEgressRules(tap: string, guest: string): Promise<void> {
   for (const { table, parent, chain, jumps, rules } of deskRules(tap, guest)) {
     if (!(await succeeds('iptables', ['-t', table, '-N', chain]))) {
@@ -429,7 +455,7 @@ async function ensureDeskNetwork(index: number): Promise<void> {
   await run('ip', ['link', 'set', 'dev', tap, 'up'])
   await run('ip', ['route', 'replace', `${guest}/32`, 'dev', tap])
   // Namespaced, and needed for the one hop that leaves: DNS.
-  await writeFile('/proc/sys/net/ipv4/ip_forward', '1')
+  await enableForwarding()
   await installEgressRules(tap, guest)
 }
 
@@ -1658,6 +1684,33 @@ async function reclaimStaleTaps(): Promise<void> {
   }
 }
 
+/**
+ * Probe the host until it answers, rather than once and forever.
+ *
+ * The probe boots a real microVM and waits for a guest that is still coming
+ * up. That race is winnable and usually won, but losing it once must not
+ * leave the host permanently refusing desks when nothing is actually wrong
+ * with it — the first boot after a restart is exactly when the machine is
+ * busiest. So a failure is retried a few times with a gap, and only a
+ * consistent failure is reported as a host that cannot serve desks.
+ */
+async function verifyWithRetries(
+  attempt: () => Promise<DeskHostVerification>,
+  attempts = Number(process.env.BUNKHOUSE_DESK_VERIFY_ATTEMPTS ?? 4),
+  gapMs = Number(process.env.BUNKHOUSE_DESK_VERIFY_GAP_MS ?? 20_000),
+): Promise<DeskHostVerification> {
+  let last: DeskHostVerification | null = null
+  for (let index = 0; index < attempts; index += 1) {
+    if (index > 0) {
+      console.log(`[desk-runner] retrying the host probe (attempt ${index + 1} of ${attempts})`)
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, gapMs))
+    }
+    last = await attempt()
+    if (last.supported) return last
+  }
+  return last as DeskHostVerification
+}
+
 server.listen(PORT, () => {
   console.log(`[desk-runner] listening on ${PORT}; disks ${DISKS_ROOT}; shared folder ${SHARED_FOLDER}`)
   void verifyNetAdmin()
@@ -1669,7 +1722,8 @@ server.listen(PORT, () => {
       // agent came up".
       await mkdir(DEFAULT_RUNTIME_DIR, { recursive: true })
       await reclaimStaleTaps()
-      return verifyDeskHost({
+      return verifyWithRetries(() =>
+        verifyDeskHost({
         kernelPath: join(DISKS_ROOT, 'vmlinux'),
         // The Debian cloud kernel is modular; without its initramfs the probe
         // VM panics before the guest agent answers and vsock reads as
@@ -1682,9 +1736,10 @@ server.listen(PORT, () => {
         // overlay: no reflink there, so a 20GB base is COPIED, slowly, into a
         // layer that was never sized for it — and the probe times out looking
         // like a host that cannot boot a VM at all.
-        scratchDir: join(DISKS_ROOT, 'overlays'),
-        backend: deskBackend,
-      })
+          scratchDir: join(DISKS_ROOT, 'overlays'),
+          backend: deskBackend,
+        }),
+      )
     })
     .then((result) => {
       verification = result

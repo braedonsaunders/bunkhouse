@@ -147,6 +147,13 @@ services:
     # no TAP and no DNAT, and therefore no enforced egress.
     cap_add:
       - NET_ADMIN
+    # NET_ADMIN lets this container configure interfaces, but /proc/sys is
+    # mounted read-only, so forwarding between a desk's tap and the outside
+    # cannot simply be switched on from inside. Docker sets namespaced sysctls
+    # for us at create time; without this a lease fails with EROFS on
+    # /proc/sys/net/ipv4/ip_forward and no desk can reach the proxy.
+    sysctls:
+      net.ipv4.ip_forward: '1'
     environment:
       NODE_ENV: production
       PORT: '8080'
