@@ -1,6 +1,6 @@
 'use client'
 
-import { Badge } from '@appkit/ui'
+import { Badge } from '@braedonsaunders/appkit-ui'
 import type { ProcedureContent } from '../db/schema'
 
 /**

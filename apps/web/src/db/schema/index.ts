@@ -45,7 +45,7 @@ import { DESK_TENANT_TABLES } from './desk'
 import { SKILLS_TENANT_TABLES } from './skills'
 import { TOOLS_TENANT_TABLES } from './tools'
 
-/** Every bunkhouse tenant-scoped table; feed to @appkit/db's RLS installer. */
+/** Every bunkhouse tenant-scoped table; feed to @braedonsaunders/appkit-db's RLS installer. */
 export const BUNKHOUSE_TENANT_TABLES = [
   ...PEOPLE_TENANT_TABLES,
   ...MAIL_TENANT_TABLES,

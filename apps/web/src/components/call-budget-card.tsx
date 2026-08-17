@@ -13,7 +13,7 @@ import {
   Label,
   Progress,
   Select,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import { setAgentCallMinutes } from '../app/organization/actions'
 
 /**

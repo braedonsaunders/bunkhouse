@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import { Badge, Button, Checkbox, Input, Label } from '@appkit/ui'
+import { Badge, Button, Checkbox, Input, Label } from '@braedonsaunders/appkit-ui'
 import type { ProcedureContent, ProcedureStep } from '../db/schema'
 import { MarkdownEditor } from './markdown-editor'
 

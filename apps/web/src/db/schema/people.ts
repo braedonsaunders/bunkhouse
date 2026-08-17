@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { check, date, foreignKey, index, integer, jsonb, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
-import { auditColumns, id, tenantRef, users } from '@appkit/db'
-import type { AgentVoiceConfig } from '@appkit/voice'
+import { auditColumns, id, tenantRef, users } from '@braedonsaunders/appkit-db'
+import type { AgentVoiceConfig } from '@braedonsaunders/appkit-voice'
 
 /**
  * The mixed directory: real human employees and AI agents live in one table so

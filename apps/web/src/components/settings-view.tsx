@@ -19,9 +19,9 @@ import {
   type LinkRender,
   type PagedColumn,
   type SettingsNavGroup,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import { removeSpeechProviderAction, setSpeechProviderKeyAction } from '../app/admin/settings/actions'
-import type { AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
+import type { AvatarPart, AvatarPartCategory } from '@braedonsaunders/appkit-avatars/composition'
 import { AvatarPartsView, type AvatarPartRowView } from './avatar-parts-view'
 import { type ProviderKindOption } from './add-provider-form'
 import {
@@ -56,7 +56,7 @@ import { DocumentTemplatesView, type TemplateRowView } from './document-template
 import { FilingSection, type FilingActivityRow, type FilingSettingsView } from './filing-settings'
 import { ChatSettingsSection, type ChatAgentOption, type ChatChannelRouteRowView, type ChatConnectionsView } from './chat-settings'
 import { AccessSettings } from './access-settings'
-import type { ScopeOptions } from '@appkit/iam'
+import type { ScopeOptions } from '@braedonsaunders/appkit-iam'
 import { SectionTabs } from './section-tabs'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (

@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { eq, inArray } from 'drizzle-orm'
-import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState } from '@appkit/ui'
-import { formatAttachmentSize } from '@appkit/storage'
+import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState } from '@braedonsaunders/appkit-ui'
+import { formatAttachmentSize } from '@braedonsaunders/appkit-storage'
 import { assignments as assignmentsTable, files as filesTable } from '../../db/schema'
 import { db } from '../../db/client'
 

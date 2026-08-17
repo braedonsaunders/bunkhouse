@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Badge, Button, Input, Label, Select, SettingsRow, SettingsSection } from '@appkit/ui'
+import { Badge, Button, Input, Label, Select, SettingsRow, SettingsSection } from '@braedonsaunders/appkit-ui'
 import {
   measureSpeechRatesAction,
   saveVoicePricingAction,

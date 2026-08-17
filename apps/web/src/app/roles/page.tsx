@@ -1,5 +1,5 @@
 import { asc, eq } from 'drizzle-orm'
-import { PageContainer, PageHeader } from '@appkit/ui'
+import { PageContainer, PageHeader } from '@braedonsaunders/appkit-ui'
 import { people } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'

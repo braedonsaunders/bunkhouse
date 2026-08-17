@@ -3,8 +3,8 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
-import { AccountMenu, AppShell, ThemeProvider, UiLinkProvider, type SidebarNavGroup } from '@appkit/ui'
-import { PageTransition } from '@appkit/ui/page-transition'
+import { AccountMenu, AppShell, ThemeProvider, UiLinkProvider, type SidebarNavGroup } from '@braedonsaunders/appkit-ui'
+import { PageTransition } from '@braedonsaunders/appkit-ui/page-transition'
 import { authClient } from '@/lib/auth-client'
 import { Logo } from '@/components/brand-logo'
 

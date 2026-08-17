@@ -1,5 +1,5 @@
 import 'server-only'
-import { createDb, type AppkitDb, schema as identity } from '@appkit/db'
+import { createDb, type AppkitDb, schema as identity } from '@braedonsaunders/appkit-db'
 import * as bunkhouse from './schema'
 
 // One db instance per process; Next dev hot-reloads module graphs, so the

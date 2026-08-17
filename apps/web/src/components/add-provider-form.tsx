@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Button, Input, Label, SearchSelect, Select } from '@appkit/ui'
+import { Button, Input, Label, SearchSelect, Select } from '@braedonsaunders/appkit-ui'
 import { addProviderAction, loadModelsAction } from '../app/admin/settings/actions'
 
 export type ProviderKindOption = { value: string; label: string; needsBaseUrl: boolean }

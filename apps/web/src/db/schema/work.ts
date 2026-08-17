@@ -1,5 +1,5 @@
 import { bigint, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
-import { auditColumns, id, money, tenantRef } from '@appkit/db'
+import { auditColumns, id, money, tenantRef } from '@braedonsaunders/appkit-db'
 
 /**
  * A run is one unit of an agent's work — answering a thread, performing a duty,

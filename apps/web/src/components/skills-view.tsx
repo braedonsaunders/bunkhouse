@@ -11,7 +11,7 @@ import {
   Label,
   RecordList,
   type RecordColumn,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import type { ResourceAssignment } from '../db/schema'
 import { SKILL_LIBRARY, SKILL_LIBRARY_GROUPS, type SkillLibraryEntry } from '../lib/skill-library'
 import { AssignmentFields, type AssignOption } from './procedures-view'

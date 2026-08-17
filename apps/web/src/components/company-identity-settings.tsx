@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Globe, X } from 'lucide-react'
-import { Badge, Button, Drawer, Input, Label, Select, SettingsRow, SettingsSection } from '@appkit/ui'
+import { Badge, Button, Drawer, Input, Label, Select, SettingsRow, SettingsSection } from '@braedonsaunders/appkit-ui'
 import { MarkdownEditor } from './markdown-editor'
 import { normalizeDomain } from '../lib/internal-domains'
 import {

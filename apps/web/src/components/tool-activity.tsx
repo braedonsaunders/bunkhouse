@@ -26,7 +26,7 @@ import {
   Video,
   type LucideIcon,
 } from 'lucide-react'
-import { Badge } from '@appkit/ui'
+import { Badge } from '@braedonsaunders/appkit-ui'
 import type { ToolActivityItem } from '../lib/call-activity'
 
 /**

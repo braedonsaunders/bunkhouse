@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { OrgChart, canReparent, toast, type OrgChartNode } from '@appkit/ui'
+import { OrgChart, canReparent, toast, type OrgChartNode } from '@braedonsaunders/appkit-ui'
 import { setReportsTo } from '../app/organization/actions'
 
 type Move = { childId: string; managerId: string | null }

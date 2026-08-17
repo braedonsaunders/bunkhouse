@@ -1,5 +1,5 @@
 import { index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
-import { auditColumns, id, tenantRef } from '@appkit/db'
+import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
 
 /**
  * Computer use: an agent driving a real headless browser. One session per run

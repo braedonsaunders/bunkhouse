@@ -1,5 +1,5 @@
 import { index, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
-import { id, tenantRef } from '@appkit/db'
+import { id, tenantRef } from '@braedonsaunders/appkit-db'
 
 /**
  * The Slack / Microsoft Teams bridge. Chat is a secondary surface (doctrine

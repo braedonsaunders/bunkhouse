@@ -1,9 +1,9 @@
 import { jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core'
-import { auditColumns, id, tenantRef } from '@appkit/db'
-import type { AgentToolPolicy } from '@appkit/agent-tools'
-import type { SealedSecret } from '@appkit/crypto'
-import type { RawSmsConfig } from '@appkit/sms'
-import type { RawCarrierConfig } from '@appkit/telephony'
+import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
+import type { AgentToolPolicy } from '@braedonsaunders/appkit-agent-tools'
+import type { SealedSecret } from '@braedonsaunders/appkit-crypto'
+import type { RawSmsConfig } from '@braedonsaunders/appkit-sms'
+import type { RawCarrierConfig } from '@braedonsaunders/appkit-telephony'
 import type { ResourceAssignment } from './assignment'
 
 /**
@@ -26,7 +26,7 @@ export const tenantSettings = pgTable(
 export type AiProviderEntry = {
   /** Stable slug agents reference from their modelConfig.provider. */
   slug: string
-  /** @appkit/ai provider kind: anthropic | openai | google | openrouter | … */
+  /** @braedonsaunders/appkit-ai provider kind: anthropic | openai | google | openrouter | … */
   provider: string
   label: string
   sealedApiKey: SealedSecret
@@ -267,7 +267,7 @@ export const DOCUMENT_BRANDING_KEY = 'documents.branding'
  *  every message an agent sends. Designed once in Settings → Mail → Signature
  *  and personalized per sender at send time through `{{agent.*}}` tokens, so
  *  one design serves the whole roster. Two halves are kept, exactly as
- *  @appkit/email-designer produces them: `sourceHtml` reopens in the designer,
+ *  @braedonsaunders/appkit-email-designer produces them: `sourceHtml` reopens in the designer,
  *  `compiledHtml` is what renders. Off by default — until an operator turns it
  *  on, agents sign off in their own words and nothing is appended. */
 export type MailSignatureSettings = {
@@ -303,7 +303,7 @@ export type WorkspacePolicySettings = {
 export const WORKSPACE_POLICY_KEY = 'workspace.policy'
 
 /** settings key: 'tools.policy' — the two gates on managed command-line tools,
- *  per @appkit/agent-tools' AgentToolPolicy. Installing a tool and running one
+ *  per @braedonsaunders/appkit-agent-tools' AgentToolPolicy. Installing a tool and running one
  *  are separate questions: the defaults ask a person before anything is added
  *  to the host, and let a low-risk, network-isolated tool run unreviewed once
  *  it is there. `grantUses` bounds how many runs a single approval covers. */
@@ -312,7 +312,7 @@ export type ToolPolicySettings = AgentToolPolicy
 export const TOOL_POLICY_KEY = 'tools.policy'
 
 /** settings key: 'sms.provider' — the tenant's SMS provider config, per
- *  @appkit/sms's RawSmsConfig shape. The single credential (auth token / API
+ *  @braedonsaunders/appkit-sms's RawSmsConfig shape. The single credential (auth token / API
  *  secret / access key, depending on provider) is sealed at rest using that
  *  package's own ciphertext/nonce fields, and is only unsealed at send time. */
 export type SmsProviderSettings = RawSmsConfig
@@ -321,7 +321,7 @@ export const SMS_PROVIDER_KEY = 'sms.provider'
 
 /** settings key: 'voice.carrier' — the company's telephony carrier account,
  *  used to buy phone numbers and to build the SIP trunk that carries them, per
- *  @appkit/telephony's RawCarrierConfig shape. Only the account's identity and
+ *  @braedonsaunders/appkit-telephony's RawCarrierConfig shape. Only the account's identity and
  *  its sealed secret live here; the trunk the account provisions is a
  *  sip_trunks row like any other, and the numbers are phone_numbers rows. The
  *  secret is sealed at rest using that package's own ciphertext/nonce fields,

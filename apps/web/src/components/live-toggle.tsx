@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Switch } from '@appkit/ui'
+import { Switch } from '@braedonsaunders/appkit-ui'
 
 /**
  * The observatory's live control: while on, re-fetches the current route's

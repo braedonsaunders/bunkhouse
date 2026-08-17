@@ -5,6 +5,7 @@ import { duties } from '../db/schema'
 import { db } from '../db/client'
 import { executeAgentRun } from './agent-runs'
 import { nextOccurrence } from './duties'
+import { isPersonNotWorking } from './person-work'
 import { dutyIsSelfDirected, selfDirectedBudget } from './work-budget'
 
 /**
@@ -66,12 +67,22 @@ export async function executeDueDuty(
     }
   }
 
-  const { outcome } = await executeAgentRun({
-    tenantId,
-    personId: claimed.personId,
-    trigger: { type: 'duty', dutyId: claimed.id },
-    input: { type: 'duty', dutyTitle: claimed.title, instruction: claimed.instruction },
-  })
-  console.log(`[duty] ${claimed.title}: ${outcome.status}${claimed.nextDueAt ? '' : ' (final run — duty retired)'}`)
+  try {
+    const { outcome } = await executeAgentRun({
+      tenantId,
+      personId: claimed.personId,
+      trigger: { type: 'duty', dutyId: claimed.id },
+      input: { type: 'duty', dutyTitle: claimed.title, instruction: claimed.instruction },
+    })
+    console.log(`[duty] ${claimed.title}: ${outcome.status}${claimed.nextDueAt ? '' : ' (final run — duty retired)'}`)
+  } catch (error) {
+    // The occurrence is spent either way — the schedule advanced in the claim
+    // above — and the gate has already written the refusal as a run against
+    // this duty, so the operator can see the occurrence that did not happen.
+    // Re-throwing would only have the queue retry a duty whose agent cannot
+    // work; the duty itself stays scheduled for whenever it can.
+    if (!isPersonNotWorking(error)) throw error
+    console.warn(`[duty] ${claimed.title}: not run — ${error.message}`)
+  }
 }
 

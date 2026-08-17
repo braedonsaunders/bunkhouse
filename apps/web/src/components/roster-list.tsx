@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { ListNavProvider, RecordList, type RecordColumn } from '@appkit/ui'
+import { ListNavProvider, RecordList, type RecordColumn } from '@braedonsaunders/appkit-ui'
 import type { CallAction } from '../lib/call-action'
 import type { PersonStatus } from '../app/organization/actions'
 import { CallActionButton } from './call-action-button'

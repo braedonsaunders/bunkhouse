@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Alert, Badge, Button, Label, Select, Spinner, Textarea, useTheme } from '@appkit/ui'
+import { Alert, Badge, Button, Label, Select, Spinner, Textarea, useTheme } from '@braedonsaunders/appkit-ui'
 import { BunkhouseSceneArt } from './scene-art'
 import { DrawnRoom } from './drawn-room'
 import type { SceneKind } from './scene-kinds'

@@ -6,12 +6,12 @@ export { SCENE_KINDS, SCENE_LABELS, type SceneKind } from './scene-kinds'
 import { SCENE_KINDS, type SceneKind } from './scene-kinds'
 
 import * as React from 'react'
-import type { SceneGroundConfig } from '@appkit/scene'
+import type { SceneGroundConfig } from '@braedonsaunders/appkit-scene'
 
 /**
  * The rooms the staff work in.
  *
- * `@appkit/scene` ships a set of painted stages, but they were drawn as
+ * `@braedonsaunders/appkit-scene` ships a set of painted stages, but they were drawn as
  * backdrops for a small hero panel: a flat colour band, a handful of props
  * floating on it, no architecture. Filling a whole screen with one shows every
  * seam — desks hanging in the sky, no ceiling, no walls, props sized for a

@@ -5,7 +5,7 @@ import {
   normalizeOutboundHostname,
   type EgressAuditEntry,
   type EgressPolicyRequest,
-} from '@appkit/egress-proxy'
+} from '@braedonsaunders/appkit-egress-proxy'
 
 /**
  * The egress chokepoint for every desk (docs/agent-desk.md §3.11). All guest

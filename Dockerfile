@@ -27,11 +27,11 @@ RUN corepack enable && corepack prepare pnpm@10.30.0 --activate
 #   this the voice agent registers happily and then fails every call it is
 #   handed with "no native root CA certificates found".
 # - poppler-utils: pdfunite concatenates PDFs in the server-side document
-#   pipeline (@appkit/office, used by documents.ts and the template merge);
+#   pipeline (@braedonsaunders/appkit-office, used by documents.ts and the template merge);
 #   pdftoppm is file-reading.ts's OCR raster step, which probes for a
 #   tesseract binary and fails closed where none exists.
 # - libreoffice-writer + fonts-liberation: the tier-0 document pipeline.
-#   create_document and the template merge render through @appkit/office's
+#   create_document and the template merge render through @braedonsaunders/appkit-office's
 #   soffice call ON THE SERVER — that ability is deliberately better than an
 #   agent driving LibreOffice by hand in the guest (docs/agent-desk.md §2),
 #   so the binary stays here even though the guest image also carries one
@@ -51,7 +51,6 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/
 COPY packages/roles/package.json packages/roles/
 COPY packages/runtime/package.json packages/runtime/
-COPY vendor/appkit/ vendor/appkit/
 RUN pnpm install --frozen-lockfile
 
 # --- build -------------------------------------------------------------------

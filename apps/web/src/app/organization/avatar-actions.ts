@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import type { AvatarComposition } from '@appkit/avatars/composition'
+import type { AvatarComposition } from '@braedonsaunders/appkit-avatars/composition'
 import { resolveTenantId as resolveTenant } from '../../lib/tenant'
 const resolveTenantId = () => resolveTenant('people.manage')
 import { saveAvatarComposition } from '../../lib/avatars'

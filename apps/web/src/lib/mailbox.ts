@@ -1,6 +1,6 @@
 import 'server-only'
 import { and, desc, eq, ne, sql } from 'drizzle-orm'
-import { sealSecret, unsealSecret, type SealedSecret } from '@appkit/crypto'
+import { sealSecret, unsealSecret, type SealedSecret } from '@braedonsaunders/appkit-crypto'
 import {
   sendMail,
   syncMailbox,
@@ -11,7 +11,7 @@ import {
   type MailboxStore,
   type OutboundAttachment,
   type SendMailArgs,
-} from '@appkit/mailbox'
+} from '@braedonsaunders/appkit-mailbox'
 import { mailboxAccounts, mailMessages, mailThreads, people, type MailAttachmentRef } from '../db/schema'
 import { db } from '../db/client'
 import { getFileBytes, getFileRecords, saveFile } from './files'

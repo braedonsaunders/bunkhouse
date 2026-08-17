@@ -1,8 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { MailboxInbox, type MailFolderKey, type MailThreadListItem } from '@appkit/mailbox/react'
-import { formatAttachmentSize } from '@appkit/storage'
+import { MailboxInbox, type MailFolderKey, type MailThreadListItem } from '@braedonsaunders/appkit-mailbox/react'
+import { formatAttachmentSize } from '@braedonsaunders/appkit-storage'
 import {
   composeMailAction,
   loadMailConversationAction,
@@ -19,13 +19,13 @@ export type AgentMailboxOption = {
 }
 
 /**
- * The agent's inbox on its own flyout tab: @appkit/mailbox's inbox surface,
+ * The agent's inbox on its own flyout tab: @braedonsaunders/appkit-mailbox's inbox surface,
  * fed by server actions.
  *
  * One mailbox, and only theirs. The drawer is already open on a person, so a
  * picker offering everyone else's mail asked you to leave the record you had
  * just opened — you get to a colleague's inbox by opening the colleague.
- * @appkit/mailbox draws no switcher when there is nowhere to switch to.
+ * @braedonsaunders/appkit-mailbox draws no switcher when there is nowhere to switch to.
  */
 export function AgentMailInbox({
   mailbox,

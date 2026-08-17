@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs'
-import { installRlsSql, IDENTITY_TENANT_TABLES } from '@appkit/db'
-import { PLATFORM_TENANT_TABLES } from '@appkit/db'
-import { API_TENANT_TABLES } from '@appkit/db'
+import { installRlsSql, IDENTITY_TENANT_TABLES } from '@braedonsaunders/appkit-db'
+import { PLATFORM_TENANT_TABLES } from '@braedonsaunders/appkit-db'
+import { API_TENANT_TABLES } from '@braedonsaunders/appkit-db'
 import { BUNKHOUSE_TENANT_TABLES } from '../src/db/schema/index.ts'
 
 const tables = [...IDENTITY_TENANT_TABLES, ...PLATFORM_TENANT_TABLES, ...API_TENANT_TABLES, ...BUNKHOUSE_TENANT_TABLES]

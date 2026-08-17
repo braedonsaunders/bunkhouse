@@ -1,6 +1,6 @@
 import { index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
-import { auditColumns, id, tenantRef } from '@appkit/db'
-import type { SealedSecret } from '@appkit/crypto'
+import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
+import type { SealedSecret } from '@braedonsaunders/appkit-crypto'
 
 /**
  * The phone system: a tenant's PBX (or any SIP peer) is a sip_trunks row —

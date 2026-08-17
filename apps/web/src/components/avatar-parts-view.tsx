@@ -13,9 +13,9 @@ import {
   SearchSelect,
   Textarea,
   type PagedColumn,
-} from '@appkit/ui'
-import { ComposedAvatar } from '@appkit/avatars/react'
-import { createEmptyComposition, type AvatarPart, type AvatarPartCategory } from '@appkit/avatars/composition'
+} from '@braedonsaunders/appkit-ui'
+import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
+import { createEmptyComposition, type AvatarPart, type AvatarPartCategory } from '@braedonsaunders/appkit-avatars/composition'
 import {
   deleteAvatarPartAction,
   generateAvatarPartsAction,

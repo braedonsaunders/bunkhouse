@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Drawer } from '@appkit/ui'
+import { Drawer } from '@braedonsaunders/appkit-ui'
 import { SectionTabs, type SectionTabItem } from './section-tabs'
 
 export type RunRecordTab = {

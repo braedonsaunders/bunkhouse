@@ -3,7 +3,7 @@ import { mkdir, readdir, rm, rmdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
-import { runSandbox } from '@appkit/sandbox'
+import { runSandbox } from '@braedonsaunders/appkit-sandbox'
 import { defineAbility, type Ability } from '@bunkhouse/runtime'
 import {
   backgroundJobs,

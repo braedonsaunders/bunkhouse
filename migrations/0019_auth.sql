@@ -1,8 +1,8 @@
--- Authentication contract for @appkit/auth (Better Auth).
+-- Authentication contract for @braedonsaunders/appkit-auth (Better Auth).
 --
 -- The four tables Better Auth persists to — users, sessions, accounts,
 -- verifications — shipped with the identity baseline (0001_identity.sql,
--- generated from @appkit/db's schema, which is exactly the shape
+-- generated from @braedonsaunders/appkit-db's schema, which is exactly the shape
 -- createAppkitAuth maps its models onto: plural table names, snake_case
 -- columns, uuid ids). This migration asserts that contract idempotently so a
 -- fresh database and the existing cluster both land in the verified shape,
@@ -10,7 +10,7 @@
 --
 -- These are GLOBAL tables — a login identity spans tenants — so they carry
 -- no tenant_id and deliberately get NO row-level security (matching
--- @appkit/db, whose RLS list covers only the tenant-scoped identity tables).
+-- @braedonsaunders/appkit-db, whose RLS list covers only the tenant-scoped identity tables).
 -- Access control is that only the app's own roles can reach them at all:
 -- `bunkhouse` owns them (it runs migrations) and `bunkhouse_super` is granted
 -- by the migrate script's blanket grant refresh.

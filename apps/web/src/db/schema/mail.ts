@@ -1,5 +1,5 @@
 import { boolean, index, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
-import { auditColumns, id, tenantRef } from '@appkit/db'
+import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
 
 /**
  * Every agent's primary surface is a real mailbox on the company's own domain.
@@ -71,7 +71,7 @@ export const mailThreads = pgTable(
 export const mailDirection = pgEnum('mail_direction', ['inbound', 'outbound'])
 
 export type MailAttachmentRef = {
-  /** File id in @appkit/storage. */
+  /** File id in @braedonsaunders/appkit-storage. */
   fileId: string
   filename: string
   contentType: string

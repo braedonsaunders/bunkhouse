@@ -12,8 +12,8 @@ import {
   Select,
   SettingsRow,
   SettingsSection,
-} from '@appkit/ui'
-import { isSmsProvider, smsProviderSpec, SMS_PROVIDER_SPECS, type SmsProvider } from '@appkit/sms/providers'
+} from '@braedonsaunders/appkit-ui'
+import { isSmsProvider, smsProviderSpec, SMS_PROVIDER_SPECS, type SmsProvider } from '@braedonsaunders/appkit-sms/providers'
 import {
   killDeskJobAction,
   removeSearchProviderAction,

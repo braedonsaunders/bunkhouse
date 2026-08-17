@@ -2,13 +2,14 @@ import 'server-only'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { sealSecret, unsealSecret } from '@appkit/crypto'
-import { defineAbility, type Ability } from '@bunkhouse/runtime'
+import { sealSecret, unsealSecret } from '@braedonsaunders/appkit-crypto'
+import { defineAbility, type Ability, type RunOutcome } from '@bunkhouse/runtime'
 import { people, tenantSettings, CHAT_INTEGRATIONS_KEY, type ChatIntegrationSettings } from '../db/schema'
 import { chatChannelRoutes, chatInboundEvents } from '../db/schema/chat'
 import { db } from '../db/client'
 import { executeAgentRun } from './agent-runs'
 import { replyTextForOutcome } from './chat-reply'
+import { isPersonNotWorking } from './person-work'
 import { assertPublicHost } from './research'
 import { appOrigin } from './app-origin'
 
@@ -554,12 +555,23 @@ export async function handleSlackEvent(tenantId: string, envelope: SlackEventEnv
       return
     }
     const message = (event.text ?? '').replace(SLACK_BOT_MENTION_RE, '').trim() || '(empty message)'
-    const { outcome } = await executeAgentRun({
-      tenantId,
-      personId,
-      trigger: { type: 'chat', conversationId: `slack:${event.channel}:${threadTs}` },
-      input: { type: 'chat', message },
-    })
+    let outcome: RunOutcome
+    try {
+      ;({ outcome } = await executeAgentRun({
+        tenantId,
+        personId,
+        trigger: { type: 'chat', conversationId: `slack:${event.channel}:${threadTs}` },
+        input: { type: 'chat', message },
+      }))
+    } catch (error) {
+      // Somebody in Slack is owed an answer, and "this employee has left" is
+      // the answer. Swallowing it into the server log — which is what the
+      // outer catch does with a genuine failure — would leave the channel with
+      // silence and no idea why.
+      if (!isPersonNotWorking(error)) throw error
+      await postSlackMessage({ tenantId, channel: event.channel, threadTs, text: error.message })
+      return
+    }
     await postSlackMessage({ tenantId, channel: event.channel, threadTs, text: replyTextForOutcome(outcome) })
   } catch (error) {
     console.error('[chat-bridge] slack event handling failed', error)
@@ -599,12 +611,20 @@ export async function handleTeamsActivity(tenantId: string, activity: TeamsActiv
 
     const message = (activity.text ?? '').replace(TEAMS_MENTION_RE, '').trim() || '(empty message)'
     const conversationId = `teams:${channelId}:${activity.conversation?.id ?? activity.id}`
-    const { outcome } = await executeAgentRun({
-      tenantId,
-      personId,
-      trigger: { type: 'chat', conversationId },
-      input: { type: 'chat', message },
-    })
+    let outcome: RunOutcome
+    try {
+      ;({ outcome } = await executeAgentRun({
+        tenantId,
+        personId,
+        trigger: { type: 'chat', conversationId },
+        input: { type: 'chat', message },
+      }))
+    } catch (error) {
+      // Same reason as Slack: the reply rides back in this HTTP response, so a
+      // refusal that is not turned into words is a message that never lands.
+      if (!isPersonNotWorking(error)) throw error
+      return { type: 'message', text: error.message }
+    }
     return { type: 'message', text: replyTextForOutcome(outcome) }
   } catch (error) {
     console.error('[chat-bridge] teams activity handling failed', error)

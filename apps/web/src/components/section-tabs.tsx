@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Tabs, cn, type SubtabItem } from '@appkit/ui'
+import { Tabs, cn, type SubtabItem } from '@braedonsaunders/appkit-ui'
 
 export type SectionTabItem = SubtabItem
 

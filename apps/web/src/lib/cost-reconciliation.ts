@@ -1,6 +1,6 @@
 import 'server-only'
 import { and, desc, eq, gte, sql } from 'drizzle-orm'
-import { sealSecret, unsealSecret } from '@appkit/crypto'
+import { sealSecret, unsealSecret } from '@braedonsaunders/appkit-crypto'
 import {
   AI_BILLING_KEY,
   costReconciliations,

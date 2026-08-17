@@ -1,5 +1,5 @@
 import { index, pgEnum, pgTable, text, uuid } from 'drizzle-orm/pg-core'
-import { auditColumns, id, tenantRef } from '@appkit/db'
+import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
 
 /**
  * The filing log — every attempt to copy a ledgered file out to the company's

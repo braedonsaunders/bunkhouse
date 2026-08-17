@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { CharacterScene, type SceneCharacter } from '@appkit/scene'
+import { CharacterScene, type SceneCharacter } from '@braedonsaunders/appkit-scene'
 import { bunkhouseSceneGround, BunkhouseSceneArt } from '../../../components/scene-art'
 
 /**

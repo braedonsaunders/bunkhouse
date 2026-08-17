@@ -1,4 +1,4 @@
-import { createDb, createTenant, createUser, addMembership, schema as identity } from '@appkit/db'
+import { createDb, createTenant, createUser, addMembership, schema as identity } from '@braedonsaunders/appkit-db'
 import { eq } from 'drizzle-orm'
 import * as bunkhouse from '../src/db/schema/index.ts'
 

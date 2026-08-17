@@ -1,13 +1,13 @@
 import 'server-only'
 import { and, eq } from 'drizzle-orm'
-import { sealSecret, unsealSecret } from '@appkit/crypto'
+import { sealSecret, unsealSecret } from '@braedonsaunders/appkit-crypto'
 import {
   CarrierError,
   buildCarrierClient,
   resolveCarrierClient,
   type AvailableNumber,
   type CarrierClient,
-} from '@appkit/telephony'
+} from '@braedonsaunders/appkit-telephony'
 import { CARRIER_KEY, phoneNumbers, tenantSettings, type CarrierSettings } from '../db/schema'
 import { db } from '../db/client'
 import {
@@ -25,7 +25,7 @@ import {
  *
  * An operator connects a Twilio account once; from then on buying a number is
  * one action here. The first purchase also builds the line the numbers arrive
- * on — @appkit/telephony provisions the carrier side and hands back one
+ * on — @braedonsaunders/appkit-telephony provisions the carrier side and hands back one
  * normalized trunk (where to send calls, how to authenticate, which addresses
  * calls arrive from), which is mirrored to a sip_trunks row like any other line
  * the company has. Nothing about that trunk is special afterwards: it shows on

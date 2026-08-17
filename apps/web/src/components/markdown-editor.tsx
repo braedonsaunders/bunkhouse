@@ -5,7 +5,7 @@ import { marked } from 'marked'
 import TurndownService from 'turndown'
 // @ts-expect-error turndown-plugin-gfm ships no types; it adds tables/strikethrough.
 import { gfm } from 'turndown-plugin-gfm'
-import { RichTextEditor } from '@appkit/editor'
+import { RichTextEditor } from '@braedonsaunders/appkit-editor'
 
 const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' })
 turndown.use(gfm)
@@ -13,7 +13,7 @@ turndown.use(gfm)
 
 /**
  * Rich-text editing over markdown storage: the editor works in HTML
- * (lists, headings, tables via @appkit/editor), the form receives GFM
+ * (lists, headings, tables via @braedonsaunders/appkit-editor), the form receives GFM
  * markdown — the Logbook's source of truth stays human-readable text.
  */
 export function MarkdownEditor({

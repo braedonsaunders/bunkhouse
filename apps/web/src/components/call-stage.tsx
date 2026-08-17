@@ -22,8 +22,8 @@ import {
   cn,
   useContextMenu,
   type ContextMenuEntry,
-} from '@appkit/ui'
-import { useElementSize } from '@appkit/scene'
+} from '@braedonsaunders/appkit-ui'
+import { useElementSize } from '@braedonsaunders/appkit-scene'
 
 /**
  * The presentational half of a voice call: the stage the far side stands on,
@@ -571,7 +571,7 @@ export function CallControlBar({
                   aria-haspopup="menu"
                   aria-expanded={micMenu.open}
                   disabled={ended}
-                  onClick={(event) => micMenu.openBelow(event.currentTarget)}
+                  onClick={(event: React.MouseEvent<HTMLButtonElement>) => micMenu.openBelow(event.currentTarget)}
                 >
                   <ChevronDown className="size-3.5" />
                 </Button>

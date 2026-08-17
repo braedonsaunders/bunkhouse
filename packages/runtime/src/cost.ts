@@ -1,4 +1,4 @@
-import type { AiConfig } from '@appkit/ai'
+import type { AiConfig } from '@braedonsaunders/appkit-ai'
 
 /**
  * Money the provider itself reports, rather than money we work out.

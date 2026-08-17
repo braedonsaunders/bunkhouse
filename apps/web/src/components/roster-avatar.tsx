@@ -1,8 +1,8 @@
 'use client'
 
-import { Avatar } from '@appkit/ui'
-import { ComposedAvatar } from '@appkit/avatars/react'
-import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
+import { Avatar } from '@braedonsaunders/appkit-ui'
+import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
+import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@braedonsaunders/appkit-avatars/composition'
 
 /**
  * A person's face wherever a small likeness is wanted — directory rows, the

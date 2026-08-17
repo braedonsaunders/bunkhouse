@@ -1,4 +1,4 @@
-import { defineAgentTool, type AgentToolManifest } from '@appkit/agent-tools'
+import { defineAgentTool, type AgentToolManifest } from '@braedonsaunders/appkit-agent-tools'
 
 /**
  * The tools this company trusts, pinned to exact versions.

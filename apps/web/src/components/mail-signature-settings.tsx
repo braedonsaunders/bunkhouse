@@ -2,20 +2,20 @@
 
 import * as React from 'react'
 import dynamic from 'next/dynamic'
-import { Button, Input, Label, SettingsRow, SettingsSection, Spinner, Switch } from '@appkit/ui'
+import { Button, Input, Label, SettingsRow, SettingsSection, Spinner, Switch } from '@braedonsaunders/appkit-ui'
 import {
   compileEmailDesign,
   renderEmailDesign,
   sampleMergeValues,
   starterHtml,
-} from '@appkit/email-designer'
-import '@appkit/email-designer/styles.css'
+} from '@braedonsaunders/appkit-email-designer'
+import '@braedonsaunders/appkit-email-designer/styles.css'
 import { SIGNATURE_MERGE_FIELDS } from '../lib/mail-signature-fields'
 import { saveMailSignatureAction } from '../app/admin/settings/actions'
 
 // GrapesJS touches window, so the designer only ever loads in the browser.
 const EmailDesigner = dynamic(
-  () => import('@appkit/email-designer/react').then((m) => m.EmailDesigner),
+  () => import('@braedonsaunders/appkit-email-designer/react').then((m) => m.EmailDesigner),
   {
     ssr: false,
     loading: () => (

@@ -16,7 +16,7 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react'
-import { Badge, Button, SettingsSection, type BadgeProps } from '@appkit/ui'
+import { Badge, Button, SettingsSection, type BadgeProps } from '@braedonsaunders/appkit-ui'
 import type { HealthCheck, HealthStatus } from '../lib/health'
 
 /**

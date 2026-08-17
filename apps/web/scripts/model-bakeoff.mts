@@ -1,7 +1,7 @@
 // Model bake-off: run one identical inbound email through an agent on each of
 // several models and record what each one drafted, spent, and took.
 import { eq, and, gt } from 'drizzle-orm'
-import { schema as identity } from '@appkit/db'
+import { schema as identity } from '@braedonsaunders/appkit-db'
 import { db } from '../src/db/client'
 import { approvals, mailboxAccounts, mailMessages, mailThreads, people, runs, tokenSpend } from '../src/db/schema'
 import { startRunsForNewInbound } from '../src/lib/agent-runs'

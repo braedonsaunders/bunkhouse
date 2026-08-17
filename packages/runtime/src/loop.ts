@@ -1,5 +1,5 @@
 import { generateText, stepCountIs, type ModelMessage } from 'ai'
-import { getModel } from '@appkit/ai'
+import { getModel } from '@braedonsaunders/appkit-ai'
 import {
   citeProcedureAbility,
   governedToolSet,

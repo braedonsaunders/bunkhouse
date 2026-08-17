@@ -1,7 +1,7 @@
 import 'server-only'
 import { and, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { unsealSecret } from '@appkit/crypto'
+import { unsealSecret } from '@braedonsaunders/appkit-crypto'
 import {
   connectMcpServers,
   defineAbility,

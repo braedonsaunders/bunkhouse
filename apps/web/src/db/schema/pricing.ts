@@ -1,5 +1,5 @@
 import { date, index, pgEnum, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
-import { auditColumns, id, money, tenantRef } from '@appkit/db'
+import { auditColumns, id, money, tenantRef } from '@braedonsaunders/appkit-db'
 
 /**
  * Effective-dated model pricing — the source of truth for what a token costs

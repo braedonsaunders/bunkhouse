@@ -1,6 +1,6 @@
-import { createJobs } from '@appkit/jobs'
+import { createJobs } from '@braedonsaunders/appkit-jobs'
 import { and, eq, inArray, sql } from 'drizzle-orm'
-import { schema as identity } from '@appkit/db'
+import { schema as identity } from '@braedonsaunders/appkit-db'
 import { db } from '../src/db/client'
 import { ASSIGNMENT_MAX_STEPS } from '../src/lib/agent-runs'
 import { retireContradictedBeliefs } from '../src/lib/stale-beliefs'
@@ -670,7 +670,7 @@ await heartbeat.upsertJobScheduler('money', { every: 86_400_000 }, { name: 'tick
 
 const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
   'bunkhouse-heartbeat',
-  async (job) => {
+  async (job: { data: { pass: HeartbeatPass } }) => {
     if (job.data.pass === 'mailbox') await mailboxPass()
     else if (job.data.pass === 'duties') await dutiesPass()
     else if (job.data.pass === 'assignments') await assignmentsPass()
@@ -699,7 +699,7 @@ const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
 
 const deepWorker = jobs.createWorker<DeepWorkJob>(
   'bunkhouse-deep-work',
-  async (job) => {
+  async (job: { data: DeepWorkJob }) => {
     if (job.data.kind === 'assignment') {
       await runAssignment(job.data.tenantId, job.data.id)
     } else if (job.data.kind === 'approval') {

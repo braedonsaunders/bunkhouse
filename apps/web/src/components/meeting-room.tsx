@@ -12,7 +12,7 @@ import {
   useTracks,
 } from '@livekit/components-react'
 import { ConnectionState, Track, type RoomOptions } from 'livekit-client'
-import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label, PageHeader } from '@appkit/ui'
+import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label, PageHeader } from '@braedonsaunders/appkit-ui'
 import { joinMeetingAction, leaveMeetingAction } from '../app/meet/actions'
 
 // Explicit for the same reason as the call page: a guest on laptop speakers

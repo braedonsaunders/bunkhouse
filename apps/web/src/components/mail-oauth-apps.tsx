@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Badge, Button, Drawer, Input, Label, SettingsRow } from '@appkit/ui'
+import { Badge, Button, Drawer, Input, Label, SettingsRow } from '@braedonsaunders/appkit-ui'
 import { removeMailOauthAppAction, saveMailOauthAppAction } from '../app/admin/settings/actions'
 
 export type MailOauthAppView = {

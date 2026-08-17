@@ -38,7 +38,7 @@ One maintained base image; each agent's desk is a copy-on-write overlay on top o
 - A terminal and a file manager.
 - LibreOffice.
 - git.
-- The CLI tools from the base-image manifest (`@appkit/agent-tools` declares them, version-pinned, with health checks and an operator-visible shelf).
+- The CLI tools from the base-image manifest (`@braedonsaunders/appkit-agent-tools` declares them, version-pinned, with health checks and an operator-visible shelf).
 
 These are agent tools, and they live here rather than in the app image: the containers that hold the keys ship only what the server itself needs.
 

@@ -7,9 +7,9 @@ import {
   GEMINI_LIVE_VOICES,
   OPENAI_REALTIME_MODELS,
   OPENAI_REALTIME_VOICES,
-} from '@appkit/voice'
-import { Pagination, parsePrefixedListParams, type ListSearchParams } from '@appkit/ui'
-import { isAiProvider, providerSpec } from '@appkit/ai'
+} from '@braedonsaunders/appkit-voice'
+import { Pagination, parsePrefixedListParams, type ListSearchParams } from '@braedonsaunders/appkit-ui'
+import { isAiProvider, providerSpec } from '@braedonsaunders/appkit-ai'
 import { approvals, autonomySettings, departments, duties, memories, people, runs, tokenSpend } from '../../db/schema'
 import { db } from '../../db/client'
 import { listAiProviders, resolveAgentAiConfig } from '../../lib/ai'

@@ -1,7 +1,7 @@
-import { createDb, schema as identity } from '@appkit/db'
+import { createDb, schema as identity } from '@braedonsaunders/appkit-db'
 import { and, eq } from 'drizzle-orm'
-import { unsealSecret } from '@appkit/crypto'
-import { buildPartPrompt, generateImages } from '@appkit/avatars'
+import { unsealSecret } from '@braedonsaunders/appkit-crypto'
+import { buildPartPrompt, generateImages } from '@braedonsaunders/appkit-avatars'
 import * as bunkhouse from '../src/db/schema/index.ts'
 import { AVATAR_PART_CATEGORIES, AVATAR_PART_STYLE } from '../src/lib/avatar-parts.ts'
 

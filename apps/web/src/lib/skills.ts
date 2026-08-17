@@ -1,8 +1,8 @@
 import 'server-only'
 import { createHash } from 'node:crypto'
 import { and, asc, count, eq } from 'drizzle-orm'
-import { newTenantObjectKey, type Storage } from '@appkit/storage'
-import { createStorageFromEnv } from '@appkit/storage/env'
+import { newTenantObjectKey, type Storage } from '@braedonsaunders/appkit-storage'
+import { createStorageFromEnv } from '@braedonsaunders/appkit-storage/env'
 import {
   skillFiles,
   skillRevisions,

@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { ComposedAvatar } from '@appkit/avatars/react'
+import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
 import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
@@ -9,7 +9,7 @@ import {
   type AvatarComposition,
   type AvatarPart,
   type AvatarPartCategory,
-} from '@appkit/avatars/composition'
+} from '@braedonsaunders/appkit-avatars/composition'
 
 /**
  * A composed figure standing *on* the floor rather than above it.

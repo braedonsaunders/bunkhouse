@@ -17,7 +17,7 @@ import {
   SettingsRow,
   Textarea,
   type PagedColumn,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import {
   assignPhoneNumberAction,
   buyCarrierNumberAction,

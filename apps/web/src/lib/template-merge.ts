@@ -12,7 +12,7 @@
  *    it would produce a document that looks finished and is not; an agent has
  *    to be able to see what it failed to fill.
  *
- * Type-only compatibility with @appkit/office is structural: `TemplateSheet`
+ * Type-only compatibility with @braedonsaunders/appkit-office is structural: `TemplateSheet`
  * matches that package's `SheetSpec`, so a merged spec renders directly
  * without importing server-side code into the browser.
  */

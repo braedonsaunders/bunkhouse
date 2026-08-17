@@ -1,6 +1,6 @@
 import 'server-only'
 import { generateText } from 'ai'
-import { getModel } from '@appkit/ai'
+import { getModel } from '@braedonsaunders/appkit-ai'
 import { resolveProviderAiConfig, listAiProviders } from './ai'
 import { sanitiseSceneSvg } from './scene-svg'
 import { toLightBackdrop } from './scene-recolour'

@@ -1,4 +1,4 @@
-import type { AvatarPartCategory } from '@appkit/avatars/composition'
+import type { AvatarPartCategory } from '@braedonsaunders/appkit-avatars/composition'
 
 /**
  * The slots a figure is built from.
@@ -12,7 +12,7 @@ import type { AvatarPartCategory } from '@appkit/avatars/composition'
  * is arranged.
  *
  * Geometry is in canvas units on the shared 512 × 768 full-body stage (see
- * `@appkit/avatars/composition`). `frame` is a part's natural box at scale 1;
+ * `@braedonsaunders/appkit-avatars/composition`). `frame` is a part's natural box at scale 1;
  * `defaultTransform` is where a freshly placed part lands, so a library drops
  * onto the stage already assembled and only needs nudging.
  *

@@ -14,7 +14,7 @@ import {
   XLSX_MIME_TYPE,
   type FodtEdit,
   type FodtEditResult,
-} from '@appkit/office'
+} from '@braedonsaunders/appkit-office'
 import { getFileBytes, getFileRecord, saveFile, type FileRecord } from './files'
 
 /**

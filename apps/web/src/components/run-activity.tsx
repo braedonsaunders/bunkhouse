@@ -13,7 +13,7 @@ import {
   EmptyState,
   PagedTable,
   type PagedColumn,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import type { ToolActivityItem } from '../lib/call-activity'
 import { ToolActivityCard } from './tool-activity'
 

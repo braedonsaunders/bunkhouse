@@ -1,5 +1,5 @@
 import { eq, and } from 'drizzle-orm'
-import { schema as identity } from '@appkit/db'
+import { schema as identity } from '@braedonsaunders/appkit-db'
 import { db } from '../src/db/client'
 import { duties, people } from '../src/db/schema'
 import { executeAgentRun } from '../src/lib/agent-runs'

@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Button, Label, SearchSelect, Select } from '@appkit/ui'
+import { Button, Label, SearchSelect, Select } from '@braedonsaunders/appkit-ui'
 import { loadModelsForProviderAction } from '../app/admin/settings/actions'
 import { setAgentModel } from '../app/organization/actions'
 

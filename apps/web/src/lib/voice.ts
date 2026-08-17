@@ -1,6 +1,6 @@
 import 'server-only'
 import { and, eq } from 'drizzle-orm'
-import { sealSecret, unsealSecret } from '@appkit/crypto'
+import { sealSecret, unsealSecret } from '@braedonsaunders/appkit-crypto'
 import {
   listElevenLabsVoices,
   verifyDeepgramKey,
@@ -8,7 +8,7 @@ import {
   type SttProvider,
   type TtsProvider,
   type VoiceCatalogItem,
-} from '@appkit/voice'
+} from '@braedonsaunders/appkit-voice'
 import { tenantSettings, VOICE_PROVIDERS_KEY, type VoiceProviderSettings } from '../db/schema'
 import { db } from '../db/client'
 import { listAiProviders, resolveProviderAiConfig } from './ai'

@@ -12,7 +12,7 @@ import {
   SettingsRow,
   type LinkRender,
   type RecordColumn,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import {
   ACTION_CATEGORIES,
   AUTONOMY_LEVELS,

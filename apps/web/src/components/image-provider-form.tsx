@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Button, Label, SearchSelect, Select } from '@appkit/ui'
+import { Button, Label, SearchSelect, Select } from '@braedonsaunders/appkit-ui'
 import { listImageModelsForProviderAction, setImageProviderAction } from '../app/admin/settings/actions'
 
 /**

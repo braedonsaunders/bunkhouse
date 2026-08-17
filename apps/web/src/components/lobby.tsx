@@ -2,9 +2,9 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { useTheme } from '@appkit/ui'
-import { CharacterScene, type SceneCharacter } from '@appkit/scene'
-import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
+import { useTheme } from '@braedonsaunders/appkit-ui'
+import { CharacterScene, type SceneCharacter } from '@braedonsaunders/appkit-scene'
+import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@braedonsaunders/appkit-avatars/composition'
 import { SeatedFigure } from './seated-figure'
 import { DrawnRoom } from './drawn-room'
 import {

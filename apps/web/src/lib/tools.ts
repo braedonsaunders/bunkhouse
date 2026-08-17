@@ -9,8 +9,8 @@ import {
   createProcessSandboxRunner,
   type AgentToolManifest,
   type AgentToolRuntime,
-} from '@appkit/agent-tools'
-import { createDrizzleAgentToolStore } from '@appkit/agent-tools/drizzle'
+} from '@braedonsaunders/appkit-agent-tools'
+import { createDrizzleAgentToolStore } from '@braedonsaunders/appkit-agent-tools/drizzle'
 import { defineAbility, type Ability } from '@bunkhouse/runtime'
 import { people, tenantSettings, TOOL_POLICY_KEY, type ToolPolicySettings } from '../db/schema'
 import { db } from '../db/client'

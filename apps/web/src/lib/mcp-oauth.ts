@@ -1,7 +1,7 @@
 import 'server-only'
 import { createHash, randomBytes } from 'node:crypto'
 import { and, eq, sql } from 'drizzle-orm'
-import { sealSecret, unsealSecret, type SealedSecret } from '@appkit/crypto'
+import { sealSecret, unsealSecret, type SealedSecret } from '@braedonsaunders/appkit-crypto'
 import {
   buildAuthorizationUrl,
   createPkce,
@@ -12,7 +12,7 @@ import {
   refreshTokens,
   registerClient,
   type OAuthTokens,
-} from '@appkit/oauth'
+} from '@braedonsaunders/appkit-oauth'
 import { connectMcpServers } from '@bunkhouse/runtime'
 import {
   tenantSettings,

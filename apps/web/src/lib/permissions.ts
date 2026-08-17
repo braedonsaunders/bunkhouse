@@ -1,4 +1,4 @@
-import type { PermissionGroup } from '@appkit/iam'
+import type { PermissionGroup } from '@braedonsaunders/appkit-iam'
 
 /**
  * The complete tenant permission catalogue. Keep keys coarse enough that an

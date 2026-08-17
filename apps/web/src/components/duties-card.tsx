@@ -14,7 +14,7 @@ import {
   Label,
   RecordList,
   type RecordColumn,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import { addDuty, deleteDuty, updateDuty } from '../app/organization/actions'
 import { toLocalInput, type DutySchedule } from '../lib/schedule'
 import { MarkdownEditor } from './markdown-editor'

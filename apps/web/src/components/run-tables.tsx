@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Image from 'next/image'
-import { Badge, EmptyState, PagedTable, type PagedColumn } from '@appkit/ui'
+import { Badge, EmptyState, PagedTable, type PagedColumn } from '@braedonsaunders/appkit-ui'
 
 /**
  * The run record's tabular sections — work product, approvals, computer use,
@@ -89,6 +89,10 @@ export type RunApprovalRow = {
   decided: string
   decidedAt: string
   expires: string
+  /** Whether the decision was actually acted on — '—' when there is nothing to act on. */
+  carriedOut: string
+  /** Why it was not, when it was not. */
+  carriedOutDetail: string | null
 }
 
 const APPROVAL_VARIANT = (value: string) =>
@@ -134,6 +138,20 @@ export function RunApprovalsTable({ rows }: { rows: RunApprovalRow[] }) {
       header: 'Decided',
       cell: (row) => <span className="tabular-nums text-fg-muted">{row.decided}</span>,
       sortValue: (row) => row.decidedAt,
+    },
+    {
+      key: 'carriedOut',
+      header: 'Carried out',
+      cell: (row) => (
+        <span className="min-w-0">
+          <span className={row.carriedOut === 'Not carried out' ? 'block text-danger' : 'block'}>{row.carriedOut}</span>
+          {row.carriedOutDetail ? (
+            <span className="block max-w-md truncate text-xs text-fg-muted">{row.carriedOutDetail}</span>
+          ) : null}
+        </span>
+      ),
+      search: (row) => `${row.carriedOut} ${row.carriedOutDetail ?? ''}`,
+      sortValue: (row) => row.carriedOut,
     },
   ]
 

@@ -127,7 +127,7 @@ apps/web          Next.js HR application, APIs, worker, mail, voice, observatory
 packages/runtime  provider-neutral agent loop, context, tools, autonomy, metering
 packages/roles    MIT-licensed first-party role packs
 migrations        additive PostgreSQL schema, RLS, lifecycle, and ledger controls
-vendor/appkit     pinned AppKit packages used by every application layer
+@braedonsaunders/appkit-*       published AppKit packages used by every application layer
 ```
 
 | Layer | Implementation |

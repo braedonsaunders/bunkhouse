@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Badge, Card, CardContent, EmptyState } from '@appkit/ui'
+import { Badge, Card, CardContent, EmptyState } from '@braedonsaunders/appkit-ui'
 import { ObservatoryList, type ObservatoryRunRow } from './observatory-list'
 import { SectionTabs } from './section-tabs'
 

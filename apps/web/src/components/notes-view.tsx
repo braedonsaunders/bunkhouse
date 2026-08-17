@@ -10,7 +10,7 @@ import {
   RecordList,
   Select,
   type RecordColumn,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import type { ResourceAssignment } from '../db/schema'
 import {
   addMemoryNote,

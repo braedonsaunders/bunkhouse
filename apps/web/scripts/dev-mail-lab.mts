@@ -3,7 +3,7 @@
 // With no arguments every agent in the directory is connected, so a fresh
 // dev database gets a working inbox for the whole roster in one pass.
 import { eq } from 'drizzle-orm'
-import { schema as identity } from '@appkit/db'
+import { schema as identity } from '@braedonsaunders/appkit-db'
 import { db } from '../src/db/client'
 import { mailboxAccounts, people } from '../src/db/schema'
 import { connectMailbox } from '../src/lib/mailbox'

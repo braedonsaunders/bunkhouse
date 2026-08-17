@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { asc, eq, sql } from 'drizzle-orm'
-import { Button, EmptyState } from '@appkit/ui'
+import { Button, EmptyState } from '@braedonsaunders/appkit-ui'
 import { approvals, people, runs, tokenSpend } from '../db/schema'
 import { db } from '../db/client'
 import { resolveTenantId } from '../lib/tenant'

@@ -14,7 +14,7 @@ import {
   SettingsRow,
   SettingsSection,
   type PagedColumn,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
 import {
   loadModelsForProviderAction,

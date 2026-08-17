@@ -1,5 +1,5 @@
 import { boolean, index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
-import { auditColumns, id, tenantRef } from '@appkit/db'
+import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
 
 /**
  * The workspace: each agent has a persistent home directory (its desk) and

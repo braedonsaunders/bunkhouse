@@ -16,7 +16,7 @@ import {
   Label,
   SearchSelect,
   Select,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import type { BunkhouseVoiceConfig } from '../db/schema'
 import { listVoicesForTenantAction } from '../app/admin/settings/actions'
 import { setAgentExtensionAction } from '../app/admin/settings/pbx-actions'

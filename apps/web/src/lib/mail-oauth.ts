@@ -3,8 +3,8 @@ import { createHash, randomBytes } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { BlockList, isIP } from 'node:net'
 import { and, eq, ne, sql } from 'drizzle-orm'
-import { sealSecret, unsealSecret, type SealedSecret } from '@appkit/crypto'
-import { verifyImap, verifySmtp, type MailboxConnection } from '@appkit/mailbox'
+import { sealSecret, unsealSecret, type SealedSecret } from '@braedonsaunders/appkit-crypto'
+import { verifyImap, verifySmtp, type MailboxConnection } from '@braedonsaunders/appkit-mailbox'
 import {
   mailboxAccounts,
   people,
@@ -110,7 +110,7 @@ export async function mailOauthRedirectUri(): Promise<string> {
 
 // --- Hardened egress --------------------------------------------------------
 
-// bunkhouse does not depend on @appkit/sync, so this is the local equivalent of
+// bunkhouse does not depend on @braedonsaunders/appkit-sync, so this is the local equivalent of
 // that package's secureFetch guarantees, narrowed to the one shape needed here:
 // an HTTPS form POST to a provider token endpoint, every resolved address
 // public, redirects refused outright, and a hard 15-second ceiling.

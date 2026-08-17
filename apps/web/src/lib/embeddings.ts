@@ -1,5 +1,5 @@
 import 'server-only'
-import { unsealSecret } from '@appkit/crypto'
+import { unsealSecret } from '@braedonsaunders/appkit-crypto'
 import { listAiProviders } from './ai'
 
 /**

@@ -15,7 +15,7 @@ import {
   Textarea,
   useTheme,
   type PagedColumn,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import { DoorOpen } from 'lucide-react'
 import { BackdropStudio } from './backdrop-studio'
 import { BunkhouseSceneArt, BunkhouseSceneThumbnail } from './scene-art'

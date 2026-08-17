@@ -2,7 +2,7 @@ import 'server-only'
 import { and, asc, eq, ne } from 'drizzle-orm'
 import { z } from 'zod'
 import { defineAbility, type Ability } from '@bunkhouse/runtime'
-import { htmlToDocx, htmlToPdf, officeDocumentHtml, renderWorkbook, sanitizeOfficeHtml } from '@appkit/office'
+import { htmlToDocx, htmlToPdf, officeDocumentHtml, renderWorkbook, sanitizeOfficeHtml } from '@braedonsaunders/appkit-office'
 import { people } from '../db/schema'
 import {
   documentTemplates,

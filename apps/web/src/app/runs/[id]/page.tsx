@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { DetailHeader, PageContainer } from '@appkit/ui'
+import { DetailHeader, PageContainer } from '@braedonsaunders/appkit-ui'
 import { resolveTenantId } from '../../../lib/tenant'
 import { RunSubtabs } from '../../../components/run-drawer'
 import { LiveToggle } from '../../../components/live-toggle'

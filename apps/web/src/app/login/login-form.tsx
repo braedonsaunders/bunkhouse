@@ -1,6 +1,6 @@
 'use client'
 
-import { AuthScreen, SignInForm } from '@appkit/auth/react'
+import { AuthScreen, SignInForm } from '@braedonsaunders/appkit-auth/react'
 import { authClient } from '@/lib/auth-client'
 import { Logo } from '@/components/brand-logo'
 

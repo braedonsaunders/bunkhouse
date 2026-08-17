@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { Tabs } from '@appkit/ui'
+import { Tabs } from '@braedonsaunders/appkit-ui'
 
 const SECTIONS = [
   { value: 'agents', label: 'Agents', href: '/organization' },

@@ -1,8 +1,8 @@
 import 'server-only'
 import { createHash } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
-import { newAttachmentKey, type Storage } from '@appkit/storage'
-import { createStorageFromEnv } from '@appkit/storage/env'
+import { newAttachmentKey, type Storage } from '@braedonsaunders/appkit-storage'
+import { createStorageFromEnv } from '@braedonsaunders/appkit-storage/env'
 import { files, type fileKind } from '../db/schema'
 import { db } from '../db/client'
 

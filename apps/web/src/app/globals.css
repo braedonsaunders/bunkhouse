@@ -1,19 +1,19 @@
-@import '@appkit/ui/styles.css';
-@import '@appkit/avatars/styles.css';
-@import '@appkit/scene/styles.css';
-@import '@appkit/design-studio/styles.css';
-@import '@appkit/apps/styles.css';
-@import '@appkit/scripts/styles.css';
-@import '@appkit/forms/styles.css';
-@import '@appkit/storage/styles.css';
-@import '@appkit/workflows/styles.css';
+@import '@braedonsaunders/appkit-ui/styles.css';
+@import '@braedonsaunders/appkit-avatars/styles.css';
+@import '@braedonsaunders/appkit-scene/styles.css';
+@import '@braedonsaunders/appkit-design-studio/styles.css';
+@import '@braedonsaunders/appkit-apps/styles.css';
+@import '@braedonsaunders/appkit-scripts/styles.css';
+@import '@braedonsaunders/appkit-forms/styles.css';
+@import '@braedonsaunders/appkit-storage/styles.css';
+@import '@braedonsaunders/appkit-workflows/styles.css';
 @source '../**/*.{ts,tsx}';
 
 html, body { min-height: 100%; }
 
 /* Pages use the whole window.
  *
- * Every page shell this app renders into — @appkit/ui's PageContainer,
+ * Every page shell this app renders into — @braedonsaunders/appkit-ui's PageContainer,
  * ListPageLayout, DetailPageLayout and SettingsShell, plus the chat and call
  * screens' own wrappers — centres its content inside
  * `max-w-(--breakpoint-2xl)`, which is `max-width: var(--breakpoint-2xl)` and

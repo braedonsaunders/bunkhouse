@@ -25,11 +25,11 @@ import {
   PageHeader,
   cn,
   toast,
-} from '@appkit/ui'
-import { ComposedAvatar } from '@appkit/avatars/react'
-import { useElementSize } from '@appkit/scene'
-import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
-import type { ComposedAvatarAnimation } from '@appkit/avatars/react'
+} from '@braedonsaunders/appkit-ui'
+import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
+import { useElementSize } from '@braedonsaunders/appkit-scene'
+import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@braedonsaunders/appkit-avatars/composition'
+import type { ComposedAvatarAnimation } from '@braedonsaunders/appkit-avatars/react'
 import {
   endCallAction,
   getCallTranscriptAction,

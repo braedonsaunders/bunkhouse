@@ -9,7 +9,7 @@ import {
   Label,
   RecordList,
   type RecordColumn,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import type { ProcedureContent, ResourceAssignment } from '../db/schema'
 import { addRevision, createProcedure, setProcedureAssignment, setProcedureStatus } from '../app/resources/procedure-actions'
 import { contentFromLegacyBody } from '../lib/procedures'

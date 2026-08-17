@@ -65,7 +65,7 @@ anyone already below the person in the chain. `lib/org.ts` owns the rule
 - the org chart's drag gesture (`setReportsTo`),
 - onboarding (`hireAgent`, `addPerson` — new records validate their manager).
 
-The chart also guards client-side with `@appkit/ui`'s `canReparent`, but that
+The chart also guards client-side with `@braedonsaunders/appkit-ui`'s `canReparent`, but that
 runs against a snapshot the browser may have held while somebody else
 reorganized, so it is a fast path and never the rule. A rejected drag reverts on
 screen and surfaces the server's message.
@@ -121,7 +121,7 @@ procedures are unaffected — the hierarchy governs routing and escalation only.
 
 ## The chart itself
 
-`OrgChart` is a generic `@appkit/ui` primitive, not a bunkhouse component: it
+`OrgChart` is a generic `@braedonsaunders/appkit-ui` primitive, not a bunkhouse component: it
 takes flat records with a `parentId` and resolves the forest itself. It is
 deliberately tolerant of dirty data — a dangling manager or an edit-race cycle
 surfaces as an extra top-level card rather than a dropped record or a hang.

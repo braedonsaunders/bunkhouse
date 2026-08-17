@@ -1,4 +1,4 @@
-import type { AiConfig } from '@appkit/ai'
+import type { AiConfig } from '@braedonsaunders/appkit-ai'
 import type { ModelMessage } from 'ai'
 import { reportsItsOwnCost } from './cost'
 

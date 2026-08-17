@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { UserPlus } from 'lucide-react'
-import { Button, Drawer, Input, Label, Select, Textarea } from '@appkit/ui'
+import { Button, Drawer, Input, Label, Select, Textarea } from '@braedonsaunders/appkit-ui'
 import { addPerson } from '../app/organization/actions'
 
 export type ManagerOption = { id: string; name: string; title: string }

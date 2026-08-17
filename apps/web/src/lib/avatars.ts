@@ -10,7 +10,7 @@ import {
   type AvatarPart,
   type AvatarPartCategory,
   type ImageModelId,
-} from '@appkit/avatars'
+} from '@braedonsaunders/appkit-avatars'
 import { avatarCompositions, avatarParts, tenantSettings } from '../db/schema'
 import { db } from '../db/client'
 import { listAiProviders, resolveProviderAiConfig } from './ai'
@@ -19,7 +19,7 @@ import { AVATAR_PART_STYLE, avatarPartCategory } from './avatar-parts'
 export const IMAGE_PROVIDER_KEY = 'images.provider'
 
 /**
- * Image generation reuses the tenant's @appkit/ai providers — no separate
+ * Image generation reuses the tenant's @braedonsaunders/appkit-ai providers — no separate
  * key. The setting just names which provider slug + image model to use.
  */
 export type ImageProviderSetting = { providerSlug: string; model: ImageModelId }
@@ -146,7 +146,7 @@ export function avatarPartUrl(partId: string): string {
 /**
  * Generate candidate images for one library part.
  *
- * The prompt discipline lives in @appkit/avatars: the category says what the
+ * The prompt discipline lives in @braedonsaunders/appkit-avatars: the category says what the
  * part is, the tenant house style says how the set is drawn, and the shared
  * suffix demands an alpha-cut isolated object — parts stack, so anything with
  * a baked-in background is unusable.

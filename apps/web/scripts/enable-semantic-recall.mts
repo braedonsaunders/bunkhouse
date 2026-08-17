@@ -14,7 +14,7 @@
  *   pnpm --filter web exec tsx --env-file=.env.local scripts/enable-semantic-recall.mts
  */
 import { and, eq, isNull, sql } from 'drizzle-orm'
-import { schema as identity } from '@appkit/db'
+import { schema as identity } from '@braedonsaunders/appkit-db'
 import { memories } from '../src/db/schema'
 import { db } from '../src/db/client'
 import { embedTexts, embeddableText, toVectorLiteral } from '../src/lib/embeddings'

@@ -8,7 +8,7 @@ import {
   createMemoryAgentToolStore,
   isSafeAgentTool,
   type SandboxCommand,
-} from '@appkit/agent-tools'
+} from '@braedonsaunders/appkit-agent-tools'
 import { TOOL_CATALOGUE } from '../src/lib/tool-catalogue'
 
 const TENANT = '0194b8a2-3b74-7000-8000-000000000001'

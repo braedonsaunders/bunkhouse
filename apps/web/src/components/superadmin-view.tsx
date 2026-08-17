@@ -3,9 +3,9 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { Building2, UserCog } from 'lucide-react'
-import { SettingsShell, type LinkRender, type SettingsNavGroup } from '@appkit/ui'
-import { PlatformUsersAdmin, PlatformSessionsAdmin, PlatformTenantsAdmin } from '@appkit/superadmin/react'
-import type { PlatformSessionRecord, PlatformTenantRecord, PlatformUserRecord, TenantMemberRecord } from '@appkit/superadmin'
+import { SettingsShell, type LinkRender, type SettingsNavGroup } from '@braedonsaunders/appkit-ui'
+import { PlatformUsersAdmin, PlatformSessionsAdmin, PlatformTenantsAdmin } from '@braedonsaunders/appkit-superadmin/react'
+import type { PlatformSessionRecord, PlatformTenantRecord, PlatformUserRecord, TenantMemberRecord } from '@braedonsaunders/appkit-superadmin'
 import {
   addPlatformTenantMemberAction,
   createPlatformTenantAction,

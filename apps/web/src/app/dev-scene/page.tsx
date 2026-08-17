@@ -1,4 +1,4 @@
-import { CharacterStatus, CharacterSpeech } from '@appkit/scene'
+import { CharacterStatus, CharacterSpeech } from '@braedonsaunders/appkit-scene'
 
 /**
  * The status pill and speech bubble, every state, on one page.

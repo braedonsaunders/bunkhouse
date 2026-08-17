@@ -1,9 +1,9 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { isAiProvider, listModels } from '@appkit/ai'
-import { isSmsProvider } from '@appkit/sms/providers'
-import { unsealSecret } from '@appkit/crypto'
+import { isAiProvider, listModels } from '@braedonsaunders/appkit-ai'
+import { isSmsProvider } from '@braedonsaunders/appkit-sms/providers'
+import { unsealSecret } from '@braedonsaunders/appkit-crypto'
 import { addAiProvider, listAiProviders, removeAiProvider, resolveProviderAiConfig, updateAiProvider } from '../../../lib/ai'
 import { listTenantElevenLabsVoices, removeSpeechProvider, setSpeechProviderKey, type SpeechProvider } from '../../../lib/voice'
 import { resolveTenantId as resolveTenant } from '../../../lib/tenant'
@@ -27,7 +27,7 @@ import { deskIdFor, execOnDesk, resolveShellExecutionPolicy, type ShellExecution
 import { resolveDeskPolicy, saveDeskFeatures, saveDeskPolicy, type DeskPolicy } from '../../../lib/desk-policy'
 import { isMailOauthProvider, removeMailOauthApp, saveMailOauthApp } from '../../../lib/mail-oauth'
 import { db } from '../../../db/client'
-import { listImageModels, type ImageModelId } from '@appkit/avatars'
+import { listImageModels, type ImageModelId } from '@braedonsaunders/appkit-avatars'
 
 /** Add a model provider. Returns the failure rather than throwing: a thrown
  *  server-action error reaches the browser as an opaque digest in production,

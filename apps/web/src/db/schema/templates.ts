@@ -1,5 +1,5 @@
 import { index, jsonb, pgEnum, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core'
-import { auditColumns, id, tenantRef } from '@appkit/db'
+import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
 
 /**
  * Reusable document templates — the company's own paperwork, authored once by

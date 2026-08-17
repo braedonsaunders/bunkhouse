@@ -2,9 +2,9 @@
 
 import { revalidatePath } from 'next/cache'
 import { hashPassword } from 'better-auth/crypto'
-import { createDrizzleSuperadminService } from '@appkit/superadmin/drizzle'
-import type { SuperadminService } from '@appkit/superadmin'
-import type { SuperadminActionResult } from '@appkit/superadmin/react'
+import { createDrizzleSuperadminService } from '@braedonsaunders/appkit-superadmin/drizzle'
+import type { SuperadminService } from '@braedonsaunders/appkit-superadmin'
+import type { SuperadminActionResult } from '@braedonsaunders/appkit-superadmin/react'
 import { requireSuperAdmin } from '../../lib/auth'
 import { provisionTenant, resolveTenantId } from '../../lib/tenant'
 import { ensurePersonForMembership } from '../../lib/person-accounts'

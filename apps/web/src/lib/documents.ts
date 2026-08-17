@@ -9,7 +9,7 @@ import {
   renderWorkbook,
   sanitizeOfficeHtml,
   type WorkbookSpec,
-} from '@appkit/office'
+} from '@braedonsaunders/appkit-office'
 import { people, tenantSettings, DOCUMENT_BRANDING_KEY, type DocumentBrandingSettings } from '../db/schema'
 import { db } from '../db/client'
 import { getCompanyIdentity } from './company-identity'

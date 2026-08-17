@@ -12,7 +12,7 @@
 # on top of it — same app code, plus the hypervisor, in the one place that needs
 # it.
 #
-# @appkit/desk's plan.ts looks for its tools at fixed paths (DEFAULT_VMM_PATH /
+# @braedonsaunders/appkit-desk's plan.ts looks for its tools at fixed paths (DEFAULT_VMM_PATH /
 # DEFAULT_QEMU_IMG_PATH): cloud-hypervisor at /usr/bin/cloud-hypervisor and
 # qemu-img at /usr/bin/qemu-img. This image puts them exactly there.
 

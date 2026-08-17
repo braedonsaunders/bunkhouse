@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Alert, AlertDescription, Button, Label, Select } from '@appkit/ui'
+import { Alert, AlertDescription, Button, Label, Select } from '@braedonsaunders/appkit-ui'
 import {
   setPersonAccountAction,
   type PersonAccountResult,

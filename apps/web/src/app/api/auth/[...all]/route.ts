@@ -1,4 +1,4 @@
-import { toNextJsHandler } from '@appkit/auth/next'
+import { toNextJsHandler } from '@braedonsaunders/appkit-auth/next'
 import { getAuth } from '@/lib/auth'
 
 // Better Auth catch-all. Handlers are built lazily so importing this module

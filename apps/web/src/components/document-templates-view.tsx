@@ -14,8 +14,8 @@ import {
   SettingsSection,
   Textarea,
   type PagedColumn,
-} from '@appkit/ui'
-import { RichTextEditor } from '@appkit/editor'
+} from '@braedonsaunders/appkit-ui'
+import { RichTextEditor } from '@braedonsaunders/appkit-editor'
 import {
   EXAMPLE_SHEET_SPEC,
   findPlaceholders,

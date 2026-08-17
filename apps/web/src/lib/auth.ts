@@ -3,12 +3,12 @@ import { cache } from 'react'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { eq } from 'drizzle-orm'
-import { createAppkitAuth, createLazyAuth } from '@appkit/auth/server'
+import { createAppkitAuth, createLazyAuth } from '@braedonsaunders/appkit-auth/server'
 import { APIError } from 'better-auth/api'
-import { schema as identity } from '@appkit/db'
+import { schema as identity } from '@braedonsaunders/appkit-db'
 import { db } from '../db/client'
 
-// Authentication for bunkhouse: @appkit/auth (Better Auth) over the shared
+// Authentication for bunkhouse: @braedonsaunders/appkit-auth (Better Auth) over the shared
 // Postgres cluster. Sessions, users, accounts, and verifications live in the
 // GLOBAL identity tables (0001_identity.sql / 0019_auth.sql) — auth is
 // cross-tenant infrastructure, so it runs on the BYPASSRLS super pool; the

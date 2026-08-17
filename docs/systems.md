@@ -4,7 +4,7 @@ A system is outside software an agent works in, reached over MCP. Which agents
 carry it is [`roles.md`](roles.md); this is about the credential behind it.
 
 Three methods, all ending in request headers on an MCP dial, all sealed at rest
-with `@appkit/crypto`. They are not equivalent, and the difference is not
+with `@braedonsaunders/appkit-crypto`. They are not equivalent, and the difference is not
 convenience — it is whether the connection survives a quiet week.
 
 | Method | What is stored | What can lapse |
@@ -118,7 +118,7 @@ The provider's metadata names what it accepts, and the connect form is checked
 against it. The trap is that a mis-padded assertion is a *valid signature of the
 wrong kind*: JWS specifies RSA-PSS for `PS256` and the raw `r||s` pair for the
 `ES*` family, while Node's defaults are PKCS#1 and DER. Both sign happily and
-every verifier rejects them. `@appkit/oauth` handles the encoding; the operator
+every verifier rejects them. `@braedonsaunders/appkit-oauth` handles the encoding; the operator
 only picks the algorithm their key was generated for.
 
 NetSuite requires `PS256` and does not accept `RS256` at all.
@@ -127,7 +127,7 @@ NetSuite requires `PS256` and does not accept `RS256` at all.
 
 | Concern | Where |
 | ------- | ----- |
-| Assertion signing, token minting | `@appkit/oauth` (`mintClientCredentialsToken`) |
+| Assertion signing, token minting | `@braedonsaunders/appkit-oauth` (`mintClientCredentialsToken`) |
 | Sealed credential, single-flight refresh, verification | `lib/mcp-oauth.ts` |
 | Header resolution for a run | `resolveIntegrationHeaders` (`lib/agent-abilities.ts`) |
 | Probe and housekeeping | `lib/mcp-health.ts` |

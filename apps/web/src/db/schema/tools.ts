@@ -7,14 +7,14 @@
  * an operator can see and revoke, not a Dockerfile change nobody remembers.
  *
  * The tables, the install and execution gates, and the sandboxed runtime are
- * @appkit/agent-tools. Bunkhouse owns which tools it trusts and which agents
+ * @braedonsaunders/appkit-agent-tools. Bunkhouse owns which tools it trusts and which agents
  * may reach them; the package owns the governing.
  */
 export {
   agentToolApprovals,
   agentToolRuns,
   agentTools,
-} from '@appkit/agent-tools/schema'
+} from '@braedonsaunders/appkit-agent-tools/schema'
 
 export const TOOLS_TENANT_TABLES = [
   'agent_tools',

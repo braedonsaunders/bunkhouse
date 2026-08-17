@@ -22,8 +22,8 @@ import {
   promptDialog,
   useContextMenu,
   type ContextMenuEntry,
-} from '@appkit/ui'
-import { AgentPanel, type AgentMessage } from '@appkit/ai/react'
+} from '@braedonsaunders/appkit-ui'
+import { AgentPanel, type AgentMessage } from '@braedonsaunders/appkit-ai/react'
 import {
   getThreadAction,
   listThreadsAction,
@@ -35,7 +35,7 @@ import { ChatDesk } from './chat-desk'
 
 /**
  * Chat: talk to an agent, and watch the machine it is working on while it
- * answers. The thread and its composer are @appkit/ai's AgentPanel — this app
+ * answers. The thread and its composer are @braedonsaunders/appkit-ai's AgentPanel — this app
  * owns persistence, the transport, and everything around the thread; appkit
  * owns the streaming decode, cancellation, and the ordered rendering of an
  * assistant turn's parts. The desk beside it is the half no panel can supply.

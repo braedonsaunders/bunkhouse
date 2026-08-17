@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { Phone } from 'lucide-react'
-import { Button } from '@appkit/ui'
+import { Button } from '@braedonsaunders/appkit-ui'
 import type { CallAction } from '../lib/call-action'
 
 /**

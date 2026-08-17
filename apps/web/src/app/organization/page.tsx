@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { asc } from 'drizzle-orm'
-import { Button, FilterChips, PageContainer, PageHeader } from '@appkit/ui'
+import { Button, FilterChips, PageContainer, PageHeader } from '@braedonsaunders/appkit-ui'
 import { people } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'

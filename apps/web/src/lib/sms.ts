@@ -1,6 +1,6 @@
 import 'server-only'
 import { and, eq } from 'drizzle-orm'
-import { sealSecret, unsealSecret } from '@appkit/crypto'
+import { sealSecret, unsealSecret } from '@braedonsaunders/appkit-crypto'
 import {
   isValidSmsDestination,
   resolveSmsTransport,
@@ -8,15 +8,15 @@ import {
   validateStoredSmsConfig,
   type RawSmsConfig,
   type SmsProvider,
-} from '@appkit/sms'
+} from '@braedonsaunders/appkit-sms'
 import { tenantSettings, SMS_PROVIDER_KEY, type SmsProviderSettings } from '../db/schema'
 import { db } from '../db/client'
 
 /**
  * Tenant-scoped SMS delivery: an operator picks one of five providers
  * (Twilio, Vonage, MessageBird, Plivo, Telnyx) in Settings → Text messaging.
- * The provider's single credential is sealed at rest with @appkit/crypto,
- * using @appkit/sms's own ciphertext/nonce fields, and is only unsealed here,
+ * The provider's single credential is sealed at rest with @braedonsaunders/appkit-crypto,
+ * using @braedonsaunders/appkit-sms's own ciphertext/nonce fields, and is only unsealed here,
  * at send time, to build a transport. sendSms is the one entry point every
  * caller (agent abilities, notifications, etc.) should go through — nothing
  * outside this file talks to a provider's HTTP API directly.
@@ -68,7 +68,7 @@ export type SaveSmsSettingsInput = {
 }
 
 /** Validate the full config, seal the secret, and persist it. Throws with a
- *  clear message (from @appkit/sms's validateStoredSmsConfig) on failure. */
+ *  clear message (from @braedonsaunders/appkit-sms's validateStoredSmsConfig) on failure. */
 export async function saveSmsSettings(input: SaveSmsSettingsInput): Promise<void> {
   const sealed = sealSecret(input.secret)
   const candidate: RawSmsConfig = {

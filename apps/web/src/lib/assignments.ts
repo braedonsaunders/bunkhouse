@@ -5,6 +5,7 @@ import { assignments, files, mailMessages, people, type AssignmentSource } from 
 import { hopsOf, postToColleague } from './colleague-post'
 import { db } from '../db/client'
 import { ASSIGNMENT_MAX_STEPS, executeAgentRun } from './agent-runs'
+import { isPersonNotWorking } from './person-work'
 import { rootBudget, selfDirectedBudget } from './work-budget'
 
 /**
@@ -183,22 +184,38 @@ export async function runAssignment(tenantId: string, assignmentId: string): Pro
     }
   }
 
-  const { runId, outcome } = await executeAgentRun({
-    tenantId,
-    personId: claimed.personId,
-    trigger: { type: 'assignment', assignmentId: claimed.id },
-    input: {
-      type: 'assignment',
-      title: claimed.title,
-      spec: claimed.spec,
-      deliverTo: claimed.deliverTo,
-      formats: claimed.formats,
-      ...(claimed.dueAt ? { dueAt: claimed.dueAt.toISOString() } : {}),
-      source: describeSource(claimed.source),
-    },
-    maxSteps: ASSIGNMENT_MAX_STEPS,
-    counterparty: claimed.deliverTo,
-  })
+  let runId: string
+  let outcome: RunOutcome
+  try {
+    ;({ runId, outcome } = await executeAgentRun({
+      tenantId,
+      personId: claimed.personId,
+      trigger: { type: 'assignment', assignmentId: claimed.id },
+      input: {
+        type: 'assignment',
+        title: claimed.title,
+        spec: claimed.spec,
+        deliverTo: claimed.deliverTo,
+        formats: claimed.formats,
+        ...(claimed.dueAt ? { dueAt: claimed.dueAt.toISOString() } : {}),
+        source: describeSource(claimed.source),
+      },
+      maxSteps: ASSIGNMENT_MAX_STEPS,
+      counterparty: claimed.deliverTo,
+    }))
+  } catch (error) {
+    // An agent that may not work is a settled outcome, not a crash to retry:
+    // the deliverable is closed with the reason on the record, where whoever
+    // was waiting for it will see it, and the job does not come back.
+    if (!isPersonNotWorking(error)) throw error
+    await app.withTenant(tenantId, async () => {
+      await app.db
+        .update(assignments)
+        .set({ status: 'failed', lastError: error.message.slice(0, 500), updatedAt: new Date() })
+        .where(eq(assignments.id, assignmentId))
+    })
+    return
+  }
 
   await app.withTenant(tenantId, async () => {
     await app.db.update(assignments).set({ runId, updatedAt: new Date() }).where(eq(assignments.id, assignmentId))

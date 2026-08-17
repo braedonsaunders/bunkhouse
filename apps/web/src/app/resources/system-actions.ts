@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { sealSecret, unsealSecret } from '@appkit/crypto'
+import { sealSecret, unsealSecret } from '@braedonsaunders/appkit-crypto'
 import { connectMcpServers } from '@bunkhouse/runtime'
 import {
   forgetMcpHealth,

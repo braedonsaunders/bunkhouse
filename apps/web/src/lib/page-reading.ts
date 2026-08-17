@@ -1,6 +1,6 @@
 import 'server-only'
 import { generateText } from 'ai'
-import { getModel, isAiProvider, providerSpec } from '@appkit/ai'
+import { getModel, isAiProvider, providerSpec } from '@braedonsaunders/appkit-ai'
 import { z } from 'zod'
 import { defineAbility, takeAbilityFrame, type Ability, type AbilityFrame } from '@bunkhouse/runtime'
 import { listAiProviders, resolveProviderAiConfig } from './ai'

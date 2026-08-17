@@ -1,5 +1,5 @@
-import { createDrizzleIamService } from '@appkit/iam/drizzle'
-import { createIamHttpHandler } from '@appkit/iam/http'
+import { createDrizzleIamService } from '@braedonsaunders/appkit-iam/drizzle'
+import { createIamHttpHandler } from '@braedonsaunders/appkit-iam/http'
 import { db } from '../../../db/client'
 import { getTenantAccess, requireTenantPermission } from '../../../lib/tenant'
 import { PERMISSION_CATALOGUE } from '../../../lib/permissions'

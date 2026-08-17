@@ -2,9 +2,9 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Button } from '@appkit/ui'
-import { AvatarComposer, ComposedAvatar } from '@appkit/avatars/react'
-import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@appkit/avatars/composition'
+import { Button } from '@braedonsaunders/appkit-ui'
+import { AvatarComposer, ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
+import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@braedonsaunders/appkit-avatars/composition'
 import { saveAvatarCompositionAction } from '../app/organization/avatar-actions'
 import { generateAvatarPartsAction, keepAvatarPartAction } from '../app/admin/settings/avatar-part-actions'
 

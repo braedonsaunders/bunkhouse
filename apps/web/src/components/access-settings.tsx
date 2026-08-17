@@ -1,9 +1,9 @@
 'use client'
 
 import * as React from 'react'
-import { createHttpIamService } from '@appkit/iam/http'
-import { AuditAdmin, RolesAdmin, UsersAdmin } from '@appkit/iam/react'
-import type { ScopeOptions } from '@appkit/iam'
+import { createHttpIamService } from '@braedonsaunders/appkit-iam/http'
+import { AuditAdmin, RolesAdmin, UsersAdmin } from '@braedonsaunders/appkit-iam/react'
+import type { ScopeOptions } from '@braedonsaunders/appkit-iam'
 import { PERMISSION_GROUPS } from '../lib/permissions'
 import { SectionTabs } from './section-tabs'
 

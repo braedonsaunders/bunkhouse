@@ -1,4 +1,4 @@
-import type { EmailMergeField } from '@appkit/email-designer'
+import type { EmailMergeField } from '@braedonsaunders/appkit-email-designer'
 
 /**
  * The tokens a signature may use, with preview values. One design serves the

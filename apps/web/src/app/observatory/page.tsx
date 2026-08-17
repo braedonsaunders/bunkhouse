@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
-import { PageContainer, PageHeader } from '@appkit/ui'
+import { PageContainer, PageHeader } from '@braedonsaunders/appkit-ui'
 import { callSessions, people, runs, runEvents, tokenSpend } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'

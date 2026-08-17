@@ -9,7 +9,7 @@ import {
   S3Upload,
   type EgressInfo,
 } from 'livekit-server-sdk'
-import { newAttachmentKey } from '@appkit/storage'
+import { newAttachmentKey } from '@braedonsaunders/appkit-storage'
 import {
   callSessions,
   tenantSettings,

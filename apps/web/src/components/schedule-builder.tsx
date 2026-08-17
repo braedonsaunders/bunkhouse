@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Input, Label, Select, Switch } from '@appkit/ui'
+import { Input, Label, Select, Switch } from '@braedonsaunders/appkit-ui'
 import {
   cronToHuman,
   scheduleToHuman,

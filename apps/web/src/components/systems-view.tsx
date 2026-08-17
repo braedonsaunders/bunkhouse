@@ -11,7 +11,7 @@ import {
   Select,
   Textarea,
   type RecordColumn,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import type { McpSystemHealth, ResourceAssignment } from '../db/schema'
 import {
   AVAILABILITY_LABELS,

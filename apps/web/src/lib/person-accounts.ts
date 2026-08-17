@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { and, eq, inArray, sql } from 'drizzle-orm'
-import { authAccounts, auditLog, memberships, users } from '@appkit/db'
+import { authAccounts, auditLog, memberships, users } from '@braedonsaunders/appkit-db'
 import { db } from '../db/client'
 import { people } from '../db/schema'
 import type { SessionUser } from './auth'

@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Badge, SettingsRow, SettingsSection, Switch } from '@appkit/ui'
+import { Badge, SettingsRow, SettingsSection, Switch } from '@braedonsaunders/appkit-ui'
 import { saveFeaturesAction } from '../app/admin/settings/actions'
 
 export type FeaturesView = { desk: boolean; desktop: boolean }

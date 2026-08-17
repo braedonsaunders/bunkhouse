@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
-import { PageContainer, PageHeader } from '@appkit/ui'
+import { PageContainer, PageHeader } from '@braedonsaunders/appkit-ui'
 import { memories, memoryProposals, people, procedureRevisions, procedures } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'

@@ -2,7 +2,7 @@ import 'server-only'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import { and, eq } from 'drizzle-orm'
-import { sealSecret, unsealSecret, type SealedSecret } from '@appkit/crypto'
+import { sealSecret, unsealSecret, type SealedSecret } from '@braedonsaunders/appkit-crypto'
 import { tenantSettings } from '../db/schema'
 import { db } from '../db/client'
 

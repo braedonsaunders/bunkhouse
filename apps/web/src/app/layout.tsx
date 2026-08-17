@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
-import { ConfirmRoot, getThemeScript, PromptRoot, Toaster } from '@appkit/ui'
+import { ConfirmRoot, getThemeScript, PromptRoot, Toaster } from '@braedonsaunders/appkit-ui'
 import { AppFrame, type FrameTenant } from '@/components/app-frame'
 import { SplashScreen } from '@/components/brand-splash'
 import { getSessionUser } from '@/lib/auth'

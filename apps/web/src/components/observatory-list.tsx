@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { Badge, EmptyState, PagedTable, type PagedColumn } from '@appkit/ui'
+import { Badge, EmptyState, PagedTable, type PagedColumn } from '@braedonsaunders/appkit-ui'
 
 export type ObservatoryRunRow = {
   id: string

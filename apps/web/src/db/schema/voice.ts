@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { bigint, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
-import { auditColumns, id, money, tenantRef } from '@appkit/db'
-import type { AgentVoiceConfig } from '@appkit/voice'
+import { auditColumns, id, money, tenantRef } from '@braedonsaunders/appkit-db'
+import type { AgentVoiceConfig } from '@braedonsaunders/appkit-voice'
 
 /**
  * The call ledger. Every voice conversation with an agent is a call_sessions
@@ -126,7 +126,7 @@ export const meetingLinks = pgTable(
 
 /**
  * The agent's voice configuration as bunkhouse stores it: the portable
- * @appkit/voice contract plus the settings that only mean something inside
+ * @braedonsaunders/appkit-voice contract plus the settings that only mean something inside
  * this product. Extra keys ride along in the same jsonb column, so an older
  * row simply has them undefined.
  */

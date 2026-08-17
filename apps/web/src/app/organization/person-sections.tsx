@@ -14,7 +14,7 @@ import {
   SettingsRow,
   SettingsSection,
   Textarea,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import type { ReactNode } from 'react'
 import type { autonomySettings, memories, people, runs } from '../../db/schema'
 import { AssignModelForm } from '../../components/assign-model-form'

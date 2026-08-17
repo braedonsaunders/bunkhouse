@@ -93,7 +93,7 @@ it done, do not move on. Every capability ships with, in the same slice:
 
 If a slice is intentionally engine-first, its task stays open until the UI lands.
 
-**Rich text everywhere prose is edited.** Multi-line prose fields (notes, procedures, instructions, knowledge) use @appkit/editor's RichTextEditor — lists, headings, links, tables — never a bare Textarea. When storage is markdown, round-trip at the edge (md→HTML in, HTML→GFM out); the stored format stays human-readable.
+**Rich text everywhere prose is edited.** Multi-line prose fields (notes, procedures, instructions, knowledge) use @braedonsaunders/appkit-editor's RichTextEditor — lists, headings, links, tables — never a bare Textarea. When storage is markdown, round-trip at the edge (md→HTML in, HTML→GFM out); the stored format stays human-readable.
 
 **UI copy is professional SaaS language.** Never surface engineering-internal phrasing to operators: no "documented follow-up", "not wired up yet", "TODO", roadmap talk, or references to plugins/workers/branches. If a capability is unavailable, say what the operator can use instead in product terms ("Realtime calls are available with OpenAI voices; Google voices are coming soon") — and prefer not offering unavailable options at all over explaining why they fail.
 
@@ -103,14 +103,14 @@ If a slice is intentionally engine-first, its task stays open until the UI lands
 
 **Schedules are human-readable.** Operators see "At 8:00 AM, Monday through Friday" and edit with the structured schedule builder — never raw cron. Cron is the internal storage format only; raw entry lives behind the builder's Advanced toggle.
 
-**Lists are tables; adding happens above them, in a flyout.** Any collection an operator manages is an `@appkit/ui` `PagedTable`/`RecordList` — never a stack of `SettingsRow`s standing in for rows. The create action is a button in the section's header row (and in the empty state), and it opens a Drawer. Never place an add/connect form — or a disclosure holding one — below a table or list; the same goes for singleton connections (a provider key, a storage destination): a status row with a Connect/Manage button, and the form in the drawer.
+**Lists are tables; adding happens above them, in a flyout.** Any collection an operator manages is an `@braedonsaunders/appkit-ui` `PagedTable`/`RecordList` — never a stack of `SettingsRow`s standing in for rows. The create action is a button in the section's header row (and in the empty state), and it opens a Drawer. Never place an add/connect form — or a disclosure holding one — below a table or list; the same goes for singleton connections (a provider key, a storage destination): a status row with a Connect/Manage button, and the form in the drawer.
 
-**Row interactions open Drawers.** Clicking a list/table row opens an `@appkit/ui` Drawer with the record's detail and actions — never an inline form below the table, never a bare navigation when a drawer fits. Full-page records are for deep surfaces (profiles, run timelines); everything else drawers.
+**Row interactions open Drawers.** Clicking a list/table row opens an `@braedonsaunders/appkit-ui` Drawer with the record's detail and actions — never an inline form below the table, never a bare navigation when a drawer fits. Full-page records are for deep surfaces (profiles, run timelines); everything else drawers.
 
 ## Foundation rules
 
-Built on AppKit (repo: `../appkit`, vendored tarballs in `vendor/appkit`, wired via `file:`
-deps + root pnpm overrides). Adopt AppKit's
+Built on AppKit (repo: `../appkit`, published as `@braedonsaunders/appkit-*` packages on npm).
+Adopt AppKit's
 [`building-applications.md`](../appkit/docs/for-agents/building-applications.md) rules
 verbatim: fully tokenized styling (no raw colors), one motion system with
 visible-by-default entrances, Server-Component-safe primitives, clean cutover (no legacy
@@ -123,17 +123,17 @@ no dead code, docs updated in the same change.
    `docs/for-agents/orientation.md`) for an existing primitive, package, or pattern before
    writing a component, utility, schema helper, queue, or service. Building a local
    version of something AppKit already ships is a bug (e.g. lists are `RecordList`/
-   `PagedTable`, secrets are `@appkit/crypto` sealers, queues are `@appkit/jobs` profiles).
+   `PagedTable`, secrets are `@braedonsaunders/appkit-crypto` sealers, queues are `@braedonsaunders/appkit-jobs` profiles).
 2. **Backfill the other direction.** When something built here is generalizable beyond
    bunkhouse (mailbox receive engine, employee runtime, MCP client, memory store,
    procedures, avatar generation, observatory streaming, remote-shell daemon, office-doc
    authoring), build it AppKit-shaped — clean contract, adapters injectable, no bunkhouse
    coupling — and **update the appkit repo directly with the new package** (follow appkit's
-   own AGENTS.md gates, commit there), then consume it back here via the vendored tarball.
+   own AGENTS.md gates, commit there), publish it, then consume the released npm version here.
    Fix appkit bugs found along the way in appkit itself, autonomously.
 
-After changing AppKit: `pnpm build:packages` there, re-pack with
-`pnpm pack --pack-destination <here>/vendor/appkit`, update the root overrides, reinstall.
+After changing AppKit: run its full validation and release workflow, update the relevant
+`@braedonsaunders/appkit-*` semver ranges here, then reinstall.
 
 ## Repo map
 
@@ -150,7 +150,6 @@ After changing AppKit: `pnpm build:packages` there, re-pack with
   a procedure, progressive disclosure, the commit pin, and why scripts need no new gate.
 - `docs/systems.md` — how an MCP connection proves who it is: why a certificate outlasts a
   refresh token, what is checked before a connection saves, and where each piece lives.
-- `vendor/appkit` — pinned AppKit tarballs (36 packages).
 
 ## Validation gates (green before "done")
 

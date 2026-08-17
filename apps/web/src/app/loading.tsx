@@ -1,4 +1,4 @@
-import { Spinner } from '@appkit/ui'
+import { Spinner } from '@braedonsaunders/appkit-ui'
 
 // Root route-loading fallback. This is the whole app's fallback, so it runs on
 // every internal navigation as well as the first load — it must not be the

@@ -4,6 +4,7 @@ import type { RunInput, RunOutcome } from '@bunkhouse/runtime'
 import { chatMessages, chatThreads, people, runEvents, runs, type RunTrigger } from '../db/schema'
 import { db } from '../db/client'
 import { replyTextForOutcome } from './chat-reply'
+import { isPersonNotWorking } from './person-work'
 
 /**
  * The in-app chat surface's runtime.
@@ -690,6 +691,22 @@ export async function sendMessage(
       })
       runId = result.runId
       outcome = result.outcome
+    } catch (error) {
+      // An employee who may not work still owes the person an answer, and this
+      // conversation IS the record. The refusal is appended as a system note —
+      // carrying the run the gate opened for it — rather than thrown away into
+      // an error toast, so the thread says why it stopped instead of showing a
+      // question nobody ever replied to.
+      if (!isPersonNotWorking(error)) throw error
+      const refused = await store.appendMessage({
+        tenantId: args.tenantId,
+        threadId: args.threadId,
+        role: 'system',
+        body: error.message,
+        ...(error.runId ? { runId: error.runId } : {}),
+      })
+      await store.touchThread({ tenantId: args.tenantId, threadId: args.threadId, at: new Date(refused.at) })
+      return { messages: [asked, refused] }
     } finally {
       await watch.stop()
     }

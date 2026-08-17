@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
-import { EmptyState, PageHeader } from '@appkit/ui'
+import { EmptyState, PageHeader } from '@braedonsaunders/appkit-ui'
 import { lookupMeetingByToken } from '../../../lib/meetings'
 import { MeetingRoom } from '../../../components/meeting-room'
 

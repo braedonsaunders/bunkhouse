@@ -1,5 +1,5 @@
 import { integer, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core'
-import { auditColumns, id, tenantRef } from '@appkit/db'
+import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
 import { inboundPolicy } from './people'
 
 /**

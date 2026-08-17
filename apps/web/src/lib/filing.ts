@@ -4,7 +4,7 @@ import { constants as fsConstants } from 'node:fs'
 import { access, mkdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 import { and, desc, eq } from 'drizzle-orm'
-import { sealSecret, unsealSecret, type SealedSecret } from '@appkit/crypto'
+import { sealSecret, unsealSecret, type SealedSecret } from '@braedonsaunders/appkit-crypto'
 import {
   files,
   people,

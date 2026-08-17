@@ -1,7 +1,7 @@
 import 'server-only'
 import { and, eq, ne } from 'drizzle-orm'
 import { SipClient, type CreateSipInboundTrunkOptions } from 'livekit-server-sdk'
-import { sealSecret, unsealSecret } from '@appkit/crypto'
+import { sealSecret, unsealSecret } from '@braedonsaunders/appkit-crypto'
 import { pbxExtensions, people, phoneNumbers, sipTrunks } from '../db/schema'
 import { db } from '../db/client'
 import {

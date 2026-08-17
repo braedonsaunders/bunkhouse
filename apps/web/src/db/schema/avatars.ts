@@ -1,6 +1,6 @@
 import { index, jsonb, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
-import { auditColumns, id, tenantRef } from '@appkit/db'
-import type { AvatarComposition } from '@appkit/avatars/composition'
+import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
+import type { AvatarComposition } from '@braedonsaunders/appkit-avatars/composition'
 
 /**
  * The tenant's parts library — the raw material every figure is built from.

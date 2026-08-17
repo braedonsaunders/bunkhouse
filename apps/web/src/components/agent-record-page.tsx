@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Mail, MessageSquare } from 'lucide-react'
-import { Badge, Button, DetailHeader, DetailPageLayout, SubtabNav } from '@appkit/ui'
+import { Badge, Button, DetailHeader, DetailPageLayout, SubtabNav } from '@braedonsaunders/appkit-ui'
 
 export type AgentPageSection = {
   key: string

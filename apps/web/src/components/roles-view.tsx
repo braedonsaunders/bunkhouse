@@ -11,7 +11,7 @@ import {
   Select,
   Textarea,
   type RecordColumn,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import type { Role } from '../lib/roles'
 import type { ResourceCatalog, ResourceEntry, RoleResourceKind } from '../lib/role-resources'
 import { hireAgent } from '../app/organization/actions'

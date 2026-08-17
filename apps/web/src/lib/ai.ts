@@ -1,7 +1,7 @@
 import 'server-only'
 import { and, eq } from 'drizzle-orm'
-import { sealSecret, unsealSecret } from '@appkit/crypto'
-import { isAiProvider, pingModel, type AiConfig, type AiProvider } from '@appkit/ai'
+import { sealSecret, unsealSecret } from '@braedonsaunders/appkit-crypto'
+import { isAiProvider, pingModel, type AiConfig, type AiProvider } from '@braedonsaunders/appkit-ai'
 import { AI_PROVIDERS_KEY, people, tenantSettings, type AiProviderEntry } from '../db/schema'
 import { db } from '../db/client'
 

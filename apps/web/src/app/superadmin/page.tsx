@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { hashPassword } from 'better-auth/crypto'
-import { createDrizzleSuperadminService } from '@appkit/superadmin/drizzle'
+import { createDrizzleSuperadminService } from '@braedonsaunders/appkit-superadmin/drizzle'
 import { db } from '../../db/client'
 import { getSuperAdminContext } from '../../lib/auth'
 import { resolveTenantId } from '../../lib/tenant'

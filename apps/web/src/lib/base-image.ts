@@ -1,5 +1,5 @@
-import { defineAgentTool, type AgentToolManifest } from '@appkit/agent-tools'
-import { imageManifest, renderAptInstallFragment, type ImageManifest } from '@appkit/agent-tools/image-manifest'
+import { defineAgentTool, type AgentToolManifest } from '@braedonsaunders/appkit-agent-tools'
+import { imageManifest, renderAptInstallFragment, type ImageManifest } from '@braedonsaunders/appkit-agent-tools/image-manifest'
 import { TOOL_CATALOGUE } from './tool-catalogue'
 
 export { TOOL_CATALOGUE }
@@ -8,7 +8,7 @@ export { TOOL_CATALOGUE }
  * What the golden base image contains, declared the way the tool shelf is
  * (docs/agent-desk.md §3.16): `defineAgentTool` manifests with exact pinned
  * versions, health checks, and an operator-visible listing. The install and
- * execute gates that @appkit/agent-tools also offers do not sit on the desk's
+ * execute gates that @braedonsaunders/appkit-agent-tools also offers do not sit on the desk's
  * agent path — an agent with a root terminal walks around them in one line
  * (§3.22) — but pinning, health, and revocability never depended on the gate,
  * and the manifest is now the single declaration the image build consumes.

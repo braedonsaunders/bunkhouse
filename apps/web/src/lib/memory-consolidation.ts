@@ -1,7 +1,7 @@
 import 'server-only'
 import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import { generateText } from 'ai'
-import { getModel } from '@appkit/ai'
+import { getModel } from '@braedonsaunders/appkit-ai'
 import { memories, people } from '../db/schema'
 import { db } from '../db/client'
 import { resolveAgentAiConfig } from './ai'

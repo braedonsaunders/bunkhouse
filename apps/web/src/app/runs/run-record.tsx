@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { asc, eq, inArray, sql } from 'drizzle-orm'
-import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@appkit/ui'
-import { formatAttachmentSize } from '@appkit/storage'
+import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@braedonsaunders/appkit-ui'
+import { formatAttachmentSize } from '@braedonsaunders/appkit-storage'
 import {
   approvals,
   browserSessions,
@@ -195,6 +195,9 @@ export async function loadRunRecord({
         decisionNote: approvals.decisionNote,
         expiresAt: approvals.expiresAt,
         decidedByName: people.name,
+        executedAt: approvals.executedAt,
+        executionStatus: approvals.executionStatus,
+        executionError: approvals.executionError,
       })
       .from(approvals)
       .leftJoin(people, eq(people.id, approvals.decidedById))
@@ -352,6 +355,18 @@ export async function loadRunRecord({
     decided: stamp(row.decidedAt),
     decidedAt: row.decidedAt ? row.decidedAt.toISOString() : '',
     expires: stamp(row.expiresAt),
+    // Deciding is not doing. A decision that was never carried out — because
+    // the agent had left, or because it was given up on after too many
+    // attempts — reads identically to one that was, unless the run says so.
+    carriedOut:
+      row.status !== 'approved' && row.status !== 'rejected'
+        ? '—'
+        : !row.executedAt
+          ? 'Carrying out'
+          : row.executionStatus === 'succeeded'
+            ? 'Carried out'
+            : 'Not carried out',
+    carriedOutDetail: row.executionError,
   }))
 
   const deskRows: RunDeskEventRow[] = data.deskEventRows.map((event) => ({

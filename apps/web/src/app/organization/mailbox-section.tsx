@@ -9,7 +9,7 @@ import {
   CardTitle,
   Input,
   Label,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import { mailboxAccounts, people } from '../../db/schema'
 import { db } from '../../db/client'
 import { listMailOauthApps } from '../../lib/mail-oauth'

@@ -1,7 +1,7 @@
 'use server'
 
 import { eq } from 'drizzle-orm'
-import { mintLiveKitToken } from '@appkit/voice'
+import { mintLiveKitToken } from '@braedonsaunders/appkit-voice'
 import { callSessions, meetingLinks, runs } from '../../db/schema'
 import { db } from '../../db/client'
 import { lookupMeetingByToken } from '../../lib/meetings'

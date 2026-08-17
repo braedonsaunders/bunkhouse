@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 import { asc } from 'drizzle-orm'
-import { isUuid } from '@appkit/ui'
+import { isUuid } from '@braedonsaunders/appkit-ui'
 import { people } from '../../../db/schema'
 import { db } from '../../../db/client'
 import { requireTenantPermission } from '../../../lib/tenant'

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Button } from '@appkit/ui'
+import { Button } from '@braedonsaunders/appkit-ui'
 import { stopRunAction } from '../app/runs/run-actions'
 
 /**

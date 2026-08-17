@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Button, confirmDialog, toast } from '@appkit/ui'
+import { Button, confirmDialog, toast } from '@braedonsaunders/appkit-ui'
 import { setPersonStatusAction, type PersonStatus } from '../app/organization/actions'
 
 /**
