@@ -1409,18 +1409,40 @@ function handoverStreamPath(deskId: string, entry: DeskEntry): string {
 // --- the in-guest browser and its CDP relay ---------------------------------
 
 /**
- * Fetch Chromium's /json/version FROM INSIDE the guest, with nothing but
- * bash — the base image is deliberately short and this needs no extra
- * package. Returns the devtools websocket path, e.g. /devtools/browser/<id>.
+ * Fetch Chromium's /json/version FROM INSIDE the guest. Returns the devtools
+ * websocket path, e.g. /devtools/browser/<id>, or null while it is not there.
+ *
+ * NODE, NOT A HAND-ROLLED HTTP REQUEST DOWN bash's /dev/tcp. That is what this
+ * was, and it could not work — for two separate reasons, both measured on the
+ * real desk against Chromium 151:
+ *
+ *   · It asked in HTTP/1.0, and Chromium's devtools server answers HTTP/1.0
+ *     with silence: no status line, no body. The same request as HTTP/1.1 gets
+ *     `200 OK` and the JSON.
+ *   · Even in HTTP/1.1 with `Connection: close`, Chromium does not close the
+ *     socket, so the `cat` reading the reply never reaches EOF. The whole
+ *     command then sat until the 5s exec timeout SIGKILLed it, which reports a
+ *     null exit status, which this read as failure — while holding a complete
+ *     JSON reply in its stdout.
+ *
+ * Either one alone made this return null forever, so `POST /desks/:id/browser`
+ * spent its twenty seconds and reported "The in-guest browser did not come up"
+ * about a browser that was up, listening, and answering. node is the right
+ * tool and costs nothing: it is in the golden image by construction, because
+ * the guest agent itself runs on it.
+ *
+ * The exit status is deliberately NOT required to be 0. What matters is
+ * whether the answer arrived; a probe that was killed a moment after printing
+ * it has still told us what we asked.
  */
 async function guestBrowserPath(entry: DeskEntry): Promise<string | null> {
   const probe =
-    'exec 3<>/dev/tcp/127.0.0.1/9222; ' +
-    'printf "GET /json/version HTTP/1.0\\r\\nHost: 127.0.0.1\\r\\n\\r\\n" >&3; cat <&3'
+    `fetch('http://127.0.0.1:${CDP_PORT}/json/version')` +
+    '.then((r) => r.text()).then((t) => process.stdout.write(t)).catch(() => process.exit(1))'
   const snapshot = await entry.handle
-    .exec({ command: '/bin/bash', args: ['-c', probe], timeoutMs: 5_000 })
+    .exec({ command: '/usr/bin/node', args: ['-e', probe], timeoutMs: 5_000 })
     .catch(() => null)
-  if (!snapshot || snapshot.exitCode !== 0) return null
+  if (!snapshot) return null
   const match = /"webSocketDebuggerUrl":\s*"ws:\/\/[^/]+(\/devtools\/browser\/[^"]+)"/.exec(snapshot.stdout)
   return match?.[1] ?? null
 }
