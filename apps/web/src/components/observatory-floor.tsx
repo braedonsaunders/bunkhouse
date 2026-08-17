@@ -2,8 +2,9 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Badge, Card, CardContent, EmptyState, Tabs } from '@appkit/ui'
+import { Badge, Card, CardContent, EmptyState } from '@appkit/ui'
 import { ObservatoryList, type ObservatoryRunRow } from './observatory-list'
+import { SectionTabs } from './section-tabs'
 
 export type ActiveRunCardRow = {
   id: string
@@ -128,14 +129,15 @@ export function ObservatoryFloor({
   }, [router, recordOpen])
 
   return (
-    <div className="space-y-4">
-      <Tabs
+    <div className="space-y-6">
+      <SectionTabs
         tabs={[
-          { value: 'live', label: `Live${active.length ? ` (${active.length})` : ''}` },
-          { value: 'history', label: 'History' },
+          { key: 'live', label: 'Live', count: active.length },
+          { key: 'history', label: 'History', count: history.length },
         ]}
-        value={tab}
-        onValueChange={setTab}
+        active={tab}
+        onSelect={setTab}
+        ariaLabel="Observatory sections"
       />
       {tab === 'live' ? (
         active.length ? (

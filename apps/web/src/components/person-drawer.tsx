@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Badge, Drawer, SubtabNav, type SubtabItem } from '@appkit/ui'
+import { Badge, Drawer } from '@appkit/ui'
+import { SectionTabs, type SectionTabItem } from './section-tabs'
 
 export type PersonDrawerTab = {
   key: string
@@ -54,7 +55,7 @@ export function PersonDrawer({
   const [active, setActive] = React.useState(
     initialTabKey && tabs.some((tab) => tab.key === initialTabKey) ? initialTabKey : (tabs[0]?.key ?? 'overview'),
   )
-  const items: SubtabItem[] = tabs.map((tab) => ({ key: tab.key, label: tab.label }))
+  const items: SectionTabItem[] = tabs.map((tab) => ({ key: tab.key, label: tab.label }))
   const current = tabs.find((tab) => tab.key === active) ?? tabs[0]
   const fills = Boolean(current?.fill)
 
@@ -92,7 +93,7 @@ export function PersonDrawer({
     >
       <div className={fills ? 'flex h-full min-h-0 flex-col gap-4' : 'space-y-4'}>
         <div className="shrink-0">
-          <SubtabNav tabs={items} active={current?.key ?? ''} onSelect={setActive} ariaLabel="Person sections" />
+          <SectionTabs tabs={items} active={current?.key ?? ''} onSelect={setActive} ariaLabel="Person sections" />
         </div>
         <div key={current?.key} className={fills ? 'min-h-0 flex-1 overflow-hidden' : undefined}>
           {current?.content}

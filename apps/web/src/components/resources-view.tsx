@@ -1,11 +1,11 @@
 'use client'
 
 import * as React from 'react'
-import { SubtabNav, type SubtabItem } from '@appkit/ui'
 import { NotesView, ProposalsView, type NoteRow, type ProposalRow } from './notes-view'
 import { ProceduresView, type AssignOption, type ProcedureRow } from './procedures-view'
 import { SkillsView, type SkillRowView } from './skills-view'
 import { SystemsView, type McpOauthOutcome, type SystemRowView } from './systems-view'
+import { SectionTabs, type SectionTabItem } from './section-tabs'
 
 /**
  * Resources: everything an agent brings to the job. What it knows (notes), the
@@ -42,7 +42,7 @@ export function ResourcesView({
   /** Which subtab to open on arrival — the OAuth callback and links deep-link here. */
   initialTab?: string
 }) {
-  const tabs: SubtabItem[] = [
+  const tabs: SectionTabItem[] = [
     { key: 'notes', label: 'Notes', count: notes.length },
     { key: 'procedures', label: 'Procedures', count: procedures.length },
     { key: 'skills', label: 'Skills', count: skills.length },
@@ -55,7 +55,7 @@ export function ResourcesView({
 
   return (
     <div className="space-y-4">
-      <SubtabNav tabs={tabs} active={active} onSelect={setActive} ariaLabel="Resource sections" />
+      <SectionTabs tabs={tabs} active={active} onSelect={setActive} ariaLabel="Resource sections" />
       {active === 'notes' ? (
         <NotesView scope="company" rows={notes} roleOptions={roleOptions} agentOptions={agentOptions} />
       ) : null}

@@ -1,24 +1,19 @@
-import Link from 'next/link'
-import { desc, eq } from 'drizzle-orm'
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  EmptyState,
-  Input,
-  PageContainer,
-  PageHeader,
-} from '@appkit/ui'
-import { approvals, people } from '../../db/schema'
+import { asc, desc, eq, ne } from 'drizzle-orm'
+import { PageContainer, PageHeader } from '@appkit/ui'
+import { approvals, people, type ApprovalPayload } from '../../db/schema'
 import { db } from '../../db/client'
-import { resolveTenantId } from '../../lib/tenant'
-import { approveAction, rejectAction } from './actions'
+import { requireTenantPermission } from '../../lib/tenant'
+import { ApprovalsView, type ApprovalDraft, type ApprovalRow } from '../../components/approvals-view'
 
 export const dynamic = 'force-dynamic'
+
+const stamp = (d: Date) => d.toISOString().slice(0, 16).replace('T', ' ')
+
+/** `external_email` is what the enum stores; "External email" is what it means. */
+const categoryLabel = (category: string) => {
+  const words = category.replace(/_/g, ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
 
 /**
  * The exact wording an approver is signing off on. Approving an external email
@@ -26,7 +21,7 @@ export const dynamic = 'force-dynamic'
  * shown verbatim: the addressee and subject as labelled fields, and the body —
  * or the shell command, or the page being opened — as the reviewable text.
  */
-function draftOf(payload: unknown): { fields: { label: string; value: string }[]; text: string | null } {
+function draftOf(payload: unknown): ApprovalDraft {
   const action = (payload as { action?: { input?: Record<string, unknown> } } | null)?.action
   const input = action?.input ?? {}
   const str = (key: string): string | null => {
@@ -43,31 +38,69 @@ function draftOf(payload: unknown): { fields: { label: string; value: string }[]
   return { fields, text: str('body') ?? str('command') ?? str('url') ?? str('target') }
 }
 
-export default async function ApprovalsPage() {
-  const tenantId = await resolveTenantId('approvals.read')
+const COLUMNS = {
+  id: approvals.id,
+  runId: approvals.runId,
+  category: approvals.category,
+  payload: approvals.payload,
+  status: approvals.status,
+  createdAt: approvals.createdAt,
+  decidedAt: approvals.decidedAt,
+  decisionNote: approvals.decisionNote,
+  personId: approvals.personId,
+  personName: people.name,
+  personTitle: people.title,
+}
+
+type QueryRow = {
+  id: string
+  runId: string
+  category: string
+  payload: ApprovalPayload
+  status: ApprovalRow['status']
+  createdAt: Date
+  decidedAt: Date | null
+  decisionNote: string | null
+  personId: string
+  personName: string
+  personTitle: string
+}
+
+const toRow = (row: QueryRow): ApprovalRow => ({
+  id: row.id,
+  runId: row.runId,
+  personId: row.personId,
+  personName: row.personName,
+  personTitle: row.personTitle,
+  category: row.category,
+  categoryLabel: categoryLabel(row.category),
+  description: row.payload.description,
+  draft: draftOf(row.payload),
+  createdAt: stamp(row.createdAt),
+  status: row.status,
+  decidedAt: row.decidedAt ? stamp(row.decidedAt) : null,
+  decisionNote: row.decisionNote,
+})
+
+export default async function ApprovalsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const { tab } = await searchParams
+  // The access object, not just the tenant id: whether this member may decide
+  // is what tells the queue to offer buttons or only the request.
+  const access = await requireTenantPermission('approvals.read')
   const app = db()
-  const rows = await app.withTenantContext(tenantId, () =>
-    app.db
-      .select({
-        id: approvals.id,
-        runId: approvals.runId,
-        category: approvals.category,
-        payload: approvals.payload,
-        status: approvals.status,
-        createdAt: approvals.createdAt,
-        decidedAt: approvals.decidedAt,
-        decisionNote: approvals.decisionNote,
-        personId: approvals.personId,
-        personName: people.name,
-        personTitle: people.title,
-      })
-      .from(approvals)
-      .innerJoin(people, eq(people.id, approvals.personId))
-      .orderBy(desc(approvals.createdAt))
-      .limit(50),
-  )
-  const pending = rows.filter((r) => r.status === 'pending')
-  const decided = rows.filter((r) => r.status !== 'pending')
+  // Two queries, not one sliced in half: the queue is oldest-first because the
+  // longest wait is the most overdue, the history is newest-first, and neither
+  // half may be truncated by how busy the other one is.
+  const { pending, decided } = await app.withTenantContext(access.tenantId, async () => {
+    const base = () => app.db.select(COLUMNS).from(approvals).innerJoin(people, eq(people.id, approvals.personId))
+    return {
+      pending: await base().where(eq(approvals.status, 'pending')).orderBy(asc(approvals.createdAt)).limit(500),
+      decided: await base()
+        .where(ne(approvals.status, 'pending'))
+        .orderBy(desc(approvals.decidedAt), desc(approvals.createdAt))
+        .limit(500),
+    }
+  })
 
   return (
     <PageContainer className="space-y-6">
@@ -75,75 +108,12 @@ export default async function ApprovalsPage() {
         title="Approvals"
         description="Actions your agents queued for human sign-off. Approve, or decline with a note they learn from."
       />
-      {pending.length === 0 ? (
-        <EmptyState title="Queue is clear" description="Nothing is waiting on you." />
-      ) : (
-        pending.map((row) => (
-          <Card key={row.id}>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between gap-2 text-base">
-                <span>
-                  <Link href={`/organization?person=${row.personId}`} className="hover:text-primary">
-                    {row.personName}
-                  </Link>{' '}
-                  <span className="text-fg-muted">· {row.personTitle}</span>
-                </span>
-                <Badge variant="outline">{row.category}</Badge>
-              </CardTitle>
-              <CardDescription>{row.createdAt.toISOString().slice(0, 16).replace('T', ' ')}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <p>{row.payload.description}</p>
-              {(() => {
-                const draft = draftOf(row.payload)
-                if (draft.fields.length === 0 && !draft.text) return null
-                return (
-                  <div className="space-y-2 rounded-md border border-border bg-bg-subtle p-3">
-                    {draft.fields.map((field) => (
-                      <p key={field.label}>
-                        <span className="text-fg-muted">{field.label}: </span>
-                        {field.value}
-                      </p>
-                    ))}
-                    {draft.text ? <p className="whitespace-pre-wrap">{draft.text}</p> : null}
-                  </div>
-                )
-              })()}
-              <Link href={`/runs/${row.runId}`} className="inline-block text-fg-muted hover:text-primary">
-                Open the run this came from →
-              </Link>
-              <form className="flex flex-wrap items-center gap-2">
-                <input type="hidden" name="approvalId" value={row.id} />
-                <Input name="note" placeholder="Optional note back to the agent" className="max-w-sm" />
-                <Button formAction={approveAction}>Approve</Button>
-                <Button formAction={rejectAction} variant="outline">
-                  Decline
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-        ))
-      )}
-      {decided.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Recently decided</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            {decided.slice(0, 10).map((row) => (
-              <div key={row.id} className="flex items-center justify-between rounded-md border border-border p-3">
-                <div>
-                  <p className="font-medium">
-                    {row.personName} · {row.payload.description}
-                  </p>
-                  {row.decisionNote ? <p className="text-fg-muted">Note: {row.decisionNote}</p> : null}
-                </div>
-                <Badge variant={row.status === 'approved' ? 'default' : 'destructive'}>{row.status}</Badge>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      ) : null}
+      <ApprovalsView
+        pending={pending.map(toRow)}
+        decided={decided.map(toRow)}
+        canDecide={access.user.isSuperAdmin || access.permissions.has('approvals.decide')}
+        {...(tab ? { initialTab: tab } : {})}
+      />
     </PageContainer>
   )
 }

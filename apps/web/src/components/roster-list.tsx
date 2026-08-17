@@ -2,10 +2,12 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { RecordList, type RecordColumn } from '@appkit/ui'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { ListNavProvider, RecordList, type RecordColumn } from '@appkit/ui'
 import type { CallAction } from '../lib/call-action'
+import type { PersonStatus } from '../app/organization/actions'
 import { CallActionButton } from './call-action-button'
+import { PersonStatusAction } from './person-status-action'
 
 /**
  * One row shape for both halves of the organization. People and agents get
@@ -22,6 +24,8 @@ export type RosterRow = {
   email: string
   reportsTo: string
   status: 'Onboarding' | 'Active' | 'Offboarded'
+  /** The stored status, for the row's lifecycle action. Omit for no action. */
+  statusValue?: PersonStatus
   phone?: string
   model?: string
   extension?: string
@@ -66,6 +70,15 @@ export const PEOPLE_COLUMNS: RecordColumn<RosterRow>[] = [
   STATUS_COLUMN,
 ]
 
+/** Stand an agent down, or bring one back, without opening the record. */
+const STATUS_ACTION_COLUMN: RecordColumn<RosterRow> = {
+  key: 'statusAction',
+  label: '',
+  kind: 'actions',
+  render: (row) =>
+    row.statusValue ? <PersonStatusAction id={row.id} name={row.name} status={row.statusValue} /> : null,
+}
+
 export const AGENT_COLUMNS: RecordColumn<RosterRow>[] = [
   NAME_COLUMN,
   { key: 'title', label: 'Role', sortable: true },
@@ -75,6 +88,7 @@ export const AGENT_COLUMNS: RecordColumn<RosterRow>[] = [
   { key: 'reportsTo', label: 'Reports to', sortable: true },
   STATUS_COLUMN,
   CALL_COLUMN,
+  STATUS_ACTION_COLUMN,
 ]
 
 export function RosterList({
@@ -84,6 +98,7 @@ export function RosterList({
   searchPlaceholder,
   empty,
   selectedId,
+  filters,
 }: {
   rows: RosterRow[]
   columns: RecordColumn<RosterRow>[]
@@ -93,8 +108,12 @@ export function RosterList({
   empty: { title: string; description: string }
   /** The record the drawer has open, so its row reads as the live one. */
   selectedId?: string | undefined
+  /** Toolbar filters (URL-driven), rendered beside the search box. */
+  filters?: React.ReactNode
 }) {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   // The row clicked but not yet open. The record is fetched on the server, so
   // between the click and the drawer there is a wait with nothing in the URL
   // yet; without this the click is unacknowledged for the whole of it.
@@ -120,10 +139,21 @@ export function RosterList({
   }, [rows, search, sort])
 
   return (
+    // The URL-driven filter kit navigates rather than lifting state, so it needs
+    // this app's router; without the bridge it falls back to full page loads.
+    <ListNavProvider
+      value={{
+        pathname,
+        search: searchParams.toString(),
+        replace: (href) => router.replace(href, { scroll: false }),
+        push: (href) => router.push(href, { scroll: false }),
+      }}
+    >
     <RecordList
       columns={columns}
       rows={filtered}
       getRowId={(row) => row.id}
+      filters={filters}
       search={{ value: search, onChange: setSearch, placeholder: searchPlaceholder }}
       sort={sort}
       onSortChange={(key) =>
@@ -147,5 +177,6 @@ export function RosterList({
       }}
       empty={empty}
     />
+    </ListNavProvider>
   )
 }

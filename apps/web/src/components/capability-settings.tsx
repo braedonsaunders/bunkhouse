@@ -12,7 +12,6 @@ import {
   Select,
   SettingsRow,
   SettingsSection,
-  SubtabNav,
 } from '@appkit/ui'
 import { isSmsProvider, smsProviderSpec, SMS_PROVIDER_SPECS, type SmsProvider } from '@appkit/sms/providers'
 import {
@@ -26,6 +25,7 @@ import {
   setSearchProviderAction,
 } from '../app/admin/settings/actions'
 import { RunDeskEventsTable, type RunDeskEventRow } from './run-tables'
+import { SectionTabs } from './section-tabs'
 
 /**
  * The capability half of Settings: how agents research the web, how their
@@ -466,7 +466,7 @@ export function DeskSection({
 
   return (
     <div className="space-y-4">
-      <SubtabNav
+      <SectionTabs
         ariaLabel="Desk"
         active={tab}
         onSelect={setTab}
@@ -977,7 +977,7 @@ function ShellHistoryList({ sessions }: { sessions: WorkspacePolicyView['session
         description={selected ? new Date(selected.startedAt).toLocaleString() : undefined}
         size="lg"
         subtabs={
-          <SubtabNav
+          <SectionTabs
             tabs={[
               { key: 'overview', label: 'Overview' },
               { key: 'output', label: 'Recorded output' },

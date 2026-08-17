@@ -37,6 +37,142 @@ function revalidateOrganization(): void {
   revalidatePath('/organization/chart')
 }
 
+export type PersonStatus = 'onboarding' | 'active' | 'offboarded'
+
+/**
+ * The only moves a personnel record may make. Nobody is ever deleted — an
+ * agent that has stopped working is offboarded, which is a state its record
+ * keeps, and coming back is a re-onboarding rather than a silent flip to
+ * active. Everything an offboarded agent did stays on the record.
+ */
+const STATUS_TRANSITIONS: Record<PersonStatus, readonly PersonStatus[]> = {
+  onboarding: ['active', 'offboarded'],
+  active: ['offboarded'],
+  offboarded: ['onboarding'],
+}
+
+// Not exported: every export of a 'use server' module must be an async
+// function, and a type guard is neither.
+function isPersonStatus(value: string): value is PersonStatus {
+  return value === 'onboarding' || value === 'active' || value === 'offboarded'
+}
+
+function assertStatusTransition(from: PersonStatus, to: PersonStatus): void {
+  if (!STATUS_TRANSITIONS[from].includes(to)) {
+    throw new Error(`Status cannot move directly from ${from} to ${to}.`)
+  }
+}
+
+type PersonRow = typeof people.$inferSelect
+type Tx = ReturnType<typeof db>['db']
+
+/**
+ * Offboarding is a departure, not a label: an agent that keeps its mailbox
+ * syncing, its duties firing, and its approvals pending is still working. So
+ * the same wind-down runs however the status was changed — from the record's
+ * own form, or from the one-click action on the roster.
+ */
+async function windDownOffboarded(tx: Tx, person: PersonRow, actorUserId: string, now: Date): Promise<void> {
+  if (person.kind !== 'agent') return
+  await Promise.all([
+    tx
+      .update(mailboxAccounts)
+      .set({ status: 'disabled', lastError: null, updatedAt: now })
+      .where(eq(mailboxAccounts.personId, person.id)),
+    tx
+      .update(duties)
+      .set({ enabled: 'off', nextDueAt: null, updatedAt: now })
+      .where(eq(duties.personId, person.id)),
+    tx
+      .update(autonomySettings)
+      .set({ level: 'forbidden', updatedAt: now })
+      .where(eq(autonomySettings.personId, person.id)),
+    tx
+      .update(assignments)
+      .set({ status: 'cancelled', lastError: 'Cancelled when the agent was offboarded.', updatedAt: now })
+      .where(
+        and(eq(assignments.personId, person.id), inArray(assignments.status, ['pending', 'working', 'waiting_approval'])),
+      ),
+    tx
+      .update(approvals)
+      .set({ status: 'expired', decidedById: actorUserId, decidedAt: now, decisionNote: 'Expired when the agent was offboarded.' })
+      .where(and(eq(approvals.personId, person.id), eq(approvals.status, 'pending'))),
+    tx
+      .update(callSessions)
+      .set({ status: 'ended', endedAt: now, updatedAt: now })
+      .where(and(eq(callSessions.personId, person.id), eq(callSessions.status, 'active'))),
+    tx
+      .update(meetingLinks)
+      .set({ expiresAt: now, updatedAt: now })
+      .where(eq(meetingLinks.createdByPersonId, person.id)),
+  ])
+}
+
+async function recordStatusTransition(
+  tx: Tx,
+  entry: { tenantId: string; actorUserId: string; person: PersonRow; status: PersonStatus; endedOn: string | null },
+): Promise<void> {
+  await tx.insert(identity.auditLog).values({
+    tenantId: entry.tenantId,
+    actorUserId: entry.actorUserId,
+    action: 'status_transition',
+    entityType: 'person',
+    entityId: entry.person.id,
+    summary: `${entry.person.name}: ${entry.person.status} → ${entry.status}`,
+    before: { status: entry.person.status, endedOn: entry.person.endedOn },
+    after: { status: entry.status, endedOn: entry.endedOn },
+    metadata: { kind: entry.person.kind },
+  })
+}
+
+/**
+ * Move one person's status without opening the record — the roster's Offboard
+ * and Reinstate actions. The transition rules and the wind-down are the record
+ * form's, so an agent stood down from the list is stood down just as
+ * thoroughly as one stood down from its own page.
+ */
+export async function setPersonStatusAction(formData: FormData): Promise<PersonUpdateResult> {
+  const personId = String(formData.get('personId') ?? '')
+  const status = String(formData.get('status') ?? '')
+  if (!personId) return { ok: false, message: 'personId is required.' }
+  if (!isPersonStatus(status)) return { ok: false, message: 'Invalid status.' }
+
+  const access = await requireTenantPermission('people.manage')
+  const app = db()
+  try {
+    await app.withTenant(access.tenantId, async () => {
+      const [person] = await app.db.select().from(people).where(eq(people.id, personId))
+      if (!person) throw new Error('Person not found.')
+      if (person.status === status) return
+      assertStatusTransition(person.status, status)
+
+      const now = new Date()
+      const update: Partial<typeof people.$inferInsert> = { status, updatedAt: now }
+      if (status === 'offboarded') {
+        update.endedOn = now.toISOString().slice(0, 10)
+        await windDownOffboarded(app.db, person, access.user.id, now)
+      }
+      // Coming back is a fresh start: the departure date would otherwise sit on
+      // the record of somebody who is being onboarded again.
+      if (status === 'onboarding') update.endedOn = null
+
+      await app.db.update(people).set(update).where(eq(people.id, personId))
+      await recordStatusTransition(app.db, {
+        tenantId: access.tenantId,
+        actorUserId: access.user.id,
+        person,
+        status,
+        endedOn: update.endedOn ?? person.endedOn,
+      })
+    })
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+  revalidateOrganization()
+  revalidatePath('/')
+  return { ok: true }
+}
+
 /**
  * Add a real human to the organization. Humans are colleagues, not employees
  * of the runtime: no model, no salary, no mailbox to provision. They exist so
@@ -561,15 +697,7 @@ export async function updatePerson(formData: FormData): Promise<PersonUpdateResu
       const [person] = await app.db.select().from(people).where(eq(people.id, personId))
       if (!person) throw new Error('Person not found.')
 
-      if (status !== person.status) {
-        const allowed =
-          (person.status === 'onboarding' && (status === 'active' || status === 'offboarded')) ||
-          (person.status === 'active' && status === 'offboarded') ||
-          (person.status === 'offboarded' && status === 'onboarding')
-        if (!allowed) {
-          throw new Error(`Status cannot move directly from ${person.status} to ${status}.`)
-        }
-      }
+      if (status !== person.status) assertStatusTransition(person.status, status)
 
       const update: Partial<typeof people.$inferInsert> = {
         name, title, email, status, reportsToId, responsibilities, updatedAt: new Date(),
@@ -650,57 +778,17 @@ export async function updatePerson(formData: FormData): Promise<PersonUpdateResu
       if (status === 'offboarded' && person.status !== 'offboarded') {
         const now = new Date()
         update.endedOn = String(formData.get('endedOn') ?? '').trim() || now.toISOString().slice(0, 10)
-        if (person.kind === 'agent') {
-          await Promise.all([
-            app.db
-              .update(mailboxAccounts)
-              .set({ status: 'disabled', lastError: null, updatedAt: now })
-              .where(eq(mailboxAccounts.personId, person.id)),
-            app.db
-              .update(duties)
-              .set({ enabled: 'off', nextDueAt: null, updatedAt: now })
-              .where(eq(duties.personId, person.id)),
-            app.db
-              .update(autonomySettings)
-              .set({ level: 'forbidden', updatedAt: now })
-              .where(eq(autonomySettings.personId, person.id)),
-            app.db
-              .update(assignments)
-              .set({ status: 'cancelled', lastError: 'Cancelled when the agent was offboarded.', updatedAt: now })
-              .where(
-                and(
-                  eq(assignments.personId, person.id),
-                  inArray(assignments.status, ['pending', 'working', 'waiting_approval']),
-                ),
-              ),
-            app.db
-              .update(approvals)
-              .set({ status: 'expired', decidedById: access.user.id, decidedAt: now, decisionNote: 'Expired when the agent was offboarded.' })
-              .where(and(eq(approvals.personId, person.id), eq(approvals.status, 'pending'))),
-            app.db
-              .update(callSessions)
-              .set({ status: 'ended', endedAt: now, updatedAt: now })
-              .where(and(eq(callSessions.personId, person.id), eq(callSessions.status, 'active'))),
-            app.db
-              .update(meetingLinks)
-              .set({ expiresAt: now, updatedAt: now })
-              .where(eq(meetingLinks.createdByPersonId, person.id)),
-          ])
-        }
+        await windDownOffboarded(app.db, person, access.user.id, now)
       }
 
       await app.db.update(people).set(update).where(eq(people.id, personId))
       if (status !== person.status) {
-        await app.db.insert(identity.auditLog).values({
+        await recordStatusTransition(app.db, {
           tenantId,
           actorUserId: access.user.id,
-          action: 'status_transition',
-          entityType: 'person',
-          entityId: person.id,
-          summary: `${person.name}: ${person.status} → ${status}`,
-          before: { status: person.status, endedOn: person.endedOn },
-          after: { status, endedOn: update.endedOn ?? person.endedOn },
-          metadata: { kind: person.kind },
+          person,
+          status,
+          endedOn: update.endedOn ?? person.endedOn,
         })
       }
     })

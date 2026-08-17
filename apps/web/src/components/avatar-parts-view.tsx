@@ -11,7 +11,6 @@ import {
   Label,
   PagedTable,
   SearchSelect,
-  SubtabNav,
   Textarea,
   type PagedColumn,
 } from '@appkit/ui'
@@ -23,6 +22,7 @@ import {
   keepAvatarPartAction,
   updateAvatarPartAction,
 } from '../app/admin/settings/avatar-part-actions'
+import { SectionTabs } from './section-tabs'
 
 export type AvatarPartRowView = {
   id: string
@@ -426,7 +426,7 @@ function EditPartDrawer({
   return (
     <Drawer open onClose={onClose} title={part.name} description={`${part.categoryLabel} · ${part.model}`} size="md">
       <div className="space-y-4">
-        <SubtabNav
+        <SectionTabs
           tabs={[
             { key: 'details', label: 'Details' },
             { key: 'placement', label: 'Placement' },

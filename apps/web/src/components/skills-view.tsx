@@ -10,7 +10,6 @@ import {
   Input,
   Label,
   RecordList,
-  SubtabNav,
   type RecordColumn,
 } from '@appkit/ui'
 import type { ResourceAssignment } from '../db/schema'
@@ -24,6 +23,7 @@ import {
   setSkillStatusAction,
   updateSkillAction,
 } from '../app/resources/skill-actions'
+import { SectionTabs } from './section-tabs'
 
 /**
  * Skills: portable competence an agent can draw on, installed from a
@@ -384,7 +384,7 @@ function SkillDrawer({
       size="2xl"
     >
       <div className="space-y-4">
-        <SubtabNav
+        <SectionTabs
           ariaLabel="Skill sections"
           active={tab}
           onSelect={setTab}

@@ -3,9 +3,9 @@
 import * as React from 'react'
 import { createHttpIamService } from '@appkit/iam/http'
 import { AuditAdmin, RolesAdmin, UsersAdmin } from '@appkit/iam/react'
-import { SubtabNav } from '@appkit/ui'
 import type { ScopeOptions } from '@appkit/iam'
 import { PERMISSION_GROUPS } from '../lib/permissions'
+import { SectionTabs } from './section-tabs'
 
 const service = createHttpIamService({ endpoint: '/api/iam' })
 
@@ -13,7 +13,7 @@ export function AccessSettings({ scopeOptions }: { scopeOptions: ScopeOptions })
   const [tab, setTab] = React.useState('roles')
   return (
     <div className="space-y-4">
-      <SubtabNav
+      <SectionTabs
         ariaLabel="Access control"
         active={tab}
         onSelect={setTab}

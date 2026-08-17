@@ -8,7 +8,6 @@ import {
   Input,
   Label,
   RecordList,
-  SubtabNav,
   type RecordColumn,
 } from '@appkit/ui'
 import type { ProcedureContent, ResourceAssignment } from '../db/schema'
@@ -16,6 +15,7 @@ import { addRevision, createProcedure, setProcedureAssignment, setProcedureStatu
 import { contentFromLegacyBody } from '../lib/procedures'
 import { ProcedureEditor, emptyDraft } from './procedure-editor'
 import { ProcedureReader } from './procedure-reader'
+import { SectionTabs } from './section-tabs'
 
 export type ProcedureRevision = {
   version: number
@@ -322,7 +322,7 @@ export function ProceduresView({
       >
         {selected && shown ? (
           <div className="space-y-4">
-            <SubtabNav
+            <SectionTabs
               tabs={[
                 { key: 'procedure', label: 'Procedure', count: selected.content?.steps.length ?? 0 },
                 { key: 'applies', label: 'Applies to' },

@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Drawer, SubtabNav, type SubtabItem } from '@appkit/ui'
+import { Drawer } from '@appkit/ui'
+import { SectionTabs, type SectionTabItem } from './section-tabs'
 
 export type RunRecordTab = {
   key: string
@@ -16,7 +17,7 @@ function useRunTabs(tabs: RunRecordTab[], initialTabKey?: string | undefined) {
   const [active, setActive] = React.useState(
     initialTabKey && tabs.some((tab) => tab.key === initialTabKey) ? initialTabKey : (tabs[0]?.key ?? 'overview'),
   )
-  const items: SubtabItem[] = tabs.map((tab) => ({
+  const items: SectionTabItem[] = tabs.map((tab) => ({
     key: tab.key,
     label: tab.label,
     ...(tab.count === undefined ? {} : { count: tab.count }),
@@ -34,7 +35,7 @@ export function RunSubtabs({ tabs, initialTabKey }: { tabs: RunRecordTab[]; init
   const { items, current, setActive } = useRunTabs(tabs, initialTabKey)
   return (
     <div className="space-y-4">
-      <SubtabNav tabs={items} active={current?.key ?? ''} onSelect={setActive} ariaLabel="Run sections" />
+      <SectionTabs tabs={items} active={current?.key ?? ''} onSelect={setActive} ariaLabel="Run sections" />
       <div key={current?.key}>{current?.content}</div>
     </div>
   )
@@ -83,7 +84,7 @@ export function RunDrawer({
       description={subtitle}
       headerActions={headerActions}
       size="2xl"
-      subtabs={<SubtabNav tabs={items} active={current?.key ?? ''} onSelect={setActive} ariaLabel="Run sections" />}
+      subtabs={<SectionTabs tabs={items} active={current?.key ?? ''} onSelect={setActive} ariaLabel="Run sections" />}
     >
       <div key={current?.key}>{current?.content}</div>
     </Drawer>

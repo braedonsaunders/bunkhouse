@@ -13,7 +13,6 @@ import {
   SearchSelect,
   SettingsRow,
   SettingsSection,
-  SubtabNav,
   type PagedColumn,
 } from '@appkit/ui'
 import { AddProviderForm, type ProviderKindOption } from './add-provider-form'
@@ -27,6 +26,7 @@ import {
   setManualPriceAction,
   updateProviderAction,
 } from '../app/admin/settings/actions'
+import { SectionTabs } from './section-tabs'
 
 /**
  * Settings → Models: the company's own provider keys, and the effective-dated
@@ -258,7 +258,7 @@ export function ModelSettings({
 
   return (
     <div className="space-y-4">
-      <SubtabNav
+      <SectionTabs
         ariaLabel="Models"
         active={tab}
         onSelect={setTab}

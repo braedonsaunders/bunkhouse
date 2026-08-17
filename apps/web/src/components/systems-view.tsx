@@ -9,7 +9,6 @@ import {
   Label,
   RecordList,
   Select,
-  SubtabNav,
   Textarea,
   type RecordColumn,
 } from '@appkit/ui'
@@ -30,6 +29,7 @@ import {
   type SystemTool,
 } from '../app/resources/system-actions'
 import { AssignmentFields, type AssignOption } from './procedures-view'
+import { SectionTabs } from './section-tabs'
 
 /**
  * Systems: the outside software an agent is given access to, connected over
@@ -435,7 +435,7 @@ function SystemDrawer({
         {/* A system that is not saved yet has nothing to inspect, so the
             subtabs appear only once there is a connection behind them. */}
         {entry ? (
-          <SubtabNav
+          <SectionTabs
             ariaLabel="System sections"
             active={tab}
             onSelect={setTab}

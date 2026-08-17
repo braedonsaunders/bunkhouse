@@ -16,7 +16,6 @@ import {
   SettingsRow,
   SettingsSection,
   SettingsShell,
-  SubtabNav,
   type LinkRender,
   type PagedColumn,
   type SettingsNavGroup,
@@ -58,6 +57,7 @@ import { FilingSection, type FilingActivityRow, type FilingSettingsView } from '
 import { ChatSettingsSection, type ChatAgentOption, type ChatChannelRouteRowView, type ChatConnectionsView } from './chat-settings'
 import { AccessSettings } from './access-settings'
 import type { ScopeOptions } from '@appkit/iam'
+import { SectionTabs } from './section-tabs'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
   <Link href={href} className={className} title={title}>
@@ -435,7 +435,7 @@ export function SettingsView({
 
       {active === 'mail' ? (
         <div className="space-y-4">
-          <SubtabNav
+          <SectionTabs
             ariaLabel="Mail"
             active={mailTab}
             onSelect={setMailTab}
@@ -500,7 +500,7 @@ export function SettingsView({
 
       {active === 'voice' ? (
         <div className="space-y-4">
-          <SubtabNav
+          <SectionTabs
             ariaLabel="Voice and phone"
             active={voiceTab}
             onSelect={setVoiceTab}
@@ -596,7 +596,7 @@ export function SettingsView({
 
       {active === 'documents' ? (
         <div className="space-y-4">
-          <SubtabNav
+          <SectionTabs
             ariaLabel="Documents"
             active={documentTab}
             onSelect={setDocumentTab}

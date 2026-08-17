@@ -9,7 +9,6 @@ import {
   Label,
   RecordList,
   Select,
-  SubtabNav,
   Textarea,
   type RecordColumn,
 } from '@appkit/ui'
@@ -26,6 +25,7 @@ import {
 } from '../lib/autonomy'
 import { MarkdownEditor } from './markdown-editor'
 import { ScheduleBuilder } from './schedule-builder'
+import { SectionTabs } from './section-tabs'
 
 export type RosterOption = { id: string; name: string; title: string }
 
@@ -233,7 +233,7 @@ export function RolesView({
       >
         {selected ? (
           <div className="space-y-4">
-            <SubtabNav
+            <SectionTabs
               tabs={[
                 { key: 'overview', label: 'Overview' },
                 { key: 'duties', label: 'Duties', count: selected.duties.length },
@@ -485,7 +485,7 @@ export function RolesView({
       >
         {editor ? (
           <div className="space-y-5">
-            <SubtabNav
+            <SectionTabs
               tabs={[
                 { key: 'basics', label: 'Basics' },
                 { key: 'duties', label: 'Duties', count: editor.duties.length },

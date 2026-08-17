@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Globe, X } from 'lucide-react'
-import { Badge, Button, Drawer, Input, Label, Select, SettingsRow, SettingsSection, SubtabNav } from '@appkit/ui'
+import { Badge, Button, Drawer, Input, Label, Select, SettingsRow, SettingsSection } from '@appkit/ui'
 import { MarkdownEditor } from './markdown-editor'
 import { normalizeDomain } from '../lib/internal-domains'
 import {
@@ -10,6 +10,7 @@ import {
   saveCompanyIdentityAction,
   type CompanyIdentityInput,
 } from '../app/admin/settings/company-actions'
+import { SectionTabs } from './section-tabs'
 
 /**
  * Settings → Company → Identity. Agents are staff, so they need to know whose
@@ -131,7 +132,7 @@ export function CompanyIdentitySettings({
       />
 
       <div className="px-5 py-3">
-        <SubtabNav ariaLabel="Company identity" active={tab} onSelect={setTab} tabs={TABS} />
+        <SectionTabs ariaLabel="Company identity" active={tab} onSelect={setTab} tabs={TABS} />
       </div>
 
       {tab === 'profile' ? (

@@ -15,7 +15,6 @@ import {
   PagedTable,
   Select,
   SettingsRow,
-  SubtabNav,
   Textarea,
   type PagedColumn,
 } from '@appkit/ui'
@@ -41,6 +40,7 @@ import {
   type PhoneSystemDetail,
   type TrunkDetailView,
 } from '../app/admin/settings/pbx-actions'
+import { SectionTabs } from './section-tabs'
 
 export type SipTrunkSummary = {
   id: string
@@ -565,7 +565,7 @@ export function PhoneSystemRow({
         size="lg"
       >
         <div className="space-y-4">
-          <SubtabNav
+          <SectionTabs
             ariaLabel="Phone system"
             active={tab}
             onSelect={setTab}
@@ -924,7 +924,7 @@ export function PhoneSystemRow({
               </div>
             ) : null}
 
-            <SubtabNav
+            <SectionTabs
               ariaLabel="Trunk settings"
               active={trunkTab}
               onSelect={setTrunkTab}

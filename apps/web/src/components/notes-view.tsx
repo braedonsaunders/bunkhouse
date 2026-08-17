@@ -9,7 +9,6 @@ import {
   Label,
   RecordList,
   Select,
-  SubtabNav,
   type RecordColumn,
 } from '@appkit/ui'
 import type { ResourceAssignment } from '../db/schema'
@@ -23,6 +22,7 @@ import {
 import { addCompanyNote, decideMemoryProposal, setCompanyNoteAssignment } from '../app/resources/actions'
 import { AssignmentFields, type AssignOption } from './procedures-view'
 import { MarkdownEditor } from './markdown-editor'
+import { SectionTabs } from './section-tabs'
 
 export type NoteRow = {
   id: string
@@ -181,7 +181,7 @@ export function NotesView({
       >
         {selected ? (
           <div className="space-y-5">
-            <SubtabNav
+            <SectionTabs
               tabs={[
                 { key: 'note', label: 'Note' },
                 scope === 'company'

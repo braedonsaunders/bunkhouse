@@ -12,7 +12,6 @@ import {
   Select,
   SettingsRow,
   SettingsSection,
-  SubtabNav,
   type PagedColumn,
 } from '@appkit/ui'
 import {
@@ -27,6 +26,7 @@ import {
   testSlackConnectionAction,
   testTeamsWebhookAction,
 } from '../app/admin/settings/chat-actions'
+import { SectionTabs } from './section-tabs'
 
 /**
  * Settings → Chat: reach an agent from Slack or Microsoft Teams and get a
@@ -68,7 +68,7 @@ export function ChatSettingsSection({
 
   return (
     <div className="space-y-4">
-      <SubtabNav
+      <SectionTabs
         ariaLabel="Chat bridge"
         active={tab}
         onSelect={setTab}

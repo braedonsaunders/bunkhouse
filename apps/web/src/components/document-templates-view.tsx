@@ -12,7 +12,6 @@ import {
   Select,
   SettingsRow,
   SettingsSection,
-  SubtabNav,
   Textarea,
   type PagedColumn,
 } from '@appkit/ui'
@@ -31,6 +30,7 @@ import {
   setTemplateStatusAction,
   type TemplatePreview,
 } from '../app/admin/settings/template-actions'
+import { SectionTabs } from './section-tabs'
 
 /**
  * The template workspace: one list, and a flyout that holds the whole record —
@@ -328,7 +328,7 @@ export function DocumentTemplatesView({ rows }: { rows: TemplateRowView[] }) {
           ) : null
         }
         subtabs={
-          <SubtabNav
+          <SectionTabs
             tabs={[
               { key: 'template', label: 'Template' },
               { key: 'fields', label: 'Merge fields', count: detected.names.length },
