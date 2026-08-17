@@ -119,9 +119,15 @@ export async function deskStatusAction(personId: string): Promise<ChatDeskStatus
   return deskStatus({ tenantId: access.tenantId, personId })
 }
 
+/**
+ * Open the agent's screen for the operator. The reason is optional and stays a
+ * second argument so any caller that has one — a handover, a scripted step —
+ * still records it; the console itself has none to give, and openDesktop
+ * writes who opened it instead (see lib/chat-desk.ts).
+ */
 export async function openDesktopAction(
   personId: string,
-  reason: string,
+  reason?: string,
 ): Promise<{ ok: true } | { error: string }> {
   const access = await requireTenantPermission('work.manage')
   if (!personId) return { error: 'No agent selected.' }
@@ -129,7 +135,7 @@ export async function openDesktopAction(
     tenantId: access.tenantId,
     personId,
     actor: actorFor(access),
-    reason: reason ?? '',
+    ...(reason?.trim() ? { reason } : {}),
   })
 }
 

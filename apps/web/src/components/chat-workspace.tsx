@@ -7,9 +7,6 @@ import {
   Badge,
   Button,
   Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   Drawer,
   EmptyState,
   Label,
@@ -185,17 +182,19 @@ function ThreadList({
   canStart: boolean
 }) {
   return (
-    <Card className="flex h-full min-h-0 flex-col">
-      <CardHeader className="shrink-0 flex-row items-center justify-between gap-2">
-        <CardTitle className="text-base">Conversations</CardTitle>
+    <div className="flex h-full min-h-0 flex-col bg-surface">
+      {/* The same h-12 rule the panel's own header carries, so the three panes
+          start on one line across the card. */}
+      <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface px-4">
+        <span className="truncate text-sm font-medium text-fg">Conversations</span>
         {canStart ? (
-          <Button type="button" size="sm" variant="outline" onClick={onNew}>
+          <Button type="button" size="sm" variant="outline" className="h-7 px-2" onClick={onNew}>
             <MessageSquarePlus aria-hidden className="size-4" />
             New
           </Button>
         ) : null}
-      </CardHeader>
-      <CardContent className="app-scroll min-h-0 flex-1 overflow-y-auto max-lg:max-h-64">
+      </header>
+      <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-2 max-lg:max-h-64">
         {threads.length === 0 ? (
           <p className="py-6 text-sm text-fg-muted">
             No conversations yet. Start one and it appears here, alongside the run record it produces.
@@ -230,8 +229,8 @@ function ThreadList({
             ))}
           </ul>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }
 
@@ -343,7 +342,7 @@ export function ChatWorkspace({
   )
 
   const conversation = (
-    <Card className="flex h-full min-h-0 flex-col overflow-hidden max-lg:min-h-[28rem]">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface max-lg:min-h-[28rem]">
       {detail === null ? (
         <div className="flex min-h-0 flex-1 items-center justify-center p-6">
           {loading ? (
@@ -398,12 +397,16 @@ export function ChatWorkspace({
           />
         </>
       )}
-    </Card>
+    </div>
   )
+
+  // The desk column and the desk pane are one decision, not two: a column left
+  // standing with nothing mounted in it would be an empty third of the card.
+  const deskVisible = deskOpen && detail !== null
 
   return (
     <div className="app-scroll min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
-      <div className="mx-auto flex w-full max-w-(--breakpoint-2xl) flex-col gap-4 p-4 sm:p-6 lg:h-full">
+      <div className="mx-auto flex w-full max-w-(--breakpoint-2xl) flex-col gap-3 p-3 sm:p-4 lg:h-full">
         <PageHeader
           className="shrink-0"
           title="Chat"
@@ -432,10 +435,18 @@ export function ChatWorkspace({
           </p>
         ) : null}
 
-        <div
+        {/* One card, three panes — divided, not spaced. Three cards with air
+            between them read as three separate screens; this is one screen
+            with the list, the conversation and the machine side by side in it,
+            so the seams are hairlines and the panes carry the padding.
+            `divide-*` puts them between the panes only, and follows the
+            stacking: a row rule below `lg`, a column rule above it. The middle
+            column is the only elastic one, so a wider window goes to the
+            conversation and the desk keeps its shape. */}
+        <Card
           className={cn(
-            'grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)]',
-            deskOpen
+            'grid divide-y divide-border overflow-hidden lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)] lg:divide-x lg:divide-y-0',
+            deskVisible
               ? 'lg:grid-cols-[14rem_minmax(0,1fr)_minmax(0,22rem)] xl:grid-cols-[15rem_minmax(0,1fr)_minmax(0,28rem)]'
               : 'lg:grid-cols-[15rem_minmax(0,1fr)]',
           )}
@@ -451,7 +462,7 @@ export function ChatWorkspace({
           {conversation}
           {/* Unmounted rather than hidden when it is folded away: a pane that
               is not on screen must not be holding a frame stream open. */}
-          {deskOpen && detail !== null ? (
+          {deskVisible ? (
             <div className="min-h-0 max-lg:h-[34rem]">
               {/* Keyed on the agent: a different desk is a different machine,
                   and none of what was true about the last one — its screen,
@@ -463,7 +474,7 @@ export function ChatWorkspace({
               />
             </div>
           ) : null}
-        </div>
+        </Card>
       </div>
 
       <NewConversationDrawer

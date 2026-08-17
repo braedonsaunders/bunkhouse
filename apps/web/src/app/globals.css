@@ -11,6 +11,25 @@
 
 html, body { min-height: 100%; }
 
+/* Pages use the whole window.
+ *
+ * Every page shell this app renders into — @appkit/ui's PageContainer,
+ * ListPageLayout, DetailPageLayout and SettingsShell, plus the chat and call
+ * screens' own wrappers — centres its content inside
+ * `max-w-(--breakpoint-2xl)`, which is `max-width: var(--breakpoint-2xl)` and
+ * so caps every route but the home screen at 1536px. On a wide monitor that is
+ * a column of content between two empty gutters, and the operator asked for
+ * the window.
+ *
+ * Redefining the variable on the shell's content slot lifts the cap in ONE
+ * place rather than editing each page — the doctrine is against parallel
+ * configuration, and a per-page override is exactly that. Only the `max-w-`
+ * utility reads the variable at runtime: Tailwind compiles the `2xl:` variants
+ * to a literal `@media (min-width:96rem)`, so nothing responsive moves. The
+ * shells keep their own `p-4 sm:p-6` gutters, so text still never reaches the
+ * glass. */
+main { --breakpoint-2xl: none; }
+
 /* Floating HUD panels (the home screen dashboard, over the drawn floor).
    A flat `bg-surface/85` card disappears into a painted, animated room — the
    scene shows through it as mush and its edge dissolves against whatever

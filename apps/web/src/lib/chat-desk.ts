@@ -320,24 +320,28 @@ export async function deskStatus(
 // The screen
 // ---------------------------------------------------------------------------
 
-const MIN_REASON_CHARS = 3
-
 /**
  * Open the agent's desktop screen for an operator to watch and drive.
  *
- * The reason is required and recorded exactly the way `open_desktop` records
- * the agent's own (§3.17): into `desk_sessions.screen_reason` and onto the
- * ledger as a `screen_open` event. The expensive tier is not entered without
- * somebody saying why, and that holds whoever is asking.
+ * Recorded exactly the way `open_desktop` records the agent's own (§3.17):
+ * into `desk_sessions.screen_reason` and onto the ledger as a `screen_open`
+ * event carrying the actor. What is NOT asked for here is prose from the
+ * person: §3.17's stated reason exists so a reviewer can catch the AGENT
+ * reaching for the expensive tier when a connector would have done, and an
+ * operator opening their own agent's screen from their own console is not
+ * escalating anything and has nobody to justify it to. So the record says the
+ * true thing — that a named person opened it by hand — instead of demanding a
+ * sentence with no reader. The agent's own ability still states its case, and
+ * still refuses without one (lib/desk.ts).
+ *
+ * A caller with a real reason (a handover, say) passes it and it is recorded
+ * verbatim.
  */
 export async function openDesktop(
-  args: { tenantId: string; personId: string; actor: DeskActor; reason: string },
+  args: { tenantId: string; personId: string; actor: DeskActor; reason?: string },
   deps: ChatDeskDeps = {},
 ): Promise<DeskOk | DeskRefusal> {
-  const reason = args.reason?.trim() ?? ''
-  if (reason.length < MIN_REASON_CHARS) {
-    return { error: 'Say why this needs a screen — the reason is recorded on the agent’s session record.' }
-  }
+  const reason = args.reason?.trim() || `Opened from the chat console by ${args.actor.name}`
   const admitted = await admit({ ...args, needsDesktop: true }, deps)
   if (refused(admitted)) return admitted
   try {

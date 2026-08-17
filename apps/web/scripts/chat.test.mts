@@ -440,12 +440,32 @@ function deskDeps(
   console.log('chat desk: refused without a runner, behind either feature gate, and on a forbidden dial')
 }
 
-// --- (e) opening a screen requires and records the reason -------------------
+// --- (e) opening a screen is recorded, with or without prose ----------------
+//
+// The stated reason §3.17 asks for is the AGENT justifying an escalation to a
+// reviewer — that requirement is `open_desktop`'s, and desk.test.mts (c) holds
+// it. An operator opening their own agent's screen from the console has no
+// reviewer to justify it to, so no prose is demanded of them; what may never
+// weaken is the record of WHO opened it and that a hand did.
 {
-  const blank = deskDeps()
-  const refused = await openDesktop({ tenantId: TENANT, personId: AGENT, actor: ACTOR, reason: '  ' }, blank.deps)
-  assert.ok('error' in refused, 'a blank reason does not open a screen')
-  assert.equal(blank.calls.length, 0, 'and nothing reached the runner')
+  // Its own run: one run has ONE desk session (§3.19), and the live session is
+  // memoized by run id — two blocks sharing a run would share a session and
+  // this one would write into the other's store.
+  const byHand = deskDeps({ runId: 'run-desk-by-hand' })
+  const openedByHand = await openDesktop({ tenantId: TENANT, personId: AGENT, actor: ACTOR }, byHand.deps)
+  assert.deepEqual(openedByHand, { ok: true }, 'the console opens a screen without asking anyone to type a sentence')
+  const handEvent = byHand.events.find((event) => event.kind === 'screen_open')
+  assert.equal(handEvent?.detail.actor, 'Dana Wills', 'and the ledger still says who opened it')
+  assert.match(
+    String(handEvent?.detail.reason ?? ''),
+    /Dana Wills/,
+    'the recorded reason names the operator rather than being blank',
+  )
+  assert.match(
+    byHand.sessions[0]?.screenReason ?? '',
+    /Dana Wills/,
+    'desk_sessions.screen_reason says a person opened it by hand',
+  )
 
   const opened = deskDeps()
   const result = await openDesktop(
@@ -463,7 +483,7 @@ function deskDeps(
   const screenOpen = opened.events.find((event) => event.kind === 'screen_open')
   assert.equal(screenOpen?.detail.reason, 'The vendor portal is a GTK app with no CLI.')
   assert.equal(screenOpen?.detail.actor, 'Dana Wills', 'and says who asked for it')
-  console.log('chat desk: a screen opens only with a stated reason, recorded on the session and the ledger')
+  console.log('chat desk: a screen the operator opens is recorded with its actor, and a stated reason is kept verbatim')
 }
 
 // --- (f) operator input is validated and recorded ---------------------------

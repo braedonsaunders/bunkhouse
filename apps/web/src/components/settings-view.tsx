@@ -396,6 +396,13 @@ export function SettingsView({
       activeKey={active}
       onSelect={setActive}
       linkRender={nextLink}
+      // Settings is tables and dense rows beside a nav rail, not prose, so it
+      // takes the window like every other route. `wide` rather than `full`
+      // deliberately: it is the same `max-w-(--breakpoint-2xl)` expression the
+      // other page shells use, and the app lifts that in one place
+      // (app/globals.css) — a literal `full` here would be a second answer to
+      // the same question.
+      contentWidth="wide"
     >
       {active === 'health' ? <HealthSettings checks={health} /> : null}
 

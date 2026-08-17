@@ -3,19 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { EyeOff, Loader2, Monitor, MonitorOff, MousePointer2, ShieldAlert } from 'lucide-react'
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  EmptyState,
-  Label,
-  Textarea,
-  cn,
-} from '@appkit/ui'
+import { Badge, Button, EmptyState, cn } from '@appkit/ui'
 import { AGENT_SCREEN_HEIGHT, AGENT_SCREEN_WIDTH } from '../lib/agent-screen'
 import {
   closeDesktopAction,
@@ -32,9 +20,10 @@ import {
  * Everything here is the client half of an existing contract, never a second
  * source of truth. The feature gate is the Company → Features switchboard's
  * (`desk`, and `desktop` under it); this pane reports what the gate says and
- * links to it, and never offers a switch of its own. Opening a screen carries
- * a stated reason because the ability it mirrors demands one, and that reason
- * is recorded and reviewable in Settings → Desk.
+ * links to it, and never offers a switch of its own. Opening a screen is one
+ * button: the session still records who opened it and that a hand did, but the
+ * justification §3.17 asks for belongs to the AGENT escalating to the expensive
+ * tier, not to an operator opening their own agent's screen in front of them.
  *
  * The two ways to touch the screen are deliberately NOT the same control, and
  * the difference is the whole point of §3.14:
@@ -326,8 +315,6 @@ function DeskGate({ title, description }: { title: string; description: string }
 export function ChatDesk({ personId, personName }: { personId: string; personName: string }) {
   const [status, setStatus] = React.useState<DeskStatus | null>(null)
   const [statusError, setStatusError] = React.useState<string | null>(null)
-  const [reason, setReason] = React.useState('')
-  const [openedFor, setOpenedFor] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [controlError, setControlError] = React.useState<string | null>(null)
   const [driving, setDriving] = React.useState(false)
@@ -506,18 +493,12 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   }
 
   const openDesktop = async () => {
-    const stated = reason.trim()
-    if (stated.length < 3) return
     setBusy(true)
     setControlError(null)
     try {
-      const result = await openDesktopAction(personId, stated)
+      const result = await openDesktopAction(personId)
       if ('error' in result) setControlError(result.error)
-      else {
-        setOpenedFor(stated)
-        setReason('')
-        await refresh()
-      }
+      else await refresh()
     } catch (error) {
       setControlError(error instanceof Error ? error.message : 'The screen could not be opened.')
     } finally {
@@ -532,10 +513,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
       if (handover.active) await endHandover()
       const result = await closeDesktopAction(personId)
       if ('error' in result) setControlError(result.error)
-      else {
-        setOpenedFor(null)
-        await refresh()
-      }
+      else await refresh()
     } catch (error) {
       setControlError(error instanceof Error ? error.message : 'The screen could not be closed.')
     } finally {
@@ -670,22 +648,19 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     sendInput({ action: 'key', combo: parts.join('+') })
   }
 
+  // One line, the same twelve-rem-high rule the conversation and the thread
+  // list carry: the three panes share one card now, so their headers have to
+  // sit on one line across it. What the desk IS gets said in the body, where
+  // there is room for it.
   const header = (
-    <CardHeader className="shrink-0">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <CardTitle className="text-base">{personName}&apos;s desk</CardTitle>
-          <CardDescription>
-            The machine {personName} works on. Everything it does here is on its run record.
-          </CardDescription>
-        </div>
-        {screenOpen ? (
-          <Badge variant={handover.active ? 'info' : drivingNow ? 'warning' : 'success'} className="shrink-0">
-            {handover.active ? 'private control' : drivingNow ? 'you are driving' : 'screen open'}
-          </Badge>
-        ) : null}
-      </div>
-    </CardHeader>
+    <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface px-4">
+      <span className="truncate text-sm font-medium text-fg">{personName}&apos;s desk</span>
+      {screenOpen ? (
+        <Badge variant={handover.active ? 'info' : drivingNow ? 'warning' : 'success'} className="shrink-0">
+          {handover.active ? 'private control' : drivingNow ? 'you are driving' : 'screen open'}
+        </Badge>
+      ) : null}
+    </header>
   )
 
   let body: React.ReactNode
@@ -752,24 +727,14 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
             </p>
           </div>
         </DeskScreenBox>
-        <div className="space-y-2">
-          <Label htmlFor="desk-reason">Why this needs a screen</Label>
-          <Textarea
-            id="desk-reason"
-            rows={2}
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            placeholder="Signing in to the supplier portal, which has no other way in."
-          />
-          <p className="text-xs text-fg-muted">
-            A screen is the expensive tier, so every one is opened for a stated reason. What you write is recorded
-            against the session and reviewed in Settings → Desk.
-          </p>
-        </div>
-        <Button type="button" disabled={busy || reason.trim().length < 3} onClick={() => void openDesktop()}>
+        <Button type="button" disabled={busy} onClick={() => void openDesktop()}>
           {busy ? <Loader2 aria-hidden className="size-4 animate-spin" /> : <Monitor aria-hidden className="size-4" />}
           Open desktop
         </Button>
+        <p className="text-xs text-fg-muted">
+          This is the machine {personName} works on, and everything done here is on their run record. A screen is the
+          expensive tier, so the session records that you opened this one; it stays readable in Settings → Desk.
+        </p>
       </div>
     )
   } else {
@@ -909,27 +874,23 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
             Close desktop
           </Button>
         </div>
-
-        {openedFor !== null ? (
-          <p className="text-xs text-fg-muted">
-            Opened for: <span className="text-fg">{openedFor}</span>
-          </p>
-        ) : null}
       </div>
     )
   }
 
+  // A pane, not a card: the surface and its border belong to the one card the
+  // chat screen draws around all three columns (components/chat-workspace.tsx).
   return (
-    <Card className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col bg-surface">
       {header}
-      <CardContent className="app-scroll min-h-0 flex-1 overflow-y-auto">
+      <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-3">
         {body}
         {controlError !== null ? (
           <p role="alert" className="mt-3 text-sm text-danger">
             {controlError}
           </p>
         ) : null}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }
