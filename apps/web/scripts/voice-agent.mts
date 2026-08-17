@@ -8,7 +8,7 @@ import * as elevenlabs from '@livekit/agents-plugin-elevenlabs'
 import * as google from '@livekit/agents-plugin-google'
 import * as openai from '@livekit/agents-plugin-openai'
 import * as silero from '@livekit/agents-plugin-silero'
-import { isAiProvider, providerSpec, type AiConfig } from '@appkit/ai'
+import { isAiProvider, providerSpec, type AiConfig } from '@braedonsaunders/appkit-ai'
 import { buildSystemPrompt } from '@bunkhouse/runtime'
 import { db } from '../src/db/client'
 import {
@@ -45,6 +45,7 @@ import { createFactLedger, screenSpeechStream, screenUtterance } from '../src/li
 import { toolsPromisedButAbsent } from '../src/lib/call-reading'
 import { priceSpend } from '../src/lib/pricing'
 import { isWithinWorkingHours } from '../src/lib/working-hours'
+import { workRefusal } from '../src/lib/person-work'
 import { callMinutesBudget } from '../src/lib/call-budget'
 import { finishCallRecording, startCallRecording, type CallRecordingHandle } from '../src/lib/voice-recording'
 import { meterSpeechMinutes } from '../src/lib/voice-pricing'
@@ -852,7 +853,9 @@ export default defineAgent({
     let voicemail: VoicemailReason | null = null
     if (isInboundPhone) {
       if (!config) voicemail = 'misconfigured'
-      else if (person.status !== 'active') voicemail = 'inactive'
+      // The same employment gate the run engine keeps — a ringing phone
+      // answers either way, it just takes a message instead of working.
+      else if (workRefusal(person)) voicemail = 'inactive'
       else if (!isWithinWorkingHours(person.workingHours)) voicemail = 'off_hours'
       else {
         const budget = await callMinutesBudget({

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import {
   citeProcedureAbility,
   defineAbility,
@@ -11,6 +13,12 @@ import {
   type GovernanceState,
 } from '@bunkhouse/runtime'
 import { z } from 'zod'
+import { PersonNotWorkingError, isPersonNotWorking, workRefusal, type WorkCandidate } from '../src/lib/person-work'
+import {
+  APPROVAL_MAX_ATTEMPTS,
+  planApprovalExecution,
+  settlementAfterFailure,
+} from '../src/lib/approval-execution'
 
 // The autonomy dial is enforced in the runtime, not in prompts — this file is
 // the proof. Every claim the README makes about governance ('forbidden' blocks,
@@ -303,3 +311,236 @@ async function call(tools: ReturnType<typeof governedToolSet>, name: string, inp
 }
 
 console.log('governance: autonomy dial, approvals, breaker, deadline, citations — all enforced in the runtime')
+
+// ===========================================================================
+// Employment is a runtime rule, not a UI one.
+//
+// An operator offboarded an agent at 13:05 and it executed 51 more runs
+// between 13:08 and 17:34, because nothing outside the roster screen ever read
+// `status`. AGENTS.md: lifecycle states are "enforced at the domain/service and
+// API boundaries, not only by hiding UI".
+// ===========================================================================
+
+const src = (file: string): string => readFileSync(fileURLToPath(new URL(file, import.meta.url)), 'utf8')
+function agent(over: Partial<WorkCandidate>): WorkCandidate {
+  return { kind: 'agent', status: 'active', name: 'Bill McDonald', ...over }
+}
+
+// --- who may work, and whether waiting could change the answer --------------
+{
+  assert.equal(workRefusal(agent({})), null, 'an active agent works')
+
+  const retired = workRefusal(agent({ status: 'offboarded' }))
+  assert.ok(retired, 'an offboarded agent may not start work — this is the whole of bug 1')
+  assert.equal(retired.permanent, true, 'and no amount of waiting changes it: a rehire is a human decision')
+  assert.match(retired.reason, /offboarded/, 'the refusal says why, in words an operator reads')
+
+  const hiring = workRefusal(agent({ status: 'onboarding' }))
+  assert.ok(hiring, 'an agent still being onboarded may not work either — it is not configured yet')
+  assert.equal(hiring.permanent, false, 'but that one resolves when a human finishes onboarding')
+
+  assert.ok(workRefusal(agent({ kind: 'human' })), 'a human colleague is never run as an employee')
+  assert.equal(workRefusal(agent({ kind: 'human' }))!.permanent, true)
+}
+
+// --- the refusal is a distinct kind of failure, so queues can tell ----------
+{
+  const error = new PersonNotWorkingError('p-1', { reason: 'gone', permanent: true }, 'run-9')
+  assert.ok(isPersonNotWorking(error), 'a refusal is recognisable to whatever was holding the work')
+  assert.equal(error.runId, 'run-9', 'and it carries the run row that recorded it')
+  assert.equal(isPersonNotWorking(new Error('gone')), false, 'an ordinary failure is not a refusal — it may be retried')
+}
+
+// --- ONE door, and the gate is on it ----------------------------------------
+// The rule is worth nothing if a second path can open a run around it.
+{
+  const runs = src('../src/lib/agent-runs.ts')
+  const engine = runs.slice(runs.indexOf('export async function executeAgentRun'))
+  assert.ok(engine.includes('workRefusal(person)'), 'executeAgentRun consults the employment gate')
+  assert.ok(
+    engine.indexOf('workRefusal(person)') < engine.indexOf('.insert(runs)'),
+    'and consults it BEFORE it opens a run row — a stood-down agent never gets one',
+  )
+
+  // Every surface that puts an agent to work goes through that door rather
+  // than writing its own run.
+  for (const file of [
+    '../src/lib/duty-execution.ts',
+    '../src/lib/assignments.ts',
+    '../src/lib/approval-executor.ts',
+    '../src/lib/chat-threads.ts',
+    '../src/lib/chat-bridge.ts',
+    '../src/lib/call-worker.ts',
+  ]) {
+    const source = src(file)
+    assert.ok(source.includes('executeAgentRun'), `${file} starts work through executeAgentRun`)
+    assert.ok(!source.includes('.insert(runs)'), `${file} does not open a run of its own around the gate`)
+  }
+
+  // And every queue that had work for a retired agent settles its OWN record
+  // with the reason, rather than letting the refusal surface as a crash and
+  // re-queue for ever. The approval executor settles through its plan, proved
+  // separately below.
+  for (const file of [
+    '../src/lib/agent-runs.ts', // the inbound-mail sweep
+    '../src/lib/duty-execution.ts',
+    '../src/lib/assignments.ts',
+    '../src/lib/chat-threads.ts',
+    '../src/lib/chat-bridge.ts',
+  ]) {
+    assert.ok(src(file).includes('isPersonNotWorking'), `${file} settles its own record when the gate refuses`)
+  }
+
+  // The two places that legitimately open a run row before any work reaches
+  // the engine — a call session exists before the caller speaks — ask the same
+  // question rather than restating it.
+  assert.ok(src('../src/app/call/actions.ts').includes('workRefusal(person)'), 'starting a web call asks the gate')
+  assert.ok(src('../scripts/voice-agent.mts').includes('workRefusal(person)'), 'an inbound call asks the gate')
+}
+
+// --- work already queued for a retired agent goes with them ------------------
+{
+  const offboarding = src('../src/app/organization/actions.ts')
+  const windDown = offboarding.slice(
+    offboarding.indexOf('async function windDownOffboarded'),
+    offboarding.indexOf('async function recordStatusTransition'),
+  )
+  assert.ok(windDown.includes('executedAt: now'), 'a decision not yet carried out is stamped, not left to be replayed')
+  assert.ok(
+    windDown.includes("'cancelled'") && windDown.includes('Stopped when the agent was offboarded.'),
+    'and a run in flight is stopped saying so, rather than discarded',
+  )
+}
+
+console.log('governance: only an active agent may start work, and every door asks the same question')
+
+// ===========================================================================
+// A decided approval is bounded (bug 2). 196 attempts on one rejected
+// approval, 144–147 on four others, because nothing counted and 'failed' was
+// in the retry set.
+// ===========================================================================
+
+const parked = { status: 'waiting_approval' as const }
+const closed = { status: 'completed' as const }
+
+// --- a refusal is delivered, not re-run -------------------------------------
+{
+  const plan = planApprovalExecution({ attempts: 1, decision: 'rejected', run: closed, person: agent({}) })
+  assert.deepEqual(
+    plan,
+    { do: 'deliver_refusal' },
+    'declining a request whose run has closed says so on that run — it does not start fresh work to say "no"',
+  )
+
+  const stillParked = planApprovalExecution({ attempts: 1, decision: 'rejected', run: parked, person: agent({}) })
+  assert.deepEqual(
+    stillParked,
+    { do: 'continue', resume: true },
+    'a run still waiting on the decision is resumed, so the agent can adjust',
+  )
+}
+
+// --- an approval is still carried out, both ways ----------------------------
+{
+  assert.deepEqual(
+    planApprovalExecution({ attempts: 1, decision: 'approved', run: parked, person: agent({}) }),
+    { do: 'continue', resume: true },
+    'an approved action resumes the parked run',
+  )
+  assert.deepEqual(
+    planApprovalExecution({ attempts: 1, decision: 'approved', run: closed, person: agent({}) }),
+    { do: 'continue', resume: false },
+    'and a run that already ended (a call) still gets its follow-up — that behaviour is not the bug',
+  )
+}
+
+// --- a retired agent's decisions stop, on the first attempt -----------------
+{
+  for (const decision of ['approved', 'rejected'] as const) {
+    const plan = planApprovalExecution({
+      attempts: 1,
+      decision,
+      run: parked,
+      person: agent({ status: 'offboarded' }),
+    })
+    assert.equal(plan.do, 'give_up', `a ${decision} approval for an offboarded agent is given up on immediately`)
+    assert.match(plan.do === 'give_up' ? plan.reason : '', /offboarded/, 'and the record says why')
+  }
+  // Including a rehire: the unfinished business of a previous employment does
+  // not resume when somebody is onboarded again.
+  assert.equal(
+    planApprovalExecution({ attempts: 1, decision: 'approved', run: parked, person: agent({ status: 'onboarding' }) })
+      .do,
+    'give_up',
+  )
+  assert.equal(
+    planApprovalExecution({ attempts: 1, decision: 'approved', run: parked, person: null }).do,
+    'give_up',
+    'an agent that no longer exists is not retried either',
+  )
+  assert.equal(planApprovalExecution({ attempts: 1, decision: 'approved', run: null, person: agent({}) }).do, 'give_up')
+}
+
+// --- the cap stops the retry, and records why -------------------------------
+{
+  for (let attempt = 1; attempt <= APPROVAL_MAX_ATTEMPTS; attempt += 1) {
+    assert.notEqual(
+      planApprovalExecution({ attempts: attempt, decision: 'approved', run: parked, person: agent({}) }).do,
+      'give_up',
+      `attempt ${attempt} of ${APPROVAL_MAX_ATTEMPTS} is still allowed`,
+    )
+  }
+  const over = planApprovalExecution({
+    attempts: APPROVAL_MAX_ATTEMPTS + 1,
+    decision: 'approved',
+    run: parked,
+    person: agent({}),
+  })
+  assert.equal(over.do, 'give_up', 'past the cap, nothing further is attempted')
+  assert.match(over.do === 'give_up' ? over.reason : '', new RegExp(`${APPROVAL_MAX_ATTEMPTS} attempts`))
+}
+
+// --- and a failure that keeps failing terminates -----------------------------
+// The worker, simulated: each pass claims (attempts + 1) and the work throws.
+// Before the cap this ran for seventeen hours.
+{
+  let attempts = 0
+  let terminal = false
+  let recorded = ''
+  for (let pass = 0; pass < 200 && !terminal; pass += 1) {
+    attempts += 1
+    const settlement = settlementAfterFailure(attempts, 'the model provider refused')
+    terminal = settlement.terminal
+    recorded = settlement.error
+  }
+  assert.equal(terminal, true, 'a permanently failing approval reaches a terminal state')
+  assert.equal(attempts, APPROVAL_MAX_ATTEMPTS, 'after exactly the capped number of attempts, not 196')
+  assert.match(recorded, /Gave up after 5 attempts/, 'and the operator is told it was given up on')
+  assert.match(recorded, /the model provider refused/, 'with the failure that caused it')
+
+  const early = settlementAfterFailure(1, 'a worker restarted')
+  assert.equal(early.terminal, false, 'a transient failure is still picked up again — recovery is why retries exist')
+  assert.equal(early.error, 'a worker restarted')
+}
+
+// --- the trap: 'failed' is NOT a stop; only executed_at is ------------------
+{
+  const executor = src('../src/lib/approval-executor.ts')
+  const selector = executor.slice(executor.indexOf('export async function decidedApprovalIds'))
+  assert.ok(
+    selector.includes("eq(approvals.executionStatus, 'failed')"),
+    "'failed' is deliberately inside the retry set — a worker that died halfway must be picked up",
+  )
+  const retryable = executor.slice(
+    executor.indexOf('async function settleRetryable'),
+    executor.indexOf('export async function decidedApprovalIds'),
+  )
+  assert.ok(!retryable.includes('executedAt'), 'so settling retryable must NOT stamp executed_at')
+  const terminal = executor.slice(
+    executor.indexOf('async function settleTerminal'),
+    executor.indexOf('async function settleRetryable'),
+  )
+  assert.ok(terminal.includes('executedAt: new Date()'), 'and only the terminal settlement does — that is the stop')
+}
+
+console.log('governance: a decided approval is delivered once, capped at 5 attempts, and never retried for ever')

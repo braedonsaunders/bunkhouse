@@ -11,7 +11,7 @@ import {
   PagedTable,
   Textarea,
   type PagedColumn,
-} from '@appkit/ui'
+} from '@braedonsaunders/appkit-ui'
 import { approveAction, rejectAction } from '../app/approvals/actions'
 import { SectionTabs, type SectionTabItem } from './section-tabs'
 
@@ -20,6 +20,20 @@ import { SectionTabs, type SectionTabItem } from './section-tabs'
  * arguments, extracted on the server so this stays a dumb renderer.
  */
 export type ApprovalDraft = { fields: { label: string; value: string }[]; text: string | null }
+
+/**
+ * What became of a decision after it was taken. Null while an approval is
+ * still waiting, or once it expired — there is nothing to carry out.
+ */
+export type ApprovalExecution = {
+  state: 'working' | 'done' | 'given_up'
+  /** Already in operator language: "Carried out", "Not carried out". */
+  label: string
+  /** When it finished, if it has. */
+  at: string | null
+  attempts: number
+  error: string | null
+}
 
 export type ApprovalRow = {
   id: string
@@ -37,7 +51,14 @@ export type ApprovalRow = {
   status: 'pending' | 'approved' | 'rejected' | 'expired'
   decidedAt: string | null
   decisionNote: string | null
+  execution: ApprovalExecution | null
 }
+
+const EXECUTION_VARIANT = {
+  working: 'secondary',
+  done: 'default',
+  given_up: 'destructive',
+} as const
 
 const DECISION_VARIANT = {
   approved: 'default',
@@ -103,6 +124,18 @@ const HISTORY_COLUMNS: PagedColumn<ApprovalRow>[] = [
     header: 'Decided',
     cell: (row) => row.decidedAt ?? '—',
     sortValue: (row) => row.decidedAt ?? '',
+  },
+  {
+    key: 'execution',
+    header: 'Carried out',
+    cell: (row) =>
+      row.execution ? (
+        <Badge variant={EXECUTION_VARIANT[row.execution.state]}>{row.execution.label}</Badge>
+      ) : (
+        <span className="text-fg-muted">—</span>
+      ),
+    search: (row) => row.execution?.label ?? '',
+    sortValue: (row) => row.execution?.label ?? '',
   },
   {
     key: 'decisionNote',
@@ -289,6 +322,20 @@ export function ApprovalsView({
                     <span className="text-fg-muted">Note: </span>
                     {open.decisionNote}
                   </p>
+                ) : null}
+                {open.execution ? (
+                  <div className="space-y-1">
+                    <p className="flex items-center gap-2">
+                      <Badge variant={EXECUTION_VARIANT[open.execution.state]}>{open.execution.label}</Badge>
+                      {open.execution.at ? <span className="text-fg-muted">{open.execution.at}</span> : null}
+                      {open.execution.attempts > 1 ? (
+                        <span className="text-fg-muted">after {open.execution.attempts} attempts</span>
+                      ) : null}
+                    </p>
+                    {open.execution.error ? (
+                      <p className="whitespace-pre-wrap text-fg-muted">{open.execution.error}</p>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             )}

@@ -2,7 +2,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm'
-import { mintLiveKitToken } from '@appkit/voice'
+import { mintLiveKitToken } from '@braedonsaunders/appkit-voice'
 import {
   browserSessions,
   browserSteps,
@@ -20,6 +20,7 @@ import { resolveTenantId as resolveTenant } from '../../lib/tenant'
 const resolveTenantId = () => resolveTenant('calls.manage')
 import { requireUser } from '../../lib/auth'
 import { authenticatedPerson } from '../../lib/person-accounts'
+import { workRefusal } from '../../lib/person-work'
 import type { CallActivityEvent } from '../../lib/call-activity'
 
 export type TranscriptTurn = { seq: number; speaker: 'agent' | 'human'; text: string; atMs: number }
@@ -69,9 +70,12 @@ export async function startCallAction(personId: string): Promise<{ sessionId: st
 
   await app.withTenant(tenantId, async () => {
     const [person] = await app.db.select().from(people).where(eq(people.id, personId))
-    if (!person || person.kind !== 'agent' || person.status !== 'active' || !person.voiceConfig) {
-      throw new Error('This agent cannot take calls right now.')
-    }
+    if (!person) throw new Error('This agent cannot take calls right now.')
+    // The same employment gate the run engine keeps, asked here because a call
+    // opens its run row before any work reaches `executeAgentRun`.
+    const refusal = workRefusal(person)
+    if (refusal) throw new Error(refusal.reason)
+    if (!person.voiceConfig) throw new Error('This agent is not set up to take calls yet.')
     const [run] = await app.db
       .insert(runs)
       .values({

@@ -2,8 +2,8 @@
 
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
-import { and, eq, inArray } from 'drizzle-orm'
-import { schema as identity } from '@appkit/db'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
+import { schema as identity } from '@braedonsaunders/appkit-db'
 import { listRealtimeCapableProviders } from '../../lib/voice'
 import { getRole, installRoleProcedures } from '../../lib/roles'
 import {
@@ -17,6 +17,7 @@ import {
   meetingLinks,
   memories,
   people,
+  runs,
   type BunkhouseVoiceConfig,
 } from '../../db/schema'
 import { db } from '../../db/client'
@@ -105,7 +106,46 @@ async function windDownOffboarded(tx: Tx, person: PersonRow, actorUserId: string
       .update(meetingLinks)
       .set({ expiresAt: now, updatedAt: now })
       .where(eq(meetingLinks.createdByPersonId, person.id)),
+    // A decision already taken but not yet carried out is work in flight, and
+    // it was the gap that let one retired agent go on working: expiring the
+    // PENDING queue above leaves the approved and declined ones untouched, and
+    // the executor re-selects those every five minutes until `executed_at` is
+    // set. Stamped here, so the decision stops rather than being replayed
+    // against somebody who has left. The decision itself is not rewritten —
+    // decided approvals are append-only — only its execution is closed out,
+    // with the reason on the record.
+    tx
+      .update(approvals)
+      .set({
+        executedAt: now,
+        executionStatus: 'failed',
+        executionLeaseUntil: null,
+        executionError: 'Not carried out: the agent was offboarded before this decision could be acted on.',
+      })
+      .where(
+        and(
+          eq(approvals.personId, person.id),
+          isNull(approvals.executedAt),
+          inArray(approvals.status, ['approved', 'rejected']),
+        ),
+      ),
   ])
+
+  // Work already in flight stops where it stands, saying so. Sequential rather
+  // than in the batch above because a cancelled run is what the observatory
+  // shows the operator, and it must reflect the approvals that were just
+  // closed out — never the other way round.
+  await tx
+    .update(runs)
+    .set({
+      status: 'cancelled',
+      finishedAt: now,
+      transcript: null,
+      summary: 'Stopped when the agent was offboarded.',
+    })
+    .where(
+      and(eq(runs.personId, person.id), inArray(runs.status, ['running', 'waiting_approval', 'waiting_reply'])),
+    )
 }
 
 async function recordStatusTransition(

@@ -13,6 +13,7 @@ delete process.env.BUNKHOUSE_DESK_TOKEN
 
 import type { ChatRunner, ChatThreadStore, ChatThreadSummary } from '../src/lib/chat-threads'
 import type { ChatDeskDeps } from '../src/lib/chat-desk'
+import { PersonNotWorkingError } from '../src/lib/person-work'
 
 const {
   conversationIdFor,
@@ -773,6 +774,35 @@ function deskDeps(
   assert.ok('error' in refused, 'a forbidden dial refuses the rate change too')
   assert.equal(forbidden.calls.length, 0, 'and the runner is never touched')
   console.log('chat desk: the capture rate follows driving vs watching, re-tunes in place, and is gated')
+}
+
+// --- (i) a message to an agent who has left is refused, and the thread says so
+// The gate lives in the run engine (lib/person-work.ts); what this proves is
+// that the conversation handles its refusal as a record rather than an error
+// toast — a question with no answer and no reason beside it is how an operator
+// concludes the product is broken.
+{
+  const clock = () => new Date('2026-08-17T13:08:00.000Z')
+  const { store } = memoryChatStore(clock)
+  let calls = 0
+  const run: ChatRunner = async () => {
+    calls += 1
+    throw new PersonNotWorkingError(AGENT, { reason: 'Bill McDonald has been offboarded and cannot start work.', permanent: true }, 'run-refused')
+  }
+  const deps = { store, run, now: clock }
+
+  const { threadId } = await startThread({ tenantId: TENANT, userId: USER, personId: AGENT }, deps)
+  const sent = await sendMessage({ tenantId: TENANT, threadId, userId: USER, body: 'Can you chase the Dawson invoice?' }, deps)
+
+  assert.equal(calls, 1, 'the engine is still the one door — the refusal comes from it, not from a second rule here')
+  assert.equal(sent.messages.length, 2, 'what was asked, and why nothing happened')
+  assert.equal(sent.messages[1]?.role, 'system', 'the refusal is a note on the record, not the agent speaking')
+  assert.match(sent.messages[1]?.body ?? '', /offboarded/, 'and it says why in words an operator reads')
+  assert.equal(sent.messages[1]?.runId, 'run-refused', 'carrying the run the gate opened as evidence')
+
+  const reread = await getThread(TENANT, threadId, deps)
+  assert.equal(reread?.messages.length, 2, 'the transcript keeps both — nothing was discarded')
+  console.log('chat: a message to an offboarded agent is refused on the record, not silently dropped')
 }
 
 console.log(

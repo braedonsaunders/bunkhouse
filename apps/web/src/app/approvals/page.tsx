@@ -1,5 +1,5 @@
 import { asc, desc, eq, ne } from 'drizzle-orm'
-import { PageContainer, PageHeader } from '@appkit/ui'
+import { PageContainer, PageHeader } from '@braedonsaunders/appkit-ui'
 import { approvals, people, type ApprovalPayload } from '../../db/schema'
 import { db } from '../../db/client'
 import { requireTenantPermission } from '../../lib/tenant'
@@ -50,6 +50,10 @@ const COLUMNS = {
   personId: approvals.personId,
   personName: people.name,
   personTitle: people.title,
+  executedAt: approvals.executedAt,
+  executionStatus: approvals.executionStatus,
+  executionAttempts: approvals.executionAttempts,
+  executionError: approvals.executionError,
 }
 
 type QueryRow = {
@@ -64,6 +68,39 @@ type QueryRow = {
   personId: string
   personName: string
   personTitle: string
+  executedAt: Date | null
+  executionStatus: 'pending' | 'leased' | 'succeeded' | 'failed'
+  executionAttempts: number
+  executionError: string | null
+}
+
+/**
+ * What happened AFTER the decision — the half of an approval nobody could see.
+ *
+ * Deciding is not doing: the executor still has to carry the action out (or
+ * deliver the refusal), and that can fail. It failed silently for seventeen
+ * hours on one tenant, retrying every five minutes, with the queue showing a
+ * tidy "rejected" the whole time. `executed_at` is the only column that means
+ * finished, so it is what this reads.
+ */
+function executionOf(row: QueryRow): ApprovalRow['execution'] {
+  if (row.status !== 'approved' && row.status !== 'rejected') return null
+  if (!row.executedAt) {
+    return {
+      state: 'working',
+      label: row.executionAttempts > 1 ? `Retrying (attempt ${row.executionAttempts})` : 'Carrying out',
+      at: null,
+      attempts: row.executionAttempts,
+      error: row.executionError,
+    }
+  }
+  return {
+    state: row.executionStatus === 'succeeded' ? 'done' : 'given_up',
+    label: row.executionStatus === 'succeeded' ? 'Carried out' : 'Not carried out',
+    at: stamp(row.executedAt),
+    attempts: row.executionAttempts,
+    error: row.executionError,
+  }
 }
 
 const toRow = (row: QueryRow): ApprovalRow => ({
@@ -80,6 +117,7 @@ const toRow = (row: QueryRow): ApprovalRow => ({
   status: row.status,
   decidedAt: row.decidedAt ? stamp(row.decidedAt) : null,
   decisionNote: row.decisionNote,
+  execution: executionOf(row),
 })
 
 export default async function ApprovalsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {

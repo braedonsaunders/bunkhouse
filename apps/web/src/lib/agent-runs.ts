@@ -58,6 +58,7 @@ import { closeBrowserSession } from './browser-use'
 import { closeDeskSession } from './desk'
 import { readSkillBundle, skillsForAgent, type BoundSkillRow } from './skills'
 import { agentBinding, bindsToAgent, type AgentBinding } from './assignment'
+import { PersonNotWorkingError, isPersonNotWorking, workRefusal, type WorkRefusal } from './person-work'
 import { appendRunEvent } from './run-events'
 import { materializeSkillBundle } from './workspace'
 
@@ -534,6 +535,55 @@ async function resolveRootRun(trigger: RunTrigger): Promise<string | null> {
 }
 
 /**
+ * Refuse to start work for somebody who may not do it — and leave the evidence.
+ *
+ * A refusal is never silence. It opens a run of its own, failed on arrival,
+ * carrying the reason as its summary and as the first entry in its ledger, so
+ * the work that did NOT happen is on the observatory beside the work that did
+ * and an operator can see that their offboarding took effect. The run row is
+ * also what makes the refusal idempotent for inbound mail: it carries the
+ * message id in its trigger, so the pending-mail sweep does not offer the same
+ * message again on its next pass, for ever.
+ *
+ * A live run has no row to open — the call opened one before the caller
+ * spoke, and it belongs to the call — so it is refused without a record here
+ * and the caller closes its own.
+ *
+ * Assumes an active tenant scope.
+ */
+async function refuseRun(args: {
+  tenantId: string
+  person: typeof people.$inferSelect
+  trigger: RunTrigger
+  refusal: WorkRefusal
+  live: LiveRun | null
+}): Promise<PersonNotWorkingError> {
+  const app = db()
+  if (args.live) return new PersonNotWorkingError(args.person.id, args.refusal)
+  const [row] = await app.db
+    .insert(runs)
+    .values({
+      tenantId: args.tenantId,
+      personId: args.person.id,
+      status: 'failed',
+      trigger: args.trigger,
+      summary: args.refusal.reason.slice(0, 500),
+      finishedAt: new Date(),
+    })
+    .returning({ id: runs.id })
+  const runId = row?.id ?? null
+  if (runId) {
+    await appendRunEvent(app.db, {
+      tenantId: args.tenantId,
+      runId,
+      kind: 'error',
+      payload: { message: args.refusal.reason },
+    })
+  }
+  return new PersonNotWorkingError(args.person.id, args.refusal, runId)
+}
+
+/**
  * Execute one unit of work for an agent, end to end: run row, governed loop,
  * event/spend ledger, approval suspension, outcome. Runs inside the caller's
  * process (web action, background worker, or the voice agent) — all state is
@@ -584,7 +634,15 @@ export async function executeAgentRun(args: {
   const scope = app.withTenantContext
   return scope(args.tenantId, async () => {
     const [person] = await app.db.select().from(people).where(eq(people.id, args.personId))
-    if (!person || person.kind !== 'agent') throw new Error('Run target is not an agent.')
+    if (!person) throw new Error('Run target is not an agent.')
+
+    // The employment gate, and the only one there is. Every door into work —
+    // inbound mail, chat, the Slack/Teams bridge, a duty, an assignment, a
+    // decided approval, a live call — arrives here, so this is where a person
+    // who may not work is stopped. Before the run row, because an agent that
+    // has been stood down must not open one.
+    const refusal = workRefusal(person)
+    if (refusal) throw await refuseRun({ tenantId: args.tenantId, person, trigger: args.trigger, refusal, live })
 
     let runId: string
     let priorMessages: unknown[] = []
@@ -1202,6 +1260,11 @@ export async function startRunsForNewInbound(tenantId: string, onlyMessageId?: s
       })
       started += 1
     } catch (error) {
+      // An agent that may not work is not an incident either: the gate has
+      // already written the refusal as a run against this message, which is
+      // both the evidence and what keeps the sweep from offering the same
+      // message again. Everything else on the mailbox carries on.
+      if (isPersonNotWorking(error)) continue
       // Two schedulers can select the same unhandled message before either has
       // written its run row; the unique index decides between them. Losing that
       // race is the correct outcome, not an incident — the message is being
