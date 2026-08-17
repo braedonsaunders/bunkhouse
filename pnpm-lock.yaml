@@ -52,7 +52,7 @@ overrides:
   '@appkit/scene': file:./vendor/appkit/appkit-scene-0.3.4.tgz
   '@appkit/oauth': file:./vendor/appkit/appkit-oauth-0.1.0.tgz
   '@appkit/agent-tools': file:./vendor/appkit/appkit-agent-tools-0.2.0.tgz
-  '@appkit/desk': file:./vendor/appkit/appkit-desk-0.2.2.tgz
+  '@appkit/desk': file:./vendor/appkit/appkit-desk-0.2.4.tgz
   '@appkit/egress-proxy': file:./vendor/appkit/appkit-egress-proxy-0.1.0.tgz
   adm-zip@<0.6.0: 0.6.0
   brace-expansion@<1.1.18: 1.1.18
@@ -101,8 +101,8 @@ importers:
         specifier: file:../../vendor/appkit/appkit-design-studio-0.2.0.tgz
         version: file:vendor/appkit/appkit-design-studio-0.2.0.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.10.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@appkit/desk':
-        specifier: file:../../vendor/appkit/appkit-desk-0.2.2.tgz
-        version: file:vendor/appkit/appkit-desk-0.2.2.tgz
+        specifier: file:../../vendor/appkit/appkit-desk-0.2.4.tgz
+        version: file:vendor/appkit/appkit-desk-0.2.4.tgz
       '@appkit/editor':
         specifier: file:../../vendor/appkit/appkit-editor-0.2.1.tgz
         version: file:vendor/appkit/appkit-editor-0.2.1.tgz(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
@@ -560,9 +560,9 @@ packages:
       react-dom:
         optional: true
 
-  '@appkit/desk@file:vendor/appkit/appkit-desk-0.2.2.tgz':
-    resolution: {integrity: sha512-xlU8akRanxTqdImydTeILY4FNaE3jxVxlq8m38PjNPN03dvAconBEuzImxIL9QneyK2UXbi1GsoJTnTBvaTIhg==, tarball: file:vendor/appkit/appkit-desk-0.2.2.tgz}
-    version: 0.2.2
+  '@appkit/desk@file:vendor/appkit/appkit-desk-0.2.4.tgz':
+    resolution: {integrity: sha512-6U6gkpkCMLucMGghcCb3R16bzsa8NjL7n2win7NCKA4zRd3vvAz/yT+PipyCK0k9jrCGk3vKbpy/4ICRK2d+Mw==, tarball: file:vendor/appkit/appkit-desk-0.2.4.tgz}
+    version: 0.2.4
     engines: {node: '>=22'}
 
   '@appkit/editor@file:vendor/appkit/appkit-editor-0.2.1.tgz':
@@ -7506,7 +7506,7 @@ snapshots:
     transitivePeerDependencies:
       - tailwindcss
 
-  '@appkit/desk@file:vendor/appkit/appkit-desk-0.2.2.tgz': {}
+  '@appkit/desk@file:vendor/appkit/appkit-desk-0.2.4.tgz': {}
 
   '@appkit/editor@file:vendor/appkit/appkit-editor-0.2.1.tgz(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
     dependencies:
