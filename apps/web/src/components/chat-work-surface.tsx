@@ -2,37 +2,27 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { CheckCircle2, ChevronRight, Globe, History as HistoryIcon, Loader2, Monitor, MonitorUp, Phone, TerminalSquare } from 'lucide-react'
-import { Badge, EmptyState, SubtabNav } from '@braedonsaunders/appkit-ui'
-import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
-import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@braedonsaunders/appkit-avatars/composition'
-import { LiveKitRoom, VideoTrack, useSpeakingParticipants, useTracks } from '@livekit/components-react'
-import { ParticipantKind, Track } from 'livekit-client'
+import { CheckCircle2, ChevronRight, Download, FileText, Globe, History as HistoryIcon, Image as ImageIcon, Loader2, Monitor, MonitorUp, TerminalSquare } from 'lucide-react'
+import { Badge, Button, EmptyState, SubtabNav, cn } from '@braedonsaunders/appkit-ui'
+import { LiveKitRoom, VideoTrack, useTracks } from '@livekit/components-react'
+import { Track } from 'livekit-client'
 import { observeRemoteWorkSurfaceAction, observeWorkSurfaceAction, workSurfaceAction } from '../app/chat/actions'
-import type { ChatBrowserWorkSurface, ChatWorkSurface as WorkSurface } from '../lib/chat-work-surface'
+import type { ChatBrowserWorkSurface, ChatWorkFile, ChatWorkSurface as WorkSurface } from '../lib/chat-work-surface'
 import { RemoteComputerViewer, TerminalSurface } from '@braedonsaunders/appkit-remote-sessions/react'
 import type { RemoteProtocol } from '@braedonsaunders/appkit-remote-sessions'
 import { AGENT_SCREEN_TRACK_NAME } from '../lib/agent-screen'
 import { ChatDesk } from './chat-desk'
-import { CALL_STAGE_AVATAR_SIZE, CallStage, type CallStageScreenView } from './call-stage'
 import { WorkSurfaceFullscreenButton } from './work-surface-fullscreen-button'
-
-export type ChatCallAvatar = {
-  composition: AvatarComposition | null
-  parts: AvatarPart[]
-  categories: AvatarPartCategory[]
-}
 
 type ObserverCredential = { serverUrl: string; token: string }
 
 function useObserverCredential(args: {
   threadId: string
   runId: string
-  kind: 'browser' | 'call'
-  sessionId?: string
+  kind: 'browser'
 }): { room: ObserverCredential | null; error: string | null } {
-  const { threadId, runId, kind, sessionId } = args
-  const key = `${threadId}:${runId}:${kind}:${sessionId ?? ''}`
+  const { threadId, runId, kind } = args
+  const key = `${threadId}:${runId}:${kind}`
   const [result, setResult] = React.useState<{
     key: string
     room: ObserverCredential | null
@@ -42,7 +32,7 @@ function useObserverCredential(args: {
     let cancelled = false
     let retry: ReturnType<typeof setTimeout> | null = null
     const observe = () => {
-      observeWorkSurfaceAction({ threadId, runId, kind, ...(sessionId ? { sessionId } : {}) }).then(
+      observeWorkSurfaceAction({ threadId, runId, kind }).then(
         (credential) => {
           if (cancelled) return
           setResult({ key, room: credential, error: null })
@@ -66,35 +56,8 @@ function useObserverCredential(args: {
       cancelled = true
       if (retry) clearTimeout(retry)
     }
-  }, [key, kind, runId, sessionId, threadId])
+  }, [key, kind, runId, threadId])
   return result.key === key ? { room: result.room, error: result.error } : { room: null, error: null }
-}
-
-function AgentStageAvatar({ personName, avatar }: { personName: string; avatar: ChatCallAvatar }) {
-  if (!avatar.composition) {
-    return (
-      <div
-        role="img"
-        aria-label={personName}
-        style={{ width: CALL_STAGE_AVATAR_SIZE, height: CALL_STAGE_AVATAR_SIZE }}
-        className="flex items-center justify-center rounded-full border border-border bg-primary-subtle text-primary"
-      >
-        <span className="text-8xl font-semibold">{personName.charAt(0).toUpperCase()}</span>
-      </div>
-    )
-  }
-  return (
-    <ComposedAvatar
-      composition={avatar.composition}
-      parts={avatar.parts}
-      categories={avatar.categories}
-      variant="head"
-      size={CALL_STAGE_AVATAR_SIZE}
-      rounded
-      animate="idle"
-      name={personName}
-    />
-  )
 }
 
 function AgentScreenTrack({ fallback }: { fallback: React.ReactNode }) {
@@ -117,101 +80,6 @@ function LiveBrowserSurface({
   return (
     <LiveKitRoom serverUrl={room.serverUrl} token={room.token} audio={false} video={false} connect className="size-full">
       <AgentScreenTrack fallback={fallback} />
-    </LiveKitRoom>
-  )
-}
-
-function useElapsedSince(startedAt: string): number {
-  const started = React.useMemo(() => new Date(startedAt).getTime(), [startedAt])
-  const [now, setNow] = React.useState(() => Date.now())
-  React.useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1_000)
-    return () => clearInterval(timer)
-  }, [])
-  return Number.isFinite(started) ? Math.max(0, Math.floor((now - started) / 1000)) : 0
-}
-
-function ObservedCallStage({
-  personName,
-  personTitle,
-  avatar,
-  startedAt,
-}: {
-  personName: string
-  personTitle: string
-  avatar: ChatCallAvatar
-  startedAt: string
-}) {
-  const screenTracks = useTracks([Track.Source.ScreenShare], { onlySubscribed: true })
-  const agentScreen = screenTracks.find((track) => track.publication.trackName === AGENT_SCREEN_TRACK_NAME) ?? null
-  // An observer sees both sides of the room. Attribute the halo only to the
-  // LiveKit Agents participant, never to the human or SIP caller speaking.
-  const speaking = useSpeakingParticipants().some((participant) => participant.kind === ParticipantKind.AGENT)
-  const elapsedSeconds = useElapsedSince(startedAt)
-  const screen = React.useMemo<CallStageScreenView | null>(
-    () =>
-      agentScreen
-        ? {
-            live: true,
-            video: <VideoTrack trackRef={agentScreen} />,
-            imageUrl: null,
-            title: 'Working at the desk',
-            host: null,
-            action: 'Live from the call',
-            atSeconds: elapsedSeconds,
-            frameKey: agentScreen.publication.trackSid ?? 'live',
-          }
-        : null,
-    [agentScreen, elapsedSeconds],
-  )
-  return (
-    <div className="flex size-full min-h-0 flex-col p-4">
-      <CallStage
-        name={personName}
-        title={personTitle}
-        phase="live"
-        speaking={speaking}
-        elapsedSeconds={elapsedSeconds}
-        status="Live call · observer view"
-        screen={screen}
-        avatar={<AgentStageAvatar personName={personName} avatar={avatar} />}
-      />
-    </div>
-  )
-}
-
-function LiveCallSurface({
-  threadId,
-  surface,
-  personName,
-  personTitle,
-  avatar,
-}: {
-  threadId: string
-  surface: Extract<WorkSurface, { kind: 'call' }>
-  personName: string
-  personTitle: string
-  avatar: ChatCallAvatar
-}) {
-  const { room, error } = useObserverCredential({
-    threadId,
-    runId: surface.runId,
-    kind: 'call',
-    sessionId: surface.sessionId,
-  })
-  if (error) {
-    return <p className="m-auto max-w-xs px-6 text-center text-sm text-fg-muted">{error}</p>
-  }
-  if (!room) {
-    return (
-      <span className="m-auto flex items-center gap-2 text-sm text-fg-muted">
-        <Loader2 aria-hidden className="size-4 animate-spin" /> Joining the live stage…
-      </span>
-    )
-  }
-  return (
-    <LiveKitRoom serverUrl={room.serverUrl} token={room.token} audio={false} video={false} connect className="size-full min-h-0">
-      <ObservedCallStage personName={personName} personTitle={personTitle} avatar={avatar} startedAt={surface.startedAt} />
     </LiveKitRoom>
   )
 }
@@ -322,21 +190,104 @@ function BrowserWorkStage({
   )
 }
 
+function fileSize(bytes: number): string {
+  if (bytes < 1_024) return `${bytes} B`
+  if (bytes < 1_048_576) return `${Math.max(0.1, bytes / 1_024).toFixed(1)} KB`
+  return `${Math.max(0.1, bytes / 1_048_576).toFixed(1)} MB`
+}
+
+function canPreview(file: ChatWorkFile): boolean {
+  return file.contentType === 'application/pdf' || /^image\/(?:png|jpeg|gif|webp)$/.test(file.contentType)
+}
+
+/** The conversation's real immutable work product, with safe image/PDF viewing. */
+function FilesWorkStage({ files, personName }: { files: ChatWorkFile[]; personName: string }) {
+  const [selectedId, setSelectedId] = React.useState<string | null>(null)
+  const selected = files.find((file) => file.id === selectedId) ?? files[0] ?? null
+
+  if (files.length === 0) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+        <EmptyState
+          icon={<FileText />}
+          title="No files in this conversation yet"
+          description={`${personName}'s documents, spreadsheets, attachments, images, and PDFs will collect here as the work develops.`}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] bg-bg-subtle">
+      <div className="app-scroll flex shrink-0 gap-1 overflow-x-auto border-b border-border bg-surface p-2">
+        {files.map((file) => (
+          <button
+            key={file.id}
+            type="button"
+            onClick={() => setSelectedId(file.id)}
+            className={cn(
+              'flex min-w-40 max-w-56 items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors',
+              selected?.id === file.id ? 'bg-primary-subtle text-fg' : 'text-fg-muted hover:bg-surface-hover hover:text-fg',
+            )}
+          >
+            {file.contentType.startsWith('image/') ? <ImageIcon aria-hidden className="size-4 shrink-0" /> : <FileText aria-hidden className="size-4 shrink-0" />}
+            <span className="min-w-0">
+              <span className="block truncate text-xs font-medium">{file.filename}</span>
+              <span className="block text-[11px] text-fg-subtle">{fileSize(file.sizeBytes)}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+      {selected ? (
+        <div className="flex min-h-0 flex-col">
+          <div className="flex min-w-0 items-center gap-2 border-b border-border bg-surface px-3 py-2">
+            <FileText aria-hidden className="size-4 shrink-0 text-fg-muted" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-fg">{selected.filename}</p>
+              <p className="truncate text-xs text-fg-muted">{selected.contentType} · {fileSize(selected.sizeBytes)}</p>
+            </div>
+            <Button asChild type="button" variant="ghost" size="icon" className="size-7 shrink-0">
+              <a href={`/api/files/${encodeURIComponent(selected.id)}`} aria-label={`Download ${selected.filename}`} title="Download">
+                <Download aria-hidden className="size-4" />
+              </a>
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden bg-bg-subtle">
+            {canPreview(selected) ? (
+              selected.contentType.startsWith('image/') ? (
+                // The file route authenticates and tenant-scopes every read.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={`/api/files/${encodeURIComponent(selected.id)}?preview=1`} alt={selected.filename} className="size-full object-contain p-3" />
+              ) : (
+                <iframe src={`/api/files/${encodeURIComponent(selected.id)}?preview=1`} title={selected.filename} className="size-full border-0" />
+              )
+            ) : (
+              <div className="flex size-full items-center justify-center p-6 text-center">
+                <div>
+                  <FileText aria-hidden className="mx-auto mb-3 size-8 text-fg-subtle" />
+                  <p className="text-sm font-medium text-fg">Preview is not available for this file type</p>
+                  <p className="mt-1 text-xs text-fg-muted">Download the original to open it in its native application.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function ChatWorkSurface({
   threadId,
   personId,
   personName,
-  personTitle,
-  callAvatar,
 }: {
   threadId: string | null
   personId: string
   personName: string
-  personTitle: string
-  callAvatar: ChatCallAvatar
 }) {
-  const [activeTab, setActiveTab] = React.useState<'desktop' | 'browser' | 'terminal' | 'call' | 'remote' | 'history'>('desktop')
-  const [surface, setSurface] = React.useState<WorkSurface>({ kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null })
+  const [activeTab, setActiveTab] = React.useState<'desktop' | 'browser' | 'terminal' | 'files' | 'remote' | 'history'>('desktop')
+  const [surface, setSurface] = React.useState<WorkSurface>({ kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [] })
   const followedSurfaceRef = React.useRef('idle')
 
   React.useEffect(() => {
@@ -364,7 +315,7 @@ export function ChatWorkSurface({
   React.useEffect(() => {
     const suggested = surface.kind !== 'call' && surface.remote
       ? 'remote'
-      : surface.kind === 'browser' || surface.kind === 'terminal' || surface.kind === 'call' || surface.kind === 'desktop'
+      : surface.kind === 'browser' || surface.kind === 'terminal' || surface.kind === 'desktop'
         ? surface.kind
         : null
     if (!suggested) return
@@ -381,38 +332,39 @@ export function ChatWorkSurface({
           ariaLabel={`${personName}'s work surfaces`}
           active={activeTab}
           onSelect={(tab) => setActiveTab(tab as typeof activeTab)}
+          className="h-12 gap-0 overflow-x-hidden [&>button]:!h-12 [&>button]:!min-w-0 [&>button]:!flex-1 [&>button]:!shrink [&>button]:!justify-center [&>button]:!gap-1 [&>button]:!px-1.5 [&>button]:!py-0 [&>button]:!text-xs"
           tabs={[
             {
               key: 'desktop',
               label: (
-                <span className="flex items-center gap-2">
-                  <Monitor aria-hidden className="size-4" />
-                  Desktop
+                <span className="flex min-w-0 items-center gap-1">
+                  <Monitor aria-hidden className="size-3.5 shrink-0" />
+                  <span className="truncate">Desktop</span>
                 </span>
               ),
             },
-            ...(surface.kind === 'browser' || surface.recentBrowser ? [{
+            {
               key: 'browser',
-              label: <span className="flex items-center gap-2"><Globe aria-hidden className="size-4" />Browser</span>,
-            }] : []),
-            ...(surface.kind === 'terminal' || surface.recentTerminal ? [{
+              label: <span className="flex min-w-0 items-center gap-1"><Globe aria-hidden className="size-3.5 shrink-0" /><span className="truncate">Browser</span></span>,
+            },
+            {
               key: 'terminal',
-              label: <span className="flex items-center gap-2"><TerminalSquare aria-hidden className="size-4" />Terminal</span>,
-            }] : []),
-            ...(surface.kind === 'call' ? [{
-              key: 'call',
-              label: <span className="flex items-center gap-2"><Phone aria-hidden className="size-4" />Call</span>,
-            }] : []),
+              label: <span className="flex min-w-0 items-center gap-1"><TerminalSquare aria-hidden className="size-3.5 shrink-0" /><span className="truncate">Terminal</span></span>,
+            },
+            {
+              key: 'files',
+              label: <span className="flex min-w-0 items-center gap-1"><FileText aria-hidden className="size-3.5 shrink-0" /><span className="truncate">Files</span></span>,
+            },
             ...(surface.remote ? [{
               key: 'remote',
-              label: <span className="flex items-center gap-2"><MonitorUp aria-hidden className="size-4" />{surface.remote.computerName}</span>,
+              label: <span className="flex min-w-0 items-center gap-1"><MonitorUp aria-hidden className="size-3.5 shrink-0" /><span className="truncate">{surface.remote.computerName}</span></span>,
             }] : []),
             {
               key: 'history',
               label: (
-                <span className="flex items-center gap-2">
-                  <HistoryIcon aria-hidden className="size-4" />
-                  History
+                <span className="flex min-w-0 items-center gap-1">
+                  <HistoryIcon aria-hidden className="size-3.5 shrink-0" />
+                  <span className="truncate">History</span>
                 </span>
               ),
             },
@@ -422,6 +374,10 @@ export function ChatWorkSurface({
 
       {activeTab === 'browser' && threadId !== null && (surface.kind === 'browser' || surface.recentBrowser) ? (
         <BrowserWorkStage threadId={threadId} surface={surface.kind === 'browser' ? surface : surface.recentBrowser!} personName={personName} />
+      ) : activeTab === 'browser' ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+          <EmptyState icon={<Globe />} title="Browser ready" description={`${personName}'s graphical browser appears here whenever they use it.`} />
+        </div>
       ) : activeTab === 'terminal' && (surface.kind === 'terminal' || surface.recentTerminal) ? (
         <ExpandableTerminalSurface
           title={(surface.kind === 'terminal' ? surface : surface.recentTerminal!).terminal.title}
@@ -430,16 +386,12 @@ export function ChatWorkSurface({
           status={(surface.kind === 'terminal' ? surface : surface.recentTerminal!).terminal.status}
           entries={(surface.kind === 'terminal' ? surface : surface.recentTerminal!).terminal.entries}
         />
-      ) : activeTab === 'call' && threadId !== null && surface.kind === 'call' ? (
-        <div className="flex min-h-0 flex-1">
-          <LiveCallSurface
-            threadId={threadId}
-            surface={surface}
-            personName={personName}
-            personTitle={personTitle}
-            avatar={callAvatar}
-          />
+      ) : activeTab === 'terminal' ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+          <EmptyState icon={<TerminalSquare />} title="Terminal ready" description={`Commands and real output from ${personName}'s machine appear here as they work.`} />
         </div>
+      ) : activeTab === 'files' ? (
+        <FilesWorkStage files={surface.files} personName={personName} />
       ) : activeTab === 'remote' && threadId !== null && surface.remote ? (
         surface.remote.terminal ? (
           <ExpandableTerminalSurface

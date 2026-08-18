@@ -681,7 +681,7 @@ export async function executeAgentRun(args: {
   const live = args.live ?? null
   // NO run sits inside one long transaction. This was true of live runs first,
   // for the reason that is obvious on a phone call — nothing a transaction
-  // writes is visible until it commits, so the call page showed a blank
+  // writes is visible until it commits, so the call stage showed a blank
   // activity feed until the work finished — and it is just as true of the rest
   // now that a run may legitimately work for hours rather than a couple of
   // dozen steps.

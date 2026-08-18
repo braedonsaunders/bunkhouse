@@ -32,7 +32,7 @@ import type { ToolActivityItem } from '../lib/call-activity'
 /**
  * One tool call as the caller sees it: what the agent is doing, on which
  * system, and whether it is still running, finished, failed, or parked for
- * approval. Rendered inline with the transcript on the live call page and on
+ * approval. Rendered inline with the transcript on the unified call stage and on
  * the finished call record — the same widget in both places.
  */
 

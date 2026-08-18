@@ -88,7 +88,7 @@ export async function getThreadAction(
 /** The visual stage plus durable step history for the conversation. */
 export async function workSurfaceAction(threadId: string): Promise<ChatWorkSurface> {
   const access = await requireTenantPermission('work.read')
-  if (!threadId) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null }
+  if (!threadId) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [] }
   return chatWorkSurface(access.tenantId, threadId)
 }
 
@@ -109,12 +109,12 @@ export async function observeRemoteWorkSurfaceAction(input: {
 export async function observeWorkSurfaceAction(input: {
   threadId: string
   runId: string
-  kind: 'browser' | 'call'
-  sessionId?: string
+  kind: 'browser'
 }): Promise<{ serverUrl: string; token: string }> {
   const access = await requireTenantPermission('work.read')
   const current = await chatWorkSurface(access.tenantId, input.threadId)
-  if (current.runId !== input.runId || current.kind !== input.kind) {
+  const browserVisible = current.kind === 'browser' || (current.kind === 'call' && current.recentBrowser?.runId === input.runId)
+  if (current.runId !== input.runId || !browserVisible) {
     throw new Error('That live work surface is no longer active.')
   }
 
@@ -127,9 +127,6 @@ export async function observeWorkSurfaceAction(input: {
 
   let room: string
   if (current.kind === 'call') {
-    if (!input.sessionId || input.sessionId !== current.sessionId) {
-      throw new Error('That call is no longer active.')
-    }
     room = current.room
     // A standard observer that arrives before the voice worker could be
     // selected as the call's human input participant. Wait until LiveKit has

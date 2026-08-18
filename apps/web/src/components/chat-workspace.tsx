@@ -6,12 +6,15 @@ import { useRouter } from 'next/navigation'
 import {
   Archive,
   ArchiveRestore,
+  ChevronDown,
   Loader2,
   MessageSquarePlus,
   Monitor,
   MoreHorizontal,
   PanelRightClose,
   Pencil,
+  Phone,
+  Plus,
 } from 'lucide-react'
 import {
   Badge,
@@ -25,6 +28,7 @@ import {
   type ContextMenuEntry,
 } from '@braedonsaunders/appkit-ui'
 import { AgentPanel, type AgentMessage } from '@braedonsaunders/appkit-ai/react'
+import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
 import {
   getThreadAction,
   listThreadsAction,
@@ -32,7 +36,9 @@ import {
   setThreadStatusAction,
   startThreadAction,
 } from '../app/chat/actions'
-import { ChatWorkSurface, type ChatCallAvatar } from './chat-work-surface'
+import { ChatWorkSurface } from './chat-work-surface'
+import { CALL_STAGE_AVATAR_SIZE } from './call-stage'
+import { ConversationCall, type AgentAvatar } from './call-room'
 
 /**
  * Chat: talk to an agent, and watch the machine it is working on while it
@@ -130,6 +136,41 @@ function Stamp({ at }: { at: string }) {
   return <span suppressHydrationWarning>{stampLabel(at)}</span>
 }
 
+function ConversationWelcome({ agent, avatar }: { agent: ChatAgentOption; avatar: AgentAvatar }) {
+  return (
+    <div className="flex min-h-full flex-1 flex-col items-center justify-center overflow-hidden px-5 py-6 text-center">
+      <div className="bh-call-enter relative">
+        <div aria-hidden className="absolute inset-8 rounded-full bg-primary-subtle blur-3xl" />
+        {avatar.composition ? (
+          <ComposedAvatar
+            composition={avatar.composition}
+            parts={avatar.parts}
+            categories={avatar.categories}
+            variant="head"
+            size={CALL_STAGE_AVATAR_SIZE}
+            rounded
+            animate="idle"
+            name={agent.name}
+          />
+        ) : (
+          <div
+            role="img"
+            aria-label={agent.name}
+            style={{ width: CALL_STAGE_AVATAR_SIZE, height: CALL_STAGE_AVATAR_SIZE }}
+            className="relative flex items-center justify-center rounded-full border border-border bg-primary-subtle text-primary shadow-sm"
+          >
+            <span className="text-8xl font-semibold">{agent.name.charAt(0).toUpperCase()}</span>
+          </div>
+        )}
+      </div>
+      <h2 className="mt-4 text-lg font-semibold text-fg">Ask {agent.name} for something</h2>
+      <p className="mt-1 max-w-md text-sm leading-relaxed text-fg-muted">
+        Talk naturally. Their browser, desktop, terminal, files, and complete work history stay visible beside the conversation.
+      </p>
+    </div>
+  )
+}
+
 /**
  * System notes are on the thread but are not something anyone said, and the
  * panel does not render them. Keep the few newest notes in the conversation's
@@ -162,7 +203,9 @@ function ThreadList({
   avatars,
   onSelect,
   onNew,
+  onNewCall,
   canStart,
+  canCall,
   showArchived,
   onShowArchived,
   onRename,
@@ -173,7 +216,9 @@ function ThreadList({
   avatars: Record<string, React.ReactNode>
   onSelect: (id: string) => void
   onNew: () => void
+  onNewCall: () => void
   canStart: boolean
+  canCall: boolean
   showArchived: boolean
   onShowArchived: (next: boolean) => void
   onRename: (thread: ChatThreadSummary) => void
@@ -183,6 +228,7 @@ function ThreadList({
   // `useContextMenu` is a hook, so a controller per row is not a thing that can
   // exist inside the map.
   const menu = useContextMenu()
+  const creationMenu = useContextMenu()
   const [target, setTarget] = React.useState<ChatThreadSummary | null>(null)
 
   const openMenuFor = (thread: ChatThreadSummary, open: () => void): void => {
@@ -212,25 +258,34 @@ function ThreadList({
     <div className="flex h-full min-h-0 flex-col bg-surface">
       {/* The same h-12 rule the panel's own header carries, so the three panes
           start on one line across the card. */}
-      <header className="flex h-12 shrink-0 items-center justify-between gap-1 border-b border-border bg-surface px-4">
-        <span className="truncate text-sm font-medium text-fg">Conversations</span>
+      <header className="flex h-12 shrink-0 items-center justify-end gap-1 border-b border-border bg-surface px-4">
         <span className="flex shrink-0 items-center gap-1">
           <Button
             type="button"
             size="sm"
-            variant="ghost"
+            variant={showArchived ? 'secondary' : 'ghost'}
             className="h-7 px-2"
             aria-pressed={showArchived}
             aria-label={showArchived ? 'Hide archived conversations' : 'Show archived conversations'}
             title={showArchived ? 'Hide archived' : 'Show archived'}
             onClick={() => onShowArchived(!showArchived)}
           >
-            <Archive aria-hidden className="size-4" />
+            {showArchived ? <ArchiveRestore aria-hidden className="size-4" /> : <Archive aria-hidden className="size-4" />}
+            {showArchived ? 'Hide archived' : 'Archived'}
           </Button>
-          {canStart ? (
-            <Button type="button" size="sm" variant="outline" className="h-7 px-2" onClick={onNew}>
-              <MessageSquarePlus aria-hidden className="size-4" />
+          {canStart || canCall ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2"
+              aria-haspopup="menu"
+              aria-expanded={creationMenu.open}
+              onClick={(event) => creationMenu.openBelow(event.currentTarget)}
+            >
+              <Plus aria-hidden className="size-4" />
               New
+              <ChevronDown aria-hidden className="size-3" />
             </Button>
           ) : null}
         </span>
@@ -294,6 +349,15 @@ function ThreadList({
         )}
       </div>
       <ContextMenu open={menu.open} position={menu.position} items={items} onClose={menu.close} />
+      <ContextMenu
+        open={creationMenu.open}
+        position={creationMenu.position}
+        onClose={creationMenu.close}
+        items={[
+          { key: 'chat', label: 'Chat', icon: MessageSquarePlus, onSelect: onNew, disabled: !canStart },
+          { key: 'call', label: 'Call', icon: Phone, onSelect: onNewCall, disabled: !canCall },
+        ]}
+      />
     </div>
   )
 }
@@ -304,15 +368,20 @@ export function AgentChatWorkspace({
   avatar,
   callAvatar,
   canStart,
+  call,
+  startWithCall = false,
   initialThread,
 }: {
   threads: ChatThreadSummary[]
   /** The profile owns the person context; every thread here belongs to this agent. */
   agent: ChatAgentOption
   avatar: React.ReactNode
-  callAvatar: ChatCallAvatar
+  callAvatar: AgentAvatar
   /** False when no model is assigned, so starting a thread could only fail. */
   canStart: boolean
+  call: { serverUrl: string; disabledReason: string | null } | null
+  /** A profile Call action lands here and places the call after creating its conversation. */
+  startWithCall?: boolean
   /** The thread named in the URL, already loaded, or null. */
   initialThread: ChatThreadDetail | null
 }) {
@@ -322,6 +391,9 @@ export function AgentChatWorkspace({
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [deskChoice, setDeskChoice] = React.useState<boolean | null>(null)
+  const [callThreadId, setCallThreadId] = React.useState<string | null>(null)
+  const [callStarting, setCallStarting] = React.useState(false)
+  const autoCallStartedRef = React.useRef(false)
   // Archived conversations are out of the list by default. The one exception
   // is arriving on a link to one: it would otherwise open in a pane with no row
   // behind it and no way back to itself.
@@ -434,10 +506,53 @@ export function AgentChatWorkspace({
     [agent.id, fetchThreads, load, threads],
   )
 
+  const startCall = React.useCallback(async () => {
+    if (!call || call.disabledReason || callStarting) return
+    setCallStarting(true)
+    setError(null)
+    try {
+      // A call is a conversation, not an escape hatch from one. Give every
+      // call its own thread so its transcript, files, and execution surfaces
+      // remain together after the microphone closes.
+      const started = await startThreadAction(agent.id, '')
+      const list = await fetchThreads().catch(() => threads)
+      setThreads(list)
+      await load(started.threadId)
+      setCallThreadId(started.threadId)
+      const url = new URL(window.location.href)
+      url.searchParams.delete('call')
+      url.searchParams.set('section', 'chat')
+      url.searchParams.set('thread', started.threadId)
+      window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The call could not be started.')
+    } finally {
+      setCallStarting(false)
+    }
+  }, [agent.id, call, callStarting, fetchThreads, load, threads])
+
+  React.useEffect(() => {
+    if (!startWithCall || autoCallStartedRef.current) return
+    autoCallStartedRef.current = true
+    void startCall()
+  }, [startCall, startWithCall])
+
+  const finishCall = React.useCallback(() => {
+    const threadId = callThreadId
+    setCallThreadId(null)
+    if (!threadId) return
+    void refreshThread(threadId).then(() => router.refresh())
+  }, [callThreadId, refreshThread, router])
+
   const toggleArchived = React.useCallback(async (next: boolean) => {
     setShowArchived(next)
-    const list = await listThreadsAction({ includeArchived: next, personId: agent.id }).catch(() => null)
-    if (list !== null) setThreads(list)
+    setError(null)
+    try {
+      setThreads(await listThreadsAction({ includeArchived: next, personId: agent.id }))
+    } catch (reason) {
+      setShowArchived(!next)
+      setError(reason instanceof Error ? reason.message : 'Archived conversations could not be loaded.')
+    }
   }, [agent.id])
 
   /**
@@ -517,6 +632,33 @@ export function AgentChatWorkspace({
             />
           )}
         </div>
+      ) : callThreadId === detail.thread.id && call ? (
+        <>
+          <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-surface px-4">
+            <Phone aria-hidden className="size-4 text-primary" />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">Call with {detail.thread.personName}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2"
+              aria-pressed={deskOpen}
+              onClick={() => setDeskChoice(!deskOpen)}
+            >
+              {deskOpen ? <PanelRightClose aria-hidden className="size-4" /> : <Monitor aria-hidden className="size-4" />}
+              {deskOpen ? 'Hide work' : 'Show work'}
+            </Button>
+          </header>
+          <div className="min-h-0 flex-1">
+            <ConversationCall
+              serverUrl={call.serverUrl}
+              agent={agent}
+              avatar={callAvatar}
+              threadId={detail.thread.id}
+              onEnded={finishCall}
+            />
+          </div>
+        </>
       ) : (
         <>
           <ThreadNoticeBar messages={detail.messages} />
@@ -530,6 +672,7 @@ export function AgentChatWorkspace({
             enabled={detail.thread.status === 'open'}
             initialMessages={detail.messages.map(toAgentMessage)}
             send={send}
+            emptyContent={<ConversationWelcome agent={agent} avatar={callAvatar} />}
             headerActions={
               <Button
                 type="button"
@@ -549,9 +692,6 @@ export function AgentChatWorkspace({
             }
             labels={{
               title: `${detail.thread.personName} · ${detail.thread.title}`,
-              welcomeTitle: `Ask ${detail.thread.personName} for something`,
-              welcomeDescription:
-                'Anything they do lands on their run record, and the active browser, call, headless task, or desktop appears beside the conversation.',
               disabledTitle: 'This conversation is archived',
               disabledDescription:
                 'Everything said in it is still here, and so are its run records. Unarchive it from the list to carry on.',
@@ -600,7 +740,9 @@ export function AgentChatWorkspace({
           avatars={{ [agent.id]: avatar }}
           onSelect={(id) => void load(id)}
           onNew={() => void startThread()}
+          onNewCall={() => void startCall()}
           canStart={canStart}
+          canCall={Boolean(call && !call.disabledReason && !callStarting)}
           showArchived={showArchived}
           onShowArchived={(next) => void toggleArchived(next)}
           onRename={(thread) => void renameThread(thread)}
@@ -616,8 +758,6 @@ export function AgentChatWorkspace({
               threadId={detail?.thread.id ?? null}
               personId={agent.id}
               personName={agent.name}
-              personTitle={agent.title}
-              callAvatar={callAvatar}
             />
           </div>
         ) : null}

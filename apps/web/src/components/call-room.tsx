@@ -1,20 +1,17 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
 import { ArrowDown, Phone } from 'lucide-react'
 import {
   LiveKitRoom,
   RoomAudioRenderer,
-  VideoTrack,
   useConnectionState,
   useLocalParticipant,
   useMediaDeviceSelect,
   useRemoteParticipants,
   useSpeakingParticipants,
-  useTracks,
 } from '@livekit/components-react'
-import { ConnectionState, ParticipantKind, Track, type RoomOptions } from 'livekit-client'
+import { ConnectionState, ParticipantKind, type RoomOptions } from 'livekit-client'
 import {
   Button,
   Card,
@@ -22,8 +19,6 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  PageHeader,
-  cn,
   toast,
 } from '@braedonsaunders/appkit-ui'
 import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
@@ -33,24 +28,15 @@ import type { ComposedAvatarAnimation } from '@braedonsaunders/appkit-avatars/re
 import {
   endCallAction,
   getCallTranscriptAction,
-  observeCallRemoteWorkSurfaceAction,
   startCallAction,
-  type CallBrowserFrame,
-  type CallTerminalFrame,
-  type CallRemoteSurface,
   type TranscriptTurn,
 } from '../app/call/actions'
-import { RemoteComputerViewer, TerminalSurface, type TerminalSurfaceEntry } from '@braedonsaunders/appkit-remote-sessions/react'
-import type { RemoteProtocol } from '@braedonsaunders/appkit-remote-sessions'
 import {
-  describeDeskEvent,
-  hostOf,
   toolActivityFromEvents,
   type CallActivityEvent,
   type ToolActivityItem,
 } from '../lib/call-activity'
 import { createCallTones, type CallTones } from '../lib/call-tones'
-import { AGENT_SCREEN_TRACK_NAME } from '../lib/agent-screen'
 import { ToolActivityCard, ToolMark } from './tool-activity'
 import {
   CALL_STAGE_AVATAR_SIZE,
@@ -60,7 +46,6 @@ import {
   type CallDeviceOption,
   type CallPhase,
   type CallStageActivity,
-  type CallStageScreenView,
   type CallStatusTone,
 } from './call-stage'
 
@@ -105,8 +90,8 @@ function screenShareDeclined(error: unknown): boolean {
   return SCREEN_SHARE_DECLINED.has(String((error as { name: unknown }).name))
 }
 
-type AgentProfile = { id: string; name: string; title: string }
-type AgentAvatar = { composition: AvatarComposition | null; parts: AvatarPart[]; categories: AvatarPartCategory[] }
+export type AgentProfile = { id: string; name: string; title: string }
+export type AgentAvatar = { composition: AvatarComposition | null; parts: AvatarPart[]; categories: AvatarPartCategory[] }
 
 /**
  * The face on the call: the same composition the directory crops, zoomed to
@@ -141,10 +126,10 @@ function AgentFace({ agent, avatar, animate }: { agent: AgentProfile; avatar: Ag
   )
 }
 
-/** Everything the call page polls for, on one loop. */
-type CallFeed = { turns: TranscriptTurn[]; activity: CallActivityEvent[]; browser: CallBrowserFrame | null; terminal: CallTerminalFrame | null; remote: CallRemoteSurface | null }
+/** Captions and activity for the center pane; visual work lives in the shared rail. */
+type CallFeed = { turns: TranscriptTurn[]; activity: CallActivityEvent[] }
 
-const EMPTY_FEED: CallFeed = { turns: [], activity: [], browser: null, terminal: null, remote: null }
+const EMPTY_FEED: CallFeed = { turns: [], activity: [] }
 
 /**
  * The call's one poll: captions, tool activity, and the agent's screen arrive
@@ -158,7 +143,7 @@ function useCallFeed(sessionId: string): CallFeed {
     const poll = async () => {
       try {
         const result = await getCallTranscriptAction(sessionId)
-        if (!cancelled) setFeed({ turns: result.turns, activity: result.activity, browser: result.browser, terminal: result.terminal, remote: result.remote })
+        if (!cancelled) setFeed({ turns: result.turns, activity: result.activity })
       } catch {
         // transient — next poll retries
       }
@@ -171,21 +156,6 @@ function useCallFeed(sessionId: string): CallFeed {
     }
   }, [sessionId])
   return feed
-}
-
-function CallRemoteComputerSurface({ callSessionId, remote }: { callSessionId: string; remote: CallRemoteSurface }) {
-  const connect = React.useCallback(
-    () => observeCallRemoteWorkSurfaceAction({ callSessionId, remoteSessionId: remote.sessionId }),
-    [callSessionId, remote.sessionId],
-  )
-  return (
-    <RemoteComputerViewer
-      targetName={remote.computerName}
-      protocol={remote.protocol as RemoteProtocol}
-      scope="observe"
-      connect={connect}
-    />
-  )
 }
 
 /**
@@ -249,32 +219,6 @@ function useCallTones(phase: CallPhase, working: boolean): void {
     if (working && phase === 'live') tones.startTyping()
     else tones.stopTyping()
   }, [working, phase])
-}
-
-/**
- * The newest desk frame as the stage wants it: a picture and its labels.
- * A frame from a session that is over is still handed over — marked not live,
- * so the stage can retire it gracefully rather than have it disappear.
- *
- * This is the still path, and it is not going anywhere: the screenshot ledger
- * is the audit record, it is what the run record replays, and it is what is
- * left on the stage after the desk work ends and its track goes away. While
- * the desk is on screen during a call there is live video of the same picture,
- * and that takes the stage; everything else here — which page, what was just
- * done — still comes from the ledger.
- */
-function screenView(frame: CallBrowserFrame, live: boolean): CallStageScreenView {
-  const host = hostOf(frame.detail.url)
-  const title = frame.detail.title?.trim() || host || 'Working at the desk'
-  return {
-    live,
-    imageUrl: frame.fileId ? `/api/files/${frame.fileId}` : null,
-    title,
-    host: host && host !== title ? host : null,
-    action: describeDeskEvent(frame.action, frame.detail),
-    atSeconds: Math.floor(frame.atMs / 1000),
-    frameKey: String(frame.seq),
-  }
 }
 
 /**
@@ -545,27 +489,8 @@ function LiveCallSurface({
           ? `Screen sharing becomes available once ${agent.name} picks up`
           : null
 
-  const [transcriptVisible, setTranscriptVisible] = React.useState(true)
-
-  // The agent's own desk, live in this room — its browser today, its desktop
-  // screen when one is open. It publishes itself as an ordinary screen-share
-  // track while it has something on screen, so watching it needs no polling
-  // and no second transport — the room is already here.
-  //
-  // Source alone would not identify it: in a meeting a human guest shares a
-  // screen from another remote participant on the very same source. The track
-  // name is what says this one is the agent's, and the local filter keeps the
-  // caller's own share off the caller's own stage.
-  const screenTracks = useTracks([Track.Source.ScreenShare], { onlySubscribed: true })
-  const agentScreen = React.useMemo(
-    () =>
-      screenTracks.find(
-        (track) => !track.participant.isLocal && track.publication.trackName === AGENT_SCREEN_TRACK_NAME,
-      ) ?? null,
-    [screenTracks],
-  )
-
-  const { turns, activity, browser, terminal, remote } = useCallFeed(sessionId)
+  const [transcriptVisible, setTranscriptVisible] = React.useState(false)
+  const { turns, activity } = useCallFeed(sessionId)
   const items = React.useMemo(() => toolActivityFromEvents(activity), [activity])
 
   // The stage carries the present tense: the newest action still in flight —
@@ -590,112 +515,15 @@ function LiveCallSurface({
   // an action parked for a signature is the agent waiting on a person, and
   // nobody types while they wait.
   useCallTones(phase, current?.status === 'running')
-  const screen = React.useMemo<CallStageScreenView | null>(() => {
-    const still = browser ? screenView(browser, browser.live && phase !== 'ended') : null
-    const newestDeskAt = Math.max(browser?.atMs ?? -1, terminal?.atMs ?? -1)
-    if (remote && remote.atMs >= newestDeskAt && phase !== 'ended') {
-      const content = remote.kind === 'terminal' && remote.terminal
-        ? (
-            <TerminalSurface
-              title={`${remote.computerName} terminal`}
-              subtitle={`${remote.protocol.toUpperCase()} · durable remote session`}
-              status={remote.terminal.status}
-              entries={remote.terminal.entries}
-            />
-          )
-        : <CallRemoteComputerSurface callSessionId={sessionId} remote={remote} />
-      return {
-        live: true,
-        video: null,
-        imageUrl: null,
-        title: remote.computerName,
-        host: null,
-        action: remote.kind === 'terminal' ? 'Working in the remote terminal' : 'Working on the remote computer',
-        atSeconds: elapsedSeconds,
-        frameKey: `remote:${remote.sessionId}:${remote.atMs}`,
-        content,
-      }
-    }
-    if (terminal && terminal.atMs >= (browser?.atMs ?? -1) && phase !== 'ended') {
-      const entries: TerminalSurfaceEntry[] = [
-        {
-          id: `${terminal.seq}:command`,
-          kind: 'command',
-          prompt: `${terminal.cwd ?? '~'} $`,
-          text: terminal.command,
-        },
-        ...(terminal.output.trim()
-          ? [{
-              id: `${terminal.seq}:output`,
-              kind: terminal.exitCode === 0 ? 'stdout' as const : 'stderr' as const,
-              text: `${terminal.output}${terminal.outputTruncated ? '\n[output truncated]' : ''}`,
-            }]
-          : []),
-      ]
-      return {
-        live: true,
-        video: null,
-        imageUrl: null,
-        title: 'Desk terminal',
-        host: null,
-        action: terminal.command,
-        atSeconds: elapsedSeconds,
-        frameKey: `terminal:${terminal.seq}`,
-        content: (
-          <TerminalSurface
-            title="Desk terminal"
-            subtitle={`${agent.name}’s machine · live command record`}
-            cwd={terminal.cwd}
-            status={terminal.exitCode === 0 ? 'completed' : 'failed'}
-            entries={entries}
-          />
-        ),
-      }
-    }
-    if (!agentScreen || phase === 'ended') return still
-    // The track is the present tense in a way the ledger cannot be: it exists
-    // for exactly as long as the agent's desk has something on screen, and it
-    // carries the picture as it moves rather than as it was two seconds ago.
-    // The ledger still supplies the words around it — which page, and what was
-    // just done on it.
-    const video = <VideoTrack trackRef={agentScreen} />
-    return still
-      ? { ...still, live: true, video }
-      : {
-          // The screen has opened but no step has landed on the record yet.
-          live: true,
-          video,
-          imageUrl: null,
-          title: 'Working at the desk',
-          host: null,
-          action: 'Opening the page',
-          atSeconds: elapsedSeconds,
-          frameKey: 'live',
-        }
-  }, [agent.name, agentScreen, browser, elapsedSeconds, phase, remote, sessionId, terminal])
-
   return (
-    // One row, as tall as whatever the screen has left. The row is explicitly
-    // allowed to be shorter than its contents' natural height (`minmax(0,1fr)`
-    // rather than the automatic track, whose floor is its content) — that is
-    // what lets the stage inside it give way instead of pushing the control
-    // bar off the bottom of the page. Below `lg` the two columns stack and the
-    // screen scrolls, so the row is left to size itself.
-    <div
-      className={cn(
-        'grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)]',
-        transcriptVisible && 'lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]',
-      )}
-    >
-      <Card className="flex min-h-0 flex-col">
-        <CardContent className="flex min-h-0 flex-1 flex-col items-center gap-6 px-6 py-6">
+    <div className="flex size-full min-h-0 flex-col bg-bg-subtle p-4">
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-4 rounded-xl border border-border bg-surface px-4 py-5 shadow-sm">
           <CallStage
             name={agent.name}
             title={agent.title}
             phase={phase}
             speaking={agentSpeaking}
             elapsedSeconds={elapsedSeconds}
-            screen={screen}
             activity={current}
             avatar={<AgentFace agent={agent} avatar={avatar} animate={agentSpeaking ? 'talking' : phase === 'ended' ? 'none' : 'idle'} />}
           />
@@ -716,29 +544,12 @@ function LiveCallSurface({
             statusLabel={statusLabel}
             statusTone={statusTone}
           />
-        </CardContent>
-      </Card>
-      {/* Beside the stage the transcript is simply the row's other column, and
-          the row's height is the screen's, not the stage's — so neither column
-          can make the page taller, the two bottom edges line up, and the stage
-          does not move when the caller dismisses the transcript. Stacked below
-          lg it is an ordinary card with its own reading height. */}
-      {transcriptVisible ? <CaptionsPanel turns={turns} items={items} agentName={agent.name} /> : null}
-    </div>
-  )
-}
-
-/**
- * The call's one screen: the page header, then whatever is on the line. From
- * `lg` up it is exactly as tall as the shell's canvas and no taller — a call is
- * a fixed screen, and a caller must never have to scroll to find the button
- * that ends it. Below `lg` the columns stack, the screen takes its natural
- * height, and the canvas scrolls: a phone cannot hold all of this at once.
- */
-function CallScreen({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mx-auto flex w-full max-w-(--breakpoint-2xl) flex-col gap-4 p-4 sm:p-6 lg:h-full">
-      {children}
+      </div>
+      {transcriptVisible ? (
+        <div className="mt-3 h-44 min-h-0 shrink-0 overflow-hidden rounded-xl border border-border bg-surface">
+          <CaptionsPanel turns={turns} items={items} agentName={agent.name} />
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -765,171 +576,101 @@ const ROOM_OPTIONS: RoomOptions = {
 }
 
 /**
- * The browser side of a call: a LiveKit room with the agent's voice agent as
- * the other participant. Audio only; captions poll the append-only ledger.
- * Opening the page IS placing the call — the session, its run, and the token
- * come from startCallAction the moment the page mounts, so there is no lobby
- * to click through. The ref guard keeps a remounted effect (React strict mode)
- * from opening a second session and run for the same call.
- *
- * Ending is the mirror of that: instant, local, and exactly once, with the
- * server-side bookkeeping and the trip back to the profile both happening
- * after the caller has already seen and heard the call end.
+ * A web call occupying the conversation pane. It creates the call run inside
+ * the supplied chat thread, while the sibling work rail continues to display
+ * Desktop, Browser, Terminal, Files, and History.
  */
-export function CallRoom({
+export function ConversationCall({
   serverUrl,
   agent,
   avatar,
+  threadId,
+  onEnded,
 }: {
   serverUrl: string
   agent: AgentProfile
   avatar: AgentAvatar
+  threadId: string
+  onEnded: () => void
 }) {
-  const router = useRouter()
   const [call, setCall] = React.useState<{ sessionId: string; token: string } | null>(null)
   const [placeError, setPlaceError] = React.useState<string | null>(null)
   const [closed, setClosed] = React.useState(false)
-  const endedRef = React.useRef(false)
   const placedRef = React.useRef(false)
-  const leaveRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const endedRef = React.useRef(false)
+  const releaseRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // The one timer this component owns. It is cleared on the way out so a page
-  // the caller left themselves can never navigate out from under them later.
-  React.useEffect(
-    () => () => {
-      if (leaveRef.current !== null) clearTimeout(leaveRef.current)
-    },
-    [],
-  )
+  React.useEffect(() => () => {
+    if (releaseRef.current) clearTimeout(releaseRef.current)
+  }, [])
 
-  // Every state change lands in a promise callback rather than in the body:
-  // this runs straight out of an effect on mount, and a setState reached
-  // synchronously from there costs a cascading render. A previous error
-  // clears when the retry actually succeeds, so the message stays put while
-  // the retry is in flight instead of blinking out and back.
   const place = React.useCallback(() => {
     if (placedRef.current) return
     placedRef.current = true
-    startCallAction(agent.id).then(
-      (started) => {
-        setCall(started)
-        setPlaceError(null)
-      },
+    setPlaceError(null)
+    startCallAction(agent.id, threadId).then(
+      setCall,
       (error: unknown) => {
         placedRef.current = false
         setPlaceError(error instanceof Error ? error.message : 'The call could not be started.')
       },
     )
-  }, [agent.id])
+  }, [agent.id, threadId])
 
   React.useEffect(place, [place])
 
-  /**
-   * End the call, once. Everything the caller can see or hear happens in this
-   * turn: the stage lands on `ended`, the hang-up tone sounds, the face settles
-   * out, and the room is dropped on the very next render — a call is over the
-   * moment it is over, so nothing here waits on the network. Closing the
-   * session record is bookkeeping and runs alongside; the caller is taken back
-   * to the profile after a beat, whether or not that write has landed.
-   *
-   * The ref is the exactly-once guard, and it is set before anything else: our
-   * own hang-up drops the room, the room's disconnect comes back through here,
-   * and it finds the door already shut. The agent hanging up arrives the same
-   * way from the other direction, and only one of the two can ever be first.
-   */
   const finish = React.useCallback(() => {
     if (endedRef.current || !call) return
     endedRef.current = true
     setClosed(true)
-    // A failed write is not something a caller on a finished call can act on,
-    // and it must never hold up their ending — the run and the call ledger
-    // both keep their own record of what happened either way.
-    void endCallAction(call.sessionId).catch(() => {})
-    const profile = `/organization?person=${agent.id}`
-    // Warmed while the ending plays, so the profile is there when we get to
-    // it rather than the caller watching a spinner replace a dead call.
-    router.prefetch(profile)
-    leaveRef.current = setTimeout(() => {
-      leaveRef.current = null
-      router.push(profile)
+    void endCallAction(call.sessionId).catch(() => undefined)
+    releaseRef.current = setTimeout(() => {
+      releaseRef.current = null
+      onEnded()
     }, ENDED_HOLD_MS)
-  }, [agent.id, call, router])
-
-  const header = (
-    <PageHeader
-      className="shrink-0"
-      title={`Calling ${agent.name}`}
-      description={`${agent.title} · web call · everything said here lands on the call record and the run.`}
-    />
-  )
+  }, [call, onEnded])
 
   if (!call) {
     return (
-      <CallScreen>
-        {header}
-        <Card className="flex min-h-0 flex-col lg:flex-1">
-          <CardContent className="flex min-h-0 flex-1 flex-col items-center gap-6 px-6 py-6">
-            <CallStage
-              name={agent.name}
-              title={agent.title}
-              phase="dialling"
-              speaking={false}
-              elapsedSeconds={0}
-              status={
-                placeError ? (
-                  <span className="font-medium text-fg">The call did not go through</span>
-                ) : (
-                  `Connecting your microphone and ringing ${agent.name}.`
-                )
-              }
-              avatar={<AgentFace agent={agent} avatar={avatar} animate="idle" />}
-            />
-            {placeError ? (
-              <div className="bh-call-enter flex shrink-0 flex-col items-center gap-3 text-center">
-                <p className="max-w-md text-sm text-fg-muted">{placeError}</p>
-                <Button type="button" onClick={place}>
-                  <Phone className="mr-1.5 size-4" /> Try again
-                </Button>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-      </CallScreen>
+      <div className="flex size-full min-h-0 flex-col items-center justify-center gap-5 bg-bg-subtle p-5">
+        <CallStage
+          name={agent.name}
+          title={agent.title}
+          phase="dialling"
+          speaking={false}
+          elapsedSeconds={0}
+          status={placeError ? 'The call did not go through' : `Connecting your microphone and ringing ${agent.name}.`}
+          avatar={<AgentFace agent={agent} avatar={avatar} animate="idle" />}
+        />
+        {placeError ? (
+          <div className="flex flex-col items-center gap-3 text-center">
+            <p className="max-w-sm text-sm text-fg-muted">{placeError}</p>
+            <Button type="button" onClick={place}><Phone aria-hidden className="size-4" /> Try again</Button>
+          </div>
+        ) : null}
+      </div>
     )
   }
 
   return (
-    <CallScreen>
-      {header}
-      <LiveKitRoom
-        // The room's own container is a link in the height chain — everything
-        // on the call hangs off it — so it fills the screen the same way the
-        // dialling card does.
-        className="flex min-h-0 flex-col lg:flex-1"
-        serverUrl={serverUrl}
-        token={call.token}
-        audio
-        video={false}
-        options={ROOM_OPTIONS}
-        // Hanging up releases the room in the same breath: the microphone
-        // stops, the agent's voice stops, and the caller is left with the
-        // resolved stage rather than a line that is somehow still open.
-        connect={!closed}
-        // The room disconnecting is a normal end of call — the agent hangs up
-        // by deleting the room, and a dropped connection arrives the same way
-        // — so it lands on the same ending, never on an error. When it is the
-        // echo of our own hang-up, the exactly-once guard swallows it.
-        onDisconnected={finish}
-      >
-        <RoomAudioRenderer />
-        <LiveCallSurface
-          agent={agent}
-          avatar={avatar}
-          sessionId={call.sessionId}
-          closed={closed}
-          onEnd={finish}
-        />
-      </LiveKitRoom>
-    </CallScreen>
+    <LiveKitRoom
+      className="flex size-full min-h-0 flex-col"
+      serverUrl={serverUrl}
+      token={call.token}
+      audio
+      video={false}
+      options={ROOM_OPTIONS}
+      connect={!closed}
+      onDisconnected={finish}
+    >
+      <RoomAudioRenderer />
+      <LiveCallSurface
+        agent={agent}
+        avatar={avatar}
+        sessionId={call.sessionId}
+        closed={closed}
+        onEnd={finish}
+      />
+    </LiveKitRoom>
   )
 }

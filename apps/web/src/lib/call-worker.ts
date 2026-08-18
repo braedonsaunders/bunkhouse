@@ -391,7 +391,7 @@ export function createCallWorker(args: {
       hooks?.onNote?.({ workId: item.id, kind, text: line })
     }
     // Tool calls and their results are paired first-in-first-out per tool, the
-    // same way the call page pairs the ledger it renders.
+    // same way the conversation call stage pairs the ledger it renders.
     const openLabels = new Map<string, string[]>()
 
     /**
@@ -410,7 +410,7 @@ export function createCallWorker(args: {
           openLabels.set(raw.toolName, queue)
           // The genuine progress line: "Reading example.com", "Searching the
           // web — 'galvanised pipe'". The same words `describeToolCall` puts
-          // on the call page, so what the caller hears and what the operator
+          // on the call stage, so what the caller hears and what the operator
           // watches are one story from one ledger. Posting every step is safe
           // precisely because the mailbox rate-limits progress and keeps only
           // the newest per piece of work — the caller hears roughly one of
@@ -435,7 +435,7 @@ export function createCallWorker(args: {
           // Otherwise noted, never posted: "read the page" the moment after
           // "reading the page" is the agent narrating its own hands, and a step
           // that failed is not the work failing — the loop is expected to try
-          // the next route without announcing the last one. The call page shows
+          // the next route without announcing the last one. The call stage shows
           // every one of these; the caller does not need them read out.
           note(describeToolResult(label, raw.output))
           return

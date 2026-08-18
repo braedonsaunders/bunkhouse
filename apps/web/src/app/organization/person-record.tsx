@@ -61,6 +61,7 @@ export async function personDrawer({
   pageAccess,
   section,
   chatThreadId,
+  startCall,
   profileSection,
   workSection,
   runId,
@@ -92,6 +93,7 @@ export async function personDrawer({
   }
   section?: string
   chatThreadId?: string
+  startCall?: boolean
   profileSection?: string
   workSection?: string
   /** Run record opened over the Chat section. */
@@ -640,6 +642,13 @@ export async function personDrawer({
                 }
                 callAvatar={{ composition, parts: partLibrary, categories: AVATAR_PART_CATEGORIES }}
                 canStart={canStartChat}
+                call={pageAccess?.canCall && callAction
+                  ? {
+                      serverUrl: process.env.LIVEKIT_URL ?? '',
+                      disabledReason: callAction.disabledReason ?? (!process.env.LIVEKIT_URL ? 'Calling is not available in this deployment.' : null),
+                    }
+                  : null}
+                startWithCall={startCall === true}
                 initialThread={initialChat}
               />
             ),

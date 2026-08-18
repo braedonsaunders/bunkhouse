@@ -1534,27 +1534,6 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     </Badge>
   ) : null
 
-  // One line, the same twelve-rem-high rule the conversation and the thread
-  // list carry: the three panes share one card now, so their headers have to
-  // sit on one line across it. What the desk IS gets said in the body, where
-  // there is room for it.
-  const header = (
-    <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface px-4">
-      <span className="truncate text-sm font-medium text-fg">{personName}&apos;s desk</span>
-      <span className="flex shrink-0 items-center gap-1.5">
-        {statusBadge}
-        {screenOpen ? (
-          <WorkSurfaceFullscreenButton
-            expanded={showExpanded}
-            onToggle={showExpanded ? collapse : expand}
-            surface="desktop"
-            shortcut="Shift F"
-          />
-        ) : null}
-      </span>
-    </header>
-  )
-
   /**
    * The picture and the input target: ONE element tree, rendered at ONE place
    * in this component for as long as a screen is open.
@@ -1832,25 +1811,17 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     )
   } else if (!screenOpen) {
     body = (
-      <div className="space-y-4">
-        <DeskScreenBox className="border-dashed bg-bg-subtle">
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-8 text-center">
-            <Monitor aria-hidden className="size-6 text-fg-subtle" />
-            <p className="text-sm text-fg-muted">
-              No screen is open on {personName}&apos;s desk. {personName} opens one when GUI work needs it — or you can
-              open one here.
-            </p>
-          </div>
-        </DeskScreenBox>
-        <Button type="button" disabled={busy} onClick={() => void openDesktop()}>
-          {busy ? <Loader2 aria-hidden className="size-4 animate-spin" /> : <Monitor aria-hidden className="size-4" />}
-          Open desktop
-        </Button>
-        <p className="text-xs text-fg-muted">
-          This is the machine {personName} works on, and everything done here is on their run record. A screen is the
-          expensive tier, so the session records that you opened this one; it stays readable in Settings → Desk.
-        </p>
-      </div>
+      <EmptyState
+        icon={<Monitor />}
+        title="Desktop ready"
+        description={`${personName} opens the screen when graphical work needs it. You can open the same recorded desktop now.`}
+        action={(
+          <Button type="button" size="sm" disabled={busy} onClick={() => void openDesktop()}>
+            {busy ? <Loader2 aria-hidden className="size-4 animate-spin" /> : <Monitor aria-hidden className="size-4" />}
+            Open desktop
+          </Button>
+        )}
+      />
     )
   } else {
     // The open screen is NOT part of this chain. It is rendered below, in a
@@ -1952,6 +1923,17 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
         >
           {liveScreen}
           {liveBadge}
+          {showExpanded ? null : (
+            <div className="absolute left-2 top-2 z-10 flex items-center gap-1.5 rounded-lg border border-border bg-surface/90 p-1 shadow-sm backdrop-blur">
+              {handover.active || drivingNow ? statusBadge : null}
+              <WorkSurfaceFullscreenButton
+                expanded={false}
+                onToggle={expand}
+                surface="desktop"
+                shortcut="Shift F"
+              />
+            </div>
+          )}
         </div>
 
         {showExpanded ? (
@@ -1971,21 +1953,26 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   // chat screen draws around all three columns (components/chat-workspace.tsx).
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
-      {header}
-      <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-3">
-        {body}
+      {screenOpen ? (
+        <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-3">
         {/* Its own slot, never shared with anything else. React matches
             children by position, so a picture that shares a slot with the
             status messages above is a picture that can be reconciled away by
             an unrelated change of status — and, being a `<video>` fed by a
             MediaSource, cannot come back from that. */}
-        {screenOpen ? liveBlock : null}
+        {liveBlock}
         {controlError !== null ? (
           <p role="alert" className="mt-3 text-sm text-danger">
             {controlError}
           </p>
         ) : null}
-      </div>
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6">
+          {body}
+          {controlError !== null ? <p role="alert" className="text-center text-sm text-danger">{controlError}</p> : null}
+        </div>
+      )}
     </div>
   )
 }

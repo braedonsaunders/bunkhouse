@@ -3,7 +3,7 @@
  * caller can watch: one item per tool call, moving running → done/failed, or
  * parked as queued when the action needs human sign-off. Browser steps — the
  * other ledger a caller watches, frame by frame — are put into words here too.
- * Pure data in, pure data out — shared by the live call page (polling) and the
+ * Pure data in, pure data out — shared by the live call stage (polling) and the
  * finished run view, so both render the same story from the same ledger.
  */
 

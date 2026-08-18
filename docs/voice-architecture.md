@@ -288,7 +288,7 @@ control to the session. The tool's eventual return value comes back the same
 way, as the result the agent reads out. Nothing is on a timer.
 
 The worker's progress lines are the run's own events, put into words with the
-same `describeToolCall` the call page renders — so what the caller hears and
+same `describeToolCall` the unified call stage renders — so what the caller hears and
 what the operator watches are the same story from the same ledger. Browser
 frames go to the call's eyes, unchanged.
 
@@ -458,7 +458,7 @@ publish its browser as an ordinary video track:
                                               ▼
                       VideoSource ──▶ LocalVideoTrack ──▶ the call's room
                                                               │
-                                                    the call page's stage
+                                              the conversation's call stage
 ```
 
 Four things make it honest rather than decorative:
@@ -484,8 +484,10 @@ Four things make it honest rather than decorative:
 - **One visual surface, in calls and chat.** The voice agent registers an offer
   against its call room, while an ordinary chat run registers the same offer
   against a run-scoped LiveKit room. Both consume the same screencast and the
-  same named screen-share track; only the destination room differs. A run that
-  never opens a visual surface creates no room, encoder, or video track.
+  same named screen-share track; only the destination room differs. The shared
+  conversation workspace observes that track in its Browser rail while the
+  animated call stage and controls occupy the center. A run that never opens a
+  visual surface creates no room, encoder, or video track.
 
 The screenshot ledger is untouched by all of it. It is the audit record —
 doctrine #9 — it is what the run desk replays, and it is what the call stage

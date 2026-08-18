@@ -32,6 +32,7 @@ export default async function PersonPage({
     notePage?: string
     run?: string
     runTab?: string
+    call?: string
   }>
 }) {
   const { id } = await params
@@ -62,6 +63,7 @@ export default async function PersonPage({
     },
     section: query.section,
     chatThreadId: query.section === 'chat' ? query.thread : undefined,
+    startCall: query.section === 'chat' && query.call === '1',
     mailThreadId: query.section === 'inbox' ? query.thread : undefined,
     mailboxError: query.mailboxError,
     profileSection: query.profile,

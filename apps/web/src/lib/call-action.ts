@@ -21,7 +21,7 @@ type Callee = Pick<typeof people.$inferSelect, 'id' | 'kind' | 'status' | 'voice
 export function resolveCallAction(person: Callee): CallAction | null {
   if (person.kind !== 'agent') return null
   return {
-    href: `/call/${person.id}`,
+    href: `/organization/${person.id}?section=chat&call=1`,
     disabledReason:
       person.voiceConfig == null
         ? 'Give this agent a voice on the Voice tab to call them.'

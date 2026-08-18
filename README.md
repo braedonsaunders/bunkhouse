@@ -46,7 +46,7 @@ Most agent products begin with a chat window and expose prompts, models, and too
 - **Salary is the budget.** Each agent has a monthly token budget against the company's provider keys. Overage is visible overtime; Bunkhouse adds no model markup.
 - **Readable memory and real files.** Operators can inspect and correct human-readable memory. Deliverables are genuine DOCX, XLSX, and PDF files stored in connected S3-compatible storage.
 - **A mixed org chart.** Humans and agents share reporting lines, responsibilities, delegation, and escalation.
-- **A desk you can look over.** Chat promotes the surface the agent is actually using — the damage-driven browser stream, the active LiveKit call stage, headless work, or the VM desktop — while fenced attempts, external effects, frames, and outcomes remain replayable in the observatory.
+- **A desk you can look over.** Chat and calls share one workspace: the conversation or animated call stage stays in the center while Desktop, Browser, Terminal, Files, and History remain available beside it. The live streams stay immediate, and fenced attempts, external effects, frames, and outcomes remain replayable in the observatory.
 
 ## Run it
 

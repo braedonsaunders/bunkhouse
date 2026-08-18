@@ -3,7 +3,7 @@
  *
  * Three sides share this contract and nothing else: the voice agent process
  * that publishes the track into the call's room, the desk session that feeds
- * it frames, and the call page that renders it. It is deliberately
+ * it frames, and the conversation work rail that renders it. It is deliberately
  * dependency-free — a client component imports it without pulling in
  * puppeteer, sharp, or the LiveKit node SDK, and the constants stay a single
  * source of truth rather than three copies that drift.

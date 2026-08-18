@@ -7,6 +7,7 @@ import {
   chatThreads,
   deskEvents,
   deskSessions,
+  files,
   runEvents,
   runs,
   remoteComputers,
@@ -37,6 +38,16 @@ export type ChatWorkHistoryEvent = {
   kind: string
   label: string
   at: string
+}
+
+export type ChatWorkFile = {
+  id: string
+  runId: string
+  filename: string
+  contentType: string
+  sizeBytes: number
+  kind: string
+  createdAt: string
 }
 
 export type ChatRemoteWorkSurface = {
@@ -82,6 +93,7 @@ export type ChatWorkSurface = {
   remote: ChatRemoteWorkSurface | null
   recentBrowser: ChatBrowserWorkSurface | null
   recentTerminal: ChatTerminalWorkSurface | null
+  files: ChatWorkFile[]
 } & (
   | { kind: 'idle'; runId: null }
   | { kind: 'desktop'; runId: string; status: string }
@@ -109,7 +121,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
   const app = db()
   return app.withTenantContext(tenantId, async () => {
     const [thread] = await app.db.select({ id: chatThreads.id }).from(chatThreads).where(eq(chatThreads.id, threadId)).limit(1)
-    if (!thread) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null }
+    if (!thread) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [] }
     const threadRuns = await app.db
       .select({ id: runs.id, status: runs.status })
       .from(runs)
@@ -117,7 +129,34 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
       .orderBy(desc(runs.startedAt))
       .limit(100)
     const run = threadRuns[0]
-    if (!run) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null }
+    if (!run) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [] }
+
+    const conversationFiles = await app.db
+      .select({
+        id: files.id,
+        runId: files.runId,
+        filename: files.filename,
+        contentType: files.contentType,
+        sizeBytes: files.sizeBytes,
+        kind: files.kind,
+        createdAt: files.createdAt,
+      })
+      .from(files)
+      .where(
+        and(
+          inArray(files.runId, threadRuns.map((candidate) => candidate.id)),
+          // Screen and call recordings are evidence presented on History and
+          // the visual surfaces. Files is the employee's actual work product.
+          inArray(files.kind, ['document', 'spreadsheet', 'attachment', 'upload']),
+        ),
+      )
+      .orderBy(desc(files.createdAt))
+      .limit(100)
+    const workFiles: ChatWorkFile[] = conversationFiles.flatMap((file) =>
+      file.runId
+        ? [{ ...file, runId: file.runId, createdAt: file.createdAt.toISOString() }]
+        : [],
+    )
 
     // A chat thread is one durable conversation even though each user turn is
     // executed as its own run. Reading only the newest run made the old Live
@@ -253,7 +292,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
           },
         }
       : null
-    const retained = { history, recentBrowser, recentTerminal }
+    const retained = { history, recentBrowser, recentTerminal, files: workFiles }
 
     const [remoteRow] = await app.db
       .select({

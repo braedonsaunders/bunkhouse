@@ -453,12 +453,18 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     false,
     'the redundant row above the chat no longer consumes vertical space',
   )
+  assert.equal(workspace.includes('>Conversations</span>'), false, 'the thread pane header spends its space on actions, not a redundant label')
+  assert.ok(
+    workspace.includes("showArchived ? 'Hide archived' : 'Archived'") &&
+      workspace.includes("variant={showArchived ? 'secondary' : 'ghost'}"),
+    'the archived filter makes its active state and inverse action visible',
+  )
   const workSurface = readFileSync(
     fileURLToPath(new URL('../src/components/chat-work-surface.tsx', import.meta.url)),
     'utf8',
   )
   assert.ok(
-    workSurface.includes("React.useState<'desktop' | 'browser' | 'terminal' | 'call' | 'remote' | 'history'>('desktop')"),
+    workSurface.includes("React.useState<'desktop' | 'browser' | 'terminal' | 'files' | 'remote' | 'history'>('desktop')"),
     'the persistent desktop is the default visual surface',
   )
   assert.ok(
@@ -475,6 +481,10 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     workSurface.includes("surface.recentBrowser") && workSurface.includes("surface.recentTerminal"),
     'completed browser and terminal work remain reopenable after a turn or page reload',
   )
+  for (const tab of ['desktop', 'browser', 'terminal', 'files', 'history']) {
+    assert.ok(workSurface.includes(`key: '${tab}'`), `${tab} remains a stable tab even before it has content`)
+  }
+  assert.ok(workSurface.includes('<FilesWorkStage'), 'conversation files have a previewable work surface')
   assert.ok(workSurface.includes('surface.history.map'), 'the History tab renders conversation-wide durable steps')
   assert.ok(
     workSurface.includes('&run=${event.runId}&runTab=activity'),
@@ -484,6 +494,12 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     workSurface.includes('surface="browser"') && workSurface.includes('surface="terminal"'),
     'browser and terminal surfaces both expose fullscreen controls',
   )
+  assert.ok(
+    workSurface.includes('h-12 gap-0 overflow-x-hidden') &&
+      workSurface.includes('[&>button]:!h-12') &&
+      workSurface.includes('[&>button]:!flex-1'),
+    'the stable work tabs divide a header matching the other panes instead of becoming a horizontal scroller',
+  )
   const chatDesk = readFileSync(
     fileURLToPath(new URL('../src/components/chat-desk.tsx', import.meta.url)),
     'utf8',
@@ -492,13 +508,44 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     chatDesk.includes('<WorkSurfaceFullscreenButton') && chatDesk.includes('surface="desktop"'),
     'desktop uses the same fullscreen affordance as browser and terminal',
   )
+  assert.equal(chatDesk.includes('const header = ('), false, 'the Desktop tab does not repeat the agent name in a private header row')
+  assert.ok(
+    chatDesk.includes('title="Desktop ready"') && chatDesk.includes('title="Agent desks are off"'),
+    'desktop ready and unavailable states use the same centered work-stage vocabulary',
+  )
   const personRecord = readFileSync(
     fileURLToPath(new URL('../src/app/organization/person-record.tsx', import.meta.url)),
     'utf8',
   )
   assert.ok(personRecord.includes('await runDrawer({ tenantId, runId'), 'the employee page hosts the canonical run drawer')
   assert.equal(workSurface.includes('is getting started'), false, 'a new run never blanks History with a placeholder')
-  console.log('chat: streamed turns survive section switches and work controls stay in the chat header')
+  assert.ok(
+    workspace.includes("{ key: 'chat', label: 'Chat'") && workspace.includes("{ key: 'call', label: 'Call'"),
+    'the left-pane New menu owns both conversation modes',
+  )
+  assert.equal(
+    workspace.slice(workspace.indexOf('<AgentPanel'), workspace.indexOf('</AgentPanel>')).includes('onClick={() => void startCall()}'),
+    false,
+    'the center conversation header does not carry a separate Call button',
+  )
+  assert.ok(workspace.includes('<ConversationCall'), 'a call occupies the same center pane as text chat')
+  console.log('chat: streamed turns survive section switches and one workspace holds chat, calls, and stable work tabs')
+}
+
+// --- (b3) every Call action enters the unified conversation workspace -------
+{
+  const { resolveCallAction } = await import('../src/lib/call-action')
+  const action = resolveCallAction({ id: AGENT, kind: 'agent', status: 'active', voiceConfig: null })
+  assert.equal(action?.href, `/organization/${AGENT}?section=chat&call=1`)
+  assert.ok(action?.disabledReason, 'an unconfigured voice remains visibly unavailable')
+  assert.equal(resolveCallAction({ id: USER, kind: 'human', status: 'active', voiceConfig: null }), null)
+  const callActions = readFileSync(fileURLToPath(new URL('../src/app/call/actions.ts', import.meta.url)), 'utf8')
+  assert.ok(
+    callActions.includes("pg_advisory_xact_lock(hashtext('bunkhouse.chat_messages'), hashtext(${threadId}))"),
+    'call transcripts append under the same per-thread sequence lock as text messages',
+  )
+  assert.ok(callActions.includes('.slice(copied?.count ?? 0)'), 'disconnect retries copy only uncopied call turns')
+  console.log('chat: Call actions create a unified conversation instead of navigating to a call page')
 }
 
 // --- (c) concurrency: one conversation, no double-run ----------------------

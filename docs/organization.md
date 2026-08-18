@@ -47,6 +47,13 @@ The agent page uses a stable employee header and five primary sections:
 An agent can own any number of chat threads. The conversation list is always
 filtered by `person_id`; opening Chat selects the newest active thread by
 default, while operators can start another or reveal archived conversations.
+The list's **New** menu starts either a text chat or a call. A call creates its
+own conversation and replaces only the center transcript with the animated call
+stage and media controls; it does not navigate to a separate call page. Desktop,
+Browser, Terminal, Files, and History stay independently selectable in the work
+rail throughout the call, and the call transcript joins the conversation when
+the room closes. The five shared tabs remain visible even before the first tool
+or file appears, so operators always know where each kind of work will land.
 Legacy `/chat` and `/mail` links resolve their thread owner and redirect to the
 corresponding section on the canonical agent page.
 

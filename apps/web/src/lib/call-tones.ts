@@ -156,7 +156,7 @@ export function createCallTones(): CallTones {
   }
 
   /**
-   * Nudge a suspended context awake. The call page is reached by a click, so
+   * Nudge a suspended context awake. The call workspace is reached by a click, so
    * this normally succeeds; when the policy refuses, the promise rejects and
    * the call simply runs silent. Nothing here is allowed to reach the caller.
    */
