@@ -1941,13 +1941,12 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
           await screen.input.move(Number(body.x), Number(body.y))
           break
         case 'click':
-          for (let click = 0; click < (body.clicks === 2 ? 2 : 1); click += 1) {
-            await screen.input.click(
-              Number(body.x),
-              Number(body.y),
-              body.button === 'middle' || body.button === 'right' ? body.button : 'left',
-            )
-          }
+          await screen.input.click(
+            Number(body.x),
+            Number(body.y),
+            body.button === 'middle' || body.button === 'right' ? body.button : 'left',
+            body.clicks === 2 ? 2 : 1,
+          )
           break
         case 'type':
           await screen.input.type(String(body.text ?? ''))

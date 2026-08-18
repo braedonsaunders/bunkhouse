@@ -149,6 +149,7 @@ async function main() {
   const noScreen = [
     { op: 'observe' },
     { op: 'input', input: { type: 'click', x: 10, y: 10, button: 'left' } },
+    { op: 'input', input: { type: 'click', x: 10, y: 10, button: 'left', clicks: 2 } },
     { op: 'a11y-invoke', nodeId: '0/1', action: 'click' },
     { op: 'launch', appId: 'xterm' },
     { op: 'clipboard-read' },

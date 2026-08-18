@@ -1572,9 +1572,11 @@ function createDesktopTier() {
         assertOnScreen(action.x, action.y)
         const button = BUTTON_NUMBERS[action.button ?? 'left']
         if (!button) throw new Error(`button must be left, middle, or right (got ${String(action.button)})`)
+        const clicks = action.clicks === undefined || action.clicks === 1 ? 1 : action.clicks === 2 ? 2 : 0
+        if (clicks === 0) throw new Error(`clicks must be 1 or 2 (got ${String(action.clicks)})`)
         await xdotool([
           'mousemove', String(action.x), String(action.y),
-          'click', '--clearmodifiers', button,
+          'click', '--clearmodifiers', '--repeat', String(clicks), '--delay', '100', button,
         ])
         return
       }
