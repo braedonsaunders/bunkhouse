@@ -128,6 +128,58 @@ await asApp(T1, async (c) => {
   assert.equal(rows[0].name, 'Agent One', 'and it is its own')
   assert.equal(await count(c, `select count(*) from memories`), 1, 'T1 sees one memory')
 })
+
+// --- conversation dispatch laws --------------------------------------------
+
+// Claims in separate web/worker processes meet at the database. The partial
+// unique index is the last word on one running turn, and the transition
+// trigger refuses a completed row being smuggled back into the queue.
+{
+  const threadId = crypto.randomUUID()
+  const personId = crypto.randomUUID()
+  const userId = crypto.randomUUID()
+  const firstDispatch = crypto.randomUUID()
+  const secondDispatch = crypto.randomUUID()
+  await asApp(T1, async (c) => {
+    await c.query(
+      `insert into chat_threads (id, tenant_id, person_id, user_id, title)
+       values ($1, $2, $3, $4, 'Queue claims')`,
+      [threadId, T1, personId, userId],
+    )
+    await c.query(
+      `insert into chat_dispatches
+         (id, tenant_id, thread_id, user_id, position, idempotency_key, body, status, attempts)
+       values ($1, $2, $3, $4, 0, 'first', 'First', 'running', 1)`,
+      [firstDispatch, T1, threadId, userId],
+    )
+    await assert.rejects(
+      c.query(
+        `insert into chat_dispatches
+           (id, tenant_id, thread_id, user_id, position, idempotency_key, body, status, attempts)
+         values ($1, $2, $3, $4, 1, 'second', 'Second', 'running', 1)`,
+        [secondDispatch, T1, threadId, userId],
+      ),
+      (error: { code?: string }) => error.code === '23505',
+      'one conversation cannot have two running dispatches',
+    )
+    await c.query(`update chat_dispatches set status = 'completed', finished_at = now() where id = $1`, [firstDispatch])
+    await assert.rejects(
+      c.query(`update chat_dispatches set status = 'queued' where id = $1`, [firstDispatch]),
+      (error: { code?: string }) => error.code === 'P0001',
+      'a terminal dispatch cannot re-enter the queue',
+    )
+    await c.query(
+      `insert into chat_dispatch_events (tenant_id, dispatch_id, seq, kind)
+       values ($1, $2, 0, 'queued')`,
+      [T1, firstDispatch],
+    )
+    await assert.rejects(
+      c.query(`update chat_dispatch_events set detail = '{"changed":true}' where dispatch_id = $1`, [firstDispatch]),
+      (error: { code?: string }) => error.code === '55000',
+      'dispatch lifecycle evidence is append-only',
+    )
+  })
+}
 await asApp(T2, async (c) => {
   assert.equal(await count(c, `select count(*) from people`), 1, 'T2 sees one person')
   const { rows } = await c.query(`select name from people`)

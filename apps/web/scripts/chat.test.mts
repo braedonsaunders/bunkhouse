@@ -75,6 +75,7 @@ type StoredMessage = {
   role: 'user' | 'agent' | 'system'
   body: string
   runId: string | null
+  dispatchId: string | null
   at: Date
 }
 
@@ -123,6 +124,7 @@ function memoryChatStore(clock: () => Date) {
           body: message.body,
           at: message.at.toISOString(),
           runId: message.runId,
+          dispatchId: message.dispatchId,
         }))
     },
     async agentName({ personId }) {
@@ -142,7 +144,7 @@ function memoryChatStore(clock: () => Date) {
       })
       return id
     },
-    async appendMessage({ threadId, role, body, runId }) {
+    async appendMessage({ threadId, role, body, runId, dispatchId }) {
       const seq = messages.filter((message) => message.threadId === threadId).length
       const row: StoredMessage = {
         id: `msg-${messages.length + 1}`,
@@ -151,13 +153,22 @@ function memoryChatStore(clock: () => Date) {
         role,
         body,
         runId: runId ?? null,
+        dispatchId: dispatchId ?? null,
         at: clock(),
       }
       // Append-only, at the boundary the database also enforces with
       // reject_immutable_ledger_change: nothing here may ever rewrite a row.
       Object.freeze(row)
       messages.push(row)
-      return { id: row.id, seq: row.seq, role: row.role, body: row.body, at: row.at.toISOString(), runId: row.runId }
+      return {
+        id: row.id,
+        seq: row.seq,
+        role: row.role,
+        body: row.body,
+        at: row.at.toISOString(),
+        runId: row.runId,
+        dispatchId: row.dispatchId,
+      }
     },
     async touchThread({ threadId, title, at }) {
       const thread = threads.find((row) => row.id === threadId)

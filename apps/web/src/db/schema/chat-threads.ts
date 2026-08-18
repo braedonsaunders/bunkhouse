@@ -1,4 +1,5 @@
-import { index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
 
 /**
@@ -20,6 +21,23 @@ import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
  */
 export const chatThreadStatus = pgEnum('chat_thread_status', ['open', 'closed'])
 export const chatMessageRole = pgEnum('chat_message_role', ['user', 'agent', 'system'])
+export const chatDispatchStatus = pgEnum('chat_dispatch_status', [
+  'queued',
+  'running',
+  'completed',
+  'failed',
+  'cancelled',
+])
+export const chatDispatchEventKind = pgEnum('chat_dispatch_event_kind', [
+  'queued',
+  'claimed',
+  'run_linked',
+  'completed',
+  'failed',
+  'retried',
+  'edited',
+  'cancelled',
+])
 
 /**
  * A conversation between one signed-in human and one agent. Mutable by
@@ -68,6 +86,7 @@ export const chatMessages = pgTable(
     role: chatMessageRole('role').notNull(),
     body: text('body').notNull(),
     runId: uuid('run_id'),
+    dispatchId: uuid('dispatch_id'),
     at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -75,7 +94,76 @@ export const chatMessages = pgTable(
     uniqueIndex('chat_messages_seq_key').on(t.threadId, t.seq),
     index('chat_messages_thread_idx').on(t.tenantId, t.threadId),
     index('chat_messages_run_idx').on(t.tenantId, t.runId),
+    index('chat_messages_dispatch_idx').on(t.tenantId, t.dispatchId),
+    uniqueIndex('chat_messages_dispatch_user_key')
+      .on(t.dispatchId)
+      .where(sql`${t.role} = 'user' and ${t.dispatchId} is not null`),
   ],
 )
 
-export const CHAT_THREAD_TENANT_TABLES = ['chat_threads', 'chat_messages'] as const
+/**
+ * Durable intent to say something in a conversation. The row is the current
+ * projection used for claiming; `chat_dispatch_events` is the append-only
+ * evidence for every transition and edit.
+ *
+ * `position` never changes. Completed and cancelled rows stay in place, so a
+ * later retry cannot reinterpret which message was ahead of which. A partial
+ * unique index allows at most one running dispatch per thread even when two
+ * workers race in different processes.
+ */
+export const chatDispatches = pgTable(
+  'chat_dispatches',
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    threadId: uuid('thread_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    position: integer('position').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    body: text('body').notNull(),
+    status: chatDispatchStatus('status').notNull().default('queued'),
+    attempts: integer('attempts').notNull().default(0),
+    runId: uuid('run_id'),
+    lastError: text('last_error'),
+    queuedAt: timestamp('queued_at', { withTimezone: true }).notNull().defaultNow(),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    ...auditColumns,
+  },
+  (t) => [
+    uniqueIndex('chat_dispatches_idempotency_key').on(t.threadId, t.idempotencyKey),
+    uniqueIndex('chat_dispatches_position_key').on(t.threadId, t.position),
+    uniqueIndex('chat_dispatches_one_running_key')
+      .on(t.threadId)
+      .where(sql`${t.status} = 'running'`),
+    index('chat_dispatches_pending_idx').on(t.tenantId, t.threadId, t.position),
+    index('chat_dispatches_run_idx').on(t.tenantId, t.runId),
+  ],
+)
+
+/** Immutable lifecycle evidence for the mutable dispatch projection. */
+export const chatDispatchEvents = pgTable(
+  'chat_dispatch_events',
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    dispatchId: uuid('dispatch_id').notNull(),
+    seq: integer('seq').notNull(),
+    kind: chatDispatchEventKind('kind').notNull(),
+    detail: jsonb('detail').$type<Record<string, unknown>>().notNull().default({}),
+    actorId: uuid('actor_id'),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('chat_dispatch_events_seq_key').on(t.dispatchId, t.seq),
+    index('chat_dispatch_events_tenant_idx').on(t.tenantId, t.dispatchId, t.seq),
+  ],
+)
+
+export const CHAT_THREAD_TENANT_TABLES = [
+  'chat_threads',
+  'chat_messages',
+  'chat_dispatches',
+  'chat_dispatch_events',
+] as const

@@ -28,12 +28,20 @@ import {
   useContextMenu,
   type ContextMenuEntry,
 } from '@braedonsaunders/appkit-ui'
-import { AgentPanel, type AgentMessage } from '@braedonsaunders/appkit-ai/react'
+import {
+  AgentPanel,
+  type AgentMessage,
+  type AgentQueuedMessage,
+} from '@braedonsaunders/appkit-ai/react'
 import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
 import {
   getThreadAction,
+  editQueuedMessageAction,
+  enqueueMessageAction,
   listThreadsAction,
+  removeQueuedMessageAction,
   renameThreadAction,
+  retryQueuedMessageAction,
   setThreadStatusAction,
   startThreadAction,
 } from '../app/chat/actions'
@@ -75,11 +83,28 @@ export type ChatMessageRecord = {
   body: string
   at: string
   runId: string | null
+  dispatchId: string | null
+}
+
+export type ChatDispatchRecord = {
+  id: string
+  threadId: string
+  userId: string
+  position: number
+  body: string
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  attempts: number
+  runId: string | null
+  lastError: string | null
+  queuedAt: string
+  claimedAt: string | null
+  finishedAt: string | null
 }
 
 export type ChatThreadDetail = {
   thread: { id: string; title: string; personId: string; personName: string; status: ChatThreadStatus }
   messages: ChatMessageRecord[]
+  dispatches: ChatDispatchRecord[]
 }
 
 /** An agent that can be talked to — one that has a brain assigned to think with. */
@@ -421,6 +446,8 @@ export function AgentChatWorkspace({
   const [deskChoice, setDeskChoice] = React.useState<boolean | null>(null)
   const [callThreadId, setCallThreadId] = React.useState<string | null>(null)
   const [callStarting, setCallStarting] = React.useState(false)
+  const [panelGeneration, setPanelGeneration] = React.useState(0)
+  const directStreamRef = React.useRef(false)
   const autoCallStartedRef = React.useRef(false)
   // Archived conversations are out of the list by default. The one exception
   // is arriving on a link to one: it would otherwise open in a pane with no row
@@ -492,12 +519,19 @@ export function AgentChatWorkspace({
     async (prompt: string, signal: AbortSignal): Promise<Response> => {
       const threadId = activeId
       if (threadId === null) throw new Error('No conversation is open.')
-      const response = await fetch(`/api/chat/${encodeURIComponent(threadId)}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-        signal,
-      })
+      directStreamRef.current = true
+      let response: Response
+      try {
+        response = await fetch(`/api/chat/${encodeURIComponent(threadId)}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ prompt, requestId: crypto.randomUUID() }),
+          signal,
+        })
+      } catch (reason) {
+        directStreamRef.current = false
+        throw reason
+      }
       // The panel owns the stream; reading a clone alongside it is how this
       // pane learns the turn is over — without it the run link and the list's
       // ordering would sit stale until the next navigation.
@@ -514,10 +548,79 @@ export function AgentChatWorkspace({
           router.refresh()
         })
         .catch(() => undefined)
+        .finally(() => {
+          directStreamRef.current = false
+        })
       return response
     },
     [activeId, refreshThread, router],
   )
+
+  const enqueue = React.useCallback(async (prompt: string): Promise<void> => {
+    const threadId = activeId
+    if (!threadId) throw new Error('No conversation is open.')
+    const result = await enqueueMessageAction(threadId, prompt, crypto.randomUUID())
+    if ('error' in result) throw new Error(result.error)
+    await refreshThread(threadId)
+  }, [activeId, refreshThread])
+
+  const editQueued = React.useCallback(async (message: AgentQueuedMessage) => {
+    const next = await promptDialog({
+      title: 'Edit queued message',
+      label: 'Message',
+      initialValue: message.text,
+      confirmLabel: 'Save',
+    })
+    if (next === null || next.trim() === message.text) return
+    const result = await editQueuedMessageAction(message.id, next)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    await refreshThread(result.dispatch.threadId)
+  }, [refreshThread])
+
+  const removeQueued = React.useCallback(async (message: AgentQueuedMessage) => {
+    const result = await removeQueuedMessageAction(message.id)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    await refreshThread(result.dispatch.threadId)
+  }, [refreshThread])
+
+  const retryQueued = React.useCallback(async (message: AgentQueuedMessage) => {
+    const result = await retryQueuedMessageAction(message.id)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    await refreshThread(result.dispatch.threadId)
+  }, [refreshThread])
+
+  // A queued turn may finish in a worker after the request that accepted it
+  // has returned. Follow the durable projection while there is pending work;
+  // when a new persisted answer lands outside the direct stream, remount the
+  // panel from the authoritative transcript.
+  React.useEffect(() => {
+    const threadId = detail?.thread.id
+    if (!threadId || detail.dispatches.length === 0) return
+    const timer = window.setInterval(() => {
+      void getThreadAction(threadId).then((loaded) => {
+        if (!loaded) return
+        setDetail((current) => {
+          if (!current || current.thread.id !== threadId) return current
+          const previousLast = current.messages.at(-1)?.id
+          const nextLast = loaded.messages.at(-1)?.id
+          if (!directStreamRef.current && previousLast !== nextLast) {
+            setPanelGeneration((generation) => generation + 1)
+          }
+          return loaded
+        })
+      }).catch(() => undefined)
+    }, 1_500)
+    return () => window.clearInterval(timer)
+  }, [detail?.dispatches.length, detail?.thread.id])
 
   /**
    * A conversation starts empty and its first turn streams like every other
@@ -697,13 +800,34 @@ export function AgentChatWorkspace({
           <AgentPanel
             // Keyed by the thread: the panel seeds its transcript once, so a
             // different conversation has to be a different panel.
-            key={detail.thread.id}
+            key={`${detail.thread.id}:${panelGeneration}`}
             // An archived conversation is closed to new turns on the server, so
             // the composer is closed here too rather than offering a Send that
             // is only going to be refused.
             enabled={detail.thread.status === 'open'}
             initialMessages={detail.messages.map(toAgentMessage)}
             send={send}
+            dispatchState={
+              detail.dispatches.some((dispatch) => dispatch.status === 'running')
+                ? 'running'
+                : detail.dispatches.some((dispatch) => dispatch.status === 'failed')
+                  ? 'recovering'
+                  : 'idle'
+            }
+            queuedMessages={detail.dispatches.map((dispatch, index) => ({
+              id: dispatch.id,
+              text: dispatch.body,
+              position: index + 1,
+              status: dispatch.status === 'running' ? 'dispatching' : dispatch.status === 'failed' ? 'failed' : 'queued',
+              ...(dispatch.status === 'failed' && dispatch.lastError ? { statusLabel: dispatch.lastError } : {}),
+              editable: dispatch.status === 'queued' || dispatch.status === 'failed',
+              removable: dispatch.status === 'queued' || dispatch.status === 'failed',
+              retryable: dispatch.status === 'failed',
+            }))}
+            enqueue={enqueue}
+            onEditQueuedMessage={(message) => void editQueued(message)}
+            onRemoveQueuedMessage={(message) => void removeQueued(message)}
+            onRetryQueuedMessage={(message) => void retryQueued(message)}
             emptyContent={<ConversationWelcome agent={agent} avatar={callAvatar} />}
             headerActions={
               <Button
@@ -730,6 +854,7 @@ export function AgentChatWorkspace({
               placeholder: `Message ${detail.thread.personName}…`,
               failed:
                 'That turn did not finish. Nothing has been lost — ask again, or open the run record to see how far it got.',
+              queueFailed: 'That queued turn needs attention before the conversation can continue.',
             }}
           />
         </>

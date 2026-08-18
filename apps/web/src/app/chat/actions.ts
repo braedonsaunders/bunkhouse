@@ -2,6 +2,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { mintLiveKitToken } from '@braedonsaunders/appkit-voice'
 import type { RemoteViewerConnection } from '@braedonsaunders/appkit-remote-sessions'
 import { ParticipantKind } from '@livekit/rtc-node'
@@ -12,7 +13,6 @@ import {
   getThread,
   listThreads,
   renameThread,
-  sendMessage,
   setThreadStatus,
   startThread,
   type ChatMessageView,
@@ -20,6 +20,16 @@ import {
   type ChatThreadSummary,
   type ChatThreadView,
 } from '../../lib/chat-threads'
+import {
+  cancelChatDispatch,
+  dispatchChatMessage,
+  drainChatDispatchQueue,
+  editChatDispatch,
+  enqueueChatMessage,
+  listChatDispatches,
+  retryChatDispatch,
+  type ChatDispatchView,
+} from '../../lib/chat-dispatch'
 import {
   closeDesktop,
   deskStatus,
@@ -79,10 +89,12 @@ export async function listThreadsAction(
 
 export async function getThreadAction(
   threadId: string,
-): Promise<{ thread: ChatThreadView; messages: ChatMessageView[] } | null> {
+): Promise<{ thread: ChatThreadView; messages: ChatMessageView[]; dispatches: ChatDispatchView[] } | null> {
   if (!threadId) return null
   const access = await requireTenantPermission('work.read')
-  return getThread(access.tenantId, threadId)
+  const detail = await getThread(access.tenantId, threadId)
+  if (!detail) return null
+  return { ...detail, dispatches: await listChatDispatches({ tenantId: access.tenantId, threadId }) }
 }
 
 /** The visual stage plus durable step history for the conversation. */
@@ -176,11 +188,12 @@ export async function startThreadAction(personId: string, body: string): Promise
     ...(opening ? { firstMessage: opening } : {}),
   })
   if (opening) {
-    await sendMessage({
+    await dispatchChatMessage({
       tenantId: access.tenantId,
       threadId,
       userId: access.user.id,
       body: opening,
+      idempotencyKey: randomUUID(),
       requester: chatRequesterFor(access),
     })
   }
@@ -198,15 +211,80 @@ export async function sendMessageAction(
   body: string,
 ): Promise<{ messages: ChatMessageView[] }> {
   const access = await requireTenantPermission('work.manage')
-  const result = await sendMessage({
+  const result = await dispatchChatMessage({
     tenantId: access.tenantId,
     threadId,
     userId: access.user.id,
     body,
+    idempotencyKey: randomUUID(),
     requester: chatRequesterFor(access),
   })
   revalidatePath(CHAT_PATH)
-  return result
+  return { messages: result.messages ?? [] }
+}
+
+export async function enqueueMessageAction(
+  threadId: string,
+  body: string,
+  requestId: string,
+): Promise<{ dispatch: ChatDispatchView } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  try {
+    const result = await enqueueChatMessage({
+      tenantId: access.tenantId,
+      threadId,
+      userId: access.user.id,
+      body,
+      idempotencyKey: requestId,
+    })
+    after(() => drainChatDispatchQueue({ tenantId: access.tenantId, threadId }))
+    revalidatePath(CHAT_PATH)
+    return { dispatch: result.dispatch }
+  } catch (reason) {
+    return { error: reason instanceof Error ? reason.message : 'That message could not be queued.' }
+  }
+}
+
+export async function editQueuedMessageAction(
+  dispatchId: string,
+  body: string,
+): Promise<{ dispatch: ChatDispatchView } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  try {
+    const dispatch = await editChatDispatch({ tenantId: access.tenantId, dispatchId, userId: access.user.id, body })
+    revalidatePath(CHAT_PATH)
+    return { dispatch }
+  } catch (reason) {
+    return { error: reason instanceof Error ? reason.message : 'That queued message could not be edited.' }
+  }
+}
+
+export async function removeQueuedMessageAction(
+  dispatchId: string,
+): Promise<{ dispatch: ChatDispatchView } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  try {
+    const dispatch = await cancelChatDispatch({ tenantId: access.tenantId, dispatchId, userId: access.user.id })
+    after(() => drainChatDispatchQueue({ tenantId: access.tenantId, threadId: dispatch.threadId }))
+    revalidatePath(CHAT_PATH)
+    return { dispatch }
+  } catch (reason) {
+    return { error: reason instanceof Error ? reason.message : 'That queued message could not be removed.' }
+  }
+}
+
+export async function retryQueuedMessageAction(
+  dispatchId: string,
+): Promise<{ dispatch: ChatDispatchView } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  try {
+    const dispatch = await retryChatDispatch({ tenantId: access.tenantId, dispatchId, userId: access.user.id })
+    after(() => drainChatDispatchQueue({ tenantId: access.tenantId, threadId: dispatch.threadId }))
+    revalidatePath(CHAT_PATH)
+    return { dispatch }
+  } catch (reason) {
+    return { error: reason instanceof Error ? reason.message : 'That queued message could not be retried.' }
+  }
 }
 
 // ---------------------------------------------------------------------------

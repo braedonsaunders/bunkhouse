@@ -40,6 +40,7 @@ import {
 import { AgentChatWorkspace, type ChatThreadDetail } from '../../components/chat-workspace'
 import { AgentRecordPage, AgentRecordSubsections, type AgentPageSection } from '../../components/agent-record-page'
 import { getThread, listThreads } from '../../lib/chat-threads'
+import { listChatDispatches } from '../../lib/chat-dispatch'
 import { listResourceCatalog } from '../../lib/role-resources'
 import { agentBinding, bindsToAgent } from '../../lib/assignment'
 import { listRoles } from '../../lib/roles'
@@ -442,7 +443,14 @@ export async function personDrawer({
       ? chatThreadId
       : openThreads[0]?.id
     const initialChat: ChatThreadDetail | null = selectedChatThreadId
-      ? await getThread(tenantId, selectedChatThreadId)
+      ? await (async () => {
+          const detail = await getThread(tenantId, selectedChatThreadId)
+          if (!detail) return null
+          return {
+            ...detail,
+            dispatches: await listChatDispatches({ tenantId, threadId: selectedChatThreadId }),
+          }
+        })()
       : null
     const canStartChat = canReadWork && Boolean(await resolveAgentAiConfig(tenantId, selected.id))
 

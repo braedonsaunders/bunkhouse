@@ -43,6 +43,7 @@ export type ChatMessageView = {
   body: string
   at: string
   runId: string | null
+  dispatchId: string | null
 }
 
 export type ChatThreadView = {
@@ -99,6 +100,7 @@ export type ChatThreadStore = {
     role: ChatMessageRole
     body: string
     runId?: string | null
+    dispatchId?: string | null
   }): Promise<ChatMessageView>
   touchThread(args: { tenantId: string; threadId: string; title?: string | null; at: Date }): Promise<void>
   /**
@@ -124,8 +126,17 @@ function messageView(row: {
   body: string
   at: Date
   runId: string | null
+  dispatchId: string | null
 }): ChatMessageView {
-  return { id: row.id, seq: row.seq, role: row.role, body: row.body, at: row.at.toISOString(), runId: row.runId }
+  return {
+    id: row.id,
+    seq: row.seq,
+    role: row.role,
+    body: row.body,
+    at: row.at.toISOString(),
+    runId: row.runId,
+    dispatchId: row.dispatchId,
+  }
 }
 
 /**
@@ -207,6 +218,7 @@ export function dbChatThreadStore(): ChatThreadStore {
             body: chatMessages.body,
             at: chatMessages.at,
             runId: chatMessages.runId,
+            dispatchId: chatMessages.dispatchId,
           })
           .from(chatMessages)
           .where(eq(chatMessages.threadId, threadId))
@@ -236,7 +248,7 @@ export function dbChatThreadStore(): ChatThreadStore {
         return row.id
       })
     },
-    async appendMessage({ tenantId, threadId, role, body, runId }) {
+    async appendMessage({ tenantId, threadId, role, body, runId, dispatchId }) {
       const app = db()
       return app.withTenant(tenantId, async () => {
         await app.db.execute(
@@ -248,7 +260,7 @@ export function dbChatThreadStore(): ChatThreadStore {
           .where(eq(chatMessages.threadId, threadId))
         const [row] = await app.db
           .insert(chatMessages)
-          .values({ tenantId, threadId, seq: next, role, body, runId: runId ?? null })
+          .values({ tenantId, threadId, seq: next, role, body, runId: runId ?? null, dispatchId: dispatchId ?? null })
           .returning({
             id: chatMessages.id,
             seq: chatMessages.seq,
@@ -256,6 +268,7 @@ export function dbChatThreadStore(): ChatThreadStore {
             body: chatMessages.body,
             at: chatMessages.at,
             runId: chatMessages.runId,
+            dispatchId: chatMessages.dispatchId,
           })
         if (!row) throw new Error('The message could not be recorded.')
         return messageView(row)
@@ -363,6 +376,7 @@ export type ChatThreadDeps = {
   run?: ChatRunner
   watcher?: ChatRunWatcher
   now?: () => Date
+  hasPendingDispatches?: (args: { tenantId: string; threadId: string }) => Promise<boolean>
   resolveRequester?: (args: {
     tenantId: string
     userId: string
@@ -585,6 +599,19 @@ export async function setThreadStatus(
 ): Promise<{ status: ChatThreadStatus }> {
   const store = storeOf(deps)
   await ownedThread(args, store)
+  if (args.status === 'closed') {
+    const hasPending = deps.hasPendingDispatches
+      ? await deps.hasPendingDispatches({ tenantId: args.tenantId, threadId: args.threadId })
+      : deps.store
+        ? false
+        : (await import('./chat-dispatch')).listChatDispatches({
+            tenantId: args.tenantId,
+            threadId: args.threadId,
+          }).then((dispatches) => dispatches.length > 0)
+    if (hasPending) {
+      throw new Error('Finish or remove the queued messages before archiving this conversation.')
+    }
+  }
   await store.updateThread({
     tenantId: args.tenantId,
     threadId: args.threadId,
@@ -688,6 +715,8 @@ export async function sendMessage(
     body: string
     /** Signed-in operator identity; hierarchy is re-derived from the database. */
     requester?: ChatRequester
+    /** Durable queue identity. A retry reuses its already-recorded user turn. */
+    dispatchId?: string
     progress?: ChatTurnProgress
   },
   deps: ChatThreadDeps = {},
@@ -718,27 +747,36 @@ export async function sendMessage(
       deps,
     )
 
-    // A double-submitted send must not run the agent twice. Serialization
-    // orders the two calls; this is what stops the second one being work.
-    const duplicate = findDoubleSubmit(history, body, now().getTime())
-    if (duplicate) return { messages: duplicate }
+    // A dispatch retry must resume the one recorded question rather than put a
+    // second copy into the immutable transcript. Ordinary direct sends retain
+    // the short double-submit guard used by older callers.
+    const recorded = args.dispatchId
+      ? history.find((message) => message.dispatchId === args.dispatchId && message.role === 'user')
+      : undefined
+    if (!recorded) {
+      const duplicate = args.dispatchId ? null : findDoubleSubmit(history, body, now().getTime())
+      if (duplicate) return { messages: duplicate }
+    }
 
-    const asked = await store.appendMessage({
+    const asked = recorded ?? await store.appendMessage({
       tenantId: args.tenantId,
       threadId: args.threadId,
       role: 'user',
       body,
+      ...(args.dispatchId ? { dispatchId: args.dispatchId } : {}),
     })
-    await store.touchThread({
-      tenantId: args.tenantId,
-      threadId: args.threadId,
-      at: new Date(asked.at),
-      // `titled`, not `title`: the view always resolves a name to show, so the
-      // title string is never empty and testing it would mean the first message
-      // of a thread opened empty (the streaming path) never named it — and a
-      // thread the reader had renamed would be at risk of being renamed back.
-      ...(thread.titled ? {} : { title: titleFromMessage(body) }),
-    })
+    if (!recorded) {
+      await store.touchThread({
+        tenantId: args.tenantId,
+        threadId: args.threadId,
+        at: new Date(asked.at),
+        // `titled`, not `title`: the view always resolves a name to show, so the
+        // title string is never empty and testing it would mean the first message
+        // of a thread opened empty (the streaming path) never named it — and a
+        // thread the reader had renamed would be at risk of being renamed back.
+        ...(thread.titled ? {} : { title: titleFromMessage(body) }),
+      })
+    }
 
     const run = await runnerOf(deps)
     const conversationId = conversationIdFor(args.threadId)
@@ -761,7 +799,10 @@ export async function sendMessage(
         trigger: { type: 'chat', conversationId },
         input: {
           type: 'chat',
-          message: messageWithHistory(history, body),
+          message: messageWithHistory(
+            recorded ? history.filter((message) => message.seq < recorded.seq) : history,
+            body,
+          ),
           ...(requester ? { requester } : {}),
         },
         ...(args.progress
@@ -789,6 +830,7 @@ export async function sendMessage(
         role: 'system',
         body: error.message,
         ...(error.runId ? { runId: error.runId } : {}),
+        ...(args.dispatchId ? { dispatchId: args.dispatchId } : {}),
       })
       await store.touchThread({ tenantId: args.tenantId, threadId: args.threadId, at: new Date(refused.at) })
       return { messages: [asked, refused] }
@@ -802,6 +844,7 @@ export async function sendMessage(
       role: 'agent',
       body: replyTextForOutcome(outcome),
       runId,
+      ...(args.dispatchId ? { dispatchId: args.dispatchId } : {}),
     })
     await store.touchThread({ tenantId: args.tenantId, threadId: args.threadId, at: new Date(answered.at) })
     return { messages: [asked, answered] }

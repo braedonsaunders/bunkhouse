@@ -22,6 +22,11 @@ import { sweepExpiredRecordings } from '../src/lib/voice-recording'
 import { refreshPricesFromOpenRouter } from '../src/lib/pricing'
 import { refreshMeasuredVoiceRates } from '../src/lib/voice-pricing'
 import { reconcileTenant } from '../src/lib/cost-reconciliation'
+import {
+  drainChatDispatchQueue,
+  pendingChatThreadIds,
+  recoverChatDispatches,
+} from '../src/lib/chat-dispatch'
 
 // The bunkhouse worker: mailbox sync → inbound runs, the duty scheduler,
 // approval execution/resume, assignment runs, and the Logbook consolidation
@@ -158,6 +163,21 @@ async function assignmentsPass(): Promise<void> {
   for (const tenantId of await activeTenantIds()) {
     for (const assignmentId of await pendingAssignmentIds(tenantId)) {
       await deepWork.add('assignment', { kind: 'assignment', tenantId, id: assignmentId })
+    }
+  }
+}
+
+async function conversationsPass(): Promise<void> {
+  for (const tenantId of await activeTenantIds()) {
+    const recovered = await recoverChatDispatches(tenantId)
+    if (recovered.completed > 0 || recovered.failed > 0) {
+      console.log(`[conversations] tenant ${tenantId}: recovered ${recovered.completed}, needs attention ${recovered.failed}`)
+    }
+    for (const threadId of await pendingChatThreadIds(tenantId)) {
+      await deepWork.add(
+        'conversation',
+        { kind: 'conversation', tenantId, id: threadId },
+      )
     }
   }
 }
@@ -637,8 +657,9 @@ type HeartbeatPass =
   | 'money'
   | 'tools'
   | 'systems'
+  | 'conversations'
 type DeepWorkJob =
-  | { kind: 'assignment' | 'approval' | 'inbound'; tenantId: string; id: string }
+  | { kind: 'assignment' | 'approval' | 'inbound' | 'conversation'; tenantId: string; id: string }
   | { kind: 'duty'; tenantId: string; id: string; scheduledAt: string | null }
 
 // Deep work — assignment runs and approval continuations — gets its own queue
@@ -650,6 +671,7 @@ await heartbeat.upsertJobScheduler('mailbox', { every: 120_000 }, { name: 'tick'
 await heartbeat.upsertJobScheduler('duties', { every: 60_000 }, { name: 'tick', data: { pass: 'duties' } })
 await heartbeat.upsertJobScheduler('approvals', { every: 30_000 }, { name: 'tick', data: { pass: 'approvals' } })
 await heartbeat.upsertJobScheduler('assignments', { every: 30_000 }, { name: 'tick', data: { pass: 'assignments' } })
+await heartbeat.upsertJobScheduler('conversations', { every: 30_000 }, { name: 'tick', data: { pass: 'conversations' } })
 await heartbeat.upsertJobScheduler('calls', { every: 300_000 }, { name: 'tick', data: { pass: 'calls' } })
 await heartbeat.upsertJobScheduler('waits', { every: 3_600_000 }, { name: 'tick', data: { pass: 'waits' } })
 await heartbeat.upsertJobScheduler('reports', { every: 21_600_000 }, { name: 'tick', data: { pass: 'reports' } })
@@ -674,6 +696,7 @@ const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
     if (job.data.pass === 'mailbox') await mailboxPass()
     else if (job.data.pass === 'duties') await dutiesPass()
     else if (job.data.pass === 'assignments') await assignmentsPass()
+    else if (job.data.pass === 'conversations') await conversationsPass()
     else if (job.data.pass === 'calls') {
       await callSweepPass()
       await abandonedWorkPass()
@@ -706,6 +729,8 @@ const deepWorker = jobs.createWorker<DeepWorkJob>(
       await executeDecidedApproval(job.data.tenantId, job.data.id)
     } else if (job.data.kind === 'inbound') {
       await startRunsForNewInbound(job.data.tenantId, job.data.id)
+    } else if (job.data.kind === 'conversation') {
+      await drainChatDispatchQueue({ tenantId: job.data.tenantId, threadId: job.data.id })
     } else if (job.data.kind === 'duty') {
       await executeDueDuty(job.data.tenantId, job.data.id, job.data.scheduledAt)
     }
@@ -717,6 +742,7 @@ await heartbeat.add('tick', { pass: 'mailbox' })
 await heartbeat.add('tick', { pass: 'duties' })
 await heartbeat.add('tick', { pass: 'approvals' })
 await heartbeat.add('tick', { pass: 'assignments' })
+await heartbeat.add('tick', { pass: 'conversations' })
 // Queued at boot as well as daily: this is the pass that retires a belief the
 // ledger has disproved and caps a runaway repeat, and both of those are worth
 // correcting when a deploy lands rather than up to a day later. The gardener it

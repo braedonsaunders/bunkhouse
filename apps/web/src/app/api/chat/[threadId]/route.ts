@@ -1,8 +1,9 @@
 import 'server-only'
+import { randomUUID } from 'node:crypto'
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
 import type { ChatRequester } from '@bunkhouse/runtime'
 import { requireTenantPermission } from '../../../../lib/tenant'
-import { sendMessage } from '../../../../lib/chat-threads'
+import { dispatchChatMessage } from '../../../../lib/chat-dispatch'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -60,10 +61,19 @@ export async function POST(
     return badRequest('That request could not be read.')
   }
   const prompt = (payload as { prompt?: unknown }).prompt
+  const suppliedRequestId = (payload as { requestId?: unknown }).requestId
   if (typeof prompt !== 'string') return badRequest('A message is required.')
   if (prompt.length > MAX_PROMPT_CHARS) return badRequest('That message is too long to send.')
   const body = prompt.trim()
   if (!body) return badRequest('Write a message first.')
+  if (suppliedRequestId !== undefined && (typeof suppliedRequestId !== 'string' || suppliedRequestId.length > 128)) {
+    return badRequest('That message request identity is not valid.')
+  }
+  // Older clients remain compatible, but current clients send their own stable
+  // identity so a retried HTTP request returns the first dispatch.
+  const requestId = typeof suppliedRequestId === 'string' && suppliedRequestId.trim()
+    ? suppliedRequestId.trim()
+    : randomUUID()
 
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
@@ -100,11 +110,12 @@ export async function POST(
         emit({ type: 'text-delta', id: textId, delta })
       }
       try {
-        const { messages } = await sendMessage({
+        const { messages } = await dispatchChatMessage({
           tenantId: access.tenantId,
           threadId,
           userId: access.user.id,
           body,
+          idempotencyKey: requestId,
           requester,
           progress: {
             onTextDelta: emitText,
@@ -117,7 +128,8 @@ export async function POST(
             },
           },
         })
-        const answer = messages.filter((message) => message.role === 'agent').at(-1)
+        const answer = messages?.filter((message) => message.role === 'agent').at(-1)
+        if (messages === null) emitText('Added to the conversation queue.')
         // A model may finish with a tool-only step or a provider may decline
         // streaming. The persisted answer is the authoritative fallback.
         if (!anyText && answer?.body) emitText(answer.body)
