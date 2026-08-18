@@ -6,7 +6,7 @@ import type { RemoteControlScope, RemoteProtocol, RemoteSessionEventDetail, Remo
 export const remoteComputerStatus = pgEnum('remote_computer_status', ['ready', 'unreachable', 'disabled'])
 export const remoteSessionStatus = pgEnum('remote_session_status', ['opening', 'connected', 'idle', 'closed', 'failed'])
 
-/** A customer-owned computer exposed by an authenticated remote-access provider. */
+/** A customer-owned computer reached by Bunkhouse's deployment-owned remote gateway. */
 export const remoteComputers = pgTable('remote_computers', {
   id: id(),
   tenantId: tenantRef(),
@@ -14,17 +14,17 @@ export const remoteComputers = pgTable('remote_computers', {
   host: text('host').notNull(),
   port: integer('port').notNull(),
   protocol: text('protocol').$type<RemoteProtocol>().notNull(),
-  provider: text('provider').$type<'steward'>().notNull().default('steward'),
-  providerBaseUrl: text('provider_base_url').notNull(),
-  providerTargetId: text('provider_target_id').notNull(),
-  sealedProviderToken: jsonb('sealed_provider_token').$type<SealedSecret>(),
+  username: text('username'),
+  domain: text('domain'),
+  credentialKind: text('credential_kind').$type<'password' | 'private_key'>().notNull().default('password'),
+  sealedCredential: jsonb('sealed_credential').$type<SealedSecret>(),
   status: remoteComputerStatus('status').notNull().default('ready'),
   lastConnectedAt: timestamp('last_connected_at', { withTimezone: true }),
   lastError: text('last_error'),
   ...auditColumns,
 }, (t) => [
   uniqueIndex('remote_computers_tenant_id_ux').on(t.tenantId, t.id),
-  uniqueIndex('remote_computers_provider_target_ux').on(t.tenantId, t.provider, t.providerTargetId),
+  uniqueIndex('remote_computers_target_ux').on(t.tenantId, t.protocol, t.host, t.port, t.name),
   index('remote_computers_status_idx').on(t.tenantId, t.status, t.name),
 ])
 

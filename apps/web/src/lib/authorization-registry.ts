@@ -24,6 +24,7 @@ export type ServerActionModule =
   | 'app/organization/voice-preview-actions.ts'
   | 'app/resources/actions.ts'
   | 'app/resources/procedure-actions.ts'
+  | 'app/resources/remote-computer-actions.ts'
   | 'app/resources/skill-actions.ts'
   | 'app/resources/system-actions.ts'
   | 'app/roles/actions.ts'
@@ -75,6 +76,7 @@ export const SERVER_ACTION_AUTHORIZATION = {
   'app/organization/voice-preview-actions.ts': 'tenant_session',
   'app/resources/actions.ts': 'tenant_session',
   'app/resources/procedure-actions.ts': 'tenant_session',
+  'app/resources/remote-computer-actions.ts': 'tenant_session',
   'app/resources/skill-actions.ts': 'tenant_session',
   'app/resources/system-actions.ts': 'tenant_session',
   'app/roles/actions.ts': 'tenant_session',

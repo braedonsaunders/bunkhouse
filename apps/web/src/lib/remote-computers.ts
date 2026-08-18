@@ -24,21 +24,20 @@ export type RemoteComputerInput = {
   host: string
   port: number
   protocol: 'rdp' | 'vnc' | 'ssh' | 'winrm' | 'powershell-ssh' | 'telnet'
-  providerBaseUrl: string
-  providerTargetId: string
-  providerToken?: string
+  username?: string
+  domain?: string
+  credentialKind: 'password' | 'private_key'
+  credential?: string
   enabled?: boolean
 }
 
-function normalizedBaseUrl(value: string): string {
-  const url = new URL(value.trim())
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', 'localhost', '::1'].includes(url.hostname))) {
-    throw new Error('Remote provider URL must use HTTPS, except for a local Steward server.')
+function gatewayConfiguration(): { baseUrl: string; token: string } {
+  const baseUrl = process.env.BUNKHOUSE_REMOTE_GATEWAY_URL?.trim().replace(/\/$/, '')
+  const token = process.env.BUNKHOUSE_REMOTE_GATEWAY_TOKEN?.trim()
+  if (!baseUrl || !token) {
+    throw new Error('The Bunkhouse remote gateway is unavailable on this deployment.')
   }
-  url.pathname = url.pathname.replace(/\/$/, '')
-  url.search = ''
-  url.hash = ''
-  return url.toString().replace(/\/$/, '')
+  return { baseUrl, token }
 }
 
 function boundedPort(value: number): number {
@@ -54,27 +53,26 @@ export async function listRemoteComputers(tenantId: string) {
 export async function saveRemoteComputer(tenantId: string, actorId: string, input: RemoteComputerInput) {
   const name = input.name.trim()
   const host = input.host.trim()
-  const providerTargetId = input.providerTargetId.trim()
-  if (!name || !host || !providerTargetId) throw new Error('Name, host, and Steward device are required.')
+  if (!name || !host) throw new Error('Name and computer address are required.')
   const app = db()
   return app.withTenantContext(tenantId, async () => {
     const current = input.id
       ? (await app.db.select().from(remoteComputers).where(eq(remoteComputers.id, input.id)).limit(1))[0]
       : null
-    const sealedProviderToken = input.providerToken?.trim()
-      ? sealSecret(input.providerToken.trim())
-      : current?.sealedProviderToken ?? null
-    if (!sealedProviderToken) throw new Error('A Steward API token is required.')
+    const sealedCredential = input.credential?.trim()
+      ? sealSecret(input.credential.trim())
+      : current?.sealedCredential ?? null
+    if (!sealedCredential) throw new Error('A password or private key is required.')
     const values = {
       tenantId,
       name,
       host,
       port: boundedPort(input.port),
       protocol: input.protocol,
-      provider: 'steward' as const,
-      providerBaseUrl: normalizedBaseUrl(input.providerBaseUrl),
-      providerTargetId,
-      sealedProviderToken,
+      username: input.username?.trim() || null,
+      domain: input.domain?.trim() || null,
+      credentialKind: input.credentialKind,
+      sealedCredential,
       status: input.enabled === false ? 'disabled' as const : 'ready' as const,
       updatedBy: actorId,
       updatedAt: new Date(),
@@ -103,8 +101,11 @@ export async function testRemoteComputer(tenantId: string, id: string): Promise<
   const row = await computerRow(tenantId, id)
   const target = targetOf(row)
   try {
-    const credential = row.sealedProviderToken ? unsealSecret(row.sealedProviderToken) : null
-    await stewardFetch(target, credential, `/api/devices/${encodeURIComponent(row.providerTargetId)}/remote-terminal`)
+    const credential = row.sealedCredential ? unsealSecret(row.sealedCredential) : null
+    await gatewayFetch('/targets/test', {
+      method: 'POST',
+      body: JSON.stringify({ target, credential, credentialKind: row.credentialKind, username: row.username, domain: row.domain }),
+    })
     await app.withTenantContext(tenantId, () => app.db.update(remoteComputers).set({
       status: 'ready', lastConnectedAt: new Date(), lastError: null, updatedAt: new Date(),
     }).where(eq(remoteComputers.id, id)))
@@ -126,7 +127,7 @@ function targetOf(row: typeof remoteComputers.$inferSelect): RemoteTarget {
     port: row.port,
     protocol: row.protocol,
     credentialRef: row.id,
-    metadata: { providerBaseUrl: row.providerBaseUrl, providerTargetId: row.providerTargetId },
+    metadata: { username: row.username, domain: row.domain, credentialKind: row.credentialKind },
   }
 }
 
@@ -236,60 +237,60 @@ function storeFor(tenantId: string): RemoteSessionStore {
   }
 }
 
-function metadata(target: RemoteTarget): { baseUrl: string; targetId: string } {
-  const baseUrl = typeof target.metadata?.providerBaseUrl === 'string' ? target.metadata.providerBaseUrl : ''
-  const targetId = typeof target.metadata?.providerTargetId === 'string' ? target.metadata.providerTargetId : ''
-  if (!baseUrl || !targetId) throw new Error('Remote computer provider configuration is incomplete.')
-  return { baseUrl, targetId }
-}
-
-async function stewardFetch(target: RemoteTarget, token: string | null, path: string, init?: RequestInit): Promise<Record<string, unknown>> {
-  if (!token) throw new Error('The Steward API token cannot be unsealed. Re-enter it in Settings → Remote computers.')
-  const { baseUrl } = metadata(target)
+async function gatewayFetch(path: string, init?: RequestInit): Promise<Record<string, unknown>> {
+  const { baseUrl, token } = gatewayConfiguration()
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
     cache: 'no-store',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(init?.headers ?? {}) },
   })
   const body = await response.json().catch(() => ({})) as Record<string, unknown>
-  if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : `Steward returned ${response.status}.`)
+  if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : `The Bunkhouse remote gateway returned ${response.status}.`)
   return body
 }
 
-const stewardProvider: RemoteSessionProvider = {
+const bunkhouseProvider: RemoteSessionProvider = {
   async open({ session, target, credential, scope, signal }) {
-    const { targetId } = metadata(target)
-    if (session.kind === 'terminal') {
-      await stewardFetch(target, credential, `/api/devices/${encodeURIComponent(targetId)}/remote-terminal`, { signal })
-      return { providerSessionId: `terminal:${targetId}` }
-    }
-    const body = await stewardFetch(target, credential, '/api/remote-desktop/sessions', {
+    const body = await gatewayFetch('/sessions', {
       method: 'POST', signal,
-      body: JSON.stringify({ deviceId: targetId, protocol: target.protocol, host: target.host, port: target.port, holder: `bunkhouse:${session.personId ?? session.id}`, purpose: 'Agent working on a connected computer', mode: scope === 'control' ? 'command' : 'observe', exclusive: scope === 'control' }),
+      body: JSON.stringify({ sessionId: session.id, target, credential, holder: `agent:${session.personId ?? session.id}`, scope }),
     })
     const remote = body.session as { id?: unknown } | undefined
-    if (typeof remote?.id !== 'string') throw new Error('Steward did not return a remote session id.')
+    if (typeof remote?.id !== 'string') throw new Error('The Bunkhouse remote gateway did not return a session id.')
     return { providerSessionId: remote.id }
   },
   async viewer({ session, lease, target, credential, signal }) {
     if (!session.providerSessionId) throw new Error('The remote computer is not connected.')
-    const body = await stewardFetch(target, credential, `/api/remote-desktop/sessions/${encodeURIComponent(session.providerSessionId)}/viewer-token`, {
+    const body = await gatewayFetch(`/sessions/${encodeURIComponent(session.providerSessionId)}/viewers`, {
       method: 'POST', signal,
-      body: JSON.stringify({ holder: lease.holder, purpose: lease.purpose, mode: lease.scope === 'control' ? 'command' : 'observe', exclusive: lease.exclusive, viewerTtlMs: 10 * 60_000 }),
+      body: JSON.stringify({ target, credential, leaseId: lease.id, holder: lease.holder, purpose: lease.purpose, scope: lease.scope, expiresAt: lease.expiresAt }),
     })
-    const viewerPath = typeof body.viewerPath === 'string' ? body.viewerPath : null
-    const expiresAt = typeof body.viewerTokenExpiresAt === 'string' ? body.viewerTokenExpiresAt : null
-    if (!viewerPath || !expiresAt) throw new Error('Steward did not return a viewer connection.')
-    return { url: new URL(viewerPath, `${metadata(target).baseUrl}/`).toString(), expiresAt }
+    if (body.kind === 'guacamole') {
+      const bridgeWsUrl = typeof body.bridgeWsUrl === 'string' ? body.bridgeWsUrl : null
+      const connectQuery = typeof body.connectQuery === 'string' ? body.connectQuery : null
+      const expiresAt = typeof body.expiresAt === 'string' ? body.expiresAt : null
+      if (!bridgeWsUrl || !connectQuery || !expiresAt) throw new Error('The Bunkhouse remote gateway returned an incomplete desktop connection.')
+      return {
+        kind: 'guacamole' as const,
+        bridgeWsUrl,
+        connectQuery,
+        expiresAt,
+        ...(typeof body.width === 'number' ? { width: body.width } : {}),
+        ...(typeof body.height === 'number' ? { height: body.height } : {}),
+      }
+    }
+    const url = typeof body.url === 'string' ? body.url : null
+    const expiresAt = typeof body.expiresAt === 'string' ? body.expiresAt : null
+    if (!url || !expiresAt) throw new Error('The Bunkhouse remote gateway did not return a viewer connection.')
+    return { url, expiresAt }
   },
   async *command({ target, credential, command, cwd, signal }): AsyncIterable<RemoteCommandChunk> {
-    const { targetId } = metadata(target)
-    const body = await stewardFetch(target, credential, `/api/devices/${encodeURIComponent(targetId)}/remote-terminal`, {
-      method: 'POST', signal, body: JSON.stringify({ command, ...(cwd ? { cwd } : {}) }),
+    const body = await gatewayFetch('/commands', {
+      method: 'POST', signal, body: JSON.stringify({ target, credential, command, ...(cwd ? { cwd } : {}) }),
     })
     const output = typeof body.output === 'string' ? body.output : typeof body.summary === 'string' ? body.summary : ''
     if (output) yield { kind: body.ok === false ? 'stderr' : 'stdout', text: output }
-    yield { kind: 'exit', exitCode: body.ok === false ? 1 : 0, signal: null }
+    yield { kind: 'exit', exitCode: typeof body.exitCode === 'number' ? body.exitCode : body.ok === false ? 1 : 0, signal: null }
   },
   async control({ session, target, credential, action, signal }) {
     if (!session.providerSessionId) throw new Error('The remote computer is not connected.')
@@ -298,9 +299,9 @@ const stewardProvider: RemoteSessionProvider = {
       : action.action === 'wait'
         ? { ...action, duration_ms: action.durationMs }
         : action
-    const body = await stewardFetch(target, credential, `/api/remote-desktop/sessions/${encodeURIComponent(session.providerSessionId)}/actions`, {
+    const body = await gatewayFetch(`/sessions/${encodeURIComponent(session.providerSessionId)}/actions`, {
       method: 'POST', signal,
-      body: JSON.stringify({ holder: `bunkhouse:${session.personId ?? session.id}`, purpose: 'Agent operating a connected computer', step }),
+      body: JSON.stringify({ target, credential, holder: `agent:${session.personId ?? session.id}`, action: step }),
     })
     const screenshot = typeof body.screenshotBase64 === 'string' ? body.screenshotBase64 : null
     const mimeType = typeof body.mimeType === 'string' ? body.mimeType : 'image/png'
@@ -310,9 +311,9 @@ const stewardProvider: RemoteSessionProvider = {
       ...(screenshot ? { frame: { mimeType, data: screenshot } } : {}),
     }
   },
-  async close() {
-    // Steward sessions are lease-bound and expire server-side. Bunkhouse closes
-    // its own durable surface immediately without retaining a provider grant.
+  async close({ session, signal }) {
+    if (!session.providerSessionId) return
+    await gatewayFetch(`/sessions/${encodeURIComponent(session.providerSessionId)}`, { method: 'DELETE', signal })
   },
 }
 
@@ -326,12 +327,12 @@ async function computerRow(tenantId: string, id: string) {
 function serviceFor(tenantId: string) {
   return createRemoteSessionService({
     store: storeFor(tenantId),
-    provider: stewardProvider,
+    provider: bunkhouseProvider,
     policy: { allowOpen: () => true, allowViewer: () => true, allowCommand: () => true },
     resolveTarget: async (scopeTenantId, targetId) => scopeTenantId === tenantId ? targetOf(await computerRow(tenantId, targetId)) : null,
     resolveCredential: async (target) => {
       const row = await computerRow(tenantId, target.id)
-      return row.sealedProviderToken ? unsealSecret(row.sealedProviderToken) : null
+      return row.sealedCredential ? unsealSecret(row.sealedCredential) : null
     },
   })
 }

@@ -12,6 +12,8 @@ import { deskSupported } from '../../lib/desk'
 import { ResourcesView } from '../../components/resources-view'
 import type { ProcedureRow } from '../../components/procedures-view'
 import type { SkillRowView } from '../../components/skills-view'
+import { listRemoteComputers } from '../../lib/remote-computers'
+import { resolveDeskFeatures } from '../../lib/desk-policy'
 
 export const dynamic = 'force-dynamic'
 
@@ -113,6 +115,10 @@ export default async function ResourcesPage({
       skillFileRows,
     }
   })
+  const [computerRows, deskFeatures] = await Promise.all([
+    listRemoteComputers(tenantId),
+    resolveDeskFeatures(tenantId),
+  ])
 
   const agentNames = new Map(data.agents.map((h) => [h.id, h.name]))
   // Every role an assignment can name — the builtin packs and the roles this
@@ -231,6 +237,20 @@ export default async function ResourcesPage({
           appliesTo: appliesTo(entry.assignment),
           assignment: entry.assignment,
         }))}
+        computers={computerRows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          host: row.host,
+          port: row.port,
+          protocol: row.protocol,
+          username: row.username ?? '',
+          domain: row.domain ?? '',
+          credentialKind: row.credentialKind,
+          status: row.status,
+          lastConnectedAt: row.lastConnectedAt ? stamp(row.lastConnectedAt) : 'Never',
+          lastError: row.lastError ?? '',
+        }))}
+        remoteComputersEnabled={deskFeatures.remoteComputers}
         mcpOauthOutcome={mcpOauthOutcome}
         mcpOauthRedirectUri={await mcpOauthRedirectUri()}
         roleOptions={roleOptions}

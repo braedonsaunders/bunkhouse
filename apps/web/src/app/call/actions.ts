@@ -3,6 +3,8 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm'
 import { mintLiveKitToken } from '@braedonsaunders/appkit-voice'
+import type { RemoteViewerConnection } from '@braedonsaunders/appkit-remote-sessions'
+import type { TerminalSurfaceEntry } from '@braedonsaunders/appkit-remote-sessions/react'
 import {
   browserSessions,
   browserSteps,
@@ -11,6 +13,9 @@ import {
   deskEvents,
   deskSessions,
   people,
+  remoteComputers,
+  remoteSessionEvents,
+  remoteSessions,
   runEvents,
   runs,
   type DeskLedgerEventDetail,
@@ -22,6 +27,7 @@ import { requireUser } from '../../lib/auth'
 import { authenticatedPerson } from '../../lib/person-accounts'
 import { workRefusal } from '../../lib/person-work'
 import type { CallActivityEvent } from '../../lib/call-activity'
+import { observeRemoteWork } from '../../lib/remote-computers'
 
 export type TranscriptTurn = { seq: number; speaker: 'agent' | 'human'; text: string; atMs: number }
 
@@ -43,6 +49,47 @@ export type CallBrowserFrame = {
   atMs: number
   /** True while the session is still open; false once the desk work has ended. */
   live: boolean
+}
+
+export type CallTerminalFrame = {
+  seq: number
+  command: string
+  cwd: string | null
+  output: string
+  outputTruncated: boolean
+  exitCode: number | null
+  atMs: number
+}
+
+export type CallRemoteSurface = {
+  sessionId: string
+  computerName: string
+  kind: 'computer' | 'terminal'
+  protocol: string
+  status: string
+  atMs: number
+  terminal: { entries: TerminalSurfaceEntry[]; status: 'idle' | 'running' | 'failed' | 'completed' } | null
+}
+
+/** Mint a short-lived observer connection only for remote work on this call's run. */
+export async function observeCallRemoteWorkSurfaceAction(input: {
+  callSessionId: string
+  remoteSessionId: string
+}): Promise<RemoteViewerConnection> {
+  const tenantId = await resolveTenantId()
+  const user = await requireUser()
+  const app = db()
+  const allowed = await app.withTenantContext(tenantId, async () => {
+    const [row] = await app.db
+      .select({ id: remoteSessions.id })
+      .from(remoteSessions)
+      .innerJoin(callSessions, eq(callSessions.runId, remoteSessions.runId))
+      .where(and(eq(callSessions.id, input.callSessionId), eq(remoteSessions.id, input.remoteSessionId)))
+      .limit(1)
+    return row
+  })
+  if (!allowed) throw new Error('That remote computer is not part of this call.')
+  return observeRemoteWork({ tenantId, sessionId: input.remoteSessionId, holder: `operator:${user.id}` })
 }
 
 /**
@@ -129,6 +176,8 @@ export async function getCallTranscriptAction(sessionId: string): Promise<{
   turns: TranscriptTurn[]
   activity: CallActivityEvent[]
   browser: CallBrowserFrame | null
+  terminal: CallTerminalFrame | null
+  remote: CallRemoteSurface | null
 }> {
   const tenantId = await resolveTenantId()
   const app = db()
@@ -174,6 +223,8 @@ export async function getCallTranscriptAction(sessionId: string): Promise<{
           .where(eq(deskSessions.runId, session.runId))
       : []
     let browser: CallBrowserFrame | null = null
+    let terminal: CallTerminalFrame | null = null
+    let remote: CallRemoteSurface | null = null
     if (deskSession) {
       const [event] = await app.db
         .select({
@@ -202,6 +253,23 @@ export async function getCallTranscriptAction(sessionId: string): Promise<{
               event.kind !== 'screen_close',
           }
         : null
+      const [shell] = await app.db
+        .select({ seq: deskEvents.seq, detail: deskEvents.detail, at: deskEvents.at })
+        .from(deskEvents)
+        .where(and(eq(deskEvents.sessionId, deskSession.id), eq(deskEvents.kind, 'shell_command')))
+        .orderBy(desc(deskEvents.seq))
+        .limit(1)
+      terminal = shell
+        ? {
+            seq: shell.seq,
+            command: shell.detail.command ?? '',
+            cwd: shell.detail.cwd ?? null,
+            output: shell.detail.output ?? '',
+            outputTruncated: shell.detail.outputTruncated === true,
+            exitCode: shell.detail.exitCode ?? null,
+            atMs: Math.max(0, shell.at.getTime() - startedAtMs),
+          }
+        : null
     } else if (session.runId) {
       const [frame] = await app.db
         .select({
@@ -228,7 +296,59 @@ export async function getCallTranscriptAction(sessionId: string): Promise<{
           }
         : null
     }
-    return { status: session.status, turns, activity, browser }
+    if (session.runId) {
+      const [remoteRow] = await app.db
+        .select({
+          sessionId: remoteSessions.id,
+          computerName: remoteComputers.name,
+          kind: remoteSessions.kind,
+          protocol: remoteSessions.protocol,
+          status: remoteSessions.status,
+          lastActivityAt: remoteSessions.lastActivityAt,
+        })
+        .from(remoteSessions)
+        .innerJoin(remoteComputers, eq(remoteComputers.id, remoteSessions.computerId))
+        .where(and(eq(remoteSessions.runId, session.runId), inArray(remoteSessions.status, ['opening', 'connected', 'idle'])))
+        .orderBy(desc(remoteSessions.lastActivityAt))
+        .limit(1)
+      if (remoteRow) {
+        const eventRows = remoteRow.kind === 'terminal'
+          ? await app.db
+              .select({ id: remoteSessionEvents.id, seq: remoteSessionEvents.seq, detail: remoteSessionEvents.detail, at: remoteSessionEvents.at })
+              .from(remoteSessionEvents)
+              .where(eq(remoteSessionEvents.sessionId, remoteRow.sessionId))
+              .orderBy(desc(remoteSessionEvents.seq))
+              .limit(100)
+          : []
+        const ordered = eventRows.reverse()
+        const entries = ordered.flatMap<TerminalSurfaceEntry>((event) => {
+          if (event.detail.kind === 'command_started') {
+            return [{ id: event.id, kind: 'command', prompt: '$', text: event.detail.command, at: event.at.toISOString() }]
+          }
+          if (event.detail.kind === 'command_output') {
+            return [{ id: event.id, kind: event.detail.stream, text: event.detail.text, at: event.at.toISOString() }]
+          }
+          return []
+        })
+        const started = [...ordered].reverse().find((event) => event.detail.kind === 'command_started')
+        const completed = [...ordered].reverse().find((event) => event.detail.kind === 'command_completed')
+        remote = {
+          ...remoteRow,
+          atMs: Math.max(0, remoteRow.lastActivityAt.getTime() - startedAtMs),
+          terminal: remoteRow.kind === 'terminal'
+            ? {
+                entries,
+                status: started && (!completed || completed.seq < started.seq)
+                  ? 'running'
+                  : completed?.detail.kind === 'command_completed' && completed.detail.exitCode !== 0
+                    ? 'failed'
+                    : entries.length ? 'completed' : 'idle',
+              }
+            : null,
+        }
+      }
+    }
+    return { status: session.status, turns, activity, browser, terminal, remote }
   })
 }
 

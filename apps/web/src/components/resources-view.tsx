@@ -6,6 +6,7 @@ import { ProceduresView, type AssignOption, type ProcedureRow } from './procedur
 import { SkillsView, type SkillRowView } from './skills-view'
 import { SystemsView, type McpOauthOutcome, type SystemRowView } from './systems-view'
 import { SectionTabs, type SectionTabItem } from './section-tabs'
+import { RemoteComputersView, type RemoteComputerRow } from './remote-computers-settings'
 
 /**
  * Resources: everything an agent brings to the job. What it knows (notes), the
@@ -20,6 +21,8 @@ export function ResourcesView({
   skills,
   shellAvailable,
   systems,
+  computers,
+  remoteComputersEnabled,
   mcpOauthOutcome,
   mcpOauthRedirectUri,
   roleOptions,
@@ -33,6 +36,8 @@ export function ResourcesView({
   /** Whether this deployment can run sandboxed shell commands at all. */
   shellAvailable: boolean
   systems: SystemRowView[]
+  computers: RemoteComputerRow[]
+  remoteComputersEnabled: boolean
   /** How the last MCP OAuth sign-in ended, when the operator just came back. */
   mcpOauthOutcome?: McpOauthOutcome | null
   /** The exact address providers must be told to call back to. */
@@ -47,6 +52,7 @@ export function ResourcesView({
     { key: 'procedures', label: 'Procedures', count: procedures.length },
     { key: 'skills', label: 'Skills', count: skills.length },
     { key: 'systems', label: 'Systems', count: systems.length },
+    { key: 'computers', label: 'Computers', count: computers.length },
     { key: 'proposals', label: 'Proposals', count: proposals.length },
   ]
   const [active, setActive] = React.useState(
@@ -85,6 +91,7 @@ export function ResourcesView({
           agentOptions={agentOptions}
         />
       ) : null}
+      {active === 'computers' ? <RemoteComputersView rows={computers} enabled={remoteComputersEnabled} /> : null}
       {active === 'proposals' ? <ProposalsView rows={proposals} /> : null}
     </div>
   )

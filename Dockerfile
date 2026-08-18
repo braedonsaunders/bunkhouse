@@ -42,6 +42,17 @@ RUN apt-get update \
     poppler-utils \
     libreoffice-writer \
     fonts-liberation \
+    openssh-client \
+    sshpass \
+    freerdp2-x11 \
+    tigervnc-viewer \
+    tigervnc-tools \
+    xvfb \
+    xdotool \
+    imagemagick \
+    python3-winrm \
+    telnet \
+    expect \
   && rm -rf /var/lib/apt/lists/*
 
 # --- deps: workspace-aware install ------------------------------------------
@@ -61,7 +72,7 @@ RUN pnpm --filter web exec next build
 ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     PORT=3000
-EXPOSE 3000
+EXPOSE 3000 8090 8091
 
 # Migrations are tracked and idempotent (scripts/migrate.mts); the server must
 # not take traffic before they have run.

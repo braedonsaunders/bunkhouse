@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('operator can reach the primary governed surfaces', async ({ page }) => {
-  await expect(page.getByRole('link', { name: 'Observatory' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Work' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Nobody lives here yet' })).toBeVisible()
 
   await page.goto('/organization/chart')

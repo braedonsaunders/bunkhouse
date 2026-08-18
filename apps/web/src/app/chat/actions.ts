@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { mintLiveKitToken } from '@braedonsaunders/appkit-voice'
+import type { RemoteViewerConnection } from '@braedonsaunders/appkit-remote-sessions'
 import { ParticipantKind } from '@livekit/rtc-node'
 import { RoomServiceClient } from 'livekit-server-sdk'
 import type { ChatRequester } from '@bunkhouse/runtime'
@@ -87,7 +88,7 @@ export async function getThreadAction(
 /** The visual stage plus durable step history for the conversation. */
 export async function workSurfaceAction(threadId: string): Promise<ChatWorkSurface> {
   const access = await requireTenantPermission('work.read')
-  if (!threadId) return { kind: 'idle', runId: null, history: [], remote: null }
+  if (!threadId) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null }
   return chatWorkSurface(access.tenantId, threadId)
 }
 
@@ -95,7 +96,7 @@ export async function workSurfaceAction(threadId: string): Promise<ChatWorkSurfa
 export async function observeRemoteWorkSurfaceAction(input: {
   threadId: string
   sessionId: string
-}): Promise<{ url: string; expiresAt: string }> {
+}): Promise<RemoteViewerConnection> {
   const access = await requireTenantPermission('work.read')
   const current = await chatWorkSurface(access.tenantId, input.threadId)
   if (!current.remote || current.remote.sessionId !== input.sessionId) {

@@ -33,10 +33,15 @@ import type { ComposedAvatarAnimation } from '@braedonsaunders/appkit-avatars/re
 import {
   endCallAction,
   getCallTranscriptAction,
+  observeCallRemoteWorkSurfaceAction,
   startCallAction,
   type CallBrowserFrame,
+  type CallTerminalFrame,
+  type CallRemoteSurface,
   type TranscriptTurn,
 } from '../app/call/actions'
+import { RemoteComputerViewer, TerminalSurface, type TerminalSurfaceEntry } from '@braedonsaunders/appkit-remote-sessions/react'
+import type { RemoteProtocol } from '@braedonsaunders/appkit-remote-sessions'
 import {
   describeDeskEvent,
   hostOf,
@@ -137,9 +142,9 @@ function AgentFace({ agent, avatar, animate }: { agent: AgentProfile; avatar: Ag
 }
 
 /** Everything the call page polls for, on one loop. */
-type CallFeed = { turns: TranscriptTurn[]; activity: CallActivityEvent[]; browser: CallBrowserFrame | null }
+type CallFeed = { turns: TranscriptTurn[]; activity: CallActivityEvent[]; browser: CallBrowserFrame | null; terminal: CallTerminalFrame | null; remote: CallRemoteSurface | null }
 
-const EMPTY_FEED: CallFeed = { turns: [], activity: [], browser: null }
+const EMPTY_FEED: CallFeed = { turns: [], activity: [], browser: null, terminal: null, remote: null }
 
 /**
  * The call's one poll: captions, tool activity, and the agent's screen arrive
@@ -153,7 +158,7 @@ function useCallFeed(sessionId: string): CallFeed {
     const poll = async () => {
       try {
         const result = await getCallTranscriptAction(sessionId)
-        if (!cancelled) setFeed({ turns: result.turns, activity: result.activity, browser: result.browser })
+        if (!cancelled) setFeed({ turns: result.turns, activity: result.activity, browser: result.browser, terminal: result.terminal, remote: result.remote })
       } catch {
         // transient — next poll retries
       }
@@ -166,6 +171,21 @@ function useCallFeed(sessionId: string): CallFeed {
     }
   }, [sessionId])
   return feed
+}
+
+function CallRemoteComputerSurface({ callSessionId, remote }: { callSessionId: string; remote: CallRemoteSurface }) {
+  const connect = React.useCallback(
+    () => observeCallRemoteWorkSurfaceAction({ callSessionId, remoteSessionId: remote.sessionId }),
+    [callSessionId, remote.sessionId],
+  )
+  return (
+    <RemoteComputerViewer
+      targetName={remote.computerName}
+      protocol={remote.protocol as RemoteProtocol}
+      scope="observe"
+      connect={connect}
+    />
+  )
 }
 
 /**
@@ -545,7 +565,7 @@ function LiveCallSurface({
     [screenTracks],
   )
 
-  const { turns, activity, browser } = useCallFeed(sessionId)
+  const { turns, activity, browser, terminal, remote } = useCallFeed(sessionId)
   const items = React.useMemo(() => toolActivityFromEvents(activity), [activity])
 
   // The stage carries the present tense: the newest action still in flight —
@@ -572,6 +592,66 @@ function LiveCallSurface({
   useCallTones(phase, current?.status === 'running')
   const screen = React.useMemo<CallStageScreenView | null>(() => {
     const still = browser ? screenView(browser, browser.live && phase !== 'ended') : null
+    const newestDeskAt = Math.max(browser?.atMs ?? -1, terminal?.atMs ?? -1)
+    if (remote && remote.atMs >= newestDeskAt && phase !== 'ended') {
+      const content = remote.kind === 'terminal' && remote.terminal
+        ? (
+            <TerminalSurface
+              title={`${remote.computerName} terminal`}
+              subtitle={`${remote.protocol.toUpperCase()} · durable remote session`}
+              status={remote.terminal.status}
+              entries={remote.terminal.entries}
+            />
+          )
+        : <CallRemoteComputerSurface callSessionId={sessionId} remote={remote} />
+      return {
+        live: true,
+        video: null,
+        imageUrl: null,
+        title: remote.computerName,
+        host: null,
+        action: remote.kind === 'terminal' ? 'Working in the remote terminal' : 'Working on the remote computer',
+        atSeconds: elapsedSeconds,
+        frameKey: `remote:${remote.sessionId}:${remote.atMs}`,
+        content,
+      }
+    }
+    if (terminal && terminal.atMs >= (browser?.atMs ?? -1) && phase !== 'ended') {
+      const entries: TerminalSurfaceEntry[] = [
+        {
+          id: `${terminal.seq}:command`,
+          kind: 'command',
+          prompt: `${terminal.cwd ?? '~'} $`,
+          text: terminal.command,
+        },
+        ...(terminal.output.trim()
+          ? [{
+              id: `${terminal.seq}:output`,
+              kind: terminal.exitCode === 0 ? 'stdout' as const : 'stderr' as const,
+              text: `${terminal.output}${terminal.outputTruncated ? '\n[output truncated]' : ''}`,
+            }]
+          : []),
+      ]
+      return {
+        live: true,
+        video: null,
+        imageUrl: null,
+        title: 'Desk terminal',
+        host: null,
+        action: terminal.command,
+        atSeconds: elapsedSeconds,
+        frameKey: `terminal:${terminal.seq}`,
+        content: (
+          <TerminalSurface
+            title="Desk terminal"
+            subtitle={`${agent.name}’s machine · live command record`}
+            cwd={terminal.cwd}
+            status={terminal.exitCode === 0 ? 'completed' : 'failed'}
+            entries={entries}
+          />
+        ),
+      }
+    }
     if (!agentScreen || phase === 'ended') return still
     // The track is the present tense in a way the ledger cannot be: it exists
     // for exactly as long as the agent's desk has something on screen, and it
@@ -592,7 +672,7 @@ function LiveCallSurface({
           atSeconds: elapsedSeconds,
           frameKey: 'live',
         }
-  }, [agentScreen, browser, elapsedSeconds, phase])
+  }, [agent.name, agentScreen, browser, elapsedSeconds, phase, remote, sessionId, terminal])
 
   return (
     // One row, as tall as whatever the screen has left. The row is explicitly

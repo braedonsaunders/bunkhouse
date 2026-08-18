@@ -239,9 +239,9 @@ await asApp(T1, (c) =>
 )
 await asApp(T1, async (c) => {
   await c.query(
-    `insert into remote_computers (id, tenant_id, name, host, port, protocol, provider_base_url, provider_target_id, status)
-     values ($1, $2, 'Claims workstation', '192.0.2.30', 3389, 'rdp', 'https://steward.example.test', $3, 'ready')`,
-    [REMOTE_COMPUTER, T1, `claims-device-${RID}`],
+    `insert into remote_computers (id, tenant_id, name, host, port, protocol, username, status)
+     values ($1, $2, 'Claims workstation', '192.0.2.30', 3389, 'rdp', $3, 'ready')`,
+    [REMOTE_COMPUTER, T1, `claims-user-${RID}`],
   )
   await c.query(
     `insert into remote_sessions (id, tenant_id, computer_id, person_id, run_id, kind, protocol, status)
@@ -972,7 +972,7 @@ await assert.rejects(
       kind: 'shell_command',
       detail: { command: 'process-invoices', exitCode: 0 },
     })
-    assert.equal((await chatWorkSurface(TENANT, threadId)).kind, 'activity', 'newer headless work replaces a stale browser frame')
+    assert.equal((await chatWorkSurface(TENANT, threadId)).kind, 'terminal', 'newer shell work replaces a stale browser frame with the graphical terminal')
     const [surfaceCall] = await testDb().db.insert(testCallSessions).values({
       tenantId: TENANT,
       personId: REPORT,
@@ -1025,7 +1025,10 @@ await assert.rejects(
       kind: 'screen_close',
       detail: {},
     })
-    assert.equal((await chatWorkSurface(TENANT, threadId)).kind, 'activity', 'closing the screen returns to headless work')
+    const retainedSurface = await chatWorkSurface(TENANT, threadId)
+    assert.equal(retainedSurface.kind, 'activity', 'closing the screen returns to the latest non-screen work')
+    assert.equal(retainedSurface.recentBrowser?.kind, 'browser', 'the last browser remains reopenable after the screen closes')
+    assert.equal(retainedSurface.recentTerminal?.kind, 'terminal', 'the terminal scrollback remains reopenable after the screen closes')
   })
 
   await closeRunEventNotifications()

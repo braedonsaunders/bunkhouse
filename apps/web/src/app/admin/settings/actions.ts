@@ -28,43 +28,6 @@ import { resolveDeskPolicy, saveDeskFeatures, saveDeskPolicy, type DeskPolicy } 
 import { isMailOauthProvider, removeMailOauthApp, saveMailOauthApp } from '../../../lib/mail-oauth'
 import { db } from '../../../db/client'
 import { listImageModels, type ImageModelId } from '@braedonsaunders/appkit-avatars'
-import { disableRemoteComputer, saveRemoteComputer, testRemoteComputer, type RemoteComputerInput } from '../../../lib/remote-computers'
-import { requireTenantPermission } from '../../../lib/tenant'
-
-export async function saveRemoteComputerAction(
-  input: RemoteComputerInput,
-): Promise<{ ok: true } | { ok: false; message: string }> {
-  try {
-    const access = await requireTenantPermission('settings.manage')
-    await saveRemoteComputer(access.tenantId, access.user.id, input)
-    revalidatePath('/admin/settings')
-    return { ok: true }
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
-  }
-}
-
-export async function testRemoteComputerAction(id: string): Promise<{ ok: true } | { ok: false; message: string }> {
-  try {
-    const access = await requireTenantPermission('settings.manage')
-    await testRemoteComputer(access.tenantId, id)
-    revalidatePath('/admin/settings')
-    return { ok: true }
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
-  }
-}
-
-export async function disableRemoteComputerAction(id: string): Promise<{ ok: true } | { ok: false; message: string }> {
-  try {
-    const access = await requireTenantPermission('settings.manage')
-    await disableRemoteComputer(access.tenantId, access.user.id, id)
-    revalidatePath('/admin/settings')
-    return { ok: true }
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
-  }
-}
 
 /** Add a model provider. Returns the failure rather than throwing: a thrown
  *  server-action error reaches the browser as an opaque digest in production,

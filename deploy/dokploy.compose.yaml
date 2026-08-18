@@ -85,6 +85,8 @@ services:
       # as browsing does without Chromium.
       BUNKHOUSE_DESK_URL: ${BUNKHOUSE_DESK_URL:-}
       BUNKHOUSE_DESK_TOKEN: ${BUNKHOUSE_DESK_TOKEN:-}
+      BUNKHOUSE_REMOTE_GATEWAY_URL: http://remote-gateway:8090
+      BUNKHOUSE_REMOTE_GATEWAY_TOKEN: ${BUNKHOUSE_REMOTE_GATEWAY_TOKEN}
     volumes:
       - agent-workspaces:/data/agent-homes
     networks:
@@ -141,6 +143,8 @@ services:
       # as browsing does without Chromium.
       BUNKHOUSE_DESK_URL: ${BUNKHOUSE_DESK_URL:-}
       BUNKHOUSE_DESK_TOKEN: ${BUNKHOUSE_DESK_TOKEN:-}
+      BUNKHOUSE_REMOTE_GATEWAY_URL: http://remote-gateway:8090
+      BUNKHOUSE_REMOTE_GATEWAY_TOKEN: ${BUNKHOUSE_REMOTE_GATEWAY_TOKEN}
     volumes:
       - agent-workspaces:/data/agent-homes
     networks:
@@ -186,6 +190,8 @@ services:
       # as browsing does without Chromium.
       BUNKHOUSE_DESK_URL: ${BUNKHOUSE_DESK_URL:-}
       BUNKHOUSE_DESK_TOKEN: ${BUNKHOUSE_DESK_TOKEN:-}
+      BUNKHOUSE_REMOTE_GATEWAY_URL: http://remote-gateway:8090
+      BUNKHOUSE_REMOTE_GATEWAY_TOKEN: ${BUNKHOUSE_REMOTE_GATEWAY_TOKEN}
     volumes:
       - agent-workspaces:/data/agent-homes
     networks:
@@ -204,6 +210,41 @@ services:
           # the VAD's onnx runtime. Headroom here is cheaper than a worker the
           # swarm kills mid-ring — see numIdleProcesses in voice-agent.mts.
           memory: 3g
+      restart_policy:
+        condition: any
+        delay: 5s
+
+  guacd:
+    image: guacamole/guacd:1.6.0
+    networks:
+      - default
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname==dokploy-mgr
+      restart_policy:
+        condition: any
+        delay: 5s
+
+  remote-gateway:
+    image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
+    command: ["sh", "-c", "NODE_OPTIONS=--conditions=react-server exec apps/web/node_modules/.bin/tsx apps/web/scripts/remote-gateway.mts"]
+    environment:
+      PORT: '8090'
+      BUNKHOUSE_REMOTE_BRIDGE_PORT: '8091'
+      BUNKHOUSE_REMOTE_GATEWAY_PUBLIC_URL: ${BUNKHOUSE_REMOTE_GATEWAY_PUBLIC_URL}
+      BUNKHOUSE_REMOTE_GATEWAY_TOKEN: ${BUNKHOUSE_REMOTE_GATEWAY_TOKEN}
+      BUNKHOUSE_REMOTE_CIPHER_KEY: ${BUNKHOUSE_REMOTE_CIPHER_KEY}
+      GUACD_HOST: guacd
+    networks:
+      - default
+      - dokploy-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname==dokploy-mgr
       restart_policy:
         condition: any
         delay: 5s

@@ -84,6 +84,8 @@ export type CallStageScreenView = {
   atSeconds: number
   /** Changes with every frame, so each new caption enters on the transition. */
   frameKey: string
+  /** A complete non-video work surface, such as a durable terminal. */
+  content?: React.ReactNode
 }
 
 /**
@@ -199,7 +201,9 @@ function CallStageScreen({
         view.live ? 'opacity-100' : 'pointer-events-none opacity-0',
       )}
     >
-      {view.video ? (
+      {view.content ? (
+        <div className="size-full">{view.content}</div>
+      ) : view.video ? (
         // The screen itself, moving. Handed in whole rather than built here:
         // whatever is carrying it — a media track today — is the caller's
         // business, not the stage's.
@@ -224,7 +228,7 @@ function CallStageScreen({
           This step could not be captured. It is still on the call record.
         </p>
       )}
-      <div className="absolute inset-x-0 top-0 flex items-center gap-2 border-b border-border bg-surface/90 px-3 py-2 text-left backdrop-blur">
+      {view.content ? null : <div className="absolute inset-x-0 top-0 flex items-center gap-2 border-b border-border bg-surface/90 px-3 py-2 text-left backdrop-blur">
         <MonitorPlay aria-hidden className="size-4 shrink-0 text-fg-muted" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-fg">{view.title}</p>
@@ -234,9 +238,9 @@ function CallStageScreen({
           <span aria-hidden className="inline-block size-1.5 animate-pulse rounded-full bg-primary" />
           Live · <span className="tabular-nums">{formatCallDuration(view.atSeconds)}</span>
         </span>
-      </div>
+      </div>}
       {/* Cleared on the right for the inset face, which shares this corner. */}
-      <div className="absolute inset-x-3 bottom-3 flex justify-start pr-32">
+      {view.content ? null : <div className="absolute inset-x-3 bottom-3 flex justify-start pr-32">
         {activity ? (
           <CallStageActivityLine key={activity.key} activity={activity} />
         ) : (
@@ -247,7 +251,7 @@ function CallStageScreen({
             {view.action}
           </p>
         )}
-      </div>
+      </div>}
     </div>
   )
 }

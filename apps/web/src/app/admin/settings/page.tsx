@@ -31,7 +31,6 @@ import { runHealthChecks } from '../../../lib/health'
 import { getTenantAccess } from '../../../lib/tenant'
 import { listDepartments, wanderingEnabled } from '../../../lib/departments'
 import { SCENE_KINDS, SCENE_LABELS } from '../../../components/scene-kinds'
-import { listRemoteComputers } from '../../../lib/remote-computers'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,6 +45,7 @@ export default async function SettingsPage({
   // Connected systems moved to Resources; a bookmarked deep link follows them
   // there rather than landing on a section that no longer exists.
   if (section === 'integrations') redirect('/resources?tab=systems')
+  if (section === 'remote-computers') redirect('/resources?tab=computers')
   const access = await getTenantAccess()
   if (!access.user.isSuperAdmin && !access.permissions.has('settings.read')) {
     throw new Error('Missing permission: settings.read')
@@ -126,7 +126,6 @@ export default async function SettingsPage({
     getDeskPolicy(tenantId),
   ])
   const deskOperations = await deskOperationsView(tenantId, deskPolicy.screenStepCeiling)
-  const remoteComputerRows = await listRemoteComputers(tenantId)
   const [voiceRetention, voicePricing, templates, filingSettings, filingActivity] = await Promise.all([
     getVoiceRetention(tenantId),
     getVoicePricing(tenantId),
@@ -306,18 +305,6 @@ export default async function SettingsPage({
         jobs: deskOperations.jobs,
         escalations: deskOperations.escalations,
       }}
-      remoteComputers={remoteComputerRows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        host: row.host,
-        port: row.port,
-        protocol: row.protocol,
-        providerBaseUrl: row.providerBaseUrl,
-        providerTargetId: row.providerTargetId,
-        status: row.status,
-        lastConnectedAt: fmt(row.lastConnectedAt),
-        lastError: row.lastError ?? '',
-      }))}
       features={deskFeatures}
       callCosts={{
         recordingDays: voiceRetention.recordingDays,

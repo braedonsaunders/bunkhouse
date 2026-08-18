@@ -70,6 +70,8 @@ services:
       # desk abilities fail closed — deliberately, see the desk-runner service.
       BUNKHOUSE_DESK_URL: http://desk-runner:8080
       BUNKHOUSE_DESK_TOKEN: ${BUNKHOUSE_DESK_TOKEN:-quickstart-only-not-a-secret-change-me-3}
+      BUNKHOUSE_REMOTE_GATEWAY_URL: http://remote-gateway:8090
+      BUNKHOUSE_REMOTE_GATEWAY_TOKEN: ${BUNKHOUSE_REMOTE_GATEWAY_TOKEN:-quickstart-only-not-a-secret-change-me-4}
       # Local-evaluation defaults. Generate real ones for anything shared.
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-quickstart-only-not-a-secret-change-me-1}
       APPKIT_SECRET: ${APPKIT_SECRET:-quickstart-only-not-a-secret-change-me-2}
@@ -96,6 +98,27 @@ services:
       # The same fix as on web: an agent's files must be the same files
       # whichever process wrote them, and must survive a container restart.
       - agent-homes:/data/agent-homes
+
+  guacd:
+    image: guacamole/guacd:1.6.0
+    restart: unless-stopped
+
+  remote-gateway:
+    image: bunkhouse:quickstart
+    build: .
+    command: ['apps/web/node_modules/.bin/tsx', 'apps/web/scripts/remote-gateway.mts']
+    depends_on:
+      guacd:
+        condition: service_started
+    ports:
+      - '8091:8091'
+    environment:
+      PORT: '8090'
+      BUNKHOUSE_REMOTE_BRIDGE_PORT: '8091'
+      BUNKHOUSE_REMOTE_GATEWAY_PUBLIC_URL: ws://localhost:8091
+      BUNKHOUSE_REMOTE_GATEWAY_TOKEN: ${BUNKHOUSE_REMOTE_GATEWAY_TOKEN:-quickstart-only-not-a-secret-change-me-4}
+      BUNKHOUSE_REMOTE_CIPHER_KEY: ${BUNKHOUSE_REMOTE_CIPHER_KEY:-cXVpY2tzdGFydC1yZW1vdGUtY2lwaGVyLWtleSEhISE=}
+      GUACD_HOST: guacd
 
   # The agent desk: one Cloud Hypervisor microVM per agent (docs/agent-desk.md).
   #

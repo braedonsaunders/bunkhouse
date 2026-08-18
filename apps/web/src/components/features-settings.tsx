@@ -71,7 +71,7 @@ export function FeaturesSettings({ features }: { features: FeaturesView }) {
       />
       <SettingsRow
         title="Remote computers"
-        description="Existing customer computers that agents can operate through a connected Steward provider. Sessions, commands, human viewing, and control handovers remain recorded even after this capability is switched off."
+        description="Existing customer computers that agents can operate through Bunkhouse over RDP, VNC, or a remote terminal. Sessions, commands, human viewing, and control handovers remain recorded even after this capability is switched off."
         control={
           <span className="flex items-center gap-2">
             <Badge variant={state.remoteComputers ? 'default' : 'outline'}>{state.remoteComputers ? 'on' : 'off'}</Badge>

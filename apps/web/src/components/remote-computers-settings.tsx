@@ -10,8 +10,6 @@ import {
   Label,
   RecordList,
   Select,
-  SettingsRow,
-  SettingsSection,
   type RecordColumn,
 } from '@braedonsaunders/appkit-ui'
 import { REMOTE_PROTOCOLS, type RemoteProtocol } from '@braedonsaunders/appkit-remote-sessions'
@@ -19,7 +17,7 @@ import {
   disableRemoteComputerAction,
   saveRemoteComputerAction,
   testRemoteComputerAction,
-} from '../app/admin/settings/actions'
+} from '../app/resources/remote-computer-actions'
 
 export type RemoteComputerRow = {
   id: string
@@ -27,8 +25,9 @@ export type RemoteComputerRow = {
   host: string
   port: number
   protocol: RemoteProtocol
-  providerBaseUrl: string
-  providerTargetId: string
+  username: string
+  domain: string
+  credentialKind: 'password' | 'private_key'
   status: 'ready' | 'unreachable' | 'disabled'
   lastConnectedAt: string
   lastError: string
@@ -51,11 +50,11 @@ const LABELS: Record<RemoteProtocol, string> = {
   telnet: 'Telnet',
 }
 
-function emptyDraft(): Omit<RemoteComputerRow, 'id' | 'status' | 'lastConnectedAt' | 'lastError'> & { token: string } {
-  return { name: '', host: '', port: 3389, protocol: 'rdp', providerBaseUrl: '', providerTargetId: '', token: '' }
+function emptyDraft(): Omit<RemoteComputerRow, 'id' | 'status' | 'lastConnectedAt' | 'lastError'> & { credential: string } {
+  return { name: '', host: '', port: 3389, protocol: 'rdp', username: '', domain: '', credentialKind: 'password', credential: '' }
 }
 
-export function RemoteComputersSettings({ rows, enabled }: { rows: RemoteComputerRow[]; enabled: boolean }) {
+export function RemoteComputersView({ rows, enabled }: { rows: RemoteComputerRow[]; enabled: boolean }) {
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [creating, setCreating] = React.useState(false)
   const [draft, setDraft] = React.useState(emptyDraft)
@@ -72,33 +71,36 @@ export function RemoteComputersSettings({ rows, enabled }: { rows: RemoteCompute
   }
 
   return (
-    <SettingsSection
-      title="Remote computers"
-      description="Customer-owned Windows, macOS, and Linux computers agents can work on through Steward. Every connection, handover, terminal command, and close is retained with its run."
-    >
-      <SettingsRow
-        title={`${rows.length} connected computer${rows.length === 1 ? '' : 's'}`}
-        description="Open a row to test, rotate its credential, or disable future access."
-        control={<Button size="sm" disabled={!enabled} onClick={() => { setDraft(emptyDraft()); setCreating(true); setSelectedId(null) }}>Connect computer</Button>}
-      />
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="max-w-3xl space-y-1">
+          <h2 className="text-base font-semibold text-fg">Remote computers</h2>
+          <p className="text-sm text-fg-muted">
+            Customer-owned Windows, macOS, and Linux computers agents can work on. Every connection, handover,
+            terminal command, and close stays with its run.
+          </p>
+        </div>
+        <Button size="sm" disabled={!enabled} onClick={() => { setDraft(emptyDraft()); setCreating(true); setSelectedId(null) }}>Connect computer</Button>
+      </div>
       {!enabled ? (
-        <div className="border-b border-border px-5 py-3 text-sm text-fg-muted">
-          Remote computers are off. Turn the capability on under Features to make saved computers available to agents; history is preserved.
+        <div className="rounded-md border border-border bg-bg-subtle px-4 py-3 text-sm text-fg-muted">
+          Remote computers are off. Turn the capability on under Company Settings → Features to make saved
+          computers available to agents; their records and history are preserved.
         </div>
       ) : null}
-      <div className="px-5 py-4">
+      <div>
         {rows.length ? (
           <RecordList
             columns={COLUMNS}
             rows={rows}
             getRowId={(row) => row.id}
-            onRowClick={(row) => { setDraft({ ...row, token: '' }); setSelectedId(row.id); setCreating(false) }}
-            empty={{ title: 'No remote computers', description: 'Connect a customer-owned computer through Steward.' }}
+            onRowClick={(row) => { setDraft({ ...row, credential: '' }); setSelectedId(row.id); setCreating(false) }}
+            empty={{ title: 'No remote computers', description: 'Connect a customer-owned computer.' }}
           />
         ) : (
           <EmptyState
             title="No remote computers"
-            description="Connect Steward once, then agents can use a real customer computer alongside their Bunkhouse desk."
+            description="Connect a computer once, then agents can use it alongside their own Bunkhouse desk."
             action={enabled ? <Button size="sm" onClick={() => { setDraft(emptyDraft()); setCreating(true) }}>Connect computer</Button> : undefined}
           />
         )}
@@ -108,7 +110,7 @@ export function RemoteComputersSettings({ rows, enabled }: { rows: RemoteCompute
         open={creating || selected !== null}
         onClose={close}
         title={creating ? 'Connect a remote computer' : selected?.name ?? ''}
-        description="Steward keeps credentials and device access outside the agent prompt. Bunkhouse stores the token sealed and issues short-lived viewer access."
+        description="Bunkhouse seals the computer credential and exchanges only short-lived viewer access. Credentials never enter the agent prompt."
         size="md"
       >
         <div className="space-y-4">
@@ -126,7 +128,7 @@ export function RemoteComputersSettings({ rows, enabled }: { rows: RemoteCompute
                   setError(null)
                   const result = await testRemoteComputerAction(selected.id)
                   if (!result.ok) setError(result.message)
-                  else setNotice('Steward reached this computer successfully.')
+                  else setNotice('Bunkhouse reached this computer successfully.')
                 })}
               >Test connection</Button>
             </div>
@@ -143,9 +145,17 @@ export function RemoteComputersSettings({ rows, enabled }: { rows: RemoteCompute
             </Field>
             <Field label="Computer address"><Input value={draft.host} onChange={(event) => setDraft({ ...draft, host: event.target.value })} placeholder="10.0.0.24" /></Field>
             <Field label="Port"><Input type="number" min={1} max={65535} value={draft.port} onChange={(event) => setDraft({ ...draft, port: Number(event.target.value) })} /></Field>
-            <div className="sm:col-span-2"><Field label="Steward URL"><Input value={draft.providerBaseUrl} onChange={(event) => setDraft({ ...draft, providerBaseUrl: event.target.value })} placeholder="https://steward.example.com" /></Field></div>
-            <Field label="Steward device ID"><Input value={draft.providerTargetId} onChange={(event) => setDraft({ ...draft, providerTargetId: event.target.value })} /></Field>
-            <Field label={selected ? 'Replace Steward token' : 'Steward API token'}><Input type="password" value={draft.token} onChange={(event) => setDraft({ ...draft, token: event.target.value })} placeholder={selected ? 'Leave blank to keep current token' : 'Paste token'} /></Field>
+            <Field label="Username"><Input autoComplete="off" value={draft.username} onChange={(event) => setDraft({ ...draft, username: event.target.value })} placeholder="operator" /></Field>
+            <Field label="Domain"><Input value={draft.domain} onChange={(event) => setDraft({ ...draft, domain: event.target.value })} placeholder="Optional Windows domain" /></Field>
+            <Field label="Credential type">
+              <Select value={draft.credentialKind} onChange={(event) => setDraft({ ...draft, credentialKind: event.target.value as 'password' | 'private_key' })}>
+                <option value="password">Password</option>
+                <option value="private_key">Private key</option>
+              </Select>
+            </Field>
+            <Field label={selected ? 'Replace credential' : draft.credentialKind === 'private_key' ? 'Private key' : 'Password'}>
+              <Input type="password" autoComplete="new-password" value={draft.credential} onChange={(event) => setDraft({ ...draft, credential: event.target.value })} placeholder={selected ? 'Leave blank to keep current credential' : draft.credentialKind === 'private_key' ? 'Paste private key' : 'Enter password'} />
+            </Field>
           </div>
           {selected?.lastError ? <p className="text-sm text-danger">Last error: {selected.lastError}</p> : null}
           {error ? <p className="text-sm text-danger">{error}</p> : null}
@@ -162,12 +172,12 @@ export function RemoteComputersSettings({ rows, enabled }: { rows: RemoteCompute
             </span>
             <div className="flex gap-2">
               <Button variant="outline" onClick={close}>Cancel</Button>
-              <Button disabled={busy || !draft.name.trim() || !draft.host.trim() || !draft.providerBaseUrl.trim() || !draft.providerTargetId.trim() || (creating && !draft.token.trim())} onClick={() => startTransition(async () => {
+              <Button disabled={busy || !draft.name.trim() || !draft.host.trim() || (creating && !draft.credential.trim())} onClick={() => startTransition(async () => {
                 setError(null)
                 const result = await saveRemoteComputerAction({
                   ...(selected ? { id: selected.id } : {}), name: draft.name, host: draft.host, port: draft.port,
-                  protocol: draft.protocol, providerBaseUrl: draft.providerBaseUrl, providerTargetId: draft.providerTargetId,
-                  ...(draft.token.trim() ? { providerToken: draft.token } : {}), enabled: true,
+                  protocol: draft.protocol, username: draft.username, domain: draft.domain, credentialKind: draft.credentialKind,
+                  ...(draft.credential.trim() ? { credential: draft.credential } : {}), enabled: true,
                 })
                 if (!result.ok) setError(result.message)
                 else close()
@@ -176,7 +186,7 @@ export function RemoteComputersSettings({ rows, enabled }: { rows: RemoteCompute
           </div>
         </div>
       </Drawer>
-    </SettingsSection>
+    </section>
   )
 }
 

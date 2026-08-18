@@ -1,10 +1,10 @@
 # Remote computers
 
-An agent's Desk is its Bunkhouse-owned working machine. A remote computer is an existing customer machine reached through Steward. They are deliberately separate work surfaces: the Desk remains available at all times, while Browser, Call, and each active remote computer appear as their own subtabs beside it in chat.
+An agent's Desk is its Bunkhouse-owned working machine. A remote computer is an existing customer machine that Bunkhouse reaches directly over RDP, VNC, SSH, WinRM, PowerShell-over-SSH, or Telnet. They are deliberately separate work surfaces: Desk remains available at all times, while Browser, Call, Terminal, and the active remote computer follow the agent's current work in chat and calls.
 
 ## Operator contract
 
-Company Settings → Features contains the one `remoteComputers` switch. Company Settings → Remote computers contains the records themselves: Steward URL and device id, network address, protocol, sealed API token, last successful check, status, and last error. Turning the feature off preserves records and immutable history but the server refuses new sessions, control, commands, and viewer grants.
+Company Settings → Features contains the one `remoteComputers` switch. Library → Computers contains the records themselves: network address, protocol, account, sealed credential, last successful check, status, and last error. Turning the feature off preserves records and immutable history but the server refuses new sessions, control, commands, and viewer grants.
 
 Disabling a computer is non-destructive. It blocks future sessions without deleting sessions or evidence already attached to runs.
 
@@ -23,6 +23,10 @@ A manager's reasonable direct request is a valid reason to use these tools. The 
 
 `remote_sessions` is run- and person-bound. Lease grants and events are append-only tables protected by immutable database triggers. Per-session counters allocate event sequence and lease fence numbers atomically. Every remote table has forced tenant RLS, and composite tenant foreign keys prevent a known id from being used to attach one tenant's child row to another tenant's computer or session.
 
-Viewer URLs are never stored. An authenticated chat action appends an observation lease and exchanges it for a short-lived Steward viewer URL. Provider credentials are unsealed only inside the server adapter and never enter an agent prompt, tool result, browser payload, or event record.
+Viewer connections are never stored. An authenticated chat action appends an observation lease and exchanges it for a short-lived, encrypted Apache Guacamole connection. Credentials are unsealed only inside the server adapter and never enter an agent prompt, tool result, browser payload, or event record.
 
-The reusable provider/session/service/viewer contract lives in `@braedonsaunders/appkit-remote-sessions`; Bunkhouse owns PostgreSQL persistence, tenant authorization, feature and autonomy policy, and the Steward adapter.
+The reusable provider/session/service/viewer contract, Guacamole bridge, and graphical terminal live in `@braedonsaunders/appkit-remote-sessions`. Bunkhouse owns PostgreSQL persistence, tenant authorization, feature and autonomy policy, and its deployment-owned gateway. The gateway and its `guacd` sidecar ship in the Bunkhouse deployment; there is no Steward service or Steward runtime dependency.
+
+## Work surface
+
+Chat and calls use one work-surface vocabulary. Browser screencasts and the agent Desk use their existing LiveKit path, customer RDP/VNC sessions use the Guacamole path, and both Desk shell commands and remote commands render through the same read-only terminal component from their durable event ledgers. The current surface follows the agent automatically without removing the separately selectable Desk tab.

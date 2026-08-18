@@ -9,8 +9,8 @@ import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@braedon
 import { LiveKitRoom, VideoTrack, useSpeakingParticipants, useTracks } from '@livekit/components-react'
 import { ParticipantKind, Track } from 'livekit-client'
 import { observeRemoteWorkSurfaceAction, observeWorkSurfaceAction, workSurfaceAction } from '../app/chat/actions'
-import type { ChatWorkSurface as WorkSurface } from '../lib/chat-work-surface'
-import { RemoteComputerViewer } from '@braedonsaunders/appkit-remote-sessions/react'
+import type { ChatBrowserWorkSurface, ChatWorkSurface as WorkSurface } from '../lib/chat-work-surface'
+import { RemoteComputerViewer, TerminalSurface } from '@braedonsaunders/appkit-remote-sessions/react'
 import type { RemoteProtocol } from '@braedonsaunders/appkit-remote-sessions'
 import { AGENT_SCREEN_TRACK_NAME } from '../lib/agent-screen'
 import { ChatDesk } from './chat-desk'
@@ -108,7 +108,7 @@ function LiveBrowserSurface({
   fallback,
 }: {
   threadId: string
-  surface: Extract<WorkSurface, { kind: 'browser' }>
+  surface: ChatBrowserWorkSurface
   fallback: React.ReactNode
 }) {
   const { room } = useObserverCredential({ threadId, runId: surface.runId, kind: 'browser' })
@@ -222,7 +222,7 @@ function statusLabel(status: string): string {
   return status.replaceAll('_', ' ')
 }
 
-function SurfaceHeader({ surface, personName }: { surface: WorkSurface; personName: string }) {
+function SurfaceHeader({ surface, personName }: { surface: { kind: string; status?: string }; personName: string }) {
   const icon =
     surface.kind === 'browser' ? <Globe aria-hidden className="size-4" />
     : surface.kind === 'call' ? <Phone aria-hidden className="size-4" />
@@ -234,7 +234,7 @@ function SurfaceHeader({ surface, personName }: { surface: WorkSurface; personNa
         {icon}
         <span className="truncate">{personName}&apos;s work</span>
       </div>
-      {surface.kind !== 'idle' ? <Badge variant="secondary">{statusLabel(surface.status)}</Badge> : null}
+      {surface.status ? <Badge variant="secondary">{statusLabel(surface.status)}</Badge> : null}
     </div>
   )
 }
@@ -245,9 +245,22 @@ function BrowserWorkStage({
   personName,
 }: {
   threadId: string
-  surface: Extract<WorkSurface, { kind: 'browser' }>
+  surface: ChatBrowserWorkSurface
   personName: string
 }) {
+  const fallback = surface.frame.fileId ? (
+    // A ledgered browser frame is already encoded at its capture size.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={`/api/files/${encodeURIComponent(surface.frame.fileId)}`}
+      alt={`${personName}'s browser, showing ${surface.frame.title}`}
+      className="size-full object-contain object-top"
+    />
+  ) : (
+    <p className="flex size-full items-center justify-center px-6 text-center text-sm text-fg-muted">
+      This browser step remains on the run record, but it did not carry a frame.
+    </p>
+  )
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <SurfaceHeader surface={surface} personName={personName} />
@@ -259,25 +272,7 @@ function BrowserWorkStage({
         </div>
       </div>
       <div className="relative min-h-0 flex-1 overflow-hidden bg-bg-subtle">
-        <LiveBrowserSurface
-          threadId={threadId}
-          surface={surface}
-          fallback={
-            surface.frame.fileId ? (
-              // A ledgered browser frame is already encoded at its capture size.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={`/api/files/${encodeURIComponent(surface.frame.fileId)}`}
-                alt={`${personName}'s browser, showing ${surface.frame.title}`}
-                className="size-full object-contain object-top"
-              />
-            ) : (
-              <p className="flex size-full items-center justify-center px-6 text-center text-sm text-fg-muted">
-                The live browser is connecting. This step remains available in History.
-              </p>
-            )
-          }
-        />
+        {surface.status === 'active' ? <LiveBrowserSurface threadId={threadId} surface={surface} fallback={fallback} /> : fallback}
         <div className="absolute inset-x-3 bottom-3 flex items-center gap-2 rounded-full border border-border bg-surface/90 px-3 py-2 text-xs text-fg shadow-sm backdrop-blur">
           {surface.status === 'active' ? (
             <Loader2 aria-hidden className="size-3.5 animate-spin text-primary" />
@@ -304,8 +299,9 @@ export function ChatWorkSurface({
   personTitle: string
   callAvatar: ChatCallAvatar
 }) {
-  const [activeTab, setActiveTab] = React.useState<'desktop' | 'browser' | 'call' | 'remote' | 'history'>('desktop')
-  const [surface, setSurface] = React.useState<WorkSurface>({ kind: 'idle', runId: null, history: [], remote: null })
+  const [activeTab, setActiveTab] = React.useState<'desktop' | 'browser' | 'terminal' | 'call' | 'remote' | 'history'>('desktop')
+  const [surface, setSurface] = React.useState<WorkSurface>({ kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null })
+  const followedSurfaceRef = React.useRef('idle')
 
   React.useEffect(() => {
     // No conversation means History renders its own empty state below. Keep
@@ -329,6 +325,19 @@ export function ChatWorkSurface({
     }
   }, [threadId])
 
+  React.useEffect(() => {
+    const suggested = surface.kind !== 'call' && surface.remote
+      ? 'remote'
+      : surface.kind === 'browser' || surface.kind === 'terminal' || surface.kind === 'call' || surface.kind === 'desktop'
+        ? surface.kind
+        : null
+    if (!suggested) return
+    const key = `${suggested}:${surface.runId ?? ''}${surface.remote ? `:${surface.remote.sessionId}` : ''}`
+    if (key === followedSurfaceRef.current) return
+    followedSurfaceRef.current = key
+    setActiveTab(suggested)
+  }, [surface])
+
   return (
     <section className="flex size-full min-h-0 flex-col bg-surface" aria-label={`${personName}'s work surfaces`}>
       <div className="shrink-0 border-b border-border px-2">
@@ -346,9 +355,13 @@ export function ChatWorkSurface({
                 </span>
               ),
             },
-            ...(surface.kind === 'browser' ? [{
+            ...(surface.kind === 'browser' || surface.recentBrowser ? [{
               key: 'browser',
               label: <span className="flex items-center gap-2"><Globe aria-hidden className="size-4" />Browser</span>,
+            }] : []),
+            ...(surface.kind === 'terminal' || surface.recentTerminal ? [{
+              key: 'terminal',
+              label: <span className="flex items-center gap-2"><TerminalSquare aria-hidden className="size-4" />Terminal</span>,
             }] : []),
             ...(surface.kind === 'call' ? [{
               key: 'call',
@@ -371,8 +384,16 @@ export function ChatWorkSurface({
         />
       </div>
 
-      {activeTab === 'browser' && threadId !== null && surface.kind === 'browser' ? (
-        <BrowserWorkStage threadId={threadId} surface={surface} personName={personName} />
+      {activeTab === 'browser' && threadId !== null && (surface.kind === 'browser' || surface.recentBrowser) ? (
+        <BrowserWorkStage threadId={threadId} surface={surface.kind === 'browser' ? surface : surface.recentBrowser!} personName={personName} />
+      ) : activeTab === 'terminal' && (surface.kind === 'terminal' || surface.recentTerminal) ? (
+        <TerminalSurface
+          title={(surface.kind === 'terminal' ? surface : surface.recentTerminal!).terminal.title}
+          subtitle={(surface.kind === 'terminal' ? surface : surface.recentTerminal!).terminal.subtitle}
+          cwd={(surface.kind === 'terminal' ? surface : surface.recentTerminal!).terminal.cwd}
+          status={(surface.kind === 'terminal' ? surface : surface.recentTerminal!).terminal.status}
+          entries={(surface.kind === 'terminal' ? surface : surface.recentTerminal!).terminal.entries}
+        />
       ) : activeTab === 'call' && threadId !== null && surface.kind === 'call' ? (
         <div className="flex min-h-0 flex-1">
           <LiveCallSurface
@@ -384,13 +405,23 @@ export function ChatWorkSurface({
           />
         </div>
       ) : activeTab === 'remote' && threadId !== null && surface.remote ? (
-        <RemoteComputerViewer
-          key={surface.remote.sessionId}
-          targetName={surface.remote.computerName}
-          protocol={surface.remote.protocol as RemoteProtocol}
-          scope="observe"
-          connect={() => observeRemoteWorkSurfaceAction({ threadId, sessionId: surface.remote!.sessionId })}
-        />
+        surface.remote.terminal ? (
+          <TerminalSurface
+            title={surface.remote.terminal.title}
+            subtitle={surface.remote.terminal.subtitle}
+            cwd={surface.remote.terminal.cwd}
+            status={surface.remote.terminal.status}
+            entries={surface.remote.terminal.entries}
+          />
+        ) : (
+          <RemoteComputerViewer
+            key={surface.remote.sessionId}
+            targetName={surface.remote.computerName}
+            protocol={surface.remote.protocol as RemoteProtocol}
+            scope="observe"
+            connect={() => observeRemoteWorkSurfaceAction({ threadId, sessionId: surface.remote!.sessionId })}
+          />
+        )
       ) : activeTab === 'desktop' ? (
         <div className="min-h-0 flex-1">
           <ChatDesk key={personId} personId={personId} personName={personName} />
