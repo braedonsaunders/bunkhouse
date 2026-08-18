@@ -30,6 +30,8 @@ export default async function PersonPage({
     profile?: string
     work?: string
     notePage?: string
+    run?: string
+    runTab?: string
   }>
 }) {
   const { id } = await params
@@ -64,6 +66,8 @@ export default async function PersonPage({
     mailboxError: query.mailboxError,
     profileSection: query.profile,
     workSection: query.work,
+    runId: query.section === 'chat' ? query.run : undefined,
+    runTab: query.runTab,
     searchParams: query,
   })
 }

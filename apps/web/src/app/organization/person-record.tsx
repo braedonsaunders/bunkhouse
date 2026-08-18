@@ -43,6 +43,7 @@ import { getThread, listThreads } from '../../lib/chat-threads'
 import { listResourceCatalog } from '../../lib/role-resources'
 import { agentBinding, bindsToAgent } from '../../lib/assignment'
 import { listRoles } from '../../lib/roles'
+import { runDrawer } from '../runs/run-record'
 
 type Person = typeof people.$inferSelect
 
@@ -62,6 +63,8 @@ export async function personDrawer({
   chatThreadId,
   profileSection,
   workSection,
+  runId,
+  runTab,
 }: {
   tenantId: string
   roster: Person[]
@@ -91,6 +94,9 @@ export async function personDrawer({
   chatThreadId?: string
   profileSection?: string
   workSection?: string
+  /** Run record opened over the Chat section. */
+  runId?: string
+  runTab?: string
 }): Promise<ReactNode> {
   const selected = selectedId ? roster.find((person) => person.id === selectedId) : undefined
   if (!selected) return null
@@ -663,24 +669,30 @@ export async function personDrawer({
       },
     ]
 
+    const chatBaseParams = new URLSearchParams({ section: 'chat' })
+    if (chatThreadId) chatBaseParams.set('thread', chatThreadId)
+    const chatBasePath = `/organization/${selected.id}?${chatBaseParams.toString()}`
     return (
-      <AgentRecordPage
-        agentId={selected.id}
-        name={selected.name}
-        status={selected.status}
-        avatar={
-          <AvatarPortrait
-            name={selected.name}
-            composition={figure}
-            parts={partLibrary}
-            categories={AVATAR_PART_CATEGORIES}
-            size={36}
-          />
-        }
-        contactAction={pageAccess?.canCall && callAction ? <CallActionButton action={callAction} name={selected.name} /> : undefined}
-        sections={pageSections}
-        initialSection={mailboxError ? 'inbox' : section}
-      />
+      <>
+        <AgentRecordPage
+          agentId={selected.id}
+          name={selected.name}
+          status={selected.status}
+          avatar={
+            <AvatarPortrait
+              name={selected.name}
+              composition={figure}
+              parts={partLibrary}
+              categories={AVATAR_PART_CATEGORIES}
+              size={36}
+            />
+          }
+          contactAction={pageAccess?.canCall && callAction ? <CallActionButton action={callAction} name={selected.name} /> : undefined}
+          sections={pageSections}
+          initialSection={mailboxError ? 'inbox' : section}
+        />
+        {canReadWork ? await runDrawer({ tenantId, runId, basePath: chatBasePath, tab: runTab }) : null}
+      </>
     )
   }
 

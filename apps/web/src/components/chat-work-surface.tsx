@@ -2,8 +2,8 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { CheckCircle2, ChevronRight, Globe, History as HistoryIcon, Loader2, Monitor, MonitorUp, Phone, TerminalSquare } from 'lucide-react'
-import { Badge, EmptyState, SubtabNav } from '@braedonsaunders/appkit-ui'
+import { CheckCircle2, ChevronRight, Globe, History as HistoryIcon, Loader2, Maximize2, Minimize2, Monitor, MonitorUp, Phone, TerminalSquare } from 'lucide-react'
+import { Badge, Button, EmptyState, SubtabNav } from '@braedonsaunders/appkit-ui'
 import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
 import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@braedonsaunders/appkit-avatars/composition'
 import { LiveKitRoom, VideoTrack, useSpeakingParticipants, useTracks } from '@livekit/components-react'
@@ -222,6 +222,64 @@ function statusLabel(status: string): string {
   return status.replaceAll('_', ' ')
 }
 
+function useSurfaceExpansion() {
+  const [expanded, setExpanded] = React.useState(false)
+  React.useEffect(() => {
+    if (!expanded) return
+    const previousOverflow = document.body.style.overflow
+    const collapse = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExpanded(false)
+    }
+    document.body.style.overflow = 'hidden'
+    document.addEventListener('keydown', collapse)
+    return () => {
+      document.removeEventListener('keydown', collapse)
+      document.body.style.overflow = previousOverflow
+    }
+  }, [expanded])
+  return { expanded, toggle: () => setExpanded((current) => !current) }
+}
+
+function FullscreenButton({ expanded, onToggle, label }: { expanded: boolean; onToggle: () => void; label: string }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="size-7 shrink-0"
+      onClick={onToggle}
+      title={expanded ? `Exit ${label} fullscreen` : `Open ${label} fullscreen`}
+      aria-label={expanded ? `Exit ${label} fullscreen` : `Open ${label} fullscreen`}
+    >
+      {expanded ? <Minimize2 aria-hidden className="size-4" /> : <Maximize2 aria-hidden className="size-4" />}
+    </Button>
+  )
+}
+
+function ExpandableTerminalSurface(props: React.ComponentProps<typeof TerminalSurface>) {
+  const { expanded, toggle } = useSurfaceExpansion()
+  const { headerActions, ...surfaceProps } = props
+  return (
+    <div
+      data-ui-overlay={expanded ? 'terminal-fullscreen' : undefined}
+      role={expanded ? 'dialog' : undefined}
+      aria-modal={expanded ? true : undefined}
+      aria-label={expanded ? `${props.title}, fullscreen` : undefined}
+      className={expanded ? 'fixed inset-0 z-[60] flex flex-col bg-surface' : 'contents'}
+    >
+      <TerminalSurface
+        {...surfaceProps}
+        headerActions={(
+          <>
+            {headerActions}
+            <FullscreenButton expanded={expanded} onToggle={toggle} label="terminal" />
+          </>
+        )}
+      />
+    </div>
+  )
+}
+
 function BrowserWorkStage({
   threadId,
   surface,
@@ -231,6 +289,7 @@ function BrowserWorkStage({
   surface: ChatBrowserWorkSurface
   personName: string
 }) {
+  const { expanded, toggle } = useSurfaceExpansion()
   const fallback = surface.frame.fileId ? (
     // A ledgered browser frame is already encoded at its capture size.
     // eslint-disable-next-line @next/next/no-img-element
@@ -245,14 +304,23 @@ function BrowserWorkStage({
     </p>
   )
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div
+      data-ui-overlay={expanded ? 'browser-fullscreen' : undefined}
+      role={expanded ? 'dialog' : undefined}
+      aria-modal={expanded ? true : undefined}
+      aria-label={expanded ? `${personName}'s browser, fullscreen` : undefined}
+      className={expanded ? 'fixed inset-0 z-[60] flex flex-col bg-surface' : 'flex min-h-0 flex-1 flex-col'}
+    >
       <div className="flex min-w-0 items-center gap-2 border-b border-border bg-bg-subtle px-3 py-2">
         <Globe aria-hidden className="size-4 shrink-0 text-fg-muted" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-fg">{surface.frame.title}</p>
           {surface.frame.url ? <p className="truncate text-xs text-fg-muted">{surface.frame.url}</p> : null}
         </div>
-        <Badge variant="secondary">{statusLabel(surface.status)}</Badge>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Badge variant="secondary">{statusLabel(surface.status)}</Badge>
+          <FullscreenButton expanded={expanded} onToggle={toggle} label="browser" />
+        </div>
       </div>
       <div className="relative min-h-0 flex-1 overflow-hidden bg-bg-subtle">
         {surface.status === 'active' ? <LiveBrowserSurface threadId={threadId} surface={surface} fallback={fallback} /> : fallback}
@@ -370,7 +438,7 @@ export function ChatWorkSurface({
       {activeTab === 'browser' && threadId !== null && (surface.kind === 'browser' || surface.recentBrowser) ? (
         <BrowserWorkStage threadId={threadId} surface={surface.kind === 'browser' ? surface : surface.recentBrowser!} personName={personName} />
       ) : activeTab === 'terminal' && (surface.kind === 'terminal' || surface.recentTerminal) ? (
-        <TerminalSurface
+        <ExpandableTerminalSurface
           title={(surface.kind === 'terminal' ? surface : surface.recentTerminal!).terminal.title}
           subtitle={`Real output from ${personName}’s Desk · recorded on the run`}
           cwd={(surface.kind === 'terminal' ? surface : surface.recentTerminal!).terminal.cwd}
@@ -389,7 +457,7 @@ export function ChatWorkSurface({
         </div>
       ) : activeTab === 'remote' && threadId !== null && surface.remote ? (
         surface.remote.terminal ? (
-          <TerminalSurface
+          <ExpandableTerminalSurface
             title={surface.remote.terminal.title}
             subtitle={surface.remote.terminal.subtitle}
             cwd={surface.remote.terminal.cwd}
@@ -431,7 +499,8 @@ export function ChatWorkSurface({
                 {surface.history.map((event) => (
                   <li key={event.id}>
                     <Link
-                      href={`/runs/${event.runId}`}
+                      href={`/organization/${personId}?section=chat&thread=${encodeURIComponent(threadId)}&run=${event.runId}&runTab=activity`}
+                      scroll={false}
                       className="group flex min-h-8 items-center gap-2 rounded-md px-2 text-xs hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       aria-label={`Open work details for ${event.label}`}
                     >

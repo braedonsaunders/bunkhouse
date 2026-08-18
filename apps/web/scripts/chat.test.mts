@@ -477,9 +477,18 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   )
   assert.ok(workSurface.includes('surface.history.map'), 'the History tab renders conversation-wide durable steps')
   assert.ok(
-    workSurface.includes('href={`/runs/${event.runId}`}'),
-    'a History step opens the work record that explains it instead of rendering an inert pill',
+    workSurface.includes('&run=${event.runId}&runTab=activity'),
+    'a History step opens the work record flyout over the conversation instead of leaving Chat',
   )
+  assert.ok(
+    workSurface.includes('label="browser"') && workSurface.includes('label="terminal"'),
+    'browser and terminal surfaces both expose fullscreen controls',
+  )
+  const personRecord = readFileSync(
+    fileURLToPath(new URL('../src/app/organization/person-record.tsx', import.meta.url)),
+    'utf8',
+  )
+  assert.ok(personRecord.includes('await runDrawer({ tenantId, runId'), 'the employee page hosts the canonical run drawer')
   assert.equal(workSurface.includes('is getting started'), false, 'a new run never blanks History with a placeholder')
   console.log('chat: streamed turns survive section switches and work controls stay in the chat header')
 }
