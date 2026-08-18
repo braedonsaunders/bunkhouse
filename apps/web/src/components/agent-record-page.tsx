@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { Mail, MessageSquare } from 'lucide-react'
+import Link from 'next/link'
+import { ArrowLeft, Mail, MessageSquare } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -86,44 +87,57 @@ export function AgentRecordPage({
   return (
     <DetailPageLayout
       header={
-        <div className="-mt-2 flex items-center gap-3">
-          <button
-            type="button"
-            className="shrink-0 rounded-full transition-opacity hover:opacity-80"
-            title={`Open ${name}'s profile`}
-            onClick={() => select('profile')}
-          >
-            {avatar}
-          </button>
-          <DetailHeader
-            back={{ href: '/organization', label: 'All agents' }}
-            title={name}
-            subtitle={subtitle}
-            badge={
-              <span className="flex items-center gap-2">
-                <Badge>Agent</Badge>
-                <Badge variant={status === 'active' ? 'default' : 'outline'}>{status}</Badge>
-              </span>
-            }
-            actions={
-              <>
-                {hasChat ? (
-                  <Button type="button" size="sm" onClick={() => select('chat')}>
-                    <MessageSquare aria-hidden className="size-4" />
-                    Message
-                  </Button>
-                ) : null}
-                {contactAction}
-                {hasInbox ? (
-                  <Button type="button" size="sm" variant="outline" onClick={() => select('inbox')}>
-                    <Mail aria-hidden className="size-4" />
-                    Inbox
-                  </Button>
-                ) : null}
-              </>
-            }
-            className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-0 space-y-0 [&>p]:col-start-2"
-          />
+        <div className="-mt-2 space-y-1.5">
+          <div className="flex h-7 items-center">
+            <Button asChild size="sm" variant="ghost" className="-ml-2 h-7 px-2">
+              <Link href="/organization">
+                <ArrowLeft aria-hidden className="size-4" />
+                All agents
+              </Link>
+            </Button>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="shrink-0 rounded-full transition-opacity hover:opacity-80"
+              title={`Open ${name}'s profile`}
+              onClick={() => select('profile')}
+            >
+              {avatar}
+            </button>
+            <DetailHeader
+              title={name}
+              subtitle={subtitle}
+              badge={
+                <span className="flex items-center gap-2">
+                  <Badge>Agent</Badge>
+                  <Badge variant={status === 'active' ? 'default' : 'outline'}>{status}</Badge>
+                </span>
+              }
+              actions={
+                <>
+                  {hasChat ? (
+                    <React.Fragment key="message">
+                      <Button type="button" size="sm" onClick={() => select('chat')}>
+                        <MessageSquare aria-hidden className="size-4" />
+                        Message
+                      </Button>
+                    </React.Fragment>
+                  ) : null}
+                  {contactAction ? <React.Fragment key="contact">{contactAction}</React.Fragment> : null}
+                  {hasInbox ? (
+                    <React.Fragment key="inbox">
+                      <Button type="button" size="sm" variant="outline" onClick={() => select('inbox')}>
+                        <Mail aria-hidden className="size-4" />
+                        Inbox
+                      </Button>
+                    </React.Fragment>
+                  ) : null}
+                </>
+              }
+              className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-0 space-y-0 [&>p]:col-start-2"
+            />
+          </div>
         </div>
       }
       subtabs={
@@ -135,7 +149,7 @@ export function AgentRecordPage({
           className="-mt-3 pb-2"
         />
       }
-      className={current?.key === 'chat' || current?.key === 'inbox' ? '' : 'space-y-6'}
+      className={current?.key === 'chat' || current?.key === 'inbox' ? 'h-full min-h-0' : 'space-y-6'}
     >
       <div key={current?.key}>{current?.content}</div>
     </DetailPageLayout>

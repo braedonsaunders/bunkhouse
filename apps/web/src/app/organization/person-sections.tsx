@@ -1,5 +1,16 @@
 import Link from 'next/link'
 import {
+  Activity,
+  ArrowUpRight,
+  CalendarClock,
+  CheckCircle2,
+  CircleDollarSign,
+  Clock3,
+  MessageSquare,
+  ShieldAlert,
+  Sparkles,
+} from 'lucide-react'
+import {
   Badge,
   Button,
   Label,
@@ -13,6 +24,12 @@ import {
   Select,
   SettingsRow,
   SettingsSection,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
   Textarea,
 } from '@braedonsaunders/appkit-ui'
 import type { ReactNode } from 'react'
@@ -36,25 +53,61 @@ type Person = typeof people.$inferSelect
 
 type RecentRun = Pick<typeof runs.$inferSelect, 'id' | 'status' | 'summary' | 'startedAt'>
 
-function RunList({ runs: recentRuns }: { runs: RecentRun[] }) {
+function runStatusVariant(status: string): 'default' | 'destructive' | 'outline' | 'secondary' {
+  if (status === 'completed') return 'default'
+  if (status === 'failed' || status === 'cancelled') return 'destructive'
+  if (status === 'waiting_approval' || status === 'waiting_reply') return 'secondary'
+  return 'outline'
+}
+
+function runStamp(value: Date): string {
+  return value.toLocaleString('en-CA', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function RunList({ runs: recentRuns, embedded = false }: { runs: RecentRun[]; embedded?: boolean }) {
   if (recentRuns.length === 0) {
     return <p className="text-sm text-fg-muted">No runs yet — work appears here once this agent starts.</p>
   }
   return (
-    <div className="space-y-1">
-      {recentRuns.map((run) => (
-        <Link
-          key={run.id}
-          href={`/runs/${run.id}?from=person`}
-          className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2 transition-colors hover:border-primary/50"
-        >
-          <span className="min-w-0 truncate">{run.summary ?? 'Working…'}</span>
-          <Badge variant={run.status === 'completed' ? 'default' : run.status === 'failed' ? 'destructive' : 'outline'}>
-            {run.status.replace('_', ' ')}
-          </Badge>
-        </Link>
-      ))}
-    </div>
+    <Table containerClassName={embedded ? 'rounded-none border-x-0 border-b-0 shadow-none' : undefined}>
+      <TableHeader>
+        <TableRow noAnimate>
+          <TableHead>Work</TableHead>
+          <TableHead className="hidden w-36 sm:table-cell">Started</TableHead>
+          <TableHead className="w-32">Outcome</TableHead>
+          <TableHead className="w-10"><span className="sr-only">Open</span></TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {recentRuns.map((run) => (
+          <TableRow key={run.id}>
+            <TableCell className="min-w-0 font-medium">
+              <Link href={`/runs/${run.id}?from=person`} className="line-clamp-2 text-fg hover:text-primary">
+                {run.summary ?? 'Work in progress'}
+              </Link>
+            </TableCell>
+            <TableCell className="hidden whitespace-nowrap text-xs text-fg-muted sm:table-cell">
+              {runStamp(run.startedAt)}
+            </TableCell>
+            <TableCell>
+              <Badge variant={runStatusVariant(run.status)}>{run.status.replaceAll('_', ' ')}</Badge>
+            </TableCell>
+            <TableCell className="px-2 text-right">
+              <Button asChild size="sm" variant="ghost" className="size-7 p-0">
+                <Link href={`/runs/${run.id}?from=person`} aria-label="Open run record">
+                  <ArrowUpRight aria-hidden className="size-4" />
+                </Link>
+              </Button>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   )
 }
 
@@ -75,83 +128,185 @@ export function AgentOverviewSection({
   recentRuns: RecentRun[]
 }) {
   const salary = person.salary?.monthlyUsd ?? 0
+  const budgetPercent = salary > 0 ? Math.min(100, (monthSpend / salary) * 100) : 0
+  const currentLabel = !activeRun
+    ? 'Ready for work'
+    : activeRun.status === 'waiting_approval'
+      ? 'Waiting for your decision'
+      : activeRun.status === 'waiting_reply'
+        ? 'Waiting for a reply'
+        : 'Working now'
+  const workingPattern = !person.workingHours
+    ? 'Always available'
+    : `${person.workingHours.start}–${person.workingHours.end} · ${
+        person.workingHours.days.length === 5 ? 'weekdays' : `${person.workingHours.days.length} days a week`
+      }`
+  const model = person.modelConfig
+    ? `${person.modelConfig.provider} · ${person.modelConfig.model}`
+    : 'No model assigned'
+  const overage =
+    person.salary?.overagePolicy === 'overtime'
+      ? 'May work overtime'
+      : person.salary?.overagePolicy === 'pause'
+        ? 'Pauses at budget'
+        : 'Asks before overtime'
+
   return (
-    <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <CardContent className="pt-5">
-            <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Status</p>
-            <p className="mt-2 text-xl font-semibold capitalize text-fg">{person.status}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-5">
-            <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Right now</p>
-            <p className="mt-2 truncate text-xl font-semibold text-fg">
-              {activeRun ? activeRun.status.replace('_', ' ') : 'Available'}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-5">
-            <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Approvals waiting</p>
-            <p className="mt-2 text-xl font-semibold tabular-nums text-fg">{pendingApprovals}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-5">
-            <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Salary used</p>
-            <p className="mt-2 text-xl font-semibold tabular-nums text-fg">
-              ${monthSpend.toFixed(2)} <span className="text-sm font-normal text-fg-muted">of ${salary}/mo</span>
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Current focus</CardTitle>
-            <CardDescription>What this employee is doing now.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {activeRun ? (
-              <Link href={`/runs/${activeRun.id}`} className="text-sm font-medium text-primary hover:underline">
-                {activeRun.summary ?? activeRun.status.replace('_', ' ')}
-              </Link>
-            ) : (
-              <p className="text-sm text-fg-muted">No work is running right now.</p>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Next duty</CardTitle>
-            <CardDescription>The next piece of standing work on their schedule.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {nextDuty ? (
-              <div className="space-y-1 text-sm">
-                <p className="font-medium text-fg">{nextDuty.title}</p>
-                <p className="text-fg-muted">{nextDuty.schedule}</p>
-                {nextDuty.dueAt ? <p className="text-xs text-fg-muted">Next due {nextDuty.dueAt}</p> : null}
+    <div className="space-y-4">
+      <Card className="overflow-hidden">
+        <CardContent className="p-0">
+          <div className="bg-linear-to-br from-primary-subtle via-surface to-bg-subtle p-5 sm:p-6">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 gap-4">
+                <span className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-surface text-primary shadow-sm">
+                  {activeRun ? <Activity aria-hidden className="size-5" /> : <Sparkles aria-hidden className="size-5" />}
+                </span>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-primary">{currentLabel}</p>
+                    {activeRun ? <Badge variant={runStatusVariant(activeRun.status)}>{activeRun.status.replaceAll('_', ' ')}</Badge> : null}
+                  </div>
+                  <h2 className="mt-1 max-w-3xl text-xl font-semibold text-fg sm:text-2xl">
+                    {activeRun?.summary ?? `Ready for ${person.title.toLowerCase()} work`}
+                  </h2>
+                  <p className="mt-2 max-w-3xl text-sm text-fg-muted">
+                    {activeRun
+                      ? `Started ${runStamp(activeRun.startedAt)}. The complete evidence trail is available on the run record.`
+                      : nextDuty
+                        ? `Next scheduled responsibility: ${nextDuty.title}.`
+                        : 'No work is running and no standing duty is currently due.'}
+                  </p>
+                </div>
               </div>
-            ) : (
-              <p className="text-sm text-fg-muted">No enabled duties are scheduled.</p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                {activeRun ? (
+                  <Button asChild size="sm">
+                    <Link href={`/runs/${activeRun.id}`}>
+                      Open run <ArrowUpRight aria-hidden className="size-4" />
+                    </Link>
+                  </Button>
+                ) : null}
+                <Button asChild size="sm" variant={activeRun ? 'outline' : 'default'}>
+                  <Link href={`/organization/${person.id}?section=chat`}>
+                    <MessageSquare aria-hidden className="size-4" />
+                    Message
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent activity</CardTitle>
-          <CardDescription>The latest governed runs on this employee’s record.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <RunList runs={recentRuns.slice(0, 4)} />
+          <div className="grid divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            <div className="flex min-w-0 gap-3 p-4">
+              <span className="mt-0.5 text-fg-muted"><CalendarClock aria-hidden className="size-4" /></span>
+              <div className="min-w-0">
+                <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Next duty</p>
+                <p className="mt-1 truncate text-sm font-medium text-fg">{nextDuty?.title ?? 'Nothing scheduled'}</p>
+                <p className="mt-0.5 truncate text-xs text-fg-muted">
+                  {nextDuty ? (nextDuty.dueAt ? `Due ${nextDuty.dueAt}` : nextDuty.schedule) : 'No enabled standing duties'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex min-w-0 gap-3 p-4">
+              <span className={pendingApprovals > 0 ? 'mt-0.5 text-warning' : 'mt-0.5 text-success'}>
+                {pendingApprovals > 0 ? <ShieldAlert aria-hidden className="size-4" /> : <CheckCircle2 aria-hidden className="size-4" />}
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Needs attention</p>
+                {pendingApprovals > 0 ? (
+                  <Link href="/approvals" className="mt-1 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
+                    {pendingApprovals} {pendingApprovals === 1 ? 'decision' : 'decisions'} waiting
+                    <ArrowUpRight aria-hidden className="size-3.5" />
+                  </Link>
+                ) : (
+                  <p className="mt-1 text-sm font-medium text-fg">Nothing waiting</p>
+                )}
+                <p className="mt-0.5 text-xs text-fg-muted">
+                  {pendingApprovals > 0 ? 'Review before work can continue' : 'No approvals are blocking work'}
+                </p>
+              </div>
+            </div>
+
+            <div className="min-w-0 p-4">
+              <div className="flex items-center gap-3">
+                <CircleDollarSign aria-hidden className="size-4 shrink-0 text-fg-muted" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Monthly budget</p>
+                    <p className="text-xs tabular-nums text-fg-muted">{budgetPercent.toFixed(0)}%</p>
+                  </div>
+                  <p className="mt-1 text-sm font-medium tabular-nums text-fg">${monthSpend.toFixed(2)} of ${salary.toFixed(2)}</p>
+                </div>
+              </div>
+              <Progress value={budgetPercent} className="mt-2" />
+            </div>
+          </div>
         </CardContent>
       </Card>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(20rem,0.8fr)]">
+        <Card className="overflow-hidden">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <CardTitle>Recent work</CardTitle>
+                <CardDescription>The latest governed runs and their outcomes.</CardDescription>
+              </div>
+              <Button asChild size="sm" variant="ghost">
+                <Link href={`/organization/${person.id}?section=work&work=activity`}>
+                  All work <ArrowUpRight aria-hidden className="size-4" />
+                </Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {recentRuns.length === 0 ? (
+              <p className="px-5 pb-5 text-sm text-fg-muted">No runs yet — work appears here once this agent starts.</p>
+            ) : (
+              <RunList runs={recentRuns.slice(0, 5)} embedded />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle>Operating brief</CardTitle>
+            <CardDescription>The practical context behind this employee.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Responsible for</p>
+              <p className="mt-1 line-clamp-3 leading-5 text-fg">
+                {person.responsibilities?.trim() || `Work assigned to the ${person.title} role.`}
+              </p>
+            </div>
+            <dl className="divide-y divide-border-subtle rounded-lg border border-border bg-bg-subtle px-3">
+              <div className="flex items-start gap-3 py-3">
+                <Sparkles aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-muted" />
+                <div className="min-w-0">
+                  <dt className="text-xs text-fg-muted">Model</dt>
+                  <dd className="mt-0.5 truncate font-medium text-fg">{model}</dd>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 py-3">
+                <Clock3 aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-muted" />
+                <div className="min-w-0">
+                  <dt className="text-xs text-fg-muted">Working pattern</dt>
+                  <dd className="mt-0.5 font-medium text-fg">{workingPattern}</dd>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 py-3">
+                <CircleDollarSign aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-muted" />
+                <div className="min-w-0">
+                  <dt className="text-xs text-fg-muted">At the budget limit</dt>
+                  <dd className="mt-0.5 font-medium text-fg">{overage}</dd>
+                </div>
+              </div>
+            </dl>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

@@ -601,7 +601,7 @@ export async function personDrawer({
             key: 'inbox',
             label: 'Inbox',
             content: (
-              <div className="h-[calc(100vh-13rem)] min-h-[36rem]">
+              <div className="h-full min-h-[36rem] lg:min-h-0">
                 <MailboxSection
                   tenantId={tenantId}
                   personId={selected.id}
@@ -629,6 +629,7 @@ export async function personDrawer({
                     size={26}
                   />
                 }
+                callAvatar={{ composition, parts: partLibrary, categories: AVATAR_PART_CATEGORIES }}
                 canStart={canStartChat}
                 initialThread={initialChat}
               />
