@@ -12,10 +12,10 @@ import { createFactLedger, screenUtterance, stripReasoning } from '../src/lib/ca
 
 /** What actually came back from NetSuite on those calls, in miniature. */
 const seed = [
-  'Rassaun Services Inc.',
+  'Northstar Services Inc.',
   'Marla Whitfield Cash Reporting Clerk',
   'Dana Reeves Office Administrator',
-  'Braedon Saunders CFO',
+  'Jordan Lee CFO',
   'Bill McDonald Customer Service Rep',
 ]
 const netsuiteAging = JSON.stringify({
@@ -67,7 +67,7 @@ const freshLedger = () => {
 // --- The spoken system prompt (Bill, 22:40) ---------------------------------
 {
   const verdict = screenUtterance(
-    'Then work from there, live, in the voice you have. Keep it natural and warm. Do not mention any of this in your answer. When you respond, first write your internal reasoning, then write the reply. Keep your first greeting short. Let me get this in gear: use check_work to see the status of everything, then greet Braedon.',
+    'Then work from there, live, in the voice you have. Keep it natural and warm. Do not mention any of this in your answer. When you respond, first write your internal reasoning, then write the reply. Keep your first greeting short. Let me get this in gear: use check_work to see the status of everything, then greet Jordan.',
     freshLedger(),
   )
   assert.equal(verdict.ok, false, 'scaffolding must never be read out')
@@ -106,11 +106,11 @@ const freshLedger = () => {
 
   // Ordinary conversation, with no facts in it at all.
   for (const line of [
-    'Hey Braedon, Bill here. How can I help you today?',
+    'Hey Jordan, Bill here. How can I help you today?',
     'Give me just a second, I’m pulling up the aging report right now.',
     'Still going here — bear with me.',
     'Oh goodness, listen to me. Long day in the numbers.',
-    'Talk to you later, Braedon. Have a good night.',
+    'Talk to you later, Jordan. Have a good night.',
   ]) {
     const verdict = screenUtterance(line, ledger)
     assert.equal(verdict.ok, true, `ordinary speech must pass: ${line} → ${JSON.stringify(verdict)}`)

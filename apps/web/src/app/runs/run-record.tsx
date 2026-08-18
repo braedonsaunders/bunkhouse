@@ -4,8 +4,6 @@ import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from
 import { formatAttachmentSize } from '@braedonsaunders/appkit-storage'
 import {
   approvals,
-  browserSessions,
-  browserSteps,
   callSessions,
   callTurns,
   // Aliased: this module already names its activity-feed rows `deskEvents`.
@@ -25,7 +23,6 @@ import {
 } from '../../db/schema'
 import { db } from '../../db/client'
 import {
-  describeBrowserStep,
   deskEventPresentation,
   toolActivityFromEvents,
   type CallActivityEvent,
@@ -39,7 +36,6 @@ import {
 } from '../../components/run-activity'
 import {
   RunApprovalsTable,
-  RunBrowserStepsTable,
   RunDeskEventsTable,
   RunFilesTable,
   RunProceduresTable,
@@ -47,7 +43,6 @@ import {
   RunAttemptsTable,
   RunEffectsTable,
   type RunApprovalRow,
-  type RunBrowserStepRow,
   type RunDeskEventRow,
   type RunFileRow,
   type RunProcedureRow,
@@ -255,28 +250,6 @@ export async function loadRunRecord({
           .where(eq(deskEventsTable.sessionId, deskSession.id))
           .orderBy(asc(deskEventsTable.seq))
       : []
-    // Runs from before the desk recorded onto browser_sessions/browser_steps.
-    // Those tables are preserved audit history — an old run stays replayable —
-    // but a run with a desk session never reads them: the desk stream already
-    // carries its browser steps.
-    const [browserSession] = deskSession
-      ? []
-      : await app.db
-          .select({ id: browserSessions.id, status: browserSessions.status })
-          .from(browserSessions)
-          .where(eq(browserSessions.runId, runId))
-    const browserStepRows = browserSession
-      ? await app.db
-          .select({
-            seq: browserSteps.seq,
-            action: browserSteps.action,
-            detail: browserSteps.detail,
-            screenshotFileId: browserSteps.screenshotFileId,
-          })
-          .from(browserSteps)
-          .where(eq(browserSteps.sessionId, browserSession.id))
-          .orderBy(asc(browserSteps.seq))
-      : []
     return {
       run,
       agent: agent ?? null,
@@ -295,8 +268,6 @@ export async function loadRunRecord({
       producedFiles,
       deskSession: deskSession ?? null,
       deskEventRows,
-      browserSession: browserSession ?? null,
-      browserStepRows,
     }
   })
 
@@ -394,14 +365,6 @@ export async function loadRunRecord({
     kind: event.kind,
     ...deskEventPresentation(event.kind, event.detail),
     screenshotFileId: event.screenshotFileId,
-  }))
-
-  const browserRows: RunBrowserStepRow[] = data.browserStepRows.map((step) => ({
-    seq: step.seq,
-    action: step.action,
-    description: describeBrowserStep(step.action, step.detail),
-    url: step.detail.url ?? '—',
-    screenshotFileId: step.screenshotFileId,
   }))
 
   const attemptRows: RunAttemptRow[] = data.attempts.map((attempt) => {
@@ -638,35 +601,6 @@ export async function loadRunRecord({
           </CardHeader>
           <CardContent>
             <RunDeskEventsTable rows={deskRows} />
-          </CardContent>
-        </Card>
-      ),
-    })
-  } else if (browserRows.length > 0) {
-    // Pre-desk runs recorded onto the browser ledger; their history stays
-    // replayable exactly as it was written.
-    tabs.push({
-      key: 'browser',
-      label: 'Browser',
-      count: browserRows.length,
-      content: (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Browser session
-              {data.browserSession ? (
-                <Badge variant={data.browserSession.status === 'failed' ? 'destructive' : 'outline'}>
-                  {data.browserSession.status}
-                </Badge>
-              ) : null}
-            </CardTitle>
-            <CardDescription>
-              Every step the agent took at the keyboard, with the screen as it looked — computer use is always
-              replayable.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <RunBrowserStepsTable rows={browserRows} />
           </CardContent>
         </Card>
       ),

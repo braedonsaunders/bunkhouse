@@ -47,7 +47,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
       seq: 150,
       kind: 'tool_call',
       atMs: 12_000,
-      payload: { toolName: 'send_email', input: { to: 'bsaunders@rassaun.com' } },
+      payload: { toolName: 'send_email', input: { to: 'jordan@northstar.example' } },
     },
     {
       seq: 151,
@@ -62,7 +62,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
       payload: {
         toolName: 'send_email',
         approvedApprovalId: 'approval-1',
-        output: { sent: true, to: 'bsaunders@rassaun.com' },
+        output: { sent: true, to: 'jordan@northstar.example' },
       },
     },
   ])
@@ -85,7 +85,7 @@ assert.equal(describeToolCall('netsuite_ns_runCustomSuiteQL', {}), 'Checking Net
     '| --- | ---: |',
     '| Acme | $12.00 |',
     '',
-    'I created the August 4 deposit-detail PDF and sent it to bsaunders@rassaun.com and ksaunders@rassaun.com. Both messages include the finished attachment.',
+    'I created the August 4 deposit-detail PDF and sent it to jordan@northstar.example and casey@northstar.example. Both messages include the finished attachment.',
   ].join('\n')
   const spoken = spokenWorkResult(report)
   assert.ok(!spoken.includes('|'), 'tables stay on the screen')
@@ -106,11 +106,11 @@ assert.equal(describeToolCall('netsuite_ns_runCustomSuiteQL', {}), 'Checking Net
   assert.deepEqual(
     approvalCompletion('send_email', {
       sent: true,
-      to: 'bsaunders@rassaun.com, ksaunders@rassaun.com',
+      to: 'jordan@northstar.example, casey@northstar.example',
       attachedFiles: 1,
     }),
     {
-      text: 'The email to bsaunders@rassaun.com, ksaunders@rassaun.com has been approved and sent with the attachment. Is there anything else you need?',
+      text: 'The email to jordan@northstar.example, casey@northstar.example has been approved and sent with the attachment. Is there anything else you need?',
       failed: false,
     },
   )

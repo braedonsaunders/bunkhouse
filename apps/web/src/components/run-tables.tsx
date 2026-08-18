@@ -382,63 +382,6 @@ function FrameThumbnail({ fileId, alt }: { fileId: string | null; alt: string })
   )
 }
 
-export type RunBrowserStepRow = {
-  seq: number
-  action: string
-  /** Human phrasing of the step, composed by the caller. */
-  description: string
-  url: string
-  screenshotFileId: string | null
-}
-
-export function RunBrowserStepsTable({ rows }: { rows: RunBrowserStepRow[] }) {
-  const columns: PagedColumn<RunBrowserStepRow>[] = [
-    {
-      key: 'seq',
-      header: '#',
-      align: 'right',
-      cell: (row) => <span className="tabular-nums text-fg-muted">{row.seq}</span>,
-      sortValue: (row) => row.seq,
-    },
-    {
-      key: 'frame',
-      header: 'Screen',
-      cell: (row) => <FrameThumbnail fileId={row.screenshotFileId} alt={`Step ${row.seq}: ${row.action}`} />,
-    },
-    {
-      key: 'description',
-      header: 'Step',
-      cell: (row) => <span className="block max-w-md">{row.description}</span>,
-      search: (row) => `${row.description} ${row.action}`,
-    },
-    {
-      key: 'url',
-      header: 'Page',
-      cell: (row) => <span className="block max-w-xs truncate text-fg-muted">{row.url}</span>,
-      search: (row) => row.url,
-      sortValue: (row) => row.url,
-    },
-  ]
-
-  return (
-    <PagedTable
-      columns={columns}
-      rows={rows}
-      rowKey={(row) => String(row.seq)}
-      pageSize={10}
-      searchable
-      defaultSort={{ key: 'seq', dir: 'asc' }}
-      labels={{ searchPlaceholder: 'Search steps…', searchLabel: 'Search browser steps' }}
-      empty={
-        <EmptyState
-          title="No browser steps"
-          description="When an agent drives a browser, every step is recorded here with the screen as it looked."
-        />
-      }
-    />
-  )
-}
-
 export type RunDeskEventRow = {
   seq: number
   /** The typed ledger kind: shell_command, navigate, click, screen_open, … */

@@ -38,7 +38,7 @@ const tidy = (value: string): string[] => {
  * first half was the agent's own question from two turns earlier, transcribed
  * as the caller. It then asked for dates a second time and the caller swore at
  * it, because from its side the caller had asked the question. On another, the
- * agent's "I am on it, Braedon" came back as a caller turn reading "I'm on
+ * agent's "I am on it, Jordan" came back as a caller turn reading "I'm on
  * it." — the contraction defeated an exact-substring check, the fake turn
  * barged in, and the agent was cut off mid-sentence twice in a row. Echo
  * cancellation is the first defence and the framework's warmup covers the

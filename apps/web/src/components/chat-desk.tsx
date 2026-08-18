@@ -293,7 +293,7 @@ async function readDeskStatus(personId: string): Promise<{ status: DeskStatus } 
 
 /** The action shapes the desk accepts, as `sendDesktopInputAction` takes them. */
 type DesktopInput =
-  | { action: 'click'; x: number; y: number; button: 'left' | 'middle' | 'right' }
+  | { action: 'click'; x: number; y: number; button: 'left' | 'middle' | 'right'; clicks?: 1 | 2 }
   | { action: 'type'; text: string }
   | { action: 'key'; combo: string }
   | { action: 'scroll'; x: number; y: number; dx: number; dy: number }
@@ -1075,6 +1075,51 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     [personId],
   )
 
+  // One complete server action per double-click. Sending two independent
+  // requests makes network latency part of the guest's double-click cadence,
+  // which is why opening an icon felt random. Hold an ordinary left click for
+  // one short gesture window; a matching second click becomes one ordered
+  // input whose two presses happen together beside the VM.
+  const pendingClickRef = React.useRef<{
+    x: number
+    y: number
+    button: 'left'
+    timer: ReturnType<typeof setTimeout>
+  } | null>(null)
+  const flushPendingClick = React.useCallback(() => {
+    const pending = pendingClickRef.current
+    if (!pending) return
+    clearTimeout(pending.timer)
+    pendingClickRef.current = null
+    sendInput({ action: 'click', x: pending.x, y: pending.y, button: pending.button, clicks: 1 })
+  }, [sendInput])
+  const commitClick = React.useCallback((click: { x: number; y: number; button: 'left' | 'middle' | 'right' }) => {
+    const pending = pendingClickRef.current
+    const matches =
+      click.button === 'left' &&
+      pending !== null &&
+      Math.abs(click.x - pending.x) < DRAG_THRESHOLD_PX &&
+      Math.abs(click.y - pending.y) < DRAG_THRESHOLD_PX
+    if (matches && pending) {
+      clearTimeout(pending.timer)
+      pendingClickRef.current = null
+      sendInput({ action: 'click', x: click.x, y: click.y, button: 'left', clicks: 2 })
+      return
+    }
+    flushPendingClick()
+    if (click.button !== 'left') {
+      sendInput({ action: 'click', ...click, clicks: 1 })
+      return
+    }
+    const timer = setTimeout(() => flushPendingClick(), 260)
+    pendingClickRef.current = { ...click, button: 'left', timer }
+  }, [flushPendingClick, sendInput])
+
+  React.useEffect(() => () => {
+    const pending = pendingClickRef.current
+    if (pending) clearTimeout(pending.timer)
+  }, [])
+
   // Typed characters, gathered and then sent as one. The buffer is flushed
   // ahead of anything that is not a character so the guest never sees a
   // Return arrive before the line it was meant to end.
@@ -1409,6 +1454,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     const state = scrollRef.current
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
+      flushPendingClick()
       const point = framePoint(view, event.clientX, event.clientY)
       if (!point) return
       const { dx, dy } = wheelPixels(event)
@@ -1438,7 +1484,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
         state.timer = null
       }
     }
-  }, [drivingNow, sendInput, surface, view])
+  }, [drivingNow, flushPendingClick, sendInput, surface, view])
 
   const pressRef = React.useRef<{ x: number; y: number; button: 'left' | 'middle' | 'right' } | null>(null)
   const escapeRef = React.useRef(0)
@@ -1470,11 +1516,12 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     const to = point ?? press
     const moved = Math.abs(to.x - press.x) >= DRAG_THRESHOLD_PX || Math.abs(to.y - press.y) >= DRAG_THRESHOLD_PX
     if (moved) sendInput({ action: 'drag', from: { x: press.x, y: press.y }, to: { x: to.x, y: to.y } })
-    else sendInput({ action: 'click', x: press.x, y: press.y, button: press.button })
+    else commitClick({ x: press.x, y: press.y, button: press.button })
   }
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!drivingNow) return
+    flushPendingClick()
     const { key } = event
     if (key === 'Shift' || key === 'Control' || key === 'Alt' || key === 'Meta') return
     event.preventDefault()
@@ -1567,7 +1614,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
       onContextMenu={(event) => {
         if (drivingNow) event.preventDefault()
       }}
-      onBlur={() => flushTyping()}
+      onBlur={() => { flushPendingClick(); flushTyping() }}
       // The ORDINARY ARROW while driving, deliberately. The guest's own pointer
       // is not in the picture — the capture composites no cursor, by design, so
       // there are never two pointers a frame's latency apart — which makes the

@@ -360,7 +360,7 @@ jobs:
           turn_host="$(echo "$current" | jq -r '.env // ""' \
             | awk -F= '$1 == "LIVEKIT_TURN_DOMAIN" { print substr($0, index($0, "=") + 1) }' \
             | tail -1)"
-          turn_host="${turn_host:-bunkhouse-turn.cloud.rassaun.com}"
+          turn_host="${turn_host:-turn.example.com}"
           domains="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
             -G "$base/api/domain.byComposeId" --data-urlencode "composeId=$COMPOSE_ID")"
 

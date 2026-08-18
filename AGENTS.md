@@ -36,7 +36,7 @@ record; "you"/"the coding agent" means whoever is editing this repo. Do not conf
 8. **Memory is human-readable and editable** from the agent's profile. Company knowledge is
    a separate governed layer. Nothing opaque.
 9. **Gated abilities are recorded.** Computer use and remote shell always produce
-   replayable session records surfaced in the observatory.
+   replayable session records surfaced in Activity.
 10. **OpenBooks gets no special treatment.** It connects via its own MCP like any other
     integration. No OpenBooks-specific code in this repo.
 
@@ -126,7 +126,7 @@ no dead code, docs updated in the same change.
    `PagedTable`, secrets are `@braedonsaunders/appkit-crypto` sealers, queues are `@braedonsaunders/appkit-jobs` profiles).
 2. **Backfill the other direction.** When something built here is generalizable beyond
    bunkhouse (mailbox receive engine, employee runtime, MCP client, memory store,
-   procedures, avatar generation, observatory streaming, remote-shell daemon, office-doc
+   procedures, avatar generation, Activity streaming, remote-shell daemon, office-doc
    authoring), build it AppKit-shaped — clean contract, adapters injectable, no bunkhouse
    coupling — and **update the appkit repo directly with the new package** (follow appkit's
    own AGENTS.md gates, commit there), publish it, then consume the released npm version here.
@@ -164,9 +164,9 @@ Never commit on red. Never `ts-ignore` / `eslint-disable` around a gate.
 
 ## Git
 
-Commit atomically to local `main`; stage only files you intentionally touched. End commit
-messages with the Claude co-author trailer. The repo is private during buildout
-(github.com/braedonsaunders/bunkhouse); it is written to be public — no secrets, ever.
+Commit atomically and stage only files you intentionally touched. This repository is public:
+never commit credentials, tenant data, private infrastructure details, or generated artifacts
+that contain real company information.
 
 ## Licensing
 

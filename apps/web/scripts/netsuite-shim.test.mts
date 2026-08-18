@@ -59,7 +59,7 @@ assert.equal(isNetsuiteMcp('not a url'), false)
           : text({ reportData: { rows: 3 } })
       },
     },
-    ns_getSubsidiaries: { execute: async () => text([{ id: '1', name: 'Rassaun Services Inc.' }]) },
+    ns_getSubsidiaries: { execute: async () => text([{ id: '1', name: 'Northstar Services Inc.' }]) },
   } as unknown as ToolSet
   const shimmed = shimNetsuiteTools(tools)
   const result = (await shimmed.ns_runReport!.execute!({ reportId: -202 } as never, opts)) as { isError?: boolean }

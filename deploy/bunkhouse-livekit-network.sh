@@ -7,7 +7,7 @@
 set -eu
 
 STACK_NAME=${BUNKHOUSE_STACK_NAME:-compose-calculate-primary-firewall-7sxxl5}
-NODE_IP=${LIVEKIT_NODE_IP:-10.0.0.101}
+NODE_IP=${LIVEKIT_NODE_IP:?Set LIVEKIT_NODE_IP to the LiveKit host address}
 LIVEKIT_SERVICE="${STACK_NAME}_livekit"
 
 container_id=$(docker ps --filter "label=com.docker.swarm.service.name=${LIVEKIT_SERVICE}" --format '{{.ID}}' | head -1)

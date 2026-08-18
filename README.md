@@ -4,8 +4,8 @@
 
 <p align="center">
   <strong>Open-source AI employees for main-street business.</strong><br />
-  Hire agents with real company mailboxes, jobs, memories, procedures, salaries,
-  and a place on the org chart—then manage them like people, not prompts.
+  Give an agent a real mailbox, a job, governed procedures, a salary, memory,
+  and a place on the org chart—then manage the employee, not a prompt.
 </p>
 
 <p align="center">
@@ -15,149 +15,193 @@
 </p>
 
 <p align="center">
-  <a href="#why-bunkhouse">Why Bunkhouse</a> ·
   <a href="#run-it">Run it</a> ·
+  <a href="#why-bunkhouse">Why Bunkhouse</a> ·
+  <a href="#one-conversation-every-work-surface">Work surfaces</a> ·
   <a href="#what-is-implemented">Features</a> ·
   <a href="#architecture">Architecture</a> ·
-  <a href="#project-status">Status</a> ·
   <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/braedonsaunders/codeflow"><img src=".github/codeflow-card.svg" alt="CodeFlow card—codebase scale and structure snapshot" width="100%" /></a>
+  <img src=".github/assets/screenshots/chat-workspace.png" alt="A Bunkhouse agent conversation with the animated call stage and unified Desktop, Browser, Terminal, Files, and History work surfaces" width="100%" />
 </p>
 
----
-
-<p align="center">
-  <img src=".github/assets/screenshots/office.png" alt="The Bunkhouse office — your agents at their desks, payroll and approvals at a glance" width="100%" />
-</p>
-
-## Why Bunkhouse
-
-Everyone else gives you a canvas. Bunkhouse gives you a coworker with an email address.
-
-Most agent products begin with a chat window and expose prompts, models, and tools as configuration. Bunkhouse begins with the employee record and the company inbox: humans in the company install nothing and learn nothing new — they email the agent at its address on your domain, and it answers.
-
-- **A real email address.** Agents work from Google Workspace, Microsoft 365, or IMAP/SMTP mailboxes on the company's domain. The mail thread is the primary surface and audit anchor.
-- **A job, not a prompt.** Hire from role packs with duties, personality, procedures, and a conservative day-one autonomy posture.
-- **Governed procedures.** Procedures are versioned, assigned, and cited in work. A run keeps the version it actually followed.
-- **Autonomy enforced in the runtime.** External mail, record changes, money-adjacent work, file writes, computer use, shell, and calls each have their own dial.
-- **Salary is the budget.** Each agent has a monthly token budget against the company's provider keys. Overage is visible overtime; Bunkhouse adds no model markup.
-- **Readable memory and real files.** Operators can inspect and correct human-readable memory. Deliverables are genuine DOCX, XLSX, and PDF files stored in connected S3-compatible storage.
-- **A mixed org chart.** Humans and agents share reporting lines, responsibilities, delegation, and escalation.
-- **A desk you can look over.** Chat and calls share one workspace: the conversation or animated call stage stays in the center while Desktop, Browser, Terminal, Files, and History remain available beside it. The live streams stay immediate, and fenced attempts, external effects, frames, and outcomes remain replayable in the observatory.
+<p align="center"><em>Chat, calls, and observable work share one workspace. The conversation stays put while you watch the agent's desktop, browser, terminal, files, or durable history.</em></p>
 
 ## Run it
 
-One command, Docker only:
+Docker is the only prerequisite. A fresh checkout pulls the release image and starts
+PostgreSQL, Redis, the web app, the worker, the remote-computer gateway, and its Guacamole
+sidecar with one command:
 
 ```bash
-git clone https://github.com/braedonsaunders/bunkhouse.git && cd bunkhouse && docker compose up -d
+git clone https://github.com/braedonsaunders/bunkhouse.git && cd bunkhouse && docker compose up -d --wait
 ```
 
-Open <http://localhost:4810> and sign in as `owner@example.com` / `bunkhouse-first-boot` (override `ADMIN_EMAIL` and `ADMIN_PASSWORD` in your shell to choose your own; rotate the first-boot credential after sign-in). The quickstart brings up PostgreSQL 16 — with the same forced-RLS role posture as a real deployment, not a superuser shortcut — Redis 7, the web app, and the background worker, migrating on start. Bunkhouse is alpha software: use disposable or parallel data.
-
-From there, connect what you want the agents to have: provider keys for models, mailboxes on your domain, and S3-compatible storage (`APPKIT_STORAGE_*`) for real file deliverables. The local mail/media lab and the voice plane live in `docker-compose.dev.yml`. Release tags also publish the image as `ghcr.io/braedonsaunders/bunkhouse:<version>`.
-
-### From source
-
-For hacking on Bunkhouse itself: Node 22+, pnpm 10, PostgreSQL 16, Redis 7, and Docker for the mail/media lab.
+Open <http://localhost:4810> and sign in as `owner@example.com` / `bunkhouse-first-boot`.
+Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in your shell or a `.env` file to choose the
+first owner credential, and rotate any evaluation credential before sharing the instance.
+The quickstart migrates on boot and uses named volumes, so its database, object storage, and
+per-agent microVM disk overlays survive container restarts.
 
 ```bash
-cp .env.example .env.local
-pnpm install
-pnpm --filter web db:migrate
-docker compose -f docker-compose.dev.yml up -d
-pnpm dev
+docker compose down       # stop it; keep data
+docker compose down -v    # remove the disposable evaluation data too
 ```
 
-In separate terminals, start the background worker and optional voice agent:
+Bunkhouse runs without an agent desktop. On a Linux host with `/dev/kvm`, start the full
+per-agent microVM desk as part of the same stack:
 
 ```bash
-pnpm --filter web worker
-pnpm --filter web voice-agent
+docker compose --profile desk up -d
 ```
 
-See [operations](docs/operations.md) for backup, restore, and upgrades, and [security](SECURITY.md) before exposing a deployment.
+The desk profile cannot run through Docker Desktop on macOS or Windows because those
+products do not pass `/dev/kvm` into Linux containers. Without a reachable Desk host,
+email, calls, governed documents, connectors, and pure computation remain available;
+browser, terminal, employee-machine files, and desktop fail closed together because they
+are one microVM.
+
+For development from source, deployment, backups, voice, and the local mail/media lab,
+see [Contributing](CONTRIBUTING.md) and [Operations](docs/operations.md).
+
+## Why Bunkhouse
+
+Most agent products begin with a chat window and expose prompts, models, and tools as
+configuration. Bunkhouse begins with an employee record and a company inbox. Coworkers do
+not need new software: they email the agent at its address on the company's domain, and the
+mail thread becomes the primary audit anchor.
+
+- **A real email address.** Connect Google Workspace, Microsoft 365, or IMAP/SMTP on the
+  company's domain. Incremental sync, threading, replies, and attachments are first-class.
+- **A job, not a prompt.** Hire from role packs with duties, personality, governed
+  procedures, working hours, and a conservative day-one autonomy posture.
+- **Procedures that can prove themselves.** Procedures are versioned, assigned, cited in
+  output, and pinned to the revision a run actually followed.
+- **Autonomy enforced in the runtime.** Mail, record changes, money-adjacent work, file
+  writes, calls, shell, desktop, and remote-computer access each have an enforceable dial.
+- **Salary is the budget.** Each agent has a monthly token budget against the company's own
+  model-provider keys. Overage is visible overtime; Bunkhouse adds no model markup.
+- **Readable memory and real files.** Memory is human-readable and editable. Deliverables
+  are genuine DOCX, XLSX, and PDF files stored in connected S3-compatible storage.
+- **A mixed org chart.** Humans and agents share reporting lines, responsibilities,
+  delegation, and escalation.
+- **Evidence instead of theatre.** Computer use, commands, calls, approvals, tool effects,
+  and run outcomes are durable records tied to the employee, run, trigger, and tenant.
+
+## One conversation, every work surface
+
+Calling an agent no longer opens a separate product. **New → Call** creates a conversation
+and replaces the center transcript with the animated live-call stage and controls. The same
+right-hand work surface stays available before, during, and after the call.
+
+| Surface | What the human can see | How the agent works |
+| --- | --- | --- |
+| **Desktop** | The agent's persistent Linux desktop, live or replayed, with the same fullscreen control as every visual surface | A Cloud Hypervisor microVM per agent, headless until a screen is needed; the agent can combine GUI control with direct shell commands on that same machine |
+| **Browser** | A live Chromium screencast in the conversation instead of periodic full-page screenshots | Persistent browser state, programmatic navigation and interaction, frame deduplication, and durable browser steps |
+| **Remote** | An existing company computer over RDP or VNC, in the same work pane | Graphical control through the bundled Guacamole gateway, plus SSH, WinRM, PowerShell-over-SSH, or Telnet commands without opening a terminal window on the remote screen |
+| **Terminal** | The real stdout/stderr and command status from the agent's machine or active remote computer | Direct programmatic execution with run- and session-bound evidence; the terminal view is a reader, not a simulated transcript |
+| **Files** | Files the agent is actively reading or producing, including images and PDFs | Persistent agent homes and ordinary portable files rather than a proprietary document format |
+| **History** | A flyout of tool calls, attempts, effects, calls, and outcomes without leaving the conversation | Cursor-based durable events with push wake-ups, fenced attempts, cancellation propagation, and append-only ledgers |
+
+Remote computers are configured under **Library → Computers** and governed by the one
+company feature switch plus the agent's autonomy dial. The default Docker stack includes
+the Bunkhouse-owned gateway and `guacd`; no Steward service or external Guacamole server is
+required. Credentials are sealed, unsealed only inside the server adapter, and never placed
+in prompts, browser payloads, or event records. See [Remote computers](docs/remote-computers.md)
+and [Desk host](docs/desk-host.md) for the operating contracts.
 
 ## What is implemented
 
-- Tenant-scoped company directory, mixed org chart, agent hiring, onboarding, lifecycle controls, departments, and avatar composition
-- AppKit IAM roles, member assignments, permission overrides, audit views, server-side permission checks, and PostgreSQL RLS
-- Google Workspace, Microsoft 365, and IMAP/SMTP mailbox connections; incremental sync; threaded inbox; outbound replies and attachments
-- Model-agnostic multi-step runtime with provider adapters, salary metering, cost reconciliation, MCP, skills, tools, and governed abilities
-- Versioned procedures, human-readable memory with revision history, company knowledge, and role packs
-- Scheduled duties, assignments, durable deep-work jobs, approval recovery leases, and append-only run evidence
-- Per-agent autonomy by action category, human approvals, actor-attributed decisions, and atomic offboarding controls
-- Browser sessions, shell sessions, real file generation/filing, voice and meeting records, SIP/PBX configuration, SMS, and chat bridges
-- Company settings for models, pricing, identity, mail, phone, documents, storage, retention, research, and access
+- Tenant-scoped company directory, mixed org chart, hiring, onboarding, lifecycle controls,
+  departments, animated avatar composition, working hours, and reporting lines
+- Google Workspace, Microsoft 365, and IMAP/SMTP mailboxes with incremental sync, threaded
+  mail, outbound replies, attachments, internal-address policy, and delivery evidence
+- Provider-neutral multi-step runtime with per-agent models, salary metering, MCP, skills,
+  governed abilities, background work, approvals, cancellation, and recovery
+- Versioned procedures, editable memory with revision history, company knowledge, role
+  packs, scheduled duties, and assignable resources
+- Append-only run events and external-effect ledger, exact SDK tool-call idempotency,
+  adapter-owned domain keys, immutable provenance, and operator reconciliation
+- Browser screencasts, persistent agent homes, shell and terminal records, microVM desktops,
+  remote computers, files, voice calls, meeting records, SIP/PBX, SMS, and chat bridges
+- Company controls for models, pricing, identity, mail, phone, documents, storage, retention,
+  research, feature availability, autonomy, and access
 
-The first validation wedge is the **AR / Collections Clerk** role pack. Its [pilot protocol](docs/validation/ar-collections-pilot.md) defines what a passing pilot must show — invoice accuracy, dunning cadence, dispute handling, promises to pay, approvals, and cost per account. It is a protocol, not customer proof: no real-business pilot has been completed or published yet.
+### Verified claims
 
-### Verified, not just designed
+The governance suite exercises the real runtime against a fully migrated PostgreSQL:
 
-The four claims this README leans on are asserted by tests against the real runtime and a real, fully migrated PostgreSQL on every CI run:
+- tenant-owned tables use forced row-level security, not query-discipline isolation;
+- material ledgers reject update and delete at the database boundary;
+- autonomy blocks or parks work before an ability body performs an external action;
+- procedure citations remain pinned to the revision used by the run;
+- repeated and recovered external effects preserve the correct idempotency identity.
 
-- **Tenant isolation** — every table carrying a `tenant_id` is under *forced* row-level security; an unqualified query comes back already filtered, and writing into another tenant violates the policy, not just convention.
-- **Append-only evidence** — all eleven ledger tables (`run_events`, `token_spend`, `mail_messages`, `audit_log`, procedure and memory revisions, browser steps, call turns, filings, prices, reconciliations) reject `UPDATE` and `DELETE` at the database boundary, for every role including the bypass handle.
-- **Autonomy enforced in the runtime** — `forbidden` blocks before the tool body runs, `approval` files a request and parks the run, an unconfigured category defaults to `approval`, and the governed category follows what is being asked for rather than which tool the model reached for.
-- **Procedure pinning** — a run's citation carries the version it actually followed, and that revision still says what it said after the procedure moves on.
-
-See [`governance.test.mts`](apps/web/scripts/governance.test.mts) and [`db-claims.test.mts`](apps/web/scripts/db-claims.test.mts).
+See [`governance.test.mts`](apps/web/scripts/governance.test.mts) and
+[`db-claims.test.mts`](apps/web/scripts/db-claims.test.mts).
 
 ## A look around
 
 | | |
 | --- | --- |
-| ![A mixed org chart of agents and humans](.github/assets/screenshots/org-chart.png) *The org chart — agents and humans on the same reporting lines.* | ![An agent's mailbox](.github/assets/screenshots/mail.png) *An agent's mailbox on the company domain — the thread is the audit anchor.* |
-| ![The autonomy dial per agent and action category](.github/assets/screenshots/autonomy.png) *The autonomy dial: forbidden, approval, notify, trusted — enforced in the runtime, not the prompt.* | ![A completed run with cost, outcome, and evidence](.github/assets/screenshots/run.png) *A run: what it set out to do, what it cost to the cent, and 66 ledger events of evidence.* |
-| ![Role packs with duties, resources, and salaries](.github/assets/screenshots/roles.png) *Roles — the jobs agents can hold, each with duties, resources, and a salary.* | |
-
-## Security and operating model
-
-Tenant-owned rows are protected by PostgreSQL row-level security and application authorization. Material ledgers reject update and delete at the database boundary. Approval and run execution use recoverable leases; external effects preserve exact tool-call identities, accept adapter-owned domain keys, and replay the corresponding immutable intent after a fenced recovery. Delivery remains dependent on each external provider's idempotency support. Sensitive values are sealed with AES-GCM through AppKit and never belong in source control.
-
-The worker separates discovery heartbeats from deep agent work, so one long mail response or duty cannot stall all tenants. Redis can republish unfinished database-backed work; PostgreSQL and object storage remain the authoritative backup set.
+| ![The Bunkhouse office with agents at their desks](.github/assets/screenshots/office.png) *The office shows who is working, free, or waiting.* | ![A mixed org chart of agents and humans](.github/assets/screenshots/org-chart.png) *Agents and humans share reporting lines.* |
+| ![An agent's mailbox](.github/assets/screenshots/mail.png) *The mailbox on the company domain is the primary surface and audit anchor.* | ![The autonomy dial per agent and action category](.github/assets/screenshots/autonomy.png) *Autonomy is enforced by action category in the runtime.* |
+| ![A completed run with cost, outcome, and evidence](.github/assets/screenshots/run.png) *A run ties intent, cost, effects, and evidence together.* | ![Role packs with duties, resources, and salaries](.github/assets/screenshots/roles.png) *Roles carry duties, governed resources, and a suggested salary.* |
 
 ## Architecture
 
 ```text
-apps/web          Next.js HR application, APIs, worker, mail, voice, observatory
-packages/runtime  provider-neutral agent loop, context, tools, autonomy, metering
+apps/web          Next.js HR application, APIs, worker, mail, voice, Activity, work surfaces
+packages/runtime  provider-neutral employee loop, context, tools, autonomy, metering
 packages/roles    MIT-licensed first-party role packs
-migrations        additive PostgreSQL schema, RLS, lifecycle, and ledger controls
-@braedonsaunders/appkit-*       published AppKit packages used by every application layer
+migrations        additive PostgreSQL schema, forced RLS, lifecycle and ledger controls
+AppKit            published @braedonsaunders/appkit-* packages shared across every layer
 ```
 
 | Layer | Implementation |
 | --- | --- |
 | Web | Next.js 16, React 19, Tailwind CSS 4, AppKit |
-| Language | TypeScript 5.9, strict workspace checks |
+| Language | TypeScript 5.9 with strict workspace checks |
 | Database | PostgreSQL 16, Drizzle ORM, forced RLS |
 | Jobs | Redis 7 and BullMQ |
 | Storage | S3-compatible objects plus immutable file ledger |
 | Models | Per-agent provider and model through runtime adapters |
 | Mail | Gmail, Microsoft Graph, IMAP/SMTP |
 | Voice | LiveKit, Deepgram, ElevenLabs, OpenAI/Google realtime, SIP |
+| Work | Chromium, Cloud Hypervisor, Guacamole, SSH/WinRM, durable terminals |
 | Documents | DOCX, XLSX, PDF, templates, connected filing |
 
-Bunkhouse is built on [AppKit](https://github.com/braedonsaunders/appkit), the shared design, tenancy, IAM, jobs, storage, documents, sandbox, and communications foundation.
+Bunkhouse is built on [AppKit](https://github.com/braedonsaunders/appkit), its shared design,
+tenancy, IAM, jobs, storage, documents, sandbox, communications, Desk, and remote-session
+foundation.
 
-## Project status
+## Security and project status
 
-Bunkhouse is alpha software. The core product is broad and functional, but it has not completed an independent security audit, accessibility audit, or published real-business pilot. Evaluate it with synthetic or parallel data, keep autonomy conservative, review every external action, and test backup restoration before relying on it.
+Tenant-owned rows are protected by PostgreSQL row-level security and server authorization.
+Material ledgers reject update and delete at the database boundary. Approval and execution
+use recoverable leases. Sensitive configuration is sealed with AES-GCM through AppKit and
+never belongs in source control. Read [Security](SECURITY.md) before exposing a deployment.
+
+Bunkhouse is **alpha software**. It has not completed an independent security audit,
+accessibility audit, or published real-business pilot. Evaluate it with synthetic or
+parallel data, keep autonomy conservative, review external actions, and test restoration
+before relying on it. The first measurable role-pack validation protocol is the
+[AR / Collections pilot](docs/validation/ar-collections-pilot.md); it is a protocol, not a
+claim of customer proof.
 
 ## Community
 
-- [GitHub Issues](https://github.com/braedonsaunders/bunkhouse/issues) for reproducible defects and scoped proposals
-- [CONTRIBUTING.md](CONTRIBUTING.md) for setup and engineering standards
-- [SECURITY.md](SECURITY.md) for private vulnerability reporting and deployment responsibilities
+- [GitHub Issues](https://github.com/braedonsaunders/bunkhouse/issues) for reproducible
+  defects and scoped proposals
+- [Contributing](CONTRIBUTING.md) for setup and engineering standards
+- [Security](SECURITY.md) for private vulnerability reporting and deployment responsibilities
 
 ## License
 
-The core is licensed under **[GNU Affero General Public License v3.0](LICENSE)**. `packages/roles` and future skill packs are MIT-licensed.
-
-The split is deliberate. AGPL on the core means anyone can run, inspect, and modify Bunkhouse — including offering it as a service — but improvements to the platform itself stay open. MIT on role and skill packs means the things *you* author on top of it — job descriptions, procedures, competences — are portable: yours to publish, sell, or move to another system without a license question attached. The platform stays open; the ecosystem stays yours.
+The core is licensed under **[GNU Affero General Public License v3.0](LICENSE)**.
+`packages/roles` and future skill packs are MIT-licensed so jobs, procedures, and
+competences remain portable. The platform stays open; the ecosystem stays yours.
 
 Copyright © 2026 Bunkhouse contributors.

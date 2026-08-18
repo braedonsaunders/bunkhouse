@@ -18,8 +18,8 @@ RUN corepack enable && corepack prepare pnpm@10.30.0 --activate
 # Native tools the SERVER's own work depends on — and only those. Everything
 # the agents use with their hands (chromium, libreoffice, git, tesseract,
 # bubblewrap) lives in the desk guest base image now, not here: agent
-# execution happens inside a per-agent microVM (docs/agent-desk.md §6.3,
-# docs/desk-host.md), so shipping agent tools in the app image would only
+# execution happens inside a per-agent microVM (docs/desk-host.md), so shipping
+# agent tools in the app image would only
 # grow the surface of the containers that hold the keys.
 # - ca-certificates: the system trust store. Node carries its own CA bundle, so
 #   its absence is invisible until a native dependency needs TLS: LiveKit's
@@ -33,7 +33,7 @@ RUN corepack enable && corepack prepare pnpm@10.30.0 --activate
 # - libreoffice-writer + fonts-liberation: the tier-0 document pipeline.
 #   create_document and the template merge render through @braedonsaunders/appkit-office's
 #   soffice call ON THE SERVER — that ability is deliberately better than an
-#   agent driving LibreOffice by hand in the guest (docs/agent-desk.md §2),
+#   agent driving LibreOffice by hand in the guest (docs/desk-host.md),
 #   so the binary stays here even though the guest image also carries one
 #   for GUI work. Server-side rendering without fonts produces tofu.
 RUN apt-get update \

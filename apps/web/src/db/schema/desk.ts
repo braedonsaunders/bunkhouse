@@ -5,9 +5,8 @@ import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
  * The desk ledger (docs/agent-desk.md §3.19): one session per lease, one
  * append-only typed event stream. On a desk the agent types in a terminal and
  * clicks in a GUI as one continuous piece of work, so this is ONE ledger — an
- * operator replays a session end to end rather than interleaving three tables
- * by timestamp. It supersedes browser_sessions/browser_steps/shell_sessions
- * for new writes; those tables keep their historical rows as audit history.
+ * operator replays a session end to end rather than interleaving separate
+ * browser, shell, and desktop tables by timestamp.
  *
  * Because per-command approval moved off the agent path (§3.22), this ledger
  * carries more of the governance weight than the ones it replaces. Events are
@@ -96,6 +95,9 @@ export type DeskLedgerEventDetail = {
   cwd?: string
   exitCode?: number | null
   signal?: string | null
+  commandStatus?: 'completed' | 'failed' | 'timeout'
+  startedAt?: string
+  finishedAt?: string
   /** Combined stdout+stderr, capped at record time. */
   output?: string
   outputTruncated?: boolean
@@ -103,6 +105,8 @@ export type DeskLedgerEventDetail = {
   x?: number
   y?: number
   button?: 'left' | 'middle' | 'right'
+  /** One for an ordinary click, two when the operator double-clicked. */
+  clicks?: 1 | 2
   combo?: string
   dx?: number
   dy?: number

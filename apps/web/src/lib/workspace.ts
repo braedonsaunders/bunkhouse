@@ -1,6 +1,4 @@
 import 'server-only'
-import { mkdir, readdir, rm, rmdir, stat, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve, sep } from 'node:path'
 import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { runSandbox } from '@braedonsaunders/appkit-sandbox'
@@ -10,14 +8,23 @@ import {
   deskEvents,
   deskSessions,
   people,
-  shellSessions,
   tenantSettings,
   WORKSPACE_POLICY_KEY,
   type WorkspacePolicySettings,
 } from '../db/schema'
 import { db } from '../db/client'
-import { deskRuntimeStatus, resolveShellExecutionPolicy, type DeskRuntimeStatus } from './desk'
+import {
+  deskRuntimeStatus,
+  configuredDeskRunner,
+  ensurePersonDesk,
+  execOnDesk,
+  guestWorkspacePath,
+  recordDeskLedgerEvent,
+  resolveShellExecutionPolicy,
+  type DeskRuntimeStatus,
+} from './desk'
 import { deskEventPresentation } from './call-activity'
+import { resolveDeskFeatures } from './desk-policy'
 import type { RunDeskEventRow } from '../components/run-tables'
 
 /**
@@ -27,42 +34,15 @@ import type { RunDeskEventRow } from '../components/run-tables'
  * home IS the workspace now, and `run_shell` plus the workspace file abilities
  * live there, over the desk-runner. What stays here is what never needed a
  * machine at all: `run_script` (QuickJS, in-process — tier 0, pure
- * computation), the tenant's workspace policy, and housekeeping for the legacy
- * homes root, which remains only as the skill-bundle staging area and as
- * history for pre-desk deployments.
+ * computation), the tenant's workspace policy, and housekeeping for the
+ * canonical homes inside employee microVMs.
  */
-
-function homesRoot(): string {
-  return resolve(/* turbopackIgnore: true */ process.env.BUNKHOUSE_AGENT_HOMES ?? '/data/agent-homes')
-}
-
-export async function agentHomePath(tenantId: string, personId: string): Promise<string> {
-  const home = join(/* turbopackIgnore: true */ homesRoot(), tenantId, personId)
-  await mkdir(/* turbopackIgnore: true */ home, { recursive: true })
-  return home
-}
-
-/** Resolve a path inside the home, refusing anything that escapes it. */
-function insideHome(home: string, relativePath: string): string {
-  const target = resolve(/* turbopackIgnore: true */ home, relativePath)
-  if (target !== home && !target.startsWith(home + sep)) {
-    throw new Error('Path escapes the workspace.')
-  }
-  return target
-}
-
-/** Is this path inside that root, on a separator boundary? */
-export function insideRoot(root: string, candidate: string): boolean {
-  const base = resolve(root)
-  const target = resolve(candidate)
-  return target === base || target.startsWith(base.endsWith(sep) ? base : base + sep)
-}
 
 /** Where a loaded skill's bundle lands inside the agent's home. */
 export const SKILLS_FOLDER = 'skills'
 
 /**
- * Write one skill's files into the agent's staging home so its instructions
+ * Write one skill's files into the agent's canonical microVM home so its instructions
  * can refer to them. Rewritten from the database on every load, so a file an
  * agent altered on a previous run never becomes what the skill "is".
  *
@@ -73,24 +53,58 @@ export const SKILLS_FOLDER = 'skills'
 export async function materializeSkillBundle(args: {
   tenantId: string
   personId: string
+  runId: string
   slug: string
-  files: { path: string; bytes: Uint8Array }[]
+  files: { path: string; bytes: Uint8Array; isScript: boolean }[]
 }): Promise<{ path: string; files: string[] }> {
-  const home = await agentHomePath(args.tenantId, args.personId)
-  const root = insideHome(home, join(/* turbopackIgnore: true */ SKILLS_FOLDER, args.slug))
-  await rm(/* turbopackIgnore: true */ root, { recursive: true, force: true })
-  await mkdir(/* turbopackIgnore: true */ root, { recursive: true })
-
-  const written: string[] = []
-  for (const file of args.files) {
-    // Belt and braces: install already refuses unsafe paths, but this is the
-    // moment one would actually escape, so it is checked again here.
-    const target = insideHome(root, file.path)
-    await mkdir(/* turbopackIgnore: true */ dirname(target), { recursive: true })
-    await writeFile(/* turbopackIgnore: true */ target, file.bytes)
-    written.push(file.path)
+  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(args.slug)) throw new Error('Skill slug is not safe to materialize.')
+  const features = await resolveDeskFeatures(args.tenantId)
+  if (!features.desk) throw new Error('Skill files require the employee machine, which is disabled for this company.')
+  const relativeRoot = `.bunkhouse/runs/${args.runId}/${SKILLS_FOLDER}/${args.slug}`
+  const root = guestWorkspacePath(relativeRoot)
+  const { deskId } = await ensurePersonDesk({ tenantId: args.tenantId, personId: args.personId })
+  const execute = async (command: readonly string[], timeoutMs = 30_000): Promise<void> => {
+    const outcome = await execOnDesk({ deskId, command, cwd: '/home/agent', timeoutMs, outputLimitKb: 64 })
+    if (outcome.status !== 'completed') {
+      throw new Error(outcome.output.trim() || `The employee machine could not stage the skill (${outcome.status}).`)
+    }
   }
-  return { path: `~/${SKILLS_FOLDER}/${args.slug}`, files: written }
+  const written: string[] = []
+  try {
+    await execute(['/bin/rm', '-rf', '--', root])
+    await execute(['/usr/bin/install', '-d', '-m', '0700', root])
+    for (const file of args.files) {
+      const target = guestWorkspacePath(`${relativeRoot}/${file.path}`)
+      const parent = target.slice(0, target.lastIndexOf('/'))
+      await execute(['/usr/bin/install', '-d', '-m', '0700', parent])
+      await execute(['/usr/bin/install', '-m', file.isScript ? '0700' : '0600', '/dev/null', target])
+      // The Desk request body is bounded. Chunking keeps even the maximum
+      // 2 MB skill member well below that bound without inventing a second
+      // upload service beside the microVM.
+      for (let offset = 0; offset < file.bytes.byteLength; offset += 128 * 1024) {
+        const encoded = Buffer.from(file.bytes.slice(offset, offset + 128 * 1024)).toString('base64')
+        await execute([
+          '/usr/bin/node',
+          '-e',
+          "require('node:fs').appendFileSync(process.argv[1],Buffer.from(process.argv[2],'base64'))",
+          target,
+          encoded,
+        ])
+      }
+      written.push(file.path)
+      await recordDeskLedgerEvent({
+        tenantId: args.tenantId,
+        personId: args.personId,
+        runId: args.runId,
+        kind: 'file_write',
+        detail: { target: target.replace('/home/agent/', '~/'), title: `Loaded skill ${args.slug}` },
+      })
+    }
+  } catch (error) {
+    await execOnDesk({ deskId, command: ['/bin/rm', '-rf', '--', root], cwd: '/home/agent', timeoutMs: 30_000, outputLimitKb: 16 }).catch(() => undefined)
+    throw error
+  }
+  return { path: `~/${relativeRoot}`, files: written }
 }
 
 export async function getWorkspacePolicy(tenantId: string): Promise<WorkspacePolicySettings> {
@@ -138,10 +152,7 @@ export type ShellSessionView = {
 
 /**
  * The operator's workspace surface: desk-runner health plus recent shell
- * history. New commands land on the desk ledger (desk_events); the
- * shell_sessions rows shown here are the audit history of the pre-desk
- * surface and stop growing. The observatory's desk replay supersedes this
- * view when the UI workstream lands.
+ * history projected directly from the one append-only Desk ledger.
  */
 export async function workspaceRuntimeView(tenantId: string): Promise<{
   runtime: DeskRuntimeStatus
@@ -153,32 +164,39 @@ export async function workspaceRuntimeView(tenantId: string): Promise<{
     app.withTenantContext(tenantId, () =>
       app.db
         .select({
-          id: shellSessions.id,
-          executionId: shellSessions.executionId,
+          id: deskEvents.id,
           personName: people.name,
-          command: shellSessions.command,
-          cwd: shellSessions.cwd,
-          status: shellSessions.status,
-          exitCode: shellSessions.exitCode,
-          output: shellSessions.output,
-          outputTruncated: shellSessions.outputTruncated,
-          durationMs: shellSessions.durationMs,
-          startedAt: shellSessions.startedAt,
-          finishedAt: shellSessions.finishedAt,
+          detail: deskEvents.detail,
+          at: deskEvents.at,
         })
-        .from(shellSessions)
-        .innerJoin(people, eq(people.id, shellSessions.personId))
-        .orderBy(desc(shellSessions.startedAt))
+        .from(deskEvents)
+        .innerJoin(deskSessions, eq(deskSessions.id, deskEvents.sessionId))
+        .innerJoin(people, eq(people.id, deskSessions.personId))
+        .where(eq(deskEvents.kind, 'shell_command'))
+        .orderBy(desc(deskEvents.at))
         .limit(25),
     ),
   ])
   return {
     runtime,
-    sessions: sessions.map((session) => ({
-      ...session,
-      startedAt: session.startedAt.toISOString(),
-      finishedAt: session.finishedAt?.toISOString() ?? null,
-    })),
+    sessions: sessions.map((session) => {
+      const startedAt = session.detail.startedAt ?? session.at.toISOString()
+      const finishedAt = session.detail.finishedAt ?? session.at.toISOString()
+      return {
+        id: session.id,
+        executionId: null,
+        personName: session.personName,
+        command: session.detail.command ?? '',
+        cwd: session.detail.cwd ?? '.',
+        status: session.detail.commandStatus ?? (session.detail.exitCode === 0 ? 'completed' : 'failed'),
+        exitCode: session.detail.exitCode ?? null,
+        output: session.detail.output ?? '',
+        outputTruncated: session.detail.outputTruncated ?? false,
+        durationMs: Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt)),
+        startedAt,
+        finishedAt,
+      }
+    }),
   }
 }
 
@@ -365,45 +383,41 @@ export async function deskOperationsView(
 }
 
 /**
- * Housekeeping: apply the tenant's retention policy to the staging homes root.
- * Deletes only files whose last modification is older than the configured
- * window, then prunes directories left empty. With retention off (the
- * default), this touches nothing. Idempotent — safe on every tick.
+ * Housekeeping for the real workspace: each employee's /home/agent inside its
+ * persistent microVM. Runtime-owned browser/desktop profiles are excluded;
+ * ordinary files and loaded skill bundles follow the tenant's retention
+ * window. With retention off (the default), this touches nothing.
  */
 export async function tidyWorkspaces(tenantId: string): Promise<{ deleted: number }> {
   const policy = await getWorkspacePolicy(tenantId)
   if (!policy.retentionDays || policy.retentionDays < 1) return { deleted: 0 }
-  const cutoff = Date.now() - policy.retentionDays * 24 * 60 * 60 * 1000
-  const tenantRoot = join(/* turbopackIgnore: true */ homesRoot(), tenantId)
+  if (!configuredDeskRunner()) return { deleted: 0 }
+  const app = db()
+  const agents = await app.withTenantContext(tenantId, () =>
+    app.db.select({ id: people.id }).from(people).where(eq(people.kind, 'agent')),
+  )
   let deleted = 0
-
-  const sweep = async (dir: string, isRoot: boolean): Promise<void> => {
-    const names = await readdir(/* turbopackIgnore: true */ dir).catch(() => null)
-    if (names === null) return
-    for (const name of names) {
-      const full = join(/* turbopackIgnore: true */ dir, name)
-      const info = await stat(/* turbopackIgnore: true */ full).catch(() => null)
-      if (!info) continue
-      if (info.isDirectory()) {
-        await sweep(full, false)
-      } else if (info.mtime.getTime() < cutoff) {
-        await rm(/* turbopackIgnore: true */ full, { force: true }).catch(() => {})
-        deleted += 1
-      }
+  const sweepSource = String.raw`
+const fs=require('node:fs');const path=require('node:path');
+const root='/home/agent',cutoff=Date.now()-Number(process.argv[1])*86400000;
+const protectedTop=new Set(['.cache','.config','.local']);let deleted=0;
+function sweep(dir,isRoot){for(const name of fs.readdirSync(dir)){if(isRoot&&protectedTop.has(name))continue;const full=path.join(dir,name);let info;try{info=fs.lstatSync(full)}catch{continue}if(info.isDirectory()&&!info.isSymbolicLink()){sweep(full,false);try{if(fs.readdirSync(full).length===0)fs.rmdirSync(full)}catch{}}else if(info.mtimeMs<cutoff){try{fs.unlinkSync(full);deleted++}catch{}}}}
+sweep(root,true);process.stdout.write(String(deleted));`
+  for (const agent of agents) {
+    try {
+      const { deskId } = await ensurePersonDesk({ tenantId, personId: agent.id })
+      const outcome = await execOnDesk({
+        deskId,
+        command: ['/usr/bin/node', '-e', sweepSource, String(policy.retentionDays)],
+        cwd: '/home/agent',
+        timeoutMs: 120_000,
+        outputLimitKb: 16,
+      })
+      if (outcome.status === 'completed') deleted += Number.parseInt(outcome.output.trim(), 10) || 0
+    } catch {
+      // One stopped or unhealthy employee machine must not block every other
+      // employee's retention pass; the next worker tick retries it.
     }
-    if (!isRoot) {
-      const remaining = await readdir(/* turbopackIgnore: true */ dir).catch(() => null)
-      if (remaining !== null && remaining.length === 0)
-        await rmdir(/* turbopackIgnore: true */ dir).catch(() => {})
-    }
-  }
-
-  // Agent home directories themselves are kept; only their contents age out.
-  const homes = await readdir(/* turbopackIgnore: true */ tenantRoot).catch(() => [])
-  for (const personId of homes) {
-    const home = join(/* turbopackIgnore: true */ tenantRoot, personId)
-    const info = await stat(/* turbopackIgnore: true */ home).catch(() => null)
-    if (info?.isDirectory()) await sweep(home, true)
   }
   return { deleted }
 }

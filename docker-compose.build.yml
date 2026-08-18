@@ -1,0 +1,21 @@
+# Source-build override for contributors. The public quickstart pulls the
+# release image; this file deliberately opts every Bunkhouse process back into
+# one local workspace image.
+
+services:
+  web: &bunkhouse-local
+    image: bunkhouse:quickstart
+    pull_policy: build
+    build: .
+
+  worker:
+    <<: *bunkhouse-local
+
+  remote-gateway:
+    <<: *bunkhouse-local
+
+  desk-runner:
+    <<: *bunkhouse-local
+
+  egress-proxy:
+    <<: *bunkhouse-local

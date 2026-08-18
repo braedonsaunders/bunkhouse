@@ -287,7 +287,7 @@ export function ChatWorkSurface({
   personName: string
 }) {
   const [activeTab, setActiveTab] = React.useState<'desktop' | 'browser' | 'terminal' | 'files' | 'remote' | 'history'>('desktop')
-  const [surface, setSurface] = React.useState<WorkSurface>({ kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [] })
+  const [surface, setSurface] = React.useState<WorkSurface>({ kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], focus: null })
   const followedSurfaceRef = React.useRef('idle')
 
   React.useEffect(() => {
@@ -313,17 +313,10 @@ export function ChatWorkSurface({
   }, [threadId])
 
   React.useEffect(() => {
-    const suggested = surface.kind !== 'call' && surface.remote
-      ? 'remote'
-      : surface.kind === 'browser' || surface.kind === 'terminal' || surface.kind === 'desktop'
-        ? surface.kind
-        : null
-    if (!suggested) return
-    const key = `${suggested}:${surface.runId ?? ''}${surface.remote ? `:${surface.remote.sessionId}` : ''}`
-    if (key === followedSurfaceRef.current) return
-    followedSurfaceRef.current = key
-    setActiveTab(suggested)
-  }, [surface])
+    if (!surface.focus || surface.focus.key === followedSurfaceRef.current) return
+    followedSurfaceRef.current = surface.focus.key
+    setActiveTab(surface.focus.tab)
+  }, [surface.focus])
 
   return (
     <section className="flex size-full min-h-0 flex-col bg-surface" aria-label={`${personName}'s work surfaces`}>

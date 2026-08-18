@@ -1,8 +1,6 @@
 import 'server-only'
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
-  browserSessions,
-  browserSteps,
   callSessions,
   chatThreads,
   deskEvents,
@@ -18,11 +16,13 @@ import { db } from '../db/client'
 import { conversationIdFor } from './chat-threads'
 import type { TerminalSurfaceEntry } from '@braedonsaunders/appkit-remote-sessions/react'
 
-const DISTINCT_BROWSER_DESK_EVENTS = new Set(['navigate', 'read', 'screenshot'])
+const DISTINCT_BROWSER_DESK_EVENTS = new Set(['navigate', 'read', 'browser_close'])
 const SHARED_BROWSER_DESK_EVENTS = new Set(['click', 'type', 'key', 'scroll'])
+const DESKTOP_DESK_EVENTS = new Set(['screen_open', 'app_launch', 'move', 'click', 'type', 'key', 'scroll', 'drag', 'window_focus', 'screenshot'])
 
 function isBrowserDeskEvent(kind: string, detail: Record<string, unknown>): boolean {
   if (DISTINCT_BROWSER_DESK_EVENTS.has(kind)) return true
+  if (kind === 'screenshot') return typeof detail.url === 'string' || typeof detail.title === 'string'
   return (
     SHARED_BROWSER_DESK_EVENTS.has(kind) &&
     (typeof detail.url === 'string' ||
@@ -88,12 +88,20 @@ export type ChatTerminalWorkSurface = {
   }
 }
 
+export type ChatWorkFocus = {
+  tab: 'desktop' | 'browser' | 'terminal' | 'files' | 'remote'
+  /** Changes for every new observable action, even inside the same run. */
+  key: string
+  at: string
+}
+
 export type ChatWorkSurface = {
   history: ChatWorkHistoryEvent[]
   remote: ChatRemoteWorkSurface | null
   recentBrowser: ChatBrowserWorkSurface | null
   recentTerminal: ChatTerminalWorkSurface | null
   files: ChatWorkFile[]
+  focus: ChatWorkFocus | null
 } & (
   | { kind: 'idle'; runId: null }
   | { kind: 'desktop'; runId: string; status: string }
@@ -116,12 +124,20 @@ function eventLabel(kind: string, payload: Record<string, unknown>): string {
   return kind.replaceAll('_', ' ')
 }
 
+function workTabForTool(toolName: unknown): ChatWorkFocus['tab'] | null {
+  if (typeof toolName !== 'string') return null
+  if (toolName === 'run_shell') return 'terminal'
+  if (toolName === 'open_desktop' || toolName.startsWith('desktop_')) return 'desktop'
+  if (toolName.startsWith('browser_')) return 'browser'
+  return null
+}
+
 /** Resolve the live surface and durable execution history for one conversation. */
 export async function chatWorkSurface(tenantId: string, threadId: string): Promise<ChatWorkSurface> {
   const app = db()
   return app.withTenantContext(tenantId, async () => {
     const [thread] = await app.db.select({ id: chatThreads.id }).from(chatThreads).where(eq(chatThreads.id, threadId)).limit(1)
-    if (!thread) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [] }
+    if (!thread) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], focus: null }
     const threadRuns = await app.db
       .select({ id: runs.id, status: runs.status })
       .from(runs)
@@ -129,7 +145,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
       .orderBy(desc(runs.startedAt))
       .limit(100)
     const run = threadRuns[0]
-    if (!run) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [] }
+    if (!run) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], focus: null }
 
     const conversationFiles = await app.db
       .select({
@@ -191,6 +207,11 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
         at: event.at.toISOString(),
       }))
       .reverse()
+    const newestToolFocus = historyRows.flatMap<ChatWorkFocus>((event) => {
+      if (event.kind !== 'tool_call') return []
+      const tab = workTabForTool(event.payload.toolName)
+      return tab ? [{ tab, key: `tool:${event.id}`, at: event.at.toISOString() }] : []
+    })[0] ?? null
 
     // The stage is durable across turns. Keep the last graphical browser and
     // shell ledger available after the live run closes and after a page reload.
@@ -211,7 +232,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
       .orderBy(desc(deskEvents.at), desc(deskEvents.seq))
       .limit(200)
     const recentBrowserRow = recentDeskRows.find((event) => isBrowserDeskEvent(event.kind, event.detail)) ?? null
-    let recentBrowser: ChatBrowserWorkSurface | null = recentBrowserRow
+    const recentBrowser: ChatBrowserWorkSurface | null = recentBrowserRow
       ? {
           kind: 'browser',
           runId: recentBrowserRow.runId,
@@ -225,36 +246,6 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
           },
         }
       : null
-    if (!recentBrowser) {
-      const [legacy] = await app.db
-        .select({
-          runId: browserSessions.runId,
-          status: browserSessions.status,
-          fileId: browserSteps.screenshotFileId,
-          action: browserSteps.action,
-          detail: browserSteps.detail,
-          at: browserSteps.at,
-        })
-        .from(browserSteps)
-        .innerJoin(browserSessions, eq(browserSessions.id, browserSteps.sessionId))
-        .where(inArray(browserSessions.runId, threadRuns.map((candidate) => candidate.id)))
-        .orderBy(desc(browserSteps.at), desc(browserSteps.seq))
-        .limit(1)
-      if (legacy) {
-        recentBrowser = {
-          kind: 'browser',
-          runId: legacy.runId,
-          status: legacy.status,
-          frame: {
-            fileId: legacy.fileId,
-            title: legacy.detail.title ?? legacy.detail.url ?? 'Browser',
-            url: legacy.detail.url ?? null,
-            action: legacy.detail.target ? `${legacy.action}: ${legacy.detail.target}` : legacy.action,
-            at: legacy.at.toISOString(),
-          },
-        }
-      }
-    }
     const recentShellRow = recentDeskRows.find((event) => event.kind === 'shell_command') ?? null
     const shellRows = recentShellRow
       ? recentDeskRows
@@ -292,8 +283,6 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
           },
         }
       : null
-    const retained = { history, recentBrowser, recentTerminal, files: workFiles }
-
     const [remoteRow] = await app.db
       .select({
         sessionId: remoteSessions.id,
@@ -348,6 +337,42 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
           }
         : null,
     } : null
+
+    const latestConversationScreenBoundary = recentDeskRows.find(
+      (event) => event.kind === 'screen_open' || event.kind === 'screen_close',
+    ) ?? null
+    const latestDesktopRow = latestConversationScreenBoundary?.kind === 'screen_open'
+      ? recentDeskRows.find((event) => DESKTOP_DESK_EVENTS.has(event.kind) && !isBrowserDeskEvent(event.kind, event.detail)) ?? null
+      : null
+    const focusCandidates: ChatWorkFocus[] = [
+      ...(newestToolFocus ? [newestToolFocus] : []),
+      ...(recentBrowser ? [{
+        tab: 'browser' as const,
+        key: `browser:${recentBrowser.runId}:${recentBrowser.frame.at}`,
+        at: recentBrowser.frame.at,
+      }] : []),
+      ...(recentTerminal ? [{
+        tab: 'terminal' as const,
+        key: `terminal:${recentTerminal.runId}:${recentTerminal.terminal.lastActivityAt}`,
+        at: recentTerminal.terminal.lastActivityAt,
+      }] : []),
+      ...(latestDesktopRow ? [{
+        tab: 'desktop' as const,
+        key: `desktop:${latestDesktopRow.runId}:${latestDesktopRow.sessionId}:${latestDesktopRow.seq}`,
+        at: latestDesktopRow.at.toISOString(),
+      }] : []),
+      ...(remote ? [{
+        tab: 'remote' as const,
+        key: `remote:${remote.sessionId}:${remote.lastActivityAt}`,
+        at: remote.lastActivityAt,
+      }] : []),
+      ...workFiles
+        .filter((file) => file.kind === 'document' || file.kind === 'spreadsheet')
+        .slice(0, 1)
+        .map((file) => ({ tab: 'files' as const, key: `files:${file.id}`, at: file.createdAt })),
+    ]
+    const focus = focusCandidates.sort((left, right) => Date.parse(right.at) - Date.parse(left.at))[0] ?? null
+    const retained = { history, recentBrowser, recentTerminal, files: workFiles, focus }
 
     const [call] = await app.db
       .select({ id: callSessions.id, room: callSessions.room, status: callSessions.status, direction: callSessions.direction, startedAt: callSessions.startedAt })
@@ -475,43 +500,6 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
 
     if (desk?.status === 'active' && latestScreenBoundary?.kind === 'screen_open') {
       return { kind: 'desktop', runId: run.id, status: run.status, ...retained, remote }
-    }
-
-    // Compatibility for sessions created before browser work moved onto Desk.
-    const [browser] = await app.db
-      .select({ id: browserSessions.id, status: browserSessions.status })
-      .from(browserSessions)
-      .where(eq(browserSessions.runId, run.id))
-      .orderBy(desc(browserSessions.startedAt))
-      .limit(1)
-    if (browser) {
-      const [step] = await app.db
-        .select({
-          fileId: browserSteps.screenshotFileId,
-          action: browserSteps.action,
-          detail: browserSteps.detail,
-          at: browserSteps.at,
-        })
-        .from(browserSteps)
-        .where(eq(browserSteps.sessionId, browser.id))
-        .orderBy(desc(browserSteps.seq))
-        .limit(1)
-      if (step && browser.status === 'active') {
-        return {
-          kind: 'browser',
-          runId: run.id,
-          status: browser.status,
-          frame: {
-            fileId: step.fileId,
-            title: step.detail.title ?? step.detail.url ?? 'Browser',
-            url: step.detail.url ?? null,
-            action: step.detail.target ? `${step.action}: ${step.detail.target}` : step.action,
-            at: step.at.toISOString(),
-          },
-          ...retained,
-          remote,
-        }
-      }
     }
 
     // A desk can be intentionally headless. Its latest events still make the

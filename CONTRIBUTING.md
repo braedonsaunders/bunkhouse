@@ -10,6 +10,13 @@ Bunkhouse welcomes complete, auditable contributions. Start with an issue for su
 4. Start the media/mail development services with `docker compose -f docker-compose.dev.yml up -d`.
 5. Run `pnpm dev`; run the worker separately with `pnpm --filter web worker`.
 
+To exercise the Docker image built from the current checkout instead of the published
+quickstart image:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build --wait
+```
+
 Before submitting, run:
 
 ```bash
@@ -36,4 +43,3 @@ BUNKHOUSE_TEST_DB_URL=postgresql://postgres:postgres@localhost:55437/bunkhouse_t
 CI runs it on every push and on every release tag.
 
 Changes to tenant data need an additive migration, RLS coverage, server-side permission enforcement, lifecycle validation, actor-attributed before/after audit evidence, and tests proportional to the risk. Never modify an applied migration or weaken a gate to make a change pass.
-

@@ -451,7 +451,8 @@ export function parseDeskInput(value: unknown): DeskInputAction | null {
     case 'click': {
       if (x === null || y === null) return null
       const button = raw.button === 'middle' || raw.button === 'right' ? raw.button : 'left'
-      return { action: 'click', x, y, button }
+      const clicks = raw.clicks === 2 ? 2 : 1
+      return { action: 'click', x, y, button, clicks }
     }
     case 'type':
       return typeof raw.text === 'string' ? { action: 'type', text: raw.text } : null

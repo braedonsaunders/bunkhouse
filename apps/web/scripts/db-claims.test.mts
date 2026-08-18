@@ -262,7 +262,7 @@ const LEDGERS: [table: string, insert: string][] = [
   ['memory_revisions', `insert into memory_revisions (tenant_id, note_id, rev, title, body, edited_by) values ('${T1}', '${RID}', 1, 'A fact', 'As first written', 'test')`],
   ['model_prices', `insert into model_prices (tenant_id, model, input_usd_per_mtok, output_usd_per_mtok, source) values ('${T1}', '${MODEL}', 1.0000, 2.0000, 'manual')`],
   ['cost_reconciliations', `insert into cost_reconciliations (tenant_id, provider, day, model, reported_usd, ledger_usd, drift_usd) values ('${T1}', 'anthropic', current_date, '${MODEL}', 1.0000, 1.0000, 0.0000)`],
-  ['browser_steps', `insert into browser_steps (tenant_id, session_id, seq, action, detail) values ('${T1}', '${RID}', 1, 'click', '{}')`],
+  ['desk_events', `insert into desk_events (tenant_id, session_id, seq, kind, detail) values ('${T1}', '${RID}', 1, 'click', '{}')`],
   ['call_turns', `insert into call_turns (tenant_id, session_id, seq, speaker, text, at_ms) values ('${T1}', '${RID}', 1, 'agent', 'Hello', 0)`],
   ['file_filings', `insert into file_filings (tenant_id, file_id, provider, status) values ('${T1}', '${RID}', 'smb', 'filed')`],
   ['remote_session_leases', `insert into remote_session_leases (tenant_id, session_id, holder, purpose, scope, fence, expires_at) values ('${T1}', '${REMOTE_SESSION}', 'claims', 'test handover', 'observe', 1, now() + interval '5 minutes')`],

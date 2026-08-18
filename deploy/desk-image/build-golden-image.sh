@@ -215,6 +215,7 @@ virt-customize -a "${BASE_RAW}" \
   --copy-in "${AGENT_SRC_DIR}/desk-guest-agent.service:/etc/systemd/system" \
   --copy-in "${AGENT_SRC_DIR}/desk-vsock-bridge.service:/etc/systemd/system" \
   --run-command 'id -u agent >/dev/null 2>&1 || useradd -m -s /bin/bash agent' \
+  --run-command 'install -d -m 0755 -o agent -g agent /home/agent' \
   --run-command 'systemctl enable desk-guest-agent.service desk-vsock-bridge.service' \
   --run-command 'systemctl set-default multi-user.target' \
   --run-command 'apt-get clean'

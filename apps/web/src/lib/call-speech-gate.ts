@@ -257,7 +257,7 @@ function properNounPhrases(text: string): string[] {
       // The first word of a sentence is capitalized by grammar, not by name.
       if (capitalized && !(index === 0 && run.length === 0)) {
         run.push(word)
-        // Punctuation ends a name. Without this, "Hey Braedon, Bill here"
+        // Punctuation ends a name. Without this, "Hey Jordan, Bill here"
         // reads as one three-word name that no ledger will ever contain, and
         // an ordinary greeting gets refused.
         if (/[^A-Za-z0-9&./'-]$/.test(raw)) flush()

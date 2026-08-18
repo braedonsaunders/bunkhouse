@@ -121,10 +121,10 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
   )
   assert.equal(echoOfAgent('yes', 'yes'), false, 'too short to judge — a person agreeing is not an echo')
   assert.equal(echoOfAgent('anything at all', null), false, 'nothing said yet cannot be echoed')
-  // The Marla call: the agent's "I am on it, Braedon. I" came back transcribed
+  // The demo call: the agent's "I am on it, Jordan. I" came back transcribed
   // as "I'm on it." — a contraction is not a difference.
   assert.equal(
-    echoOfAgent("I'm on it.", 'I am on it, Braedon. I'),
+    echoOfAgent("I'm on it.", 'I am on it, Jordan. I'),
     true,
     'STT contracting the agent`s own words is still an echo',
   )
@@ -140,7 +140,7 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
     'an echo of the line before last is still an echo',
   )
   assert.equal(
-    echoOfAgent("I'm leaving now", 'I am on it, Braedon. I'),
+    echoOfAgent("I'm leaving now", 'I am on it, Jordan. I'),
     false,
     'a real caller sentence sharing a couple of words is a real turn',
   )
@@ -234,7 +234,7 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
 {
   const { legalHostname, addressableEndpoint } = await import('../src/lib/voice-recording')
   assert.equal(legalHostname('minio.example.com'), true)
-  assert.equal(legalHostname('10.0.0.101'), true, 'an address is always spellable')
+  assert.equal(legalHostname('192.0.2.10'), true, 'an address is always spellable')
   assert.equal(legalHostname('minio'), true, 'a single label is fine on its own')
   assert.equal(
     legalHostname('compose-compress-haptic-transmitter-po6zer_minio'),

@@ -4,14 +4,13 @@ Everything that runs **inside** a per-agent microVM: the golden disk image the
 desks boot from, and the guest agent that answers the host over vsock. The
 **host** side (Cloud Hypervisor, the desk-runner container) lives elsewhere and
 is not built here — see `apps/web/scripts/desk-runner.mts` and
-`docs/agent-desk.md` for the whole design.
+[`docs/desk-host.md`](../../docs/desk-host.md) for the operating design.
 
 ## What's here
 
 ```
 deploy/desk-image/
-├── build-golden-image.sh          # builds base.raw + vmlinux
-- `initrd` — the matching initramfs; the modular Debian cloud kernel panics without it (`/desk` boots CH with `--initramfs`, auto-detected at `<disks root>/initrd`).
+├── build-golden-image.sh          # builds base.raw + vmlinux + initrd
 ├── agent/
 │   ├── desk-guest-agent.mjs       # the in-guest agent (Node ESM, node built-ins only)
 │   ├── atspi-dump.py              # the agent's one subprocess helper: AT-SPI tree -> JSON
@@ -39,7 +38,7 @@ Outputs land in `deploy/desk-image/out/` by default (override with `OUT_DIR=`).
 Every step is idempotent — re-running skips the fetch, resize, and kernel
 extraction if their outputs already exist; delete an output to force a rebuild.
 Cold-boot latency for an L2 nested desk off this image was measured at
-~123–138s; do not quote bare-metal figures (spec §4, §8).
+~123–138s; do not quote bare-metal figures for a nested deployment.
 
 ## Where the outputs go — `BUNKHOUSE_AGENT_DISKS`
 
@@ -50,6 +49,7 @@ root"). The runner expects:
 <disks root>/
 ├── base.raw        # the golden image (RAW — see below)
 ├── vmlinux         # guest kernel for Cloud Hypervisor direct-kernel boot
+├── initrd          # matching initramfs for the modular Debian kernel
 └── overlays/       # per-desk CoW overlays, created by the runner (not the build)
 ```
 
@@ -86,7 +86,7 @@ console=ttyS0 root=/dev/vda3 rw
 ```
 
 The agent is a plain UNIX-socket server; socat owns all the vsock specifics, so
-the security-critical code stays a small framed-JSON handler (spec §5.1, §8). It
+the security-critical code stays a small framed-JSON handler. It
 runs as **root** because it execs arbitrary agent commands on the agent's
 behalf. Both units are enabled at build time and start at `multi-user.target`.
 
@@ -116,12 +116,12 @@ desk with no titlebars or focus. A second `screen-start` while a screen is up is
 a no-op; `screen-stop` tears the session down (SIGTERM, then SIGKILL after a
 grace) and is idempotent.
 
-XFCE was chosen because §3.9 chose a *conventional* desktop — these models drive
+XFCE is a conventional desktop that computer-use models drive
 familiar desktops measurably better than tiling compositors. XFCE 4.18 is
 X11-native, so there is **no Wayland compositor and no XWayland** in this path:
 XWayland exists to run X11 clients *under Wayland*, the reverse of this stack.
 
-**Perception is pixels-primary with opportunistic AT-SPI (§3.10).** `observe`
+**Perception is pixels-primary with opportunistic AT-SPI.** `observe`
 always returns a real, unscaled PNG of `:99` (`import -window root`), the EWMH
 window list (`wmctrl -lp`, with each window's `appId` read from
 `/proc/<pid>/comm`), and the focused window (`xdotool getactivewindow`, falling
@@ -145,7 +145,7 @@ immediately before invoking. Every walk is bounded three ways: depth 12, 2000
 nodes, and a wall-clock budget; exceeding a bound truncates the tree rather than
 failing it.
 
-**The coordinate contract is identity (§5.1).** Input coordinates are in the
+**The coordinate contract is identity.** Input coordinates are in the
 pixel space of the most recent `observe()`, one to one, because nothing in the
 chain scales: Xvfb runs at exactly the requested size, `import` captures that
 framebuffer unscaled, `observe` reports the dimensions read out of the captured
@@ -167,7 +167,7 @@ never uses `--sync`; ordering is guaranteed instead by chaining the move and the
 click into one `xdotool` invocation, i.e. one X connection, whose requests the
 server processes in order.
 
-**Frames are damage-skipped (§3.13).** `frames-start` captures at the requested
+**Frames are damage-skipped.** `frames-start` captures at the requested
 fps and hashes each PNG (SHA-256); an identical consecutive frame is *not*
 emitted, so a still screen costs one hash per tick and no transport. A keepalive
 re-emits every 5s so a subscriber who joined during a still period is never left
@@ -176,7 +176,7 @@ current capture finishes — so a slow capture or consumer cannot pile up work.
 Frames carry the screen's real dimensions; a differing requested size is logged
 and ignored rather than rescaled.
 
-**Handover is localhost-only with a guest-side TTL (§3.14).**
+**Handover is localhost-only with a guest-side TTL.**
 `handover-begin` starts `x11vnc` bound to `127.0.0.1:5900` (`-localhost -nopw
 -forever -shared`, plus `-viewonly` when the scope is `view`), waits until the
 port actually accepts, and returns `vnc://127.0.0.1:5900` — the **runner** owns
@@ -197,8 +197,8 @@ could reach the ledger from this side.
 `xfce4-session`, `xfwm4`, `xfsettingsd` (xfce4-settings), `at-spi-bus-launcher`
 (at-spi2-core), `import` (imagemagick), `wmctrl`, `xdotool`, `xclip`, `x11vnc`,
 and `python3` with `python3-pyatspi`. All are declared in
-`apps/web/src/lib/base-image.ts` (the single source of truth for image contents,
-§3.16) and re-asserted by the build script.
+`apps/web/src/lib/base-image.ts` (the single source of truth for image contents)
+and re-asserted by the build script.
 
 ## Testing the agent
 

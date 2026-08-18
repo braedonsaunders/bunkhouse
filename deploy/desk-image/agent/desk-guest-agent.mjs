@@ -1086,8 +1086,9 @@ function createDesktopTier() {
       // through — so every desktop child was being told its home directory is
       // "", and writing its profile relative to whatever the cwd happened to
       // be. Measured on the real desk: Chromium's crash database landed in
-      // `/tmp/.config/chromium`.
-      HOME: process.env.HOME || '/root',
+      // `/tmp/.config/chromium`. The controller stays privileged, while its
+      // desktop, browser, and shell children share the canonical agent home.
+      HOME: process.env.HOME || '/home/agent',
       XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR || '/run/desk-agent',
       XDG_CURRENT_DESKTOP: 'XFCE',
       XDG_SESSION_TYPE: 'x11',

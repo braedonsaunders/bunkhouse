@@ -2,7 +2,7 @@
  * How a question becomes a query, and how three opinions become one ranking.
  *
  * The defect these were written for, measured on the live Logbook: the note
- * "Overdue A/R aging breakdown pulled for Braedon Aug 6 2026" ranks 2.2 for the
+ * "Overdue A/R aging breakdown pulled for Jordan Aug 6 2026" ranks 2.2 for the
  * query `aging` and 0.0 for `overdue receivables aging` — because
  * `websearch_to_tsquery` ANDs its terms and the note never says "receivables".
  * A zeroed lexical leg did not return nothing; the score is a weighted sum, so

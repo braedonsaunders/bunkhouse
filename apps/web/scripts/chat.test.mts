@@ -207,7 +207,7 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     resolveRequester: async ({ fallback }) => {
       assert.equal(fallback?.relationship, 'operator', 'the client only asserts authenticated operator standing')
       return {
-        name: 'Braedon Saunders',
+        name: 'Jordan Lee',
         title: 'Owner',
         email: 'braedon@example.test',
         relationship: 'manager' as const,
@@ -227,7 +227,7 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
       threadId,
       userId: USER,
       body: 'Book the dentist for Thursday morning.',
-      requester: { name: 'Braedon Saunders', email: 'braedon@example.test', relationship: 'operator' },
+      requester: { name: 'Jordan Lee', email: 'jordan@example.test', relationship: 'operator' },
     },
     deps,
   )
@@ -245,7 +245,7 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   assert.deepEqual(
     call.input.type === 'chat' ? call.input.requester : undefined,
     {
-      name: 'Braedon Saunders',
+      name: 'Jordan Lee',
       title: 'Owner',
       email: 'braedon@example.test',
       relationship: 'manager',
@@ -282,7 +282,7 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
         {
           id: 'manager-person',
           kind: 'human',
-          name: 'Braedon Saunders',
+          name: 'Jordan Lee',
           title: 'Owner',
           email: 'braedon@example.test',
         },
@@ -485,6 +485,10 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     assert.ok(workSurface.includes(`key: '${tab}'`), `${tab} remains a stable tab even before it has content`)
   }
   assert.ok(workSurface.includes('<FilesWorkStage'), 'conversation files have a previewable work surface')
+  assert.ok(
+    workSurface.includes('surface.focus.key') && workSurface.includes('setActiveTab(surface.focus.tab)'),
+    'each new observable work event selects its matching work tab, including repeated actions in one run',
+  )
   assert.ok(workSurface.includes('surface.history.map'), 'the History tab renders conversation-wide durable steps')
   assert.ok(
     workSurface.includes('&run=${event.runId}&runTab=activity'),
@@ -536,6 +540,20 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   assert.ok(
     workspace.includes("{ key: 'chat', label: 'Chat'") && workspace.includes("{ key: 'call', label: 'Call'"),
     'the left-pane New menu owns both conversation modes',
+  )
+  assert.ok(
+    workspace.includes('<Popover') && workspace.includes('align="start"') && workspace.includes('side="bottom"'),
+    'the New menu is anchored directly below and left-aligned with its trigger',
+  )
+  assert.ok(
+    workspace.includes('threads.length === 0 && canStart ? (') &&
+      workspace.match(/<ConversationWelcome agent=\{agent\} avatar=\{callAvatar\} \/>/g)?.length === 2,
+    'the animated welcome stage appears before a thread exists and inside a newly created empty thread',
+  )
+  assert.equal(
+    workspace.includes('Start a conversation with ${agent.name}.'),
+    false,
+    'the pre-thread center pane no longer falls back to the old text-only empty state',
   )
   assert.equal(
     workspace.slice(workspace.indexOf('<AgentPanel'), workspace.indexOf('</AgentPanel>')).includes('onClick={() => void startCall()}'),
@@ -948,7 +966,8 @@ function deskDeps(
   assert.equal(parseDeskInput({ action: 'click', x: 1.5, y: 2 }), null, 'a fractional pixel is not a pixel')
   assert.equal(parseDeskInput({ action: 'nope' }), null)
   assert.equal(parseDeskInput({ action: 'key', combo: '  ' }), null)
-  assert.deepEqual(parseDeskInput({ action: 'click', x: 4, y: 9 }), { action: 'click', x: 4, y: 9, button: 'left' })
+  assert.deepEqual(parseDeskInput({ action: 'click', x: 4, y: 9 }), { action: 'click', x: 4, y: 9, button: 'left', clicks: 1 })
+  assert.deepEqual(parseDeskInput({ action: 'click', x: 4, y: 9, clicks: 2 }), { action: 'click', x: 4, y: 9, button: 'left', clicks: 2 })
 
   const driving = deskDeps()
   const typed = await sendDesktopInput(

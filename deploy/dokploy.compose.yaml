@@ -31,24 +31,6 @@ networks:
   infra-net:
     external: true
 
-volumes:
-  # Agent workspaces belong on shared network storage like every other durable
-  # volume — nothing bunkhouse keeps should sit on a swarm node's local disk,
-  # or it vanishes when the task reschedules. The key is deliberately NOT
-  # 'agent-homes': that name already exists as a local volume, and Docker
-  # reuses an existing volume verbatim, driver options and all.
-  #
-  # Both values come from the deployment's environment, which the deploy
-  # workflow writes from repository variables before every deploy — so this
-  # file names no particular company's storage, and nothing has to be set by
-  # hand. Deploying outside that workflow means setting them yourself.
-  agent-workspaces:
-    driver: local
-    driver_opts:
-      type: nfs
-      o: "addr=${BUNKHOUSE_NFS_ADDR},nfsvers=4,rw,hard,timeo=600"
-      device: "${BUNKHOUSE_NFS_EXPORT}"
-
 services:
   web:
     image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
@@ -76,7 +58,6 @@ services:
       APPKIT_STORAGE_ACCESS_KEY_ID: ${APPKIT_STORAGE_ACCESS_KEY_ID}
       APPKIT_STORAGE_SECRET_ACCESS_KEY: ${APPKIT_STORAGE_SECRET_ACCESS_KEY}
       APPKIT_STORAGE_BUCKET: ${APPKIT_STORAGE_BUCKET:-bunkhouse}
-      BUNKHOUSE_AGENT_HOMES: /data/agent-homes
       # Where agent execution actually happens. This VM cannot host microVMs
       # (nested virtualisation is deliberately off here — see
       # deploy/desk-runner.compose.yaml), so the desk runner is its own
@@ -87,8 +68,6 @@ services:
       BUNKHOUSE_DESK_TOKEN: ${BUNKHOUSE_DESK_TOKEN:-}
       BUNKHOUSE_REMOTE_GATEWAY_URL: http://remote-gateway:8090
       BUNKHOUSE_REMOTE_GATEWAY_TOKEN: ${BUNKHOUSE_REMOTE_GATEWAY_TOKEN}
-    volumes:
-      - agent-workspaces:/data/agent-homes
     networks:
       - dokploy-network
       - infra-net
@@ -134,7 +113,6 @@ services:
       APPKIT_STORAGE_ACCESS_KEY_ID: ${APPKIT_STORAGE_ACCESS_KEY_ID}
       APPKIT_STORAGE_SECRET_ACCESS_KEY: ${APPKIT_STORAGE_SECRET_ACCESS_KEY}
       APPKIT_STORAGE_BUCKET: ${APPKIT_STORAGE_BUCKET:-bunkhouse}
-      BUNKHOUSE_AGENT_HOMES: /data/agent-homes
       # Where agent execution actually happens. This VM cannot host microVMs
       # (nested virtualisation is deliberately off here — see
       # deploy/desk-runner.compose.yaml), so the desk runner is its own
@@ -145,8 +123,6 @@ services:
       BUNKHOUSE_DESK_TOKEN: ${BUNKHOUSE_DESK_TOKEN:-}
       BUNKHOUSE_REMOTE_GATEWAY_URL: http://remote-gateway:8090
       BUNKHOUSE_REMOTE_GATEWAY_TOKEN: ${BUNKHOUSE_REMOTE_GATEWAY_TOKEN}
-    volumes:
-      - agent-workspaces:/data/agent-homes
     networks:
       - dokploy-network
       - infra-net
@@ -181,7 +157,6 @@ services:
       APPKIT_STORAGE_ACCESS_KEY_ID: ${APPKIT_STORAGE_ACCESS_KEY_ID}
       APPKIT_STORAGE_SECRET_ACCESS_KEY: ${APPKIT_STORAGE_SECRET_ACCESS_KEY}
       APPKIT_STORAGE_BUCKET: ${APPKIT_STORAGE_BUCKET:-bunkhouse}
-      BUNKHOUSE_AGENT_HOMES: /data/agent-homes
       # Where agent execution actually happens. This VM cannot host microVMs
       # (nested virtualisation is deliberately off here — see
       # deploy/desk-runner.compose.yaml), so the desk runner is its own
@@ -192,8 +167,6 @@ services:
       BUNKHOUSE_DESK_TOKEN: ${BUNKHOUSE_DESK_TOKEN:-}
       BUNKHOUSE_REMOTE_GATEWAY_URL: http://remote-gateway:8090
       BUNKHOUSE_REMOTE_GATEWAY_TOKEN: ${BUNKHOUSE_REMOTE_GATEWAY_TOKEN}
-    volumes:
-      - agent-workspaces:/data/agent-homes
     networks:
       - default
       - dokploy-network
@@ -271,10 +244,10 @@ services:
         rtc:
           tcp_port: 7881
           udp_port: 7882
-          node_ip: ${LIVEKIT_NODE_IP:-10.0.12.2}
+          node_ip: ${LIVEKIT_NODE_IP:?Set LIVEKIT_NODE_IP}
         turn:
           enabled: true
-          domain: ${LIVEKIT_TURN_DOMAIN:-bunkhouse-turn.cloud.rassaun.com}
+          domain: ${LIVEKIT_TURN_DOMAIN:?Set LIVEKIT_TURN_DOMAIN}
           # The HA edge terminates TLS and maps public 443 to host port 5349.
           # external_tls keeps the client-facing URI on turns:443.
           tls_port: 443
@@ -287,7 +260,7 @@ services:
           # LiveKit blocks TURN relays to private targets by default. Permit
           # only this task's SFU address, not the rest of the private network.
           allow_restricted_peer_cidrs:
-            - "${LIVEKIT_NODE_IP:-10.0.12.2}/32"
+            - "${LIVEKIT_NODE_IP:?Set LIVEKIT_NODE_IP}/32"
         redis:
           address: ${BUNKHOUSE_MEDIA_REDIS_ADDRESS}
           password: ${BUNKHOUSE_MEDIA_REDIS_PASSWORD}

@@ -88,7 +88,7 @@ export async function getThreadAction(
 /** The visual stage plus durable step history for the conversation. */
 export async function workSurfaceAction(threadId: string): Promise<ChatWorkSurface> {
   const access = await requireTenantPermission('work.read')
-  if (!threadId) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [] }
+  if (!threadId) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], focus: null }
   return chatWorkSurface(access.tenantId, threadId)
 }
 

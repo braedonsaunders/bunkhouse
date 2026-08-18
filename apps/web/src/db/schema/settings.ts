@@ -204,7 +204,7 @@ export type CompanyIdentitySettings = {
   /** Markdown. What the business does, in prose. */
   description?: string
   /**
-   * The company's own email domains, bare and lowercased ("rassaun.com").
+   * The company's own email domains, bare and lowercased ("northstar.example").
    * Anyone writing from one of these is a colleague even when they are not in
    * the directory, which is what the internal/external autonomy dial and the
    * inbound-sender gate both read. Subdomains count, on a dot boundary.

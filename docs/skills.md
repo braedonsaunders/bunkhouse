@@ -72,17 +72,18 @@ Public skills routinely ship Python or shell alongside their markdown. Those scr
 through the sandboxed shell an agent already has — there is no second execution path and no
 new autonomy category.
 
-When `load_skill` runs, the bundle is written into the agent's workspace at
-`~/skills/<name>/`, and the tool returns that folder. The agent then runs, say,
-`python3 ~/skills/pdf/scripts/fill_form.py` via `run_shell`
-([`lib/workspace.ts`](../apps/web/src/lib/workspace.ts)), which is bubblewrapped with the home
-as the only writable path, capped at 120 seconds, and recorded in `shell_sessions`.
+When `load_skill` runs, the bundle is written into a run-scoped folder under
+`~/.bunkhouse/runs/<run>/skills/<name>/` on the agent's persistent microVM, and the tool
+returns that folder. The agent then runs, say, `python3 <returned-folder>/scripts/fill_form.py`
+via `run_shell` ([`lib/workspace.ts`](../apps/web/src/lib/workspace.ts)). It is the same
+machine, filesystem, shell policy, and append-only Desk ledger used by the graphical desktop
+and browser—there is no web-container staging home or parallel shell sandbox.
 
 Everything follows from that, for free:
 
 - the company's shell feature off → scripts cannot run at all;
-- the agent's shell dial at `approval` → a person approves before anything runs;
-- every execution produces a replayable session record in the observatory.
+- the agent's sandbox dial governs access to the machine;
+- every execution and skill materialization produces replayable Desk events in Activity.
 
 The bundle is rewritten from the database on every load, so a file an agent altered on a
 previous run never becomes what the skill "is". The workspace copy is a cache; the installed

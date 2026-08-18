@@ -22,6 +22,7 @@ import {
   Card,
   ContextMenu,
   EmptyState,
+  Popover,
   cn,
   promptDialog,
   useContextMenu,
@@ -228,7 +229,7 @@ function ThreadList({
   // `useContextMenu` is a hook, so a controller per row is not a thing that can
   // exist inside the map.
   const menu = useContextMenu()
-  const creationMenu = useContextMenu()
+  const [creationMenuOpen, setCreationMenuOpen] = React.useState(false)
   const [target, setTarget] = React.useState<ChatThreadSummary | null>(null)
 
   const openMenuFor = (thread: ChatThreadSummary, open: () => void): void => {
@@ -274,19 +275,55 @@ function ThreadList({
             {showArchived ? 'Hide archived' : 'Archived'}
           </Button>
           {canStart || canCall ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-7 px-2"
-              aria-haspopup="menu"
-              aria-expanded={creationMenu.open}
-              onClick={(event) => creationMenu.openBelow(event.currentTarget)}
+            <Popover
+              open={creationMenuOpen}
+              onOpenChange={setCreationMenuOpen}
+              align="start"
+              side="bottom"
+              className="min-w-36 p-1"
+              trigger={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2"
+                  aria-haspopup="menu"
+                  aria-expanded={creationMenuOpen}
+                  onClick={() => setCreationMenuOpen((open) => !open)}
+                >
+                  <Plus aria-hidden className="size-4" />
+                  New
+                  <ChevronDown aria-hidden className="size-3" />
+                </Button>
+              }
             >
-              <Plus aria-hidden className="size-4" />
-              New
-              <ChevronDown aria-hidden className="size-3" />
-            </Button>
+              <div role="menu">
+                {[
+                  { key: 'chat', label: 'Chat', icon: MessageSquarePlus, onSelect: onNew, disabled: !canStart },
+                  { key: 'call', label: 'Call', icon: Phone, onSelect: onNewCall, disabled: !canCall },
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    role="menuitem"
+                    disabled={item.disabled}
+                    onClick={() => {
+                      setCreationMenuOpen(false)
+                      item.onSelect()
+                    }}
+                    className={cn(
+                      'flex w-full items-center gap-2.5 rounded px-2.5 py-1.5 text-left text-sm transition-colors',
+                      item.disabled
+                        ? 'cursor-not-allowed text-fg-subtle'
+                        : 'text-fg hover:bg-surface-hover',
+                    )}
+                  >
+                    <item.icon aria-hidden className="size-4 shrink-0 opacity-80" />
+                    <span className="flex-1 truncate">{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            </Popover>
           ) : null}
         </span>
       </header>
@@ -349,15 +386,6 @@ function ThreadList({
         )}
       </div>
       <ContextMenu open={menu.open} position={menu.position} items={items} onClose={menu.close} />
-      <ContextMenu
-        open={creationMenu.open}
-        position={creationMenu.position}
-        onClose={creationMenu.close}
-        items={[
-          { key: 'chat', label: 'Chat', icon: MessageSquarePlus, onSelect: onNew, disabled: !canStart },
-          { key: 'call', label: 'Call', icon: Phone, onSelect: onNewCall, disabled: !canCall },
-        ]}
-      />
     </div>
   )
 }
@@ -601,35 +629,39 @@ export function AgentChatWorkspace({
   const conversation = (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface max-lg:min-h-[28rem]">
       {detail === null ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+        <div className="flex min-h-0 flex-1 flex-col">
           {loading ? (
-            <span className="flex items-center gap-2 text-sm text-fg-muted">
-              <Loader2 aria-hidden className="size-4 animate-spin" />
-              Opening the conversation…
-            </span>
+            <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+              <span className="flex items-center gap-2 text-sm text-fg-muted">
+                <Loader2 aria-hidden className="size-4 animate-spin" />
+                Opening the conversation…
+              </span>
+            </div>
+          ) : threads.length === 0 && canStart ? (
+            <ConversationWelcome agent={agent} avatar={callAvatar} />
           ) : (
-            <EmptyState
-              title={threads.length === 0 ? 'No conversations yet' : 'Pick a conversation'}
-              description={
-                !canStart
-                  ? `${agent.name} needs an assigned model before they can hold a conversation.`
-                  : threads.length === 0
-                    ? `Start a conversation with ${agent.name}. What you agree here becomes a run on their record, the same as an email would.`
+            <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+              <EmptyState
+                title={threads.length === 0 ? 'Conversation unavailable' : 'Pick a conversation'}
+                description={
+                  !canStart
+                    ? `${agent.name} needs an assigned model before they can hold a conversation.`
                     : 'Choose a conversation on the left, or start a new one.'
-              }
-              action={
-                !canStart ? (
-                  <Button asChild size="sm" variant="outline">
-                    <Link href={`/organization/${agent.id}?section=profile`}>Open profile</Link>
-                  </Button>
-                ) : (
-                  <Button type="button" size="sm" onClick={() => void startThread()}>
-                    <MessageSquarePlus aria-hidden className="size-4" />
-                    New conversation
-                  </Button>
-                )
-              }
-            />
+                }
+                action={
+                  !canStart ? (
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={`/organization/${agent.id}?section=profile`}>Open profile</Link>
+                    </Button>
+                  ) : (
+                    <Button type="button" size="sm" onClick={() => void startThread()}>
+                      <MessageSquarePlus aria-hidden className="size-4" />
+                      New conversation
+                    </Button>
+                  )
+                }
+              />
+            </div>
           )}
         </div>
       ) : callThreadId === detail.thread.id && call ? (

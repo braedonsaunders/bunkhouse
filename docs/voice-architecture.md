@@ -437,7 +437,7 @@ handle is an answer the caller never heard; `work_answer_undelivered` says so
 outright, and the `error` beside it is what an operator sees without looking.
 
 Trace rows are excluded from the surfaces that tell the story of an agent's
-work — the observatory's "what's on their screen now" and the nightly journal —
+work — Activity's "what's on their screen now" and the nightly journal —
 because instrumentation that crowds out the work it describes is worse than
 none. They are on the run desk's activity table, which is the audit surface.
 

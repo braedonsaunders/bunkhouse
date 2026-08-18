@@ -6,7 +6,7 @@
 # desk-vsock-bridge.service forwards vsock port 5252 into that socket.
 [Unit]
 Description=Bunkhouse in-guest desk agent (framed JSON over UNIX socket)
-Documentation=https://github.com/rassaun/bunkhouse/blob/main/docs/agent-desk.md
+Documentation=https://github.com/braedonsaunders/bunkhouse/blob/main/docs/desk-host.md
 After=network.target
 Wants=network.target
 
@@ -21,8 +21,9 @@ RuntimeDirectoryMode=0700
 # home directory of "" and wrote its dotfiles relative to whatever the working
 # directory happened to be. Measured on the real desk: Chromium's crash
 # database landed in /tmp/.config/chromium. Saying it here fixes it at the
-# source, for the desktop tier and the machine tier at once.
-Environment=HOME=/root
+# source, for the desktop tier and the machine tier at once. The controller
+# remains root, but every child has the employee's canonical /home/agent.
+Environment=HOME=/home/agent
 ExecStart=/usr/bin/node /opt/desk-agent/desk-guest-agent.mjs
 Restart=always
 RestartSec=1

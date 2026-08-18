@@ -56,8 +56,8 @@ import {
  * is what a date picker or a read-only input does to typed text.
  *
  * Discipline, all enforced here rather than in prompts:
- *   · one browser per run, one browser_sessions row per run (a session closed
- *     by the idle reaper reopens onto the same row and the same step budget);
+ *   · one browser per employee microVM, with every step appended to the run's
+ *     one Desk session and counted against the same run-scoped step budget;
  *   · a hard step budget per session;
  *   · http(s) only, and every top-level navigation — including each redirect
  *     hop — passes the same public-host check the research fetcher uses;

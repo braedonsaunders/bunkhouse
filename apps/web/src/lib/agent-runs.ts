@@ -285,7 +285,7 @@ export async function assembleRunFoundation(args: {
       },
       procedures: await boundProcedures(tenantId, person),
       skills: skills.skills,
-      materializeSkill: skillMaterializer({ tenantId, personId: person.id, rows: skills.rows }),
+      materializeSkill: skillMaterializer({ tenantId, personId: person.id, runId, rows: skills.rows }),
       autonomy,
       budget: {
         remainingUsd: async () => (person.salary?.monthlyUsd ?? 50) - (await monthSpendUsd(tenantId, person.id)),
@@ -368,6 +368,7 @@ export async function boundSkills(
 export function skillMaterializer(args: {
   tenantId: string
   personId: string
+  runId: string
   rows: BoundSkillRow[]
 }): (skill: BoundSkill) => Promise<{ path: string; files: string[] }> {
   const bySlug = new Map(args.rows.map((row) => [row.skill.slug, row]))
@@ -383,6 +384,7 @@ export function skillMaterializer(args: {
     return materializeSkillBundle({
       tenantId: args.tenantId,
       personId: args.personId,
+      runId: args.runId,
       slug: skill.slug,
       files,
     })

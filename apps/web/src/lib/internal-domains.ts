@@ -3,12 +3,12 @@
  *
  * Deliberately free of any server import so the settings form can normalize a
  * typed-in domain exactly the way the action that stores it will — a chip that
- * says "@Rassaun.COM" while the database holds "rassaun.com" is the operator
+ * says "@Northstar.EXAMPLE" while the database holds "northstar.example" is the operator
  * and the system disagreeing about what was just saved.
  *
- * Domains are matched whole, on a dot boundary: `rassaun.com` covers
- * `bsaunders@rassaun.com` and `x@mail.rassaun.com`, and never
- * `x@notrassaun.com`.
+ * Domains are matched whole, on a dot boundary: `northstar.example` covers
+ * `jordan@northstar.example` and `x@mail.northstar.example`, and never
+ * `x@notnorthstar.example`.
  */
 
 /**
@@ -23,8 +23,9 @@ function domainOf(address: string): string | null {
 
 /**
  * A typed-in domain, reduced to the bare thing that can be compared: accepts
- * "@rassaun.com", "https://rassaun.com/careers", "Bob@Rassaun.com" and
- * "rassaun.com" alike. Returns null for anything that is not a domain.
+ * "@northstar.example", "https://northstar.example/careers",
+ * "Jordan@Northstar.EXAMPLE" and "northstar.example" alike. Returns null for
+ * anything that is not a domain.
  */
 export function normalizeDomain(raw: string): string | null {
   let value = raw.trim().toLowerCase()

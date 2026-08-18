@@ -353,6 +353,20 @@ export async function leaseDesk(
   await runnerPost(runner, deps, `/desks/${encodeURIComponent(args.deskId)}/lease`, args, 60_000)
 }
 
+/** Lease an employee's one persistent microVM using the tenant's Desk policy. */
+export async function ensurePersonDesk(
+  args: { tenantId: string; personId: string },
+  deps: DeskClientDeps = {},
+): Promise<{ deskId: string }> {
+  const deskId = deskIdFor(args.tenantId, args.personId)
+  const policy = await getDeskPolicy(args.tenantId)
+  await leaseDesk(
+    { deskId, memoryMb: policy.memoryMb, vcpus: policy.vcpus, leaseMs: policy.leaseMs },
+    deps,
+  )
+  return { deskId }
+}
+
 /**
  * Run one command on the desk. Start is idempotent by execution id and the
  * result is collected by long-poll, exactly the shape the retired shell
@@ -497,12 +511,7 @@ export async function connectDeskBrowser(
 ): Promise<{ browserWSEndpoint: string }> {
   const runner = deps.runner ?? configuredDeskRunner()
   if (!runner) throw new Error('No desk runner is configured.')
-  const deskId = deskIdFor(args.tenantId, args.personId)
-  const policy = await getDeskPolicy(args.tenantId)
-  await leaseDesk(
-    { deskId, memoryMb: policy.memoryMb, vcpus: policy.vcpus, leaseMs: policy.leaseMs },
-    { ...deps, runner },
-  )
+  const { deskId } = await ensurePersonDesk(args, { ...deps, runner })
   const { path } = await runnerPost<{ path: string }>(
     runner,
     deps,
@@ -556,7 +565,7 @@ export function deskHandoverStreamUrl(
 /** The desk-v1 `/screen/input` shape, exactly as the runner switches on it. */
 export type DeskInputAction =
   | { action: 'move'; x: number; y: number }
-  | { action: 'click'; x: number; y: number; button?: 'left' | 'middle' | 'right' }
+  | { action: 'click'; x: number; y: number; button?: 'left' | 'middle' | 'right'; clicks?: 1 | 2 }
   | { action: 'type'; text: string }
   | { action: 'key'; combo: string }
   | { action: 'scroll'; x: number; y: number; dx?: number; dy?: number }
@@ -1451,6 +1460,9 @@ async function runShellOnDesk(
     signal: outcome.signal,
     output,
     outputTruncated: outcome.outputTruncated || output.length < outcome.output.length,
+    commandStatus: outcome.status,
+    startedAt: outcome.startedAt,
+    finishedAt: outcome.finishedAt,
   })
   await drainRunnerEvents(ctx, live).catch(() => undefined)
   return { status: outcome.status, exitCode: outcome.exitCode, output }
