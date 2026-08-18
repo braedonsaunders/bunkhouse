@@ -594,9 +594,9 @@ export function AgentChatWorkspace({
     </div>
   )
 
-  // This pane belongs to the agent, not to one run. Live work follows the
-  // selected conversation inside it, while the Desktop tab remains available
-  // even before a conversation is selected.
+  // This pane belongs to the agent, not to one run. Desktop is the primary
+  // visual stage, while History follows every run in the selected conversation
+  // and remains separate from the transcript.
   const deskVisible = deskOpen
 
   return (

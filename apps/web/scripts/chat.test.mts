@@ -451,6 +451,24 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     false,
     'the redundant row above the chat no longer consumes vertical space',
   )
+  const workSurface = readFileSync(
+    fileURLToPath(new URL('../src/components/chat-work-surface.tsx', import.meta.url)),
+    'utf8',
+  )
+  assert.ok(
+    workSurface.includes("React.useState<'desktop' | 'history'>('desktop')"),
+    'the persistent desktop is the default visual surface',
+  )
+  assert.ok(
+    workSurface.indexOf("key: 'desktop'") < workSurface.indexOf("key: 'history'"),
+    'History follows Desktop in the work-surface tabs',
+  )
+  assert.ok(
+    workSurface.includes("surface.kind === 'browser'") && workSurface.includes('<BrowserWorkStage'),
+    'the default visual stage promotes a live browser just as the call stage does',
+  )
+  assert.ok(workSurface.includes('surface.history.map'), 'the History tab renders conversation-wide durable steps')
+  assert.equal(workSurface.includes('is getting started'), false, 'a new run never blanks History with a placeholder')
   console.log('chat: streamed turns survive section switches and work controls stay in the chat header')
 }
 

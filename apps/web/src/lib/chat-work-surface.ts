@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   browserSessions,
   browserSteps,
@@ -26,7 +26,16 @@ function isBrowserDeskEvent(kind: string, detail: Record<string, unknown>): bool
   )
 }
 
-export type ChatWorkSurface =
+export type ChatWorkHistoryEvent = {
+  id: string
+  runId: string
+  seq: number
+  kind: string
+  label: string
+  at: string
+}
+
+export type ChatWorkSurface = { history: ChatWorkHistoryEvent[] } & (
   | { kind: 'idle'; runId: null }
   | { kind: 'desktop'; runId: string; status: string }
   | {
@@ -40,8 +49,9 @@ export type ChatWorkSurface =
       kind: 'activity'
       runId: string
       status: string
-      events: { seq: number; kind: string; label: string; at: string }[]
+      events: ChatWorkHistoryEvent[]
     }
+)
 
 function eventLabel(kind: string, payload: Record<string, unknown>): string {
   if (kind === 'tool_call') return `Using ${String(payload.toolName ?? 'a connected tool').replaceAll('_', ' ')}`
@@ -51,19 +61,54 @@ function eventLabel(kind: string, payload: Record<string, unknown>): string {
   return kind.replaceAll('_', ' ')
 }
 
-/** Resolve the live surface belonging to the newest run in one conversation. */
+/** Resolve the live surface and durable execution history for one conversation. */
 export async function chatWorkSurface(tenantId: string, threadId: string): Promise<ChatWorkSurface> {
   const app = db()
   return app.withTenantContext(tenantId, async () => {
     const [thread] = await app.db.select({ id: chatThreads.id }).from(chatThreads).where(eq(chatThreads.id, threadId)).limit(1)
-    if (!thread) return { kind: 'idle', runId: null }
-    const [run] = await app.db
+    if (!thread) return { kind: 'idle', runId: null, history: [] }
+    const threadRuns = await app.db
       .select({ id: runs.id, status: runs.status })
       .from(runs)
       .where(sql`${runs.trigger}->>'conversationId' = ${conversationIdFor(threadId)}`)
       .orderBy(desc(runs.startedAt))
-      .limit(1)
-    if (!run) return { kind: 'idle', runId: null }
+      .limit(100)
+    const run = threadRuns[0]
+    if (!run) return { kind: 'idle', runId: null, history: [] }
+
+    // A chat thread is one durable conversation even though each user turn is
+    // executed as its own run. Reading only the newest run made the old Live
+    // work panel erase itself at the start of every turn. Keep the complete
+    // conversation-facing step history here; the immutable run record remains
+    // the source of full inputs and results.
+    const historyRows = await app.db
+      .select({
+        id: runEvents.id,
+        runId: runEvents.runId,
+        seq: runEvents.seq,
+        kind: runEvents.kind,
+        payload: runEvents.payload,
+        at: runEvents.createdAt,
+      })
+      .from(runEvents)
+      .where(
+        and(
+          inArray(runEvents.runId, threadRuns.map((candidate) => candidate.id)),
+          inArray(runEvents.kind, ['tool_call', 'approval_request', 'delegation', 'error', 'procedure_citation', 'trace']),
+        ),
+      )
+      .orderBy(desc(runEvents.createdAt), desc(runEvents.id))
+      .limit(200)
+    const history = historyRows
+      .map((event) => ({
+        id: event.id,
+        runId: event.runId,
+        seq: event.seq,
+        kind: event.kind,
+        label: eventLabel(event.kind, event.payload),
+        at: event.at.toISOString(),
+      }))
+      .reverse()
 
     const [call] = await app.db
       .select({ id: callSessions.id, room: callSessions.room, status: callSessions.status, direction: callSessions.direction, startedAt: callSessions.startedAt })
@@ -84,6 +129,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
         status: call.status,
         direction: call.direction,
         startedAt: call.startedAt.toISOString(),
+        history,
       }
     }
 
@@ -105,7 +151,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
           .limit(1)
       : []
     if (desk?.status === 'active' && latestScreenBoundary?.kind === 'screen_open') {
-      return { kind: 'desktop', runId: run.id, status: run.status }
+      return { kind: 'desktop', runId: run.id, status: run.status, history }
     }
 
     // The current browser driver writes to Desk's one governed event stream.
@@ -141,6 +187,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
           action: detail.target ? `${latestDeskEvent.kind}: ${detail.target}` : latestDeskEvent.kind,
           at: latestDeskEvent.at.toISOString(),
         },
+        history,
       }
     }
 
@@ -175,6 +222,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
             action: step.detail.target ? `${step.action}: ${step.detail.target}` : step.action,
             at: step.at.toISOString(),
           },
+          history,
         }
       }
     }
@@ -189,31 +237,18 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
           .orderBy(desc(deskEvents.seq))
           .limit(8)
       : []
-    const latestRunEvents = await app.db
-      .select({ seq: runEvents.seq, kind: runEvents.kind, payload: runEvents.payload, at: runEvents.createdAt })
-      .from(runEvents)
-      // The transcript already renders messages in the conversation. Live
-      // work is execution telemetry, so repeating model/user prose here is
-      // both noisy and liable to expose a long response as though it were an
-      // action the agent is currently taking.
-      .where(and(eq(runEvents.runId, run.id), ne(runEvents.kind, 'message')))
-      .orderBy(desc(runEvents.seq))
-      .limit(8)
-    const events = (
-      latestDeskEvents.length
-        ? latestDeskEvents.map((event) => ({
+    const events = latestDeskEvents.length
+      ? latestDeskEvents
+          .map((event) => ({
+            id: `${run.id}:desk:${event.seq}`,
+            runId: run.id,
             seq: event.seq,
             kind: event.kind,
             label: eventLabel(event.kind, event.detail),
             at: event.at.toISOString(),
           }))
-        : latestRunEvents.map((event) => ({
-            seq: event.seq,
-            kind: event.kind,
-            label: eventLabel(event.kind, event.payload),
-            at: event.at.toISOString(),
-          }))
-    ).reverse()
-    return { kind: 'activity', runId: run.id, status: run.status, events }
+          .reverse()
+      : history
+    return { kind: 'activity', runId: run.id, status: run.status, events, history }
   })
 }

@@ -916,7 +916,22 @@ await assert.rejects(
     assert.deepEqual(
       headlessSurface.kind === 'activity' ? headlessSurface.events.map((event) => event.label) : [],
       ['Using search records'],
-      'Live work shows execution telemetry without repeating chat messages verbatim',
+      'History shows execution telemetry without repeating chat messages verbatim',
+    )
+    const nextHeadlessRunId = crypto.randomUUID()
+    await testDb().db.insert(testRuns).values({
+      id: nextHeadlessRunId,
+      tenantId: TENANT,
+      personId: REPORT,
+      status: 'running',
+      trigger: { type: 'chat', conversationId: `web:${headlessThreadId}` },
+      startedAt: new Date(Date.now() + 1_000),
+    })
+    const continuedHeadlessSurface = await chatWorkSurface(TENANT, headlessThreadId)
+    assert.deepEqual(
+      continuedHeadlessSurface.history.map((event) => event.label),
+      ['Using search records'],
+      'a new chat turn keeps the prior turns\' durable step history while its first tool is still pending',
     )
 
     await testDb().db.insert(testDeskSessions).values({

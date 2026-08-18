@@ -1,8 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { CheckCircle2, Globe, Loader2, Monitor, Phone, TerminalSquare } from 'lucide-react'
-import { Badge, Button, EmptyState, SubtabNav } from '@braedonsaunders/appkit-ui'
+import { CheckCircle2, Globe, History as HistoryIcon, Loader2, Monitor, Phone, TerminalSquare } from 'lucide-react'
+import { Badge, EmptyState, SubtabNav } from '@braedonsaunders/appkit-ui'
 import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
 import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@braedonsaunders/appkit-avatars/composition'
 import { LiveKitRoom, VideoTrack, useSpeakingParticipants, useTracks } from '@livekit/components-react'
@@ -236,6 +236,58 @@ function SurfaceHeader({ surface, personName }: { surface: WorkSurface; personNa
   )
 }
 
+function BrowserWorkStage({
+  threadId,
+  surface,
+  personName,
+}: {
+  threadId: string
+  surface: Extract<WorkSurface, { kind: 'browser' }>
+  personName: string
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <SurfaceHeader surface={surface} personName={personName} />
+      <div className="flex min-w-0 items-center gap-2 border-b border-border bg-bg-subtle px-3 py-2">
+        <Globe aria-hidden className="size-4 shrink-0 text-fg-muted" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-fg">{surface.frame.title}</p>
+          {surface.frame.url ? <p className="truncate text-xs text-fg-muted">{surface.frame.url}</p> : null}
+        </div>
+      </div>
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-bg-subtle">
+        <LiveBrowserSurface
+          threadId={threadId}
+          surface={surface}
+          fallback={
+            surface.frame.fileId ? (
+              // A ledgered browser frame is already encoded at its capture size.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={`/api/files/${encodeURIComponent(surface.frame.fileId)}`}
+                alt={`${personName}'s browser, showing ${surface.frame.title}`}
+                className="size-full object-contain object-top"
+              />
+            ) : (
+              <p className="flex size-full items-center justify-center px-6 text-center text-sm text-fg-muted">
+                The live browser is connecting. This step remains available in History.
+              </p>
+            )
+          }
+        />
+        <div className="absolute inset-x-3 bottom-3 flex items-center gap-2 rounded-full border border-border bg-surface/90 px-3 py-2 text-xs text-fg shadow-sm backdrop-blur">
+          {surface.status === 'active' ? (
+            <Loader2 aria-hidden className="size-3.5 animate-spin text-primary" />
+          ) : (
+            <CheckCircle2 aria-hidden className="size-3.5 text-success" />
+          )}
+          <span className="truncate">{surface.frame.action}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ChatWorkSurface({
   threadId,
   personId,
@@ -249,11 +301,11 @@ export function ChatWorkSurface({
   personTitle: string
   callAvatar: ChatCallAvatar
 }) {
-  const [activeTab, setActiveTab] = React.useState<'work' | 'desktop'>('work')
-  const [surface, setSurface] = React.useState<WorkSurface>({ kind: 'idle', runId: null })
+  const [activeTab, setActiveTab] = React.useState<'desktop' | 'history'>('desktop')
+  const [surface, setSurface] = React.useState<WorkSurface>({ kind: 'idle', runId: null, history: [] })
 
   React.useEffect(() => {
-    // No conversation means Live work renders its own empty state below. Keep
+    // No conversation means History renders its own empty state below. Keep
     // the last observation in memory so a brief deselection does not create a
     // second render or flash an idle header before another thread is chosen.
     if (threadId === null) return
@@ -280,17 +332,8 @@ export function ChatWorkSurface({
         <SubtabNav
           ariaLabel={`${personName}'s work surfaces`}
           active={activeTab}
-          onSelect={(tab) => setActiveTab(tab === 'desktop' ? 'desktop' : 'work')}
+          onSelect={(tab) => setActiveTab(tab === 'history' ? 'history' : 'desktop')}
           tabs={[
-            {
-              key: 'work',
-              label: (
-                <span className="flex items-center gap-2">
-                  <TerminalSquare aria-hidden className="size-4" />
-                  Live work
-                </span>
-              ),
-            },
             {
               key: 'desktop',
               label: (
@@ -300,64 +343,22 @@ export function ChatWorkSurface({
                 </span>
               ),
             },
+            {
+              key: 'history',
+              label: (
+                <span className="flex items-center gap-2">
+                  <HistoryIcon aria-hidden className="size-4" />
+                  History
+                </span>
+              ),
+            },
           ]}
         />
       </div>
 
-      {activeTab === 'desktop' ? (
-        <div className="min-h-0 flex-1">
-          <ChatDesk key={personId} personId={personId} personName={personName} />
-        </div>
-      ) : threadId === null ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center p-6">
-          <EmptyState
-            title="Choose a conversation"
-            description={`Select or start a conversation to follow ${personName}'s browser, calls, and background work. The Desktop tab remains available at any time.`}
-          />
-        </div>
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <SurfaceHeader surface={surface} personName={personName} />
-          {surface.kind === 'browser' ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex min-w-0 items-center gap-2 border-b border-border bg-bg-subtle px-3 py-2">
-            <Globe aria-hidden className="size-4 shrink-0 text-fg-muted" />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-fg">{surface.frame.title}</p>
-              {surface.frame.url ? <p className="truncate text-xs text-fg-muted">{surface.frame.url}</p> : null}
-            </div>
-          </div>
-          <div className="relative min-h-0 flex-1 overflow-hidden bg-bg-subtle">
-            <LiveBrowserSurface
-              threadId={threadId}
-              surface={surface}
-              fallback={
-                surface.frame.fileId ? (
-                  // A ledgered browser frame is already encoded at its capture size.
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={`/api/files/${encodeURIComponent(surface.frame.fileId)}`}
-                    alt={`${personName}'s browser, showing ${surface.frame.title}`}
-                    className="size-full object-contain object-top"
-                  />
-                ) : (
-                  <p className="flex size-full items-center justify-center px-6 text-center text-sm text-fg-muted">
-                    This browser step could not be captured. Its action remains on the run record.
-                  </p>
-                )
-              }
-            />
-            <div className="absolute inset-x-3 bottom-3 flex items-center gap-2 rounded-full border border-border bg-surface/90 px-3 py-2 text-xs text-fg shadow-sm backdrop-blur">
-              {surface.status === 'active' ? (
-                <Loader2 aria-hidden className="size-3.5 animate-spin text-primary" />
-              ) : (
-                <CheckCircle2 aria-hidden className="size-3.5 text-success" />
-              )}
-              <span className="truncate">{surface.frame.action}</span>
-            </div>
-          </div>
-        </div>
-          ) : surface.kind === 'call' ? (
+      {activeTab === 'desktop' && threadId !== null && surface.kind === 'browser' ? (
+        <BrowserWorkStage threadId={threadId} surface={surface} personName={personName} />
+      ) : activeTab === 'desktop' && threadId !== null && surface.kind === 'call' ? (
         <div className="flex min-h-0 flex-1">
           <LiveCallSurface
             threadId={threadId}
@@ -367,53 +368,45 @@ export function ChatWorkSurface({
             avatar={callAvatar}
           />
         </div>
-          ) : surface.kind === 'activity' ? (
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {surface.events.length ? (
-            <ol className="space-y-3">
-              {surface.events.map((event) => (
-                <li key={`${event.kind}:${event.seq}`} className="flex gap-3 text-sm">
-                  <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" />
-                  <div className="min-w-0">
-                    <p className="break-words text-fg">{event.label}</p>
-                    <p className="mt-0.5 text-xs text-fg-muted" suppressHydrationWarning>
-                      {new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <div className="flex h-full items-center justify-center">
-              <span className="flex items-center gap-2 text-sm text-fg-muted">
-                {surface.status === 'running' ? <Loader2 aria-hidden className="size-4 animate-spin" /> : null}
-                {surface.status === 'running' ? `${personName} is getting started…` : 'No tool activity was recorded.'}
-              </span>
-            </div>
-          )}
+      ) : activeTab === 'desktop' ? (
+        <div className="min-h-0 flex-1">
+          <ChatDesk key={personId} personId={personId} personName={personName} />
         </div>
-          ) : surface.kind === 'desktop' ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center p-6">
-              <EmptyState
-                icon={<Monitor />}
-                title="Working at the desktop"
-                description={`${personName}'s desktop is active. Open the Desktop tab to watch or take control without losing this run's live-work view.`}
-                action={
-                  <Button type="button" size="sm" onClick={() => setActiveTab('desktop')}>
-                    <Monitor aria-hidden className="size-4" />
-                    Open Desktop
-                  </Button>
-                }
-              />
-            </div>
-          ) : (
+      ) : threadId === null ? (
         <div className="flex min-h-0 flex-1 items-center justify-center p-6">
           <EmptyState
-            title="No active work"
-            description={`When ${personName} uses a browser, places a call, works headlessly, or opens the desktop, it will appear here automatically.`}
+            title="Choose a conversation"
+            description={`Select or start a conversation to see ${personName}'s durable execution history.`}
           />
         </div>
-          )}
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+            <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-fg">
+              <HistoryIcon aria-hidden className="size-4" />
+              <span>Conversation history</span>
+            </div>
+            {surface.history.length ? <Badge variant="secondary">{surface.history.length} steps</Badge> : null}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            {surface.history.length ? (
+              <ol className="space-y-0.5">
+                {surface.history.map((event) => (
+                  <li key={event.id} className="flex min-h-8 items-center gap-2 rounded-md px-2 text-xs hover:bg-surface-hover">
+                    <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+                    <span className="min-w-0 flex-1 truncate text-fg">{event.label}</span>
+                    <time className="shrink-0 tabular-nums text-fg-subtle" dateTime={event.at} suppressHydrationWarning>
+                      {new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </time>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div className="flex h-full items-center justify-center px-6 text-center text-sm text-fg-muted">
+                No recorded steps yet.
+              </div>
+            )}
+          </div>
         </div>
       )}
     </section>

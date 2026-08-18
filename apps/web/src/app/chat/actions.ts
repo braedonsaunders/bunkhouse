@@ -83,10 +83,10 @@ export async function getThreadAction(
   return getThread(access.tenantId, threadId)
 }
 
-/** The live browser/call/headless/desktop stage for the conversation's newest run. */
+/** The visual stage plus durable step history for the conversation. */
 export async function workSurfaceAction(threadId: string): Promise<ChatWorkSurface> {
   const access = await requireTenantPermission('work.read')
-  if (!threadId) return { kind: 'idle', runId: null }
+  if (!threadId) return { kind: 'idle', runId: null, history: [] }
   return chatWorkSurface(access.tenantId, threadId)
 }
 
@@ -107,7 +107,7 @@ export async function observeWorkSurfaceAction(input: {
   const apiKey = process.env.LIVEKIT_API_KEY
   const apiSecret = process.env.LIVEKIT_API_SECRET
   if (!serverUrl || !apiKey || !apiSecret) {
-    throw new Error('Live work viewing is not available in this deployment.')
+    throw new Error('Live screen viewing is not available in this deployment.')
   }
 
   let room: string
