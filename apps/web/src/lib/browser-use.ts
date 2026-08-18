@@ -3,7 +3,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import sharp from 'sharp'
 import { z } from 'zod'
 import puppeteer, { type Browser, type ElementHandle, type Page } from 'puppeteer-core'
-import { ABILITY_FRAME_KEY, defineAbility, type Ability, type AbilityFrame } from '@bunkhouse/runtime'
+import { ABILITY_FRAME_KEY, defineAbility, describeThrown, type Ability, type AbilityFrame } from '@bunkhouse/runtime'
 import { createDeskFrameDeduplicator, type DeskFrameDeduplicator } from '@braedonsaunders/appkit-desk'
 import { deskEvents, deskSessions, people, type DeskLedgerEventDetail, type DeskLedgerEventKind } from '../db/schema'
 import { db } from '../db/client'
@@ -109,11 +109,6 @@ export function browserSupported(): boolean {
   return deskSupported()
 }
 
-function describeError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  return message.trim() || 'no reason given'
-}
-
 // ---------------------------------------------------------------------------
 // Page reading — everything the agent gets back after an action
 // ---------------------------------------------------------------------------
@@ -173,7 +168,7 @@ async function summarizePage(page: Page): Promise<PageSummary> {
         const label = clean(anchor.textContent)
         const url = (anchor as HTMLAnchorElement).href
         if (!label || !(url.startsWith('http://') || url.startsWith('https://'))) continue
-        const key = `${label} ${url}`
+        const key = `${label}\u0000${url}`
         if (seen.has(key)) continue
         seen.add(key)
         links.push({ text: label.slice(0, 120), url })
@@ -610,7 +605,7 @@ async function openSession(args: { tenantId: string; person: PersonRow; runId: s
         if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
           const refusal = await assertPublicHost(parsed).then(
             () => null,
-            (error: unknown) => describeError(error),
+            (error: unknown) => describeThrown(error),
           )
           if (refusal) {
             session.blocked = `${parsed.host} — ${refusal}`
@@ -634,7 +629,7 @@ async function openSession(args: { tenantId: string; person: PersonRow; runId: s
         session.cast = await startBrowserCast({ page, runId: args.runId })
       } catch (error) {
         console.error(
-          `[browser] run ${args.runId}: the live view of this browser could not be started — ${describeError(error)}`,
+          `[browser] run ${args.runId}: the live view of this browser could not be started — ${describeThrown(error)}`,
         )
       }
     }
@@ -751,7 +746,7 @@ async function recordStep(
   try {
     captured = await session.page.screenshot({ type: 'jpeg', quality: SCREENSHOT_QUALITY })
   } catch (error) {
-    recorded.screenshotError = `The screen could not be captured: ${describeError(error)}`
+    recorded.screenshotError = `The screen could not be captured: ${describeThrown(error)}`
     frameError = recorded.screenshotError
   }
   if (captured) {
@@ -776,7 +771,7 @@ async function recordStep(
         screenshotFileId = session.lastScreenshotFileId
       }
     } catch (error) {
-      recorded.screenshotError = `The frame could not be filed: ${describeError(error)}`
+      recorded.screenshotError = `The frame could not be filed: ${describeThrown(error)}`
     }
     // Filing and seeing are independent: a frame that could not be stored is
     // still one the agent should look at, and the other way round.
@@ -786,7 +781,7 @@ async function recordStep(
         if (shrunk) modelFrame = { mediaType: 'image/jpeg', data: shrunk.toString('base64') }
         else frameError = 'This view was too large to send as a picture; work from the page text.'
       } catch (error) {
-        frameError = `The picture of this step could not be prepared: ${describeError(error)}`
+        frameError = `The picture of this step could not be prepared: ${describeThrown(error)}`
       }
     }
   }
@@ -871,7 +866,7 @@ export function browserAbilities(args: { tenantId: string; person: PersonRow; ru
     defineAbility({
       name: 'browser_open',
       description:
-        'Open a page in your own browser and look at it — use this when reading a page is not enough: sites that need a sign-in, a search box, a form, or that only render with JavaScript. You get the page two ways: as a picture of the screen, which you can actually look at, and as text — the title, the readable content, the links you can click, the fields you can type into. Work the loop: look at the picture, read what came back, click or type using the EXACT visible text you saw, look again. When the picture and your expectation disagree, the picture is right. Public http(s) sites only, one browser per run, 40 steps in total. Every step is also kept on the record, so your operator can replay exactly what you did.',
+        'Open a page in your own visible browser and look at it. When the person asks you to open, pull up, show, or navigate to a webpage, this is the required result: a fetch or search is not a substitute because it gives them no browser to watch. Also use it for sites that need a sign-in, a search box, a form, or JavaScript. You get the page two ways: as a picture of the screen, which you can actually look at and the person can watch in chat or on a call, and as text — the title, readable content, links, and fields. Work the loop: look at the picture, read what came back, click or type using the EXACT visible text you saw, look again. When the picture and your expectation disagree, the picture is right. If opening fails, say the visible browser failed; do not claim that a later fetch pulled the page up. Public http(s) sites only, one browser per run, 40 steps in total. Every step is also kept on the record, so your operator can replay exactly what you did.',
       category: 'desktop',
       inputSchema: z.object({ url: z.string().describe('Full URL, e.g. https://example.com/pricing') }),
       execute: async ({ url }) => {
@@ -886,7 +881,7 @@ export function browserAbilities(args: { tenantId: string; person: PersonRow; ru
         }
         const refusal = await assertPublicHost(target).then(
           () => null,
-          (error: unknown) => describeError(error),
+          (error: unknown) => describeThrown(error),
         )
         if (refusal) return { error: refusal }
 
@@ -902,7 +897,7 @@ export function browserAbilities(args: { tenantId: string; person: PersonRow; ru
           status = response?.status()
           await settle(session.page)
         } catch (error) {
-          const reason = session.blocked ?? describeError(error)
+          const reason = session.blocked ?? describeThrown(error)
           const step = await recordStep(session, 'open', { target: target.toString(), error: reason })
           return {
             error: `The page could not be opened: ${reason}`,
@@ -962,7 +957,7 @@ export function browserAbilities(args: { tenantId: string; person: PersonRow; ru
           await handle.click()
         } catch (error) {
           await handle.dispose()
-          const reason = session.blocked ?? describeError(error)
+          const reason = session.blocked ?? describeThrown(error)
           const step = await recordStep(session, 'click', { target: match.label, error: reason })
           return { error: `The click did not land: ${reason}`, ...shownFrame(step, session.page.url()) }
         }
@@ -1036,7 +1031,7 @@ export function browserAbilities(args: { tenantId: string; person: PersonRow; ru
           await handle.type(text, { delay: 20 })
         } catch (error) {
           await handle.dispose()
-          const reason = describeError(error)
+          const reason = describeThrown(error)
           const step = await recordStep(session, 'type', {
             target: match.label,
             text: recordedText,

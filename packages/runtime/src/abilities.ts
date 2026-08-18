@@ -255,12 +255,36 @@ export const TOOL_FAILURE_LIMIT = 3
  * reaches the agent as "that did not work" with no reason, which is how an
  * unreachable file store turns into eight blind retries of the same tool.
  */
-function describeThrown(error: unknown): string {
+export function describeThrown(error: unknown): string {
   const seen = new Set<unknown>()
   const walk = (value: unknown): string => {
     if (value === null || value === undefined || seen.has(value)) return ''
     seen.add(value)
-    if (!(value instanceof Error)) return String(value)
+    if (!(value instanceof Error)) {
+      if (typeof value === 'object') {
+        // WebSocket clients report a rejected upgrade as an ErrorEvent, not
+        // an Error. Its useful reason lives behind public `message` / `error`
+        // getters; String(value) is only `[object Object]`. Treat structured
+        // thrown values like ordinary error chains so every adapter gets the
+        // real transport reason without one-off handling.
+        try {
+          const structured = value as { message?: unknown; error?: unknown; cause?: unknown; errors?: unknown }
+          const parts = [
+            typeof structured.message === 'string' ? structured.message.trim() : '',
+            walk(structured.error),
+            walk(structured.cause),
+            ...(Array.isArray(structured.errors) ? structured.errors.map(walk) : []),
+          ]
+          const detail = [...new Set(parts.filter(Boolean))].join(': ')
+          if (detail) return detail
+        } catch {
+          // A hostile getter still cannot make failure reporting fail.
+        }
+        const shown = String(value)
+        return shown === '[object Object]' ? '' : shown
+      }
+      return String(value)
+    }
     const parts = [value.message.trim()]
     if (value instanceof AggregateError) {
       for (const inner of value.errors ?? []) parts.push(walk(inner))

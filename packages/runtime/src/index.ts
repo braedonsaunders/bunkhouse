@@ -1,5 +1,6 @@
 export {
   defineAbility,
+  describeThrown,
   governedToolSet,
   LIVE_TOOL_DEADLINE_MS,
   TOOL_FAILURE_LIMIT,

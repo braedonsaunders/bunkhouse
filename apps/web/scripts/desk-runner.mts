@@ -81,6 +81,15 @@ const EXEC_RETENTION_MS = 15 * 60_000
 const EVENT_BUFFER_CAP = 1_000
 const LONG_POLL_MS = 25_000
 const CDP_PORT = 9222
+/**
+ * Chromium 151 binds its DevTools socket to guest loopback even when it is
+ * launched with `--remote-debugging-address=0.0.0.0`. The runner therefore
+ * reaches it through a guest-side forwarder bound only to that desk's tap
+ * address, just as the handover path reaches loopback-only x11vnc. Keeping
+ * the relay on a distinct port avoids relying on Linux allowing two listeners
+ * on port 9222 with different bind addresses.
+ */
+const CDP_RELAY_PORT = Number(process.env.BUNKHOUSE_CDP_RELAY_PORT ?? 9223)
 const GUEST_HOME = '/home/agent'
 const BROWSER_PROFILE_DIR = `${GUEST_HOME}/.config/bunkhouse-browser`
 const DOWNLOADS_DIR = `${GUEST_HOME}/downloads`
@@ -1447,11 +1456,37 @@ async function guestBrowserPath(entry: DeskEntry): Promise<string | null> {
   return match?.[1] ?? null
 }
 
+/**
+ * Put Chromium's loopback-only CDP socket onto this desk's tap address. The
+ * tap and its host routes are the capability boundary: this address is not on
+ * a shared Docker network and the runner is the only process that can dial
+ * it. `keepAlive` ties the forwarder to the VM job lifecycle; the runner also
+ * probes first, so repeated browser opens never create duplicate listeners.
+ */
+async function ensureGuestBrowserRelay(entry: DeskEntry): Promise<void> {
+  const guest = guestAddressFor(entry.index)
+  if (await guestPortAnswers(guest, CDP_RELAY_PORT)) return
+  await entry.handle.exec({
+    command: '/usr/bin/socat',
+    args: [
+      `TCP-LISTEN:${CDP_RELAY_PORT},fork,reuseaddr,bind=${guest}`,
+      `TCP:127.0.0.1:${CDP_PORT}`,
+    ],
+    keepAlive: true,
+  })
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (await guestPortAnswers(guest, CDP_RELAY_PORT)) return
+    await delay(250)
+  }
+  throw new Error('The in-guest browser relay did not come up.')
+}
+
 async function ensureGuestBrowser(entry: DeskEntry): Promise<string> {
   if (entry.browserPath) {
     const path = await guestBrowserPath(entry)
     if (path) {
       entry.browserPath = path
+      await ensureGuestBrowserRelay(entry)
       return path
     }
     entry.browserPath = null
@@ -1508,6 +1543,7 @@ async function ensureGuestBrowser(entry: DeskEntry): Promise<string> {
     const path = await guestBrowserPath(entry)
     if (path) {
       entry.browserPath = path
+      await ensureGuestBrowserRelay(entry)
       return path
     }
     await delay(500)
@@ -1583,7 +1619,7 @@ function relayUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): v
       socket,
       head,
       address: guestAddressFor(entry.index),
-      port: CDP_PORT,
+      port: CDP_RELAY_PORT,
       path: browser[2] ?? '/',
     })
     return

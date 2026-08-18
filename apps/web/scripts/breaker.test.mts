@@ -52,4 +52,28 @@ assert.equal(attempts, before, 'a call made after the breaker opened never reach
 assert.match(fourth.note, /Do not call it again/, 'and the agent is told to stop and report')
 assert.match(fourth.error, /ECONNREFUSED/, 'while still being told why')
 
+// --- WebSocket ErrorEvents preserve their nested transport reason -----------
+const websocketFailure = defineAbility({
+  name: 'open_browser',
+  description: 'throws the structured shape used by ws',
+  category: null,
+  inputSchema: z.object({}),
+  execute: async () => {
+    throw { message: 'socket hang up', error: new Error('read ECONNRESET') }
+  },
+})
+const websocketTools = governedToolSet({
+  abilities: [websocketFailure],
+  autonomy: async () => 'trusted',
+  approvals: { request: async () => ({ approvalId: 'never' }) },
+  sink: { event: async () => {}, spend: async () => {} },
+  state: { pendingApprovalId: null, pendingWait: null },
+})
+const websocketResult = (await websocketTools.open_browser!.execute!(
+  {},
+  { toolCallId: 'ws-1', messages: [] },
+)) as { error: string }
+assert.match(websocketResult.error, /socket hang up: read ECONNRESET/)
+assert.doesNotMatch(websocketResult.error, /\[object Object\]/)
+
 console.log(`breaker: ok (service was called ${attempts} times for 4 attempts)`)

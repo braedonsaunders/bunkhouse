@@ -481,9 +481,11 @@ Four things make it honest rather than decorative:
 - **Drops, never queues.** While a conversion is in flight every arriving frame
   is acked and discarded. A slow encoder lowers the frame rate the caller sees
   and can never slow the agent down.
-- **Calls only.** The voice agent registers an offer against its call's run
-  before any browser exists. An email run, a duty, or an assignment registers
-  nothing, so its browser opens with no cursor, no screencast, and no track.
+- **One visual surface, in calls and chat.** The voice agent registers an offer
+  against its call room, while an ordinary chat run registers the same offer
+  against a run-scoped LiveKit room. Both consume the same screencast and the
+  same named screen-share track; only the destination room differs. A run that
+  never opens a visual surface creates no room, encoder, or video track.
 
 The screenshot ledger is untouched by all of it. It is the audit record —
 doctrine #9 — it is what the run desk replays, and it is what the call stage
