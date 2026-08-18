@@ -2,7 +2,13 @@
 
 import * as React from 'react'
 import { Mail, MessageSquare } from 'lucide-react'
-import { Badge, Button, DetailHeader, DetailPageLayout, SubtabNav } from '@braedonsaunders/appkit-ui'
+import {
+  Badge,
+  Button,
+  DetailHeader,
+  DetailPageLayout,
+  SubtabNav,
+} from '@braedonsaunders/appkit-ui'
 
 export type AgentPageSection = {
   key: string
@@ -36,6 +42,7 @@ export function AgentRecordSubsections({
         active={current?.key ?? ''}
         onSelect={setActive}
         ariaLabel={ariaLabel}
+        className="pb-2"
       />
       <div key={current?.key}>{current?.content}</div>
     </div>
@@ -79,7 +86,7 @@ export function AgentRecordPage({
   return (
     <DetailPageLayout
       header={
-        <div className="flex items-center gap-4 pb-4">
+        <div className="-mt-2 flex items-center gap-3">
           <button
             type="button"
             className="shrink-0 rounded-full transition-opacity hover:opacity-80"
@@ -88,36 +95,35 @@ export function AgentRecordPage({
           >
             {avatar}
           </button>
-          <div className="min-w-0 flex-1">
-            <DetailHeader
-              back={{ href: '/organization', label: 'All agents' }}
-              title={name}
-              subtitle={subtitle}
-              badge={
-                <span className="flex items-center gap-2">
-                  <Badge>Agent</Badge>
-                  <Badge variant={status === 'active' ? 'default' : 'outline'}>{status}</Badge>
-                </span>
-              }
-              actions={
-                <>
-                  {hasChat ? (
-                    <Button type="button" size="sm" onClick={() => select('chat')}>
-                      <MessageSquare aria-hidden className="size-4" />
-                      Message
-                    </Button>
-                  ) : null}
-                  {contactAction}
-                  {hasInbox ? (
-                    <Button type="button" size="sm" variant="outline" onClick={() => select('inbox')}>
-                      <Mail aria-hidden className="size-4" />
-                      Inbox
-                    </Button>
-                  ) : null}
-                </>
-              }
-            />
-          </div>
+          <DetailHeader
+            back={{ href: '/organization', label: 'All agents' }}
+            title={name}
+            subtitle={subtitle}
+            badge={
+              <span className="flex items-center gap-2">
+                <Badge>Agent</Badge>
+                <Badge variant={status === 'active' ? 'default' : 'outline'}>{status}</Badge>
+              </span>
+            }
+            actions={
+              <>
+                {hasChat ? (
+                  <Button type="button" size="sm" onClick={() => select('chat')}>
+                    <MessageSquare aria-hidden className="size-4" />
+                    Message
+                  </Button>
+                ) : null}
+                {contactAction}
+                {hasInbox ? (
+                  <Button type="button" size="sm" variant="outline" onClick={() => select('inbox')}>
+                    <Mail aria-hidden className="size-4" />
+                    Inbox
+                  </Button>
+                ) : null}
+              </>
+            }
+            className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-0 space-y-0 [&>p]:col-start-2"
+          />
         </div>
       }
       subtabs={
@@ -126,6 +132,7 @@ export function AgentRecordPage({
           active={current?.key ?? ''}
           onSelect={select}
           ariaLabel={`${name}'s employee record`}
+          className="-mt-3 pb-2"
         />
       }
       className={current?.key === 'chat' || current?.key === 'inbox' ? '' : 'space-y-6'}

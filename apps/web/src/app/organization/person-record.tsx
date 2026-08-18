@@ -461,7 +461,7 @@ export async function personDrawer({
         key: 'avatar',
         label: 'Avatar',
         content: (
-          <div className="min-h-[36rem] overflow-hidden rounded-lg border border-border bg-surface">
+          <div className="min-h-[36rem] overflow-hidden rounded-lg border border-border bg-surface md:h-[calc(100dvh-17rem)] md:max-h-[48rem]">
             <AvatarStudio
               personId={selected.id}
               name={selected.name}
@@ -671,7 +671,7 @@ export async function personDrawer({
             composition={figure}
             parts={partLibrary}
             categories={AVATAR_PART_CATEGORIES}
-            size={72}
+            size={44}
           />
         }
         contactAction={pageAccess?.canCall && callAction ? <CallActionButton action={callAction} name={selected.name} /> : undefined}
