@@ -1,10 +1,11 @@
 import 'server-only'
 import { createHash } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
-import { newAttachmentKey, type Storage } from '@braedonsaunders/appkit-storage'
+import { newAttachmentKey } from '@braedonsaunders/appkit-storage'
 import { createStorageFromEnv } from '@braedonsaunders/appkit-storage/env'
 import { files, type fileKind } from '../db/schema'
 import { db } from '../db/client'
+import { createReadyStorageAccessor } from './storage-readiness'
 
 export type FileKind = (typeof fileKind.enumValues)[number]
 export type FileRecord = typeof files.$inferSelect
@@ -14,14 +15,9 @@ export type FileRecord = typeof files.$inferSelect
  * infrastructure (env), like the database; which files exist and who owns
  * them is tenant data in the `files` table.
  */
-let cached: { storage: Storage; ready: Promise<void> } | null = null
-function storage(): { storage: Storage; ready: Promise<void> } {
-  if (!cached) {
-    const s = createStorageFromEnv(process.env as Record<string, string | undefined>)
-    cached = { storage: s, ready: s.ensureReady() }
-  }
-  return cached
-}
+const storage = createReadyStorageAccessor(() =>
+  createStorageFromEnv(process.env as Record<string, string | undefined>),
+)
 
 const STORAGE_KIND: Record<FileKind, 'document' | 'audio' | 'other'> = {
   document: 'document',

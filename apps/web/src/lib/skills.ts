@@ -1,7 +1,7 @@
 import 'server-only'
 import { createHash } from 'node:crypto'
 import { and, asc, count, eq } from 'drizzle-orm'
-import { newTenantObjectKey, type Storage } from '@braedonsaunders/appkit-storage'
+import { newTenantObjectKey } from '@braedonsaunders/appkit-storage'
 import { createStorageFromEnv } from '@braedonsaunders/appkit-storage/env'
 import {
   skillFiles,
@@ -13,6 +13,7 @@ import {
 import { db } from '../db/client'
 import { fetchSkills, type FetchedSkill, type SkillRepoRef } from './skill-source'
 import { bindsToAgent, type AgentBinding } from './assignment'
+import { createReadyStorageAccessor } from './storage-readiness'
 
 /**
  * Installing, updating, and assigning skills.
@@ -28,14 +29,9 @@ export type SkillRevisionRecord = typeof skillRevisions.$inferSelect
 export type SkillFileRecord = typeof skillFiles.$inferSelect
 
 /** Object storage for skill bundles — the same S3 the file ledger uses. */
-let cached: { storage: Storage; ready: Promise<void> } | null = null
-function storage(): { storage: Storage; ready: Promise<void> } {
-  if (!cached) {
-    const s = createStorageFromEnv(process.env as Record<string, string | undefined>)
-    cached = { storage: s, ready: s.ensureReady() }
-  }
-  return cached
-}
+const storage = createReadyStorageAccessor(() =>
+  createStorageFromEnv(process.env as Record<string, string | undefined>),
+)
 
 export type InstallOutcome =
   | { ok: true; installed: string[]; updated: string[] }

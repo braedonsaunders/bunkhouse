@@ -10,8 +10,31 @@ import {
   type SandboxCommand,
 } from '@braedonsaunders/appkit-agent-tools'
 import { TOOL_CATALOGUE } from '../src/lib/tool-catalogue'
+import { createReadyStorageAccessor } from '../src/lib/storage-readiness'
 
 const TENANT = '0194b8a2-3b74-7000-8000-000000000001'
+
+// A transient object-store failure cannot poison every later file operation
+// in the web process. Concurrent callers share one attempt; the next caller
+// after a rejection gets a fresh client and readiness check.
+{
+  let creations = 0
+  const readiness = createReadyStorageAccessor(() => {
+    creations += 1
+    return {
+      ensureReady: async () => {
+        if (creations === 1) throw new Error('temporary storage failure')
+      },
+    } as never
+  })
+  const first = readiness()
+  assert.equal(readiness(), first)
+  await assert.rejects(first.ready, /temporary storage failure/)
+  const recovered = readiness()
+  assert.notEqual(recovered, first)
+  await recovered.ready
+  assert.equal(creations, 2)
+}
 
 // --- the catalogue itself ---------------------------------------------------
 // Importing the module already ran every manifest through defineAgentTool, so
