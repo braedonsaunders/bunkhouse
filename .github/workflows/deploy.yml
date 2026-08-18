@@ -15,6 +15,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      imageTag:
+        description: 'Deploy an already-built, prevalidated GHCR image tag (leave blank for the normal checked build)'
+        type: string
+        required: false
+        default: ''
 
 concurrency:
   group: deploy-dev
@@ -29,6 +35,7 @@ env:
 
 jobs:
   check:
+    if: ${{ inputs.imageTag == '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -127,6 +134,7 @@ jobs:
         run: pnpm --filter web test:db
 
   build:
+    if: ${{ inputs.imageTag == '' }}
     needs: check
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -152,19 +160,41 @@ jobs:
           cache-to: type=gha,mode=max,ignore-error=true
 
   deploy:
-    needs: build
+    needs: [check, build]
+    if: >-
+      ${{
+        always() &&
+        (
+          (inputs.imageTag != '' && needs.check.result == 'skipped' && needs.build.result == 'skipped') ||
+          (inputs.imageTag == '' && needs.check.result == 'success' && needs.build.result == 'success')
+        )
+      }}
     runs-on: [self-hosted, linux, x64, dokploy]
     timeout-minutes: 20
     environment: dev
     steps:
       - uses: actions/checkout@v7
 
+      - name: Verify the prebuilt image
+        if: ${{ inputs.imageTag != '' }}
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ inputs.imageTag }}
+        run: |
+          set -euo pipefail
+          case "$IMAGE_TAG" in
+            ''|*[!A-Za-z0-9._-]*) echo "::error::Invalid GHCR image tag"; exit 1 ;;
+          esac
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin >/dev/null
+          docker manifest inspect "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null
+          echo "Verified prebuilt image ${IMAGE_NAME}:${IMAGE_TAG}"
+
       - name: Point Dokploy at the new image tag
         env:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
           DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
           COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
-          NEW_TAG: ${{ needs.build.outputs.tag }}
+          NEW_TAG: ${{ inputs.imageTag || needs.build.outputs.tag }}
           # Where this deployment's durable storage lives. Repository variables
           # rather than literals in the compose: the file is written to be
           # public, and one company's NFS export is not part of the product.
@@ -291,7 +321,7 @@ jobs:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
           DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
           DESK_COMPOSE_ID: ${{ secrets.DOKPLOY_DESK_COMPOSE_ID }}
-          NEW_TAG: ${{ needs.build.outputs.tag }}
+          NEW_TAG: ${{ inputs.imageTag || needs.build.outputs.tag }}
         run: |
           set -euo pipefail
           # Checked here rather than in an `if:` — the secrets context is not
@@ -352,7 +382,7 @@ jobs:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
           DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
           COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
-          NEW_TAG: ${{ needs.build.outputs.tag }}
+          NEW_TAG: ${{ inputs.imageTag || needs.build.outputs.tag }}
           PUBLIC_URL: ${{ vars.BUNKHOUSE_PUBLIC_URL }}
         run: |
           set -euo pipefail
