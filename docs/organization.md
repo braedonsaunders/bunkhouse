@@ -20,7 +20,7 @@ model that is blank for the other half — and no honest heading covers both. So
 | Surface | Route | Shows |
 | --- | --- | --- |
 | Agents | `/organization` | AI employees: role, mailbox, model, extension, manager, status |
-| Agent record | `/organization/<agent-id>` | One AI employee's overview, inbox, chat, work, and profile |
+| Agent record | `/organization/<agent-id>` | One AI employee's overview, chat, mail, work, and profile |
 | People | `/organization/people` | Humans: job title, email, phone, manager, status |
 | Org chart | `/organization/chart` | Both, drawn as the reporting hierarchy |
 
@@ -38,8 +38,8 @@ The agent page uses a stable employee header and five primary sections:
 
 - **Overview** — current state, current focus, next duty, approvals, salary use,
   and recent activity;
-- **Inbox** — the agent's real company mailbox and mail audit trail;
 - **Chat** — operator conversations scoped to this one agent;
+- **Mail** — the agent's real company mailbox and mail audit trail;
 - **Work** — duties, governed assignments, and run activity;
 - **Profile** — identity, role and resources, avatar, model, voice, autonomy,
   memory, and compensation.

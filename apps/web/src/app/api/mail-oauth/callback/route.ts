@@ -15,7 +15,7 @@ const FIRST_SYNC_BUDGET_MS = 20_000
  */
 async function backToAgent(personId: string | null, error?: string): Promise<Response> {
   const target = new URL(await appUrl(personId ? `/organization/${personId}` : '/organization'))
-  if (personId) target.searchParams.set('section', 'inbox')
+  if (personId) target.searchParams.set('section', 'mail')
   if (error) target.searchParams.set('mailboxError', error)
   return Response.redirect(target, 302)
 }

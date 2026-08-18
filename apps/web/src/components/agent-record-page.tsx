@@ -75,7 +75,7 @@ export function AgentRecordPage({
   const [active, setActive] = React.useState(() => validSection(sections, initialSection))
   const current = sections.find((section) => section.key === active) ?? sections[0]
   const hasChat = sections.some((section) => section.key === 'chat')
-  const fillsPage = current?.key === 'overview' || current?.key === 'chat' || current?.key === 'inbox'
+  const fillsPage = current?.key === 'overview' || current?.key === 'chat' || current?.key === 'mail'
 
   const select = (key: string): void => {
     setActive(key)

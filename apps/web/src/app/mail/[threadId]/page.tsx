@@ -22,5 +22,5 @@ export default async function ThreadRedirect({ params }: { params: Promise<{ thr
       .where(eq(mailThreads.id, threadId)),
   )
   if (!thread) notFound()
-  redirect(`/organization/${thread.personId}?section=inbox&thread=${thread.id}`)
+  redirect(`/organization/${thread.personId}?section=mail&thread=${thread.id}`)
 }

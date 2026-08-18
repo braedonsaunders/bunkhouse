@@ -393,9 +393,6 @@ export async function personDrawer({
   const callAction = resolveCallAction(selected)
 
   if (display === 'page' && isAgent) {
-    const activeRun = detail.recentRuns.find((run) =>
-      ['running', 'waiting_approval', 'waiting_reply'].includes(run.status),
-    ) ?? null
     const nextDutyRow = [...detail.personDuties]
       .filter((duty) => duty.enabled === 'on')
       .sort((a, b) => {
@@ -598,7 +595,6 @@ export async function personDrawer({
             person={selected}
             monthSpend={detail.monthSpend}
             pendingApprovals={detail.pendingApprovals}
-            activeRun={activeRun}
             nextDuty={nextDuty}
             recentRuns={detail.recentRuns}
             composition={figure}
@@ -607,22 +603,6 @@ export async function personDrawer({
           />
         ),
       },
-      ...(pageAccess?.canReadMail
-        ? [{
-            key: 'inbox',
-            label: 'Inbox',
-            content: (
-              <div className="h-full min-h-[36rem] lg:min-h-0">
-                <MailboxSection
-                  tenantId={tenantId}
-                  personId={selected.id}
-                  selectedThreadId={mailThreadId}
-                  error={mailboxError}
-                />
-              </div>
-            ),
-          } satisfies AgentPageSection]
-        : []),
       ...(canReadWork
         ? [{
             key: 'chat',
@@ -652,8 +632,26 @@ export async function personDrawer({
                 initialThread={initialChat}
               />
             ),
-          } satisfies AgentPageSection,
-          {
+          } satisfies AgentPageSection]
+        : []),
+      ...(pageAccess?.canReadMail
+        ? [{
+            key: 'mail',
+            label: 'Mail',
+            content: (
+              <div className="h-full min-h-[36rem] lg:min-h-0">
+                <MailboxSection
+                  tenantId={tenantId}
+                  personId={selected.id}
+                  selectedThreadId={mailThreadId}
+                  error={mailboxError}
+                />
+              </div>
+            ),
+          } satisfies AgentPageSection]
+        : []),
+      ...(canReadWork
+        ? [{
             key: 'work',
             label: 'Work',
             content: (
@@ -698,7 +696,7 @@ export async function personDrawer({
           }
           contactAction={pageAccess?.canCall && callAction ? <CallActionButton action={callAction} name={selected.name} /> : undefined}
           sections={pageSections}
-          initialSection={mailboxError ? 'inbox' : section}
+          initialSection={mailboxError ? 'mail' : section}
         />
         {canReadWork ? await runDrawer({ tenantId, runId, basePath: chatBasePath, tab: runTab }) : null}
       </>

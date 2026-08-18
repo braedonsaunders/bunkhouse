@@ -9,8 +9,8 @@ import { personDrawer } from '../person-record'
 export const dynamic = 'force-dynamic'
 
 /**
- * Canonical deep link to one employee. An agent is a deep record — inbox,
- * conversations, work and profile — so it owns a full page. Human employees
+ * Canonical deep link to one employee. An agent is a deep record — chat,
+ * mail, work and profile — so it owns a full page. Human employees
  * remain compact records on the People roster and still open in its drawer.
  *
  * This segment also catches every unmatched path under /organization, so the id
@@ -61,10 +61,10 @@ export default async function PersonPage({
       canReadMail: allowed('mail.read'),
       canCall: allowed('calls.manage'),
     },
-    section: query.section,
+    section: query.section === 'inbox' ? 'mail' : query.section,
     chatThreadId: query.section === 'chat' ? query.thread : undefined,
     startCall: query.section === 'chat' && query.call === '1',
-    mailThreadId: query.section === 'inbox' ? query.thread : undefined,
+    mailThreadId: query.section === 'mail' || query.section === 'inbox' ? query.thread : undefined,
     mailboxError: query.mailboxError,
     profileSection: query.profile,
     workSection: query.work,

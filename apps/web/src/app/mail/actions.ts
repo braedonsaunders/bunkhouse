@@ -8,7 +8,7 @@ import { resolveTenantId as resolveTenant } from '../../lib/tenant'
 const resolveTenantId = () => resolveTenant('mail.manage')
 
 /**
- * Data + IO for the agent inbox (the Mailbox tab on the person flyout). The
+ * Data + IO for the agent inbox (the Mail section on the employee record). The
  * component is controlled; these actions are its only server round-trips.
  */
 

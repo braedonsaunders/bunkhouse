@@ -518,6 +518,20 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     'utf8',
   )
   assert.ok(personRecord.includes('await runDrawer({ tenantId, runId'), 'the employee page hosts the canonical run drawer')
+  const employeeTabs = personRecord.slice(personRecord.indexOf('const pageSections'), personRecord.indexOf('const chatBaseParams'))
+  assert.ok(
+    employeeTabs.indexOf("key: 'overview'") < employeeTabs.indexOf("key: 'chat'") &&
+      employeeTabs.indexOf("key: 'chat'") < employeeTabs.indexOf("key: 'mail'") &&
+      employeeTabs.indexOf("key: 'mail'") < employeeTabs.indexOf("key: 'work'"),
+    'the employee record orders Overview, Chat, Mail, then Work',
+  )
+  assert.equal(employeeTabs.includes("key: 'inbox'"), false, 'Mail is the canonical employee section name')
+  const personSections = readFileSync(
+    fileURLToPath(new URL('../src/app/organization/person-sections.tsx', import.meta.url)),
+    'utf8',
+  )
+  assert.equal(personSections.includes("'Ready for work'"), false, 'the overview no longer carries the status hero')
+  assert.equal(personSections.includes('`Next: ${nextDuty.title}`'), false, 'the overview does not repeat the next duty in a hero')
   assert.equal(workSurface.includes('is getting started'), false, 'a new run never blanks History with a placeholder')
   assert.ok(
     workspace.includes("{ key: 'chat', label: 'Chat'") && workspace.includes("{ key: 'call', label: 'Call'"),

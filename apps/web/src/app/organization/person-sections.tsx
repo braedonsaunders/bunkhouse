@@ -1,11 +1,9 @@
 import Link from 'next/link'
 import {
-  Activity,
   ArrowUpRight,
   CalendarClock,
   CheckCircle2,
   CircleDollarSign,
-  MessageSquare,
   ShieldAlert,
   Sparkles,
 } from 'lucide-react'
@@ -121,7 +119,6 @@ export function AgentOverviewSection({
   person,
   monthSpend,
   pendingApprovals,
-  activeRun,
   nextDuty,
   recentRuns,
   composition,
@@ -131,7 +128,6 @@ export function AgentOverviewSection({
   person: Person
   monthSpend: number
   pendingApprovals: number
-  activeRun: RecentRun | null
   nextDuty: { title: string; schedule: string; dueAt: string | null } | null
   recentRuns: RecentRun[]
   composition: AvatarComposition
@@ -140,13 +136,6 @@ export function AgentOverviewSection({
 }) {
   const salary = person.salary?.monthlyUsd ?? 0
   const budgetPercent = salary > 0 ? Math.min(100, (monthSpend / salary) * 100) : 0
-  const currentLabel = !activeRun
-    ? 'Ready for work'
-    : activeRun.status === 'waiting_approval'
-      ? 'Waiting for your decision'
-      : activeRun.status === 'waiting_reply'
-        ? 'Waiting for a reply'
-        : 'Working now'
   const model = person.modelConfig
     ? `${person.modelConfig.provider} · ${person.modelConfig.model}`
     : 'No model assigned'
@@ -154,38 +143,6 @@ export function AgentOverviewSection({
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_23rem]">
       <div className="flex min-h-0 flex-col gap-3">
-        <Card className="shrink-0 overflow-hidden">
-          <CardContent className="flex min-w-0 items-center gap-3 p-3">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary-subtle text-primary">
-              {activeRun ? <Activity aria-hidden className="size-4" /> : <Sparkles aria-hidden className="size-4" />}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-center gap-2">
-                <p className="shrink-0 text-xs font-semibold uppercase tracking-wide text-primary">{currentLabel}</p>
-                {activeRun ? <Badge variant={runStatusVariant(activeRun.status)}>{activeRun.status.replaceAll('_', ' ')}</Badge> : null}
-              </div>
-              <p className="mt-0.5 truncate text-sm font-medium text-fg">
-                {activeRun?.summary ?? (nextDuty ? `Next: ${nextDuty.title}` : `Ready for ${person.title.toLowerCase()} work`)}
-              </p>
-            </div>
-            <div className="ml-auto flex shrink-0 items-center gap-2">
-              {activeRun ? (
-                <Button asChild size="sm" variant="outline">
-                  <Link href={`/runs/${activeRun.id}`}>
-                    Open run <ArrowUpRight aria-hidden className="size-4" />
-                  </Link>
-                </Button>
-              ) : null}
-              <Button asChild size="sm">
-                <Link href={`/organization/${person.id}?section=chat`}>
-                  <MessageSquare aria-hidden className="size-4" />
-                  Message
-                </Link>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
         <Card className="shrink-0 overflow-hidden">
           <CardContent className="grid p-0 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
             <div className="flex min-w-0 gap-3 p-4">
