@@ -32,7 +32,7 @@ export default async function RunPage({
         back={
           from === 'person' && view.agent
             ? { href: `/organization?person=${view.agent.id}`, label: view.agent.name }
-            : { href: '/observatory', label: 'Observatory' }
+            : { href: '/observatory', label: 'Activity' }
         }
         title={view.title}
         subtitle={view.subtitle}

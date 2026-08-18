@@ -137,7 +137,7 @@ export function ObservatoryFloor({
         ]}
         active={tab}
         onSelect={setTab}
-        ariaLabel="Observatory sections"
+        ariaLabel="Activity sections"
       />
       {tab === 'live' ? (
         active.length ? (

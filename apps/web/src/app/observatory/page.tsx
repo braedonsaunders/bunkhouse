@@ -188,7 +188,7 @@ export default async function ObservatoryPage({
   return (
     <PageContainer className="space-y-6">
       <PageHeader
-        title="Observatory"
+        title="Activity"
         description="Watch an agent work — every run across the company, and what's on their screen right now."
       />
       <ObservatoryFloor
