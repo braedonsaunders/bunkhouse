@@ -31,6 +31,11 @@ on:
         type: string
         required: false
         default: ''
+      diagnosticsOnly:
+        description: 'Report redacted deployment state without changing services'
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: deploy-dev
@@ -45,7 +50,7 @@ env:
 
 jobs:
   check:
-    if: ${{ inputs.imageTag == '' && inputs.contextReleaseTag == '' }}
+    if: ${{ inputs.diagnosticsOnly != true && inputs.imageTag == '' && inputs.contextReleaseTag == '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -147,6 +152,7 @@ jobs:
     if: >-
       ${{
         always() &&
+        inputs.diagnosticsOnly != true &&
         inputs.imageTag == '' &&
         (inputs.contextReleaseTag != '' || needs.check.result == 'success')
       }}
@@ -212,6 +218,7 @@ jobs:
     if: >-
       ${{
         always() &&
+        inputs.diagnosticsOnly != true &&
         (
           (inputs.imageTag != '' && needs.check.result == 'skipped' && needs.build.result == 'skipped') ||
           (
@@ -578,3 +585,41 @@ jobs:
           done
           echo "::error::The deployed application did not become healthy within 10 minutes."
           exit 1
+
+  diagnose:
+    if: ${{ inputs.diagnosticsOnly == true }}
+    runs-on: [self-hosted, linux, x64, dokploy]
+    timeout-minutes: 5
+    environment: dev
+    steps:
+      - name: Report redacted deployment state
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
+          COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+          EXPECTED_TAG: ${{ inputs.imageTag }}
+          PUBLIC_URL: ${{ vars.BUNKHOUSE_PUBLIC_URL }}
+        run: |
+          set -euo pipefail
+          base="${DOKPLOY_URL%/}"
+          compose="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+            -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID")"
+          app_name="$(printf '%s' "$compose" | jq -r '.appName // empty')"
+          : "${app_name:?Dokploy compose has no appName}"
+          for unit in web worker voice-agent; do
+            service="${app_name}_${unit}"
+            if ! image="$(docker service inspect --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}' "$service" 2>/dev/null)"; then
+              echo "$service: missing"
+              continue
+            fi
+            desired="$(docker service inspect --format '{{.Spec.Mode.Replicated.Replicas}}' "$service")"
+            running="$(docker service ps --filter desired-state=running --format '{{.CurrentState}}' "$service" \
+              | grep -c '^Running' || true)"
+            echo "$service: image=${image%%@*} desired=$desired running=$running expected_tag=${EXPECTED_TAG:-unspecified}"
+            docker service ps --no-trunc \
+              --format 'task={{.Name}} state={{.CurrentState}} error={{.Error}}' "$service" | head -n 6
+          done
+          if [ -n "${PUBLIC_URL:-}" ]; then
+            code="$(curl -s -o /dev/null -w '%{http_code}' "${PUBLIC_URL%/}/login" || true)"
+            echo "public_login_status=$code"
+          fi
