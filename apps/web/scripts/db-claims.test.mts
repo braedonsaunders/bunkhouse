@@ -226,10 +226,21 @@ await asApp(T1, async (c) => {
 // Random per invocation: appended evidence stays behind (see reset()), so a
 // second run must not collide with the first run's unique keys.
 const RID = crypto.randomUUID()
+const BAD_ATTEMPT = crypto.randomUUID()
 const MODEL = `claims-model-${RID.slice(0, 8)}`
+await asApp(T1, (c) =>
+  c.query(
+    `insert into runs (id, tenant_id, person_id, trigger) values ($1, $2, $1, '{"type":"manual","requestedBy":"claims"}')`,
+    [RID, T1],
+  ),
+)
 const LEDGERS: [table: string, insert: string][] = [
   ['audit_log', `insert into audit_log (tenant_id, entity_type, action, summary) values ('${T1}', 'test', 'claims.check', 'evidence')`],
   ['run_events', `insert into run_events (tenant_id, run_id, seq, kind, payload) values ('${T1}', '${RID}', 1, 'message', '{"text":"hello"}')`],
+  ['run_attempts', `insert into run_attempts (id, tenant_id, run_id, owner, fence) values ('${RID}', '${T1}', '${RID}', 'claims-worker', 1)`],
+  ['run_attempt_events', `insert into run_attempt_events (tenant_id, attempt_id, seq, kind) values ('${T1}', '${RID}', 1, 'claimed')`],
+  ['external_effect_intents', `insert into external_effect_intents (id, tenant_id, run_id, provenance_kind, attempt_id, kind, idempotency_key, request) values ('${RID}', '${T1}', '${RID}', 'run_attempt', '${RID}', 'external_email:send_email', 'claims:${RID}', '{}')`],
+  ['external_effect_events', `insert into external_effect_events (tenant_id, effect_id, seq, kind, payload) values ('${T1}', '${RID}', 1, 'completed', '{"result":{"sent":true}}')`],
   ['token_spend', `insert into token_spend (tenant_id, person_id, run_id, provider, model, input_tokens, output_tokens, cost_usd) values ('${T1}', '${RID}', '${RID}', 'anthropic', 'claude-sonnet-5', 100, 10, 0.0100)`],
   ['mail_messages', `insert into mail_messages (tenant_id, thread_id, direction, "from", subject, body_text, sent_at) values ('${T1}', '${RID}', 'outbound', '{"address":"a@claims.test"}', 'Hi', 'Body', now())`],
   ['procedure_revisions', `insert into procedure_revisions (tenant_id, procedure_id, version, body) values ('${T1}', '${RID}', 1, 'Step one.')`],
@@ -249,6 +260,31 @@ for (const [table, insert] of LEDGERS) {
     await assert.rejects(c.query(`delete from ${table}`), appendOnly, `${table} rejects DELETE`)
   })
 }
+
+await asApp(T1, async (c) => {
+  await assert.rejects(
+    c.query(
+      `insert into external_effect_intents
+         (tenant_id, run_id, provenance_kind, attempt_id, kind, idempotency_key, request)
+       values ($1, $2, 'run_attempt', $3, 'record_write:test', $4, '{}')`,
+      [T1, RID, BAD_ATTEMPT, `bad-provenance:${BAD_ATTEMPT}`],
+    ),
+    (error: { code?: string }) => error.code === '23503',
+    'an effect intent must name a real same-run execution authority',
+  )
+})
+
+await asApp(T2, async (c) => {
+  await assert.rejects(
+    c.query(
+      `insert into external_effect_events (tenant_id, effect_id, seq, kind, payload)
+       values ($1, $2, 2, 'completed', '{"result":{"forged":true}}')`,
+      [T2, RID],
+    ),
+    (error: { code?: string }) => error.code === '23503',
+    'an effect event cannot point at another tenant\'s intent',
+  )
+})
 
 // Even the BYPASSRLS handle cannot rewrite evidence — the trigger fires for
 // every role short of one that drops it.
@@ -367,6 +403,326 @@ await assert.rejects(
   assert.equal(oldMembership.rows[0].status, 'suspended', 'the credentialless demo membership is suspended')
 
   const { db: testDb } = await import('../src/db/client.ts')
+  const {
+    callSessions: testCallSessions,
+    chatThreads: testChatThreads,
+    deskEvents: testDeskEvents,
+    deskSessions: testDeskSessions,
+    runs: testRuns,
+  } = await import('../src/db/schema/index.ts')
+  const { externalEffectStore, finalizeRunAttempt, reconcileExternalEffect, runExecutionLeaseStore } = await import('../src/lib/run-execution.ts')
+  const { chatWorkSurface } = await import('../src/lib/chat-work-surface.ts')
+  const { appendRunEvent } = await import('../src/lib/run-events.ts')
+  const { closeRunEventNotifications, waitForRunEventWake } = await import('../src/lib/run-event-notifications.ts')
+
+  // The application store—not only the schema—must enforce one executor and
+  // deterministic external-effect replay on the real PostgreSQL boundary.
+  await testDb().withTenantContext(TENANT, async () => {
+    const runId = crypto.randomUUID()
+    await testDb().db.insert(testRuns).values({
+      id: runId,
+      tenantId: TENANT,
+      personId: REPORT,
+      status: 'running',
+      trigger: { type: 'manual', requestedBy: 'claims' },
+    })
+    const leases = runExecutionLeaseStore(TENANT)
+    const first = await leases.claim({ runId, owner: 'worker-one', leaseMs: 60_000, now: new Date() })
+    assert.ok(first, 'the eligible run is claimed')
+    assert.equal(
+      await leases.claim({ runId, owner: 'worker-two', leaseMs: 60_000, now: new Date() }),
+      null,
+      'a second executor cannot claim the live fence',
+    )
+    const effects = externalEffectStore(TENANT)
+    const intent = {
+      tenantId: TENANT,
+      runId,
+      attemptId: first.attemptId,
+      kind: 'external_email:send_email',
+      idempotencyKey: `claims-effect:${runId}`,
+      request: { b: 2, a: 1 },
+      at: new Date(),
+    }
+    const claimed = await effects.claim(intent)
+    assert.equal(claimed.disposition, 'execute')
+    await assert.rejects(
+      reconcileExternalEffect({
+        tenantId: TENANT,
+        effectId: claimed.effectId,
+        actorUserId: OWNER_USER,
+        resolution: 'retry',
+        note: 'This must wait until the original execution settles.',
+      }),
+      /active execution/,
+      'an operator cannot race an original in-flight effect with manual evidence',
+    )
+    await effects.append(claimed.effectId, { kind: 'completed', at: new Date(), result: { sent: true } })
+    const replay = await effects.claim({ ...intent, request: { a: 1, b: 2 } })
+    assert.deepEqual(replay.disposition === 'completed' ? replay.result : null, { sent: true })
+    await assert.rejects(
+      effects.append(claimed.effectId, { kind: 'ambiguous', at: new Date(), error: 'too late' }),
+      /already terminal/,
+      'authoritative effect completion rejects every later outcome',
+    )
+
+    const uncertainIntent = {
+      ...intent,
+      idempotencyKey: `claims-effect-uncertain:${runId}`,
+      request: { message: 'may have reached the destination' },
+    }
+    const uncertainClaim = await effects.claim(uncertainIntent)
+    assert.equal(uncertainClaim.disposition, 'execute')
+    assert.equal((await effects.claim(uncertainIntent)).disposition, 'uncertain')
+    await effects.append(uncertainClaim.effectId, {
+      kind: 'failed',
+      at: new Date(),
+      error: 'The adapter proved the request was rejected before application.',
+    })
+    const retry = await effects.claim(uncertainIntent)
+    assert.equal(retry.disposition, 'execute')
+    assert.equal(retry.disposition === 'execute' ? retry.retry : false, true)
+    await effects.append(uncertainClaim.effectId, { kind: 'retry_started', at: new Date() })
+    await assert.rejects(
+      reconcileExternalEffect({
+        tenantId: TENANT,
+        effectId: uncertainClaim.effectId,
+        actorUserId: OWNER_USER,
+        resolution: 'completed',
+        note: 'This must wait until the active retry settles.',
+      }),
+      /active execution/,
+      'an operator cannot race an in-flight retry with a manual outcome',
+    )
+    await effects.append(uncertainClaim.effectId, {
+      kind: 'ambiguous',
+      at: new Date(),
+      error: 'Connection ended before acknowledgement.',
+    })
+    assert.equal(
+      await finalizeRunAttempt(
+        TENANT,
+        first,
+        { status: 'completed', finishedAt: new Date(), transcript: null, waiting: null, summary: 'done' },
+        'completed',
+      ),
+      true,
+      'run and attempt finish under one fence',
+    )
+    await reconcileExternalEffect({
+      tenantId: TENANT,
+      effectId: uncertainClaim.effectId,
+      actorUserId: OWNER_USER,
+      resolution: 'completed',
+      note: 'The destination audit log now contains the exact action.',
+    })
+    const reconciled = await effects.claim(uncertainIntent)
+    assert.deepEqual(reconciled.disposition === 'completed' ? reconciled.result : null, { reconciled: true })
+    const completedReconciliation = await su.query(
+      `select before, after from audit_log where entity_type = 'external_effect' and entity_id = $1 order by created_at`,
+      [uncertainClaim.effectId],
+    )
+    assert.deepEqual(
+      completedReconciliation.rows.map((row) => [row.before.status, row.after.status]),
+      [['ambiguous', 'reconciled']],
+      'confirming completion appends matching effect and audit evidence',
+    )
+    const finalized = await su.query(`select status, lease_owner from runs where id = $1`, [runId])
+    assert.deepEqual(finalized.rows[0], { status: 'completed', lease_owner: null })
+    assert.equal(
+      await leases.renew(first, { leaseMs: 60_000, now: new Date() }),
+      null,
+      'a closed fence cannot be renewed',
+    )
+
+    const operatorRetryIntent = {
+      ...intent,
+      idempotencyKey: `claims-effect-operator-retry:${runId}`,
+      request: { message: 'independently confirmed absent' },
+    }
+    const operatorRetryClaim = await effects.claim(operatorRetryIntent)
+    assert.equal(operatorRetryClaim.disposition, 'execute')
+    await reconcileExternalEffect({
+      tenantId: TENANT,
+      effectId: operatorRetryClaim.effectId,
+      actorUserId: OWNER_USER,
+      resolution: 'retry',
+      note: 'The destination audit log contains no matching action.',
+    })
+    const operatorRetry = await effects.claim(operatorRetryIntent)
+    assert.equal(operatorRetry.disposition, 'execute')
+    assert.equal(operatorRetry.disposition === 'execute' ? operatorRetry.retry : false, true)
+    const retryReconciliation = await su.query(
+      `select before, after from audit_log where entity_type = 'external_effect' and entity_id = $1 order by created_at`,
+      [operatorRetryClaim.effectId],
+    )
+    assert.deepEqual(
+      retryReconciliation.rows.map((row) => [row.before.status, row.after.status]),
+      [['intended', 'failed']],
+      'confirming non-completion appends matching effect and audit evidence',
+    )
+
+    const takeoverRunId = crypto.randomUUID()
+    await testDb().db.insert(testRuns).values({
+      id: takeoverRunId,
+      tenantId: TENANT,
+      personId: REPORT,
+      status: 'running',
+      trigger: { type: 'manual', requestedBy: 'claims' },
+    })
+    const expiredLease = await leases.claim({
+      runId: takeoverRunId,
+      owner: 'worker-that-crashed',
+      leaseMs: 1,
+      now: new Date('2026-08-17T12:00:00.000Z'),
+    })
+    assert.ok(expiredLease)
+    assert.equal(
+      await leases.renew(expiredLease, { leaseMs: 60_000, now: new Date('2026-08-17T12:00:01.000Z') }),
+      null,
+      'an owner cannot revive its authority after the lease deadline',
+    )
+    const replacementLease = await leases.claim({
+      runId: takeoverRunId,
+      owner: 'replacement-worker',
+      leaseMs: 60_000,
+      now: new Date('2026-08-17T12:01:00.000Z'),
+    })
+    assert.ok(replacementLease, 'an expired lease can be replaced')
+    const superseded = await su.query(
+      `select kind, detail from run_attempt_events where attempt_id = $1 order by seq desc limit 1`,
+      [expiredLease.attemptId],
+    )
+    assert.equal(superseded.rows[0].kind, 'lease_lost', 'takeover closes the crashed attempt append-only')
+    assert.equal(superseded.rows[0].detail.replacedByAttemptId, replacementLease.attemptId)
+    assert.equal(
+      await finalizeRunAttempt(
+        TENANT,
+        replacementLease,
+        { status: 'completed', finishedAt: new Date(), transcript: null, waiting: null, summary: 'recovered' },
+        'completed',
+      ),
+      true,
+    )
+
+    const cancelledRunId = crypto.randomUUID()
+    await testDb().db.insert(testRuns).values({
+      id: cancelledRunId,
+      tenantId: TENANT,
+      personId: REPORT,
+      status: 'running',
+      trigger: { type: 'manual', requestedBy: 'claims' },
+    })
+    const cancelledLease = await leases.claim({
+      runId: cancelledRunId,
+      owner: 'worker-cancelled',
+      leaseMs: 60_000,
+      now: new Date(),
+    })
+    assert.ok(cancelledLease)
+    await su.query(`update runs set status = 'cancelled' where id = $1`, [cancelledRunId])
+    assert.equal(
+      await finalizeRunAttempt(
+        TENANT,
+        cancelledLease,
+        { status: 'completed', finishedAt: new Date(), transcript: null, waiting: null, summary: 'too late' },
+        'completed',
+      ),
+      true,
+      'a racing cancellation still closes the owned attempt',
+    )
+    const cancelled = await su.query(`select status, lease_owner from runs where id = $1`, [cancelledRunId])
+    assert.deepEqual(cancelled.rows[0], { status: 'cancelled', lease_owner: null })
+    const terminalAttempt = await su.query(
+      `select kind from run_attempt_events where attempt_id = $1 order by seq desc limit 1`,
+      [cancelledLease.attemptId],
+    )
+    assert.equal(terminalAttempt.rows[0].kind, 'cancelled')
+
+    const wakeController = new AbortController()
+    const wake = waitForRunEventWake(runId, wakeController.signal)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    await appendRunEvent(testDb().db, {
+      tenantId: TENANT,
+      runId,
+      kind: 'message',
+      payload: { text: 'wake proof' },
+    })
+    await Promise.race([
+      wake,
+      new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('run-event wake timed out')), 2_000)),
+    ])
+    wakeController.abort()
+
+    const threadId = crypto.randomUUID()
+    const surfaceRunId = crypto.randomUUID()
+    const deskSessionId = crypto.randomUUID()
+    await testDb().db.insert(testChatThreads).values({
+      id: threadId,
+      tenantId: TENANT,
+      personId: REPORT,
+      userId: OWNER_USER,
+    })
+    await testDb().db.insert(testRuns).values({
+      id: surfaceRunId,
+      tenantId: TENANT,
+      personId: REPORT,
+      status: 'running',
+      trigger: { type: 'chat', conversationId: `web:${threadId}` },
+    })
+    await testDb().db.insert(testDeskSessions).values({
+      id: deskSessionId,
+      tenantId: TENANT,
+      personId: REPORT,
+      runId: surfaceRunId,
+      status: 'active',
+    })
+    await testDb().db.insert(testDeskEvents).values({
+      tenantId: TENANT,
+      sessionId: deskSessionId,
+      seq: 0,
+      kind: 'navigate',
+      detail: { title: 'Vendor portal', url: 'https://vendor.example.test' },
+    })
+    assert.equal((await chatWorkSurface(TENANT, threadId)).kind, 'browser', 'browser work is promoted into chat')
+    await testDb().db.insert(testDeskEvents).values({
+      tenantId: TENANT,
+      sessionId: deskSessionId,
+      seq: 1,
+      kind: 'shell_command',
+      detail: { command: 'process-invoices', exitCode: 0 },
+    })
+    assert.equal((await chatWorkSurface(TENANT, threadId)).kind, 'activity', 'newer headless work replaces a stale browser frame')
+    await testDb().db.insert(testCallSessions).values({
+      tenantId: TENANT,
+      personId: REPORT,
+      runId: surfaceRunId,
+      room: `claims-call-${surfaceRunId}`,
+      direction: 'web',
+      counterparty: { name: 'Claims caller' },
+      status: 'active',
+    })
+    assert.equal((await chatWorkSurface(TENANT, threadId)).kind, 'call', 'an active call is visible without a desktop')
+    await testDb().db.insert(testDeskEvents).values({
+      tenantId: TENANT,
+      sessionId: deskSessionId,
+      seq: 2,
+      kind: 'screen_open',
+      detail: { reason: 'The task requires a graphical application.' },
+    })
+    assert.equal((await chatWorkSurface(TENANT, threadId)).kind, 'desktop', 'an open screen takes over the work stage')
+    await testDb().db.insert(testDeskEvents).values({
+      tenantId: TENANT,
+      sessionId: deskSessionId,
+      seq: 3,
+      kind: 'screen_close',
+      detail: {},
+    })
+    assert.equal((await chatWorkSurface(TENANT, threadId)).kind, 'call', 'closing the screen returns to the active call')
+  })
+
+  await closeRunEventNotifications()
+
   await testDb().pool.end()
   await testDb().superPool.end()
   await su.query(`delete from people where tenant_id = $1 and id = $2`, [TENANT, REPORT])

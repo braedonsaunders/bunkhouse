@@ -1,11 +1,12 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { and, eq, inArray } from 'drizzle-orm'
-import { approvals, runs } from '../../db/schema'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { approvals, runAttemptEvents, runs } from '../../db/schema'
 import { db } from '../../db/client'
-import { resolveTenantId as resolveTenant } from '../../lib/tenant'
+import { requireTenantPermission } from '../../lib/tenant'
 import { appendRunEventInTransaction } from '../../lib/run-events'
+import { reconcileExternalEffect } from '../../lib/run-execution'
 
 /**
  * Stopping a run an operator no longer wants.
@@ -19,8 +20,6 @@ import { appendRunEventInTransaction } from '../../lib/run-events'
  *
  * Either way the run keeps everything it did. Stopping is not undoing.
  */
-const resolveTenantId = () => resolveTenant('work.manage')
-
 /** The states a run can still be stopped from; anything else has finished. */
 const STOPPABLE = ['running', 'waiting_approval', 'waiting_reply'] as const
 
@@ -28,11 +27,12 @@ export async function stopRunAction(
   runId: string,
 ): Promise<{ ok: true; live: boolean } | { ok: false; message: string }> {
   if (!runId) return { ok: false, message: 'No run was named.' }
-  const tenantId = await resolveTenantId()
+  const access = await requireTenantPermission('work.manage')
+  const tenantId = access.tenantId
   const app = db()
 
   return app.withTenant(tenantId, async () => {
-    const [run] = await app.db.select().from(runs).where(eq(runs.id, runId))
+    const [run] = await app.db.select().from(runs).where(eq(runs.id, runId)).for('update')
     if (!run) return { ok: false, message: 'That run no longer exists.' }
     if (!STOPPABLE.includes(run.status as (typeof STOPPABLE)[number])) {
       return { ok: false, message: `This run already ${run.status === 'cancelled' ? 'stopped' : 'finished'}.` }
@@ -44,7 +44,10 @@ export async function stopRunAction(
       tenantId,
       runId,
       kind: 'message',
-      payload: { text: 'Stopped by an operator. Everything done up to this point is kept.' },
+      payload: {
+        text: 'Stopped by an operator. Everything done up to this point is kept.',
+        actorUserId: access.user.id,
+      },
     })
 
     // Whatever it was waiting on is settled too. A pending approval whose run
@@ -56,6 +59,7 @@ export async function stopRunAction(
       .update(approvals)
       .set({
         status: 'rejected',
+        decidedById: access.user.id,
         decidedAt: new Date(),
         decisionNote: 'Declined automatically — the run that requested this was stopped.',
         executedAt: new Date(),
@@ -74,9 +78,36 @@ export async function stopRunAction(
         transcript: null,
         waiting: null,
         summary: 'Stopped by an operator.',
+        // Revoke execution authority immediately. The attempt's terminal fact
+        // below means even a worker killed before its next poll has a closed,
+        // truthful history.
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        activeAttemptId: null,
         updatedAt: new Date(),
       })
       .where(and(eq(runs.id, runId), inArray(runs.status, [...STOPPABLE])))
+
+    if (run.activeAttemptId) {
+      await app.db.execute(
+        sql`select pg_advisory_xact_lock(hashtext('bunkhouse.run_attempt'), hashtext(${run.activeAttemptId}))`,
+      )
+      const [latest] = await app.db
+        .select({ seq: runAttemptEvents.seq, kind: runAttemptEvents.kind })
+        .from(runAttemptEvents)
+        .where(eq(runAttemptEvents.attemptId, run.activeAttemptId))
+        .orderBy(desc(runAttemptEvents.seq))
+        .limit(1)
+      if (!latest || !['completed', 'failed', 'cancelled', 'lease_lost'].includes(latest.kind)) {
+        await app.db.insert(runAttemptEvents).values({
+          tenantId,
+          attemptId: run.activeAttemptId,
+          seq: (latest?.seq ?? -1) + 1,
+          kind: 'cancelled',
+          detail: { actorUserId: access.user.id },
+        })
+      }
+    }
 
     // The observatory hosts the record as a drawer, so this covers both the
     // list and the open flyout. The `/runs/[id]` deep link is not revalidated
@@ -90,4 +121,28 @@ export async function stopRunAction(
     // the caller says so rather than implying the work is already over.
     return { ok: true, live: run.status === 'running' }
   })
+}
+
+export async function reconcileExternalEffectAction(input: {
+  effectId: string
+  resolution: 'completed' | 'retry'
+  note: string
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!input.effectId) return { ok: false, message: 'No external effect was named.' }
+  const note = input.note.trim()
+  if (!note) return { ok: false, message: 'Record why this resolution is safe.' }
+  const access = await requireTenantPermission('work.manage')
+  try {
+    await reconcileExternalEffect({
+      tenantId: access.tenantId,
+      effectId: input.effectId,
+      actorUserId: access.user.id,
+      resolution: input.resolution,
+      note,
+    })
+    revalidatePath('/observatory')
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : 'The effect could not be reconciled.' }
+  }
 }

@@ -1,4 +1,5 @@
 import 'server-only'
+import { createHash, randomUUID } from 'node:crypto'
 import { and, desc, eq, gte, ne, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { ModelMessage } from 'ai'
@@ -20,8 +21,18 @@ import {
   type RunInputImage,
   type RunOutcome,
   type RunSink,
+  type ExternalEffectGate,
   type BoundSkill,
+  takeAbilityFrame,
+  redactSecretValue,
 } from '@bunkhouse/runtime'
+import {
+  executeExternalEffect,
+  runWithFencedLease,
+  type ExecutionLease,
+  ExecutionLeaseLostError,
+  ExecutionLeaseUnavailableError,
+} from '@braedonsaunders/appkit-events'
 import {
   assignments,
   autonomySettings,
@@ -60,6 +71,14 @@ import { readSkillBundle, skillsForAgent, type BoundSkillRow } from './skills'
 import { agentBinding, bindsToAgent, type AgentBinding } from './assignment'
 import { PersonNotWorkingError, isPersonNotWorking, workRefusal, type WorkRefusal } from './person-work'
 import { appendRunEvent } from './run-events'
+import {
+  externalEffectStore,
+  finalizeRunAttempt,
+  finishRunAttempt,
+  runExecutionLeaseStore,
+  recordRunAttemptEvent,
+  externalEffectRequestIdentity,
+} from './run-execution'
 import { materializeSkillBundle } from './workspace'
 
 
@@ -486,6 +505,56 @@ export type LiveRun = {
   abortSignal: AbortSignal
 }
 
+type ExternalEffectInvocation<T> = {
+  toolName: string
+  category: ActionCategory
+  idempotencyKey: string
+  request: unknown
+  signal: AbortSignal
+  operation: (signal: AbortSignal) => Promise<T>
+}
+
+/**
+ * Turn a database cancellation into the same AbortSignal used by the model,
+ * tool deadline, and external-effect boundary. The run row is authoritative;
+ * the timer only controls how quickly this process learns about the change.
+ */
+async function withRunCancellation<T>(
+  runId: string,
+  parent: AbortSignal | undefined,
+  work: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const app = db()
+  const controller = new AbortController()
+  const abortParent = () => controller.abort(parent?.reason)
+  if (parent?.aborted) abortParent()
+  else parent?.addEventListener('abort', abortParent, { once: true })
+  let checking = false
+  const timer = setInterval(() => {
+    if (checking || controller.signal.aborted) return
+    checking = true
+    void app.db
+      .select({ status: runs.status })
+      .from(runs)
+      .where(eq(runs.id, runId))
+      .limit(1)
+      .then(([row]) => {
+        if (row?.status === 'cancelled') controller.abort(new DOMException('Run cancelled.', 'AbortError'))
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        checking = false
+      })
+  }, 500)
+  try {
+    return await work(controller.signal)
+  } finally {
+    clearInterval(timer)
+    parent?.removeEventListener('abort', abortParent)
+    if (!controller.signal.aborted) controller.abort()
+  }
+}
+
 
 
 /**
@@ -688,6 +757,7 @@ export async function executeAgentRun(args: {
         })
       })
 
+    const attempt: { lease: ExecutionLease | null; outcome: RunOutcome | null } = { lease: null, outcome: null }
     // From here the run has a row, and a failure has to leave it saying so.
     // Nothing rolls back any more: a crash used to erase the run and its whole
     // ledger, which is the opposite of an append-only history and left the
@@ -790,7 +860,41 @@ export async function executeAgentRun(args: {
         )
       }
 
-      const outcome = await runAgent({
+      const effectSecrets = [
+        ...(assembled?.secrets ?? live?.secrets ?? []),
+        ...(process.env.BUNKHOUSE_DESK_TOKEN ? [process.env.BUNKHOUSE_DESK_TOKEN] : []),
+      ]
+      const runLoop = (lease: ExecutionLease, signal: AbortSignal) => {
+        const effects: ExternalEffectGate = {
+          execute: <T>(effect: ExternalEffectInvocation<T>) =>
+            executeExternalEffect<unknown, T>({
+              store: externalEffectStore<T>(args.tenantId),
+              intent: {
+                tenantId: args.tenantId,
+                runId,
+                attemptId: lease.attemptId,
+                kind: `${effect.category}:${effect.toolName}`,
+                // Stable across a crash that causes the model step to be
+                // regenerated with a new SDK tool-call id. Within one run,
+                // repeating the exact same outside action is a replay until
+                // an application adapter supplies a narrower domain key.
+                idempotencyKey: `${runId}:${effect.toolName}:${createHash('sha256').update(externalEffectRequestIdentity(effect.request)).digest('hex')}`,
+                request: { toolName: effect.toolName, category: effect.category, input: effect.request },
+              },
+              signal: effect.signal,
+              sanitize: (value) => {
+                const { rest } = takeAbilityFrame(value)
+                return redactSecretValue(rest, effectSecrets)
+              },
+              // Existing adapters do not yet prove that a thrown transport
+              // error occurred before the outside system accepted the work.
+              // Treat that as uncertain and require reconciliation; retrying
+              // an email, payment-adjacent write, or record mutation is worse.
+              classifyError: () => 'ambiguous',
+              execute: effect.operation,
+            }),
+        }
+        return runAgent({
         runId,
         // Read straight from the row the operator's Stop writes, rather than a
         // flag held in this process: the run may be executing on a worker that
@@ -844,11 +948,10 @@ export async function executeAgentRun(args: {
         },
         budget: foundation.budget,
         sink,
-        runSecrets: [
-          ...(assembled?.secrets ?? live?.secrets ?? []),
-          ...(process.env.BUNKHOUSE_DESK_TOKEN ? [process.env.BUNKHOUSE_DESK_TOKEN] : []),
-        ],
-        ...(live ? { abortSignal: live.abortSignal, toolDeadlineMs: LIVE_TOOL_DEADLINE_MS } : {}),
+        runSecrets: effectSecrets,
+        abortSignal: signal,
+        effects,
+        ...(live ? { toolDeadlineMs: LIVE_TOOL_DEADLINE_MS } : {}),
       }).finally(async () => {
         // A live run borrows both: the integrations and the browser belong to the
         // call, which closes them once, when the call ends. Closing them here
@@ -860,122 +963,215 @@ export async function executeAgentRun(args: {
         await closeBrowserSession(runId)
         await closeDeskSession(runId).catch(() => {})
       })
-
-      // The completion contract: work that was triggered by a person waiting for
-      // an answer is not "completed" until something actually went back to them.
-      // A cheap model that writes a perfectly good reply as its closing remark
-      // instead of calling reply_to_thread used to finish green, with the sender
-      // never contacted and nothing anywhere saying so — measured on two models,
-      // both of which "completed" having sent nothing at all.
-      let unmetContract: string | null = null
-      if (outcome.status === 'completed' && args.trigger.type === 'email') {
-        const [answered] = await app.db
-          .select({ id: mailMessages.id })
-          .from(mailMessages)
-          .where(and(eq(mailMessages.runId, runId), eq(mailMessages.direction, 'outbound')))
-          .limit(1)
-        const [queued] = await app.db
-          .select({ id: approvals.id })
-          .from(approvals)
-          .where(eq(approvals.runId, runId))
-          .limit(1)
-        if (!answered && !queued) {
-          unmetContract =
-            'Finished without answering the thread: no reply was sent and none was queued for approval. The sender has heard nothing.'
-        }
       }
 
-      const status =
-        outcome.status === 'completed'
-          ? unmetContract
-            ? ('failed' as const)
-            : ('completed' as const)
-          : outcome.status === 'waiting_approval'
-            ? ('waiting_approval' as const)
-            : outcome.status === 'waiting_reply'
-              ? ('waiting_reply' as const)
-              : outcome.status === 'cancelled'
-                ? ('cancelled' as const)
-                : ('failed' as const)
-      if (unmetContract) await sink.event({ kind: 'error', message: unmetContract })
-      if (outcome.status === 'waiting_approval' && person.reportsToId) {
-        const [manager] = await app.db.select().from(people).where(eq(people.id, person.reportsToId))
-        const [approval] = await app.db.select().from(approvals).where(eq(approvals.id, outcome.approvalId))
-        if (manager && approval) {
-          try {
-            // The payload already holds the exact action the executor will
-            // replay; the email used to show only the one-line label. Three
-            // approvals in one afternoon all read "Sending the reply" and the
-            // manager approved them blind — the draft itself was in the
-            // payload the whole time, one join away from the email.
-            const shown = approvalContentPreview(approval.payload)
-            await sendNewMail({
-              tenantId: args.tenantId,
-              personId: person.id,
-              to: [{ name: manager.name, address: manager.email }],
-              subject: `[BH#${approval.id.slice(0, 8)}] Approval needed: ${approval.category.replace('_', ' ')}`,
-              text: `Hi ${manager.name.split(' ')[0]},\n\nI need your sign-off before I act:\n\n${approval.payload.description}${shown ? `\n\n${shown}` : ''}\n\nReply to this email with "approve" or "decline" (a short note after the word is kept for the record). You can also decide it in Bunkhouse under Approvals.\n\n${person.personality?.signoff ?? person.name}`,
-              runId,
-            })
-            await sink.event({ kind: 'message', text: `Approval request emailed to ${manager.name} <${manager.email}>.` })
-          } catch (error) {
-            await sink.event({
-              kind: 'message',
-              text: `Could not email the approval request (${error instanceof Error ? error.message : String(error)}); it is waiting in the Approvals queue.`,
-            })
+      const outcome = await withRunCancellation(runId, live?.abortSignal, (runSignal) =>
+        runWithFencedLease({
+          store: runExecutionLeaseStore(args.tenantId),
+          runId,
+          owner: `${live ? 'live' : 'worker'}:${randomUUID()}`,
+          signal: runSignal,
+          execute: async ({ lease, signal }) => {
+            attempt.lease = lease
+            const result = await runLoop(lease, signal)
+            attempt.outcome = result
+            return result
+          },
+        // Keep the lease heartbeat alive through every completion check and
+        // through the terminal database transition. Returning true is the
+        // commit: once this callback ends, the orchestrator may stop renewing.
+        commit: async (lease, result) => {
+          // The completion contract: work triggered by someone waiting for an
+          // answer is not complete until an outbound reply or approval exists.
+          let unmetContract: string | null = null
+          if (result.status === 'completed' && args.trigger.type === 'email') {
+            const [answered] = await app.db
+              .select({ id: mailMessages.id })
+              .from(mailMessages)
+              .where(and(eq(mailMessages.runId, runId), eq(mailMessages.direction, 'outbound')))
+              .limit(1)
+            const [queued] = await app.db
+              .select({ id: approvals.id })
+              .from(approvals)
+              .where(eq(approvals.runId, runId))
+              .limit(1)
+            if (!answered && !queued) {
+              unmetContract =
+                'Finished without answering the thread: no reply was sent and none was queued for approval. The sender has heard nothing.'
+            }
+          }
+
+          const status =
+            result.status === 'completed'
+              ? unmetContract
+                ? ('failed' as const)
+                : ('completed' as const)
+              : result.status === 'waiting_approval'
+                ? ('waiting_approval' as const)
+                : result.status === 'waiting_reply'
+                  ? ('waiting_reply' as const)
+                  : result.status === 'cancelled'
+                    ? ('cancelled' as const)
+                    : ('failed' as const)
+          if (unmetContract) await sink.event({ kind: 'error', message: unmetContract })
+
+          if (result.status === 'waiting_approval' && person.reportsToId) {
+            const [manager] = await app.db.select().from(people).where(eq(people.id, person.reportsToId))
+            const [approval] = await app.db.select().from(approvals).where(eq(approvals.id, result.approvalId))
+            if (manager && approval) {
+              // The payload holds the exact action the executor will replay;
+              // include its human-facing fields so a manager never approves a
+              // vague label without seeing what will actually be sent.
+              const shown = approvalContentPreview(approval.payload)
+              const subject = `[BH#${approval.id.slice(0, 8)}] Approval needed: ${approval.category.replace('_', ' ')}`
+              const text = `Hi ${manager.name.split(' ')[0]},\n\nI need your sign-off before I act:\n\n${approval.payload.description}${shown ? `\n\n${shown}` : ''}\n\nReply to this email with "approve" or "decline" (a short note after the word is kept for the record). You can also decide it in Bunkhouse under Approvals.\n\n${person.personality?.signoff ?? person.name}`
+              try {
+                await executeExternalEffect({
+                  store: externalEffectStore<{ threadId: string }>(args.tenantId),
+                  intent: {
+                    tenantId: args.tenantId,
+                    runId,
+                    attemptId: lease.attemptId,
+                    kind: 'system:approval_notification',
+                    idempotencyKey: `${runId}:approval_notice:${approval.id}:${manager.email.toLowerCase()}`,
+                    request: {
+                      approvalId: approval.id,
+                      manager: { name: manager.name, address: manager.email },
+                      subject,
+                      text,
+                    },
+                  },
+                  signal: runSignal,
+                  sanitize: (value) => {
+                    const { rest } = takeAbilityFrame(value)
+                    return redactSecretValue(rest, effectSecrets)
+                  },
+                  classifyError: () => 'ambiguous',
+                  execute: () =>
+                    sendNewMail({
+                      tenantId: args.tenantId,
+                      personId: person.id,
+                      to: [{ name: manager.name, address: manager.email }],
+                      subject,
+                      text,
+                      runId,
+                    }),
+                })
+                await sink.event({
+                  kind: 'message',
+                  text: `Approval request emailed to ${manager.name} <${manager.email}>.`,
+                })
+              } catch (error) {
+                await sink.event({
+                  kind: 'message',
+                  text: `Could not confirm delivery of the approval request (${error instanceof Error ? error.message : String(error)}); it is waiting in the Approvals queue.`,
+                })
+              }
+            }
+          }
+
+          // A live run does not own the record it wrote into: the call opened
+          // it and closes it later with the whole conversation's summary.
+          if (live) {
+            const attemptKind =
+              result.status === 'cancelled' ? 'cancelled' : result.status === 'failed' ? 'failed' : 'completed'
+            return finishRunAttempt(args.tenantId, lease, attemptKind, { outcome: result.status })
+          }
+
+          const parked = status === 'waiting_approval' || status === 'waiting_reply'
+          return finalizeRunAttempt(
+            args.tenantId,
+            lease,
+            {
+              status,
+              finishedAt: parked ? null : new Date(),
+              // The transcript exists to resume a parked run; a finished run
+              // keeps its ledger in run_events, not a model-conversation copy.
+              transcript: parked ? (result.messages as unknown[]) : null,
+              waiting:
+                result.status === 'waiting_reply'
+                  ? { ...result.wait, askedAt: new Date().toISOString() }
+                  : null,
+              summary:
+                result.status === 'completed'
+                  ? unmetContract
+                    ? `${unmetContract} What it did instead: ${result.summary}`.slice(0, 500)
+                    : result.summary.slice(0, 500)
+                  : result.status === 'waiting_approval'
+                    ? 'Waiting on an approval.'
+                    : result.status === 'waiting_reply'
+                      ? `Waiting to hear back from ${result.wait.to}.`
+                      : result.status === 'budget_paused'
+                        ? 'Paused: salary budget exhausted.'
+                        : result.status === 'cancelled'
+                          ? 'Stopped by an operator.'
+                          : result.error.slice(0, 500),
+            },
+            status === 'cancelled' ? 'cancelled' : status === 'failed' ? 'failed' : 'completed',
+            { outcome: status },
+          )
+          },
+        }),
+      )
+      return { runId, outcome }
+    } catch (error) {
+      // Another executor already owns this running row. That worker remains
+      // authoritative; a duplicate delivery must not mark its run failed.
+      if (error instanceof ExecutionLeaseUnavailableError) throw error
+      if (error instanceof ExecutionLeaseLostError) {
+        const [stopped] = await app.db.select({ status: runs.status }).from(runs).where(eq(runs.id, runId)).limit(1)
+        if (stopped?.status === 'cancelled') {
+          return {
+            runId,
+            outcome: {
+              status: 'cancelled',
+              usage: attempt.outcome?.usage ?? { inputTokens: 0, outputTokens: 0 },
+              messages: attempt.outcome?.messages ?? [],
+            },
           }
         }
       }
-
-      // A live run does not own the record it wrote into: the call opened it and
-      // the call closes it, with the whole conversation's summary.
-      if (live) return { runId, outcome }
-
-      const parked = status === 'waiting_approval' || status === 'waiting_reply'
-      await app.db
-        .update(runs)
-        .set({
-          status,
-          finishedAt: parked ? null : new Date(),
-          // The transcript exists to resume a parked run; a finished run keeps
-          // its ledger in run_events, not a copy of the model conversation.
-          transcript: parked ? (outcome.messages as unknown[]) : null,
-          waiting:
-            outcome.status === 'waiting_reply'
-              ? { ...outcome.wait, askedAt: new Date().toISOString() }
-              : null,
-          summary:
-            outcome.status === 'completed'
-              ? unmetContract
-                ? `${unmetContract} What it did instead: ${outcome.summary}`.slice(0, 500)
-                : outcome.summary.slice(0, 500)
-              : outcome.status === 'waiting_approval'
-                ? 'Waiting on an approval.'
-                : outcome.status === 'waiting_reply'
-                  ? `Waiting to hear back from ${outcome.wait.to}.`
-                  : outcome.status === 'budget_paused'
-                    ? 'Paused: salary budget exhausted.'
-                    : outcome.status === 'cancelled'
-                      ? 'Stopped by an operator.'
-                      : outcome.error.slice(0, 500),
-        })
-        // A stop already written to the row wins. Without this the loop's own
-        // closing update lands last and a cancelled run reads as completed —
-        // the operator pressed Stop, the screen agreed, and then it changed its
-        // mind a step later.
-        .where(and(eq(runs.id, runId), ne(runs.status, 'cancelled')))
-      return { runId, outcome }
-    } catch (error) {
       // A live run does not own its record — the call opened it and the call
       // closes it — so this marks only what it is responsible for.
       if (!live) {
         const reason = error instanceof Error ? error.message : String(error)
         await recordEvent({ kind: 'error', message: reason }).catch(() => undefined)
-        await app.db
-          .update(runs)
-          .set({ status: 'failed', finishedAt: new Date(), transcript: null, summary: reason.slice(0, 500) })
-          .where(and(eq(runs.id, runId), ne(runs.status, 'cancelled')))
-          .catch(() => undefined)
+        const activeLease = attempt.lease
+        if (activeLease && !(error instanceof ExecutionLeaseLostError)) {
+          await finalizeRunAttempt(
+            args.tenantId,
+            activeLease,
+            {
+              status: 'failed',
+              finishedAt: new Date(),
+              transcript: null,
+              waiting: null,
+              summary: reason.slice(0, 500),
+            },
+            'failed',
+            { error: reason },
+          ).catch(() => false)
+        } else if (!activeLease) {
+          await app.db
+            .update(runs)
+            .set({ status: 'failed', finishedAt: new Date(), transcript: null, summary: reason.slice(0, 500) })
+            .where(and(eq(runs.id, runId), ne(runs.status, 'cancelled')))
+            .catch(() => undefined)
+        }
+      }
+      const activeLease = attempt.lease
+      if (activeLease) {
+        const detail = { error: error instanceof Error ? error.message : String(error) }
+        if (error instanceof ExecutionLeaseLostError) {
+          await recordRunAttemptEvent({
+            tenantId: args.tenantId,
+            attemptId: activeLease.attemptId,
+            kind: 'lease_lost',
+            detail,
+          }).catch(() => undefined)
+        } else if (live) {
+          await finishRunAttempt(args.tenantId, activeLease, 'failed', detail).catch(() => false)
+        }
       }
       throw error
     }

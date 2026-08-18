@@ -1,4 +1,5 @@
 import type { ModelMessage, ToolResultPart } from 'ai'
+import { pruneVisualToolContext } from '@braedonsaunders/appkit-ai'
 
 type ToolResultOutput = ToolResultPart['output']
 
@@ -76,6 +77,9 @@ export type CompactionResult = {
   trimmedChars: number
   /** How many earlier tool results were shortened. */
   trimmedResults: number
+  /** Historical screenshots removed, including byte-identical repeats. */
+  prunedFrames: number
+  deduplicatedFrames: number
 }
 
 /**
@@ -107,12 +111,23 @@ export function compactMessages(
   // matching it. Anything at or after the boundary is left verbatim.
   const trimmable = Math.max(0, resultIds.length - keepRecent)
   const boundary = Math.floor(trimmable / COMPACT_STRIDE) * COMPACT_STRIDE
-  if (boundary === 0) return { messages, trimmedChars: 0, trimmedResults: 0 }
+  const visual = pruneVisualToolContext(messages)
+  const visuallyCompacted =
+    visual.prunedFrames > 0 || visual.deduplicatedFrames > 0 ? visual.messages : messages
+  if (boundary === 0) {
+    return {
+      messages: visuallyCompacted,
+      trimmedChars: 0,
+      trimmedResults: 0,
+      prunedFrames: visual.prunedFrames,
+      deduplicatedFrames: visual.deduplicatedFrames,
+    }
+  }
   const spare = new Set(resultIds.slice(boundary))
 
   let trimmedChars = 0
   let trimmedResults = 0
-  const compacted = messages.map((message) => {
+  const compacted = visuallyCompacted.map((message) => {
     if (message.role !== 'tool' || !Array.isArray(message.content)) return message
     let changed = false
     const content = message.content.map((part) => {
@@ -128,5 +143,11 @@ export function compactMessages(
     return changed ? { ...message, content } : message
   })
 
-  return { messages: trimmedChars > 0 ? compacted : messages, trimmedChars, trimmedResults }
+  return {
+    messages: compacted,
+    trimmedChars,
+    trimmedResults,
+    prunedFrames: visual.prunedFrames,
+    deduplicatedFrames: visual.deduplicatedFrames,
+  }
 }

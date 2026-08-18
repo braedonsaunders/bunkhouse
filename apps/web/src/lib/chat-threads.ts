@@ -1,10 +1,12 @@
 import 'server-only'
 import { and, asc, desc, eq, gte, sql } from 'drizzle-orm'
+import { followDurableCursor } from '@braedonsaunders/appkit-events'
 import type { RunInput, RunOutcome } from '@bunkhouse/runtime'
 import { chatMessages, chatThreads, people, runEvents, runs, type RunTrigger } from '../db/schema'
 import { db } from '../db/client'
 import { replyTextForOutcome } from './chat-reply'
 import { isPersonNotWorking } from './person-work'
+import { waitForRunEventWake } from './run-event-notifications'
 
 /**
  * The in-app chat surface's runtime.
@@ -299,7 +301,8 @@ export type ChatRunWatcher = {
    * returns at the end.
    */
   findRun(args: { tenantId: string; conversationId: string; since: Date }): Promise<string | null>
-  events(args: { tenantId: string; runId: string; afterSeq: number }): Promise<ChatRunEvent[]>
+  events(args: { tenantId: string; runId: string; afterSeq: number; limit?: number }): Promise<ChatRunEvent[]>
+  waitForWake?: (args: { runId: string; signal: AbortSignal }) => Promise<void>
 }
 
 export function dbChatRunWatcher(): ChatRunWatcher {
@@ -321,17 +324,19 @@ export function dbChatRunWatcher(): ChatRunWatcher {
       )
       return row?.id ?? null
     },
-    async events({ tenantId, runId, afterSeq }) {
+    async events({ tenantId, runId, afterSeq, limit }) {
       const app = db()
-      const rows = await app.withTenantContext(tenantId, () =>
-        app.db
+      const rows = await app.withTenantContext(tenantId, () => {
+        const query = app.db
           .select({ seq: runEvents.seq, kind: runEvents.kind, payload: runEvents.payload })
           .from(runEvents)
           .where(and(eq(runEvents.runId, runId), sql`${runEvents.seq} > ${afterSeq}`))
-          .orderBy(asc(runEvents.seq)),
-      )
+          .orderBy(asc(runEvents.seq))
+        return limit === undefined ? query : query.limit(limit)
+      })
       return rows
     },
+    waitForWake: ({ runId, signal }) => waitForRunEventWake(runId, signal),
   }
 }
 
@@ -744,7 +749,7 @@ function findDoubleSubmit(history: ChatMessageView[], body: string, nowMs: numbe
 // The in-flight watcher: run events → progress callbacks
 // ---------------------------------------------------------------------------
 
-const WATCH_INTERVAL_MS = 700
+const WATCH_INTERVAL_MS = 1_000
 
 /**
  * Poll the run's own ledger while the work is happening and report tool calls
@@ -763,23 +768,25 @@ function startWatching(
   let runId: string | null = null
   let cursor = -1
   const pending: { toolCallId: string; toolName: string }[] = []
+  const controller = new AbortController()
 
-  const drain = async (): Promise<void> => {
+  const findRun = async (): Promise<string | null> => {
     if (!runId) {
       runId = await watcher.findRun({
         tenantId: args.tenantId,
         conversationId: args.conversationId,
         since: args.since,
       })
-      if (!runId) return
+      if (!runId) return null
       progress.onRun?.(runId)
     }
-    const events = await watcher.events({ tenantId: args.tenantId, runId, afterSeq: cursor })
-    for (const event of events) {
-      cursor = Math.max(cursor, event.seq)
+    return runId
+  }
+
+  const publish = (event: ChatRunEvent): void => {
       if (event.kind === 'tool_call') {
         const toolName = String(event.payload.toolName ?? 'tool')
-        const toolCallId = `${runId}:${event.seq}`
+        const toolCallId = `${runId!}:${event.seq}`
         pending.push({ toolCallId, toolName })
         progress.onToolCall?.({ toolCallId, toolName, input: event.payload.input })
       } else if (event.kind === 'tool_result') {
@@ -790,24 +797,54 @@ function startWatching(
         const matched = index === -1 ? pending.shift() : pending.splice(index, 1)[0]
         if (matched) progress.onToolResult?.({ toolCallId: matched.toolCallId, output: event.payload.output })
       }
-    }
   }
 
   const loop = (async () => {
-    while (!stopped) {
-      await drain().catch(() => undefined)
-      if (stopped) break
-      await new Promise((resolve) => setTimeout(resolve, WATCH_INTERVAL_MS))
+    while (!stopped && !controller.signal.aborted) {
+      const found = await findRun().catch(() => null)
+      if (!found) {
+        await new Promise<void>((resolve) => {
+          const finish = () => {
+            clearTimeout(timer)
+            controller.signal.removeEventListener('abort', finish)
+            resolve()
+          }
+          const timer = setTimeout(finish, WATCH_INTERVAL_MS)
+          controller.signal.addEventListener('abort', finish, { once: true })
+        })
+        continue
+      }
+      const source = {
+        readAfter: async ({ cursor, limit }: { cursor: number | null; limit: number; signal: AbortSignal }) =>
+          (await watcher.events({ tenantId: args.tenantId, runId: found, afterSeq: cursor ?? -1, limit }))
+            .map((event) => ({ cursor: event.seq, event })),
+        ...(watcher.waitForWake
+          ? { waitForWake: ({ signal }: { cursor: number | null; signal: AbortSignal }) => watcher.waitForWake!({ runId: found, signal }) }
+          : {}),
+      }
+      for await (const row of followDurableCursor({ source, cursor: -1, pollMs: WATCH_INTERVAL_MS, signal: controller.signal })) {
+        cursor = Math.max(cursor, row.cursor)
+        publish(row.event)
+      }
+      break
     }
-    // One last pass, so the tools of a run that finished between polls are not
-    // lost from the picture.
-    await drain().catch(() => undefined)
   })()
 
   return {
     stop: async () => {
       stopped = true
+      controller.abort()
       await loop
+      // Push is only a wake-up hint. A run may commit its final rows just as
+      // the caller asks this watcher to stop, so close with one authoritative
+      // cursor read rather than trusting notification timing.
+      const found = await findRun().catch(() => null)
+      if (!found) return
+      const tail = await watcher.events({ tenantId: args.tenantId, runId: found, afterSeq: cursor }).catch(() => [])
+      for (const event of tail) {
+        cursor = Math.max(cursor, event.seq)
+        publish(event)
+      }
     },
   }
 }

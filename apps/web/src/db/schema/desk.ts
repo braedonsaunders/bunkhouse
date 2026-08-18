@@ -128,6 +128,9 @@ export type DeskLedgerEventDetail = {
   error?: string
   /** Set when the screenshot itself failed, so a null file id is explained. */
   screenshotError?: string
+  /** Exact content identity; repeated frames reuse the earlier file record. */
+  frameId?: string
+  frameRepeated?: boolean
 }
 
 /** Append-only: one row per governed thing that happened on the desk. */

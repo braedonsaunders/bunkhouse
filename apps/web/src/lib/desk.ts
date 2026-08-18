@@ -5,6 +5,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import { z } from 'zod'
 import { ABILITY_FRAME_KEY, defineAbility, type Ability, type AbilityFrame } from '@bunkhouse/runtime'
+import { createDeskFrameDeduplicator, type DeskFrameDeduplicator } from '@braedonsaunders/appkit-desk'
 import {
   backgroundJobs,
   deskEvents,
@@ -1005,6 +1006,8 @@ type LiveDesk = {
   /** Screen steps spent this screen session — the §3.18 budget counter. */
   screenSteps: number
   screenOpen: boolean
+  frameDeduplicator: DeskFrameDeduplicator
+  lastScreenshotFileId: string | null
   /** Runner-event cursor already drained into the ledger. */
   drainCursor: number
   /** Serializes ledger writes so two concurrent tool calls never race a seq. */
@@ -1033,6 +1036,8 @@ async function getLiveDesk(ctx: DeskContext): Promise<LiveDesk> {
       seq: row.seq,
       screenSteps: 0,
       screenOpen: false,
+      frameDeduplicator: createDeskFrameDeduplicator(),
+      lastScreenshotFileId: null,
       drainCursor: 0,
       chain: Promise.resolve(),
     }
@@ -1326,8 +1331,9 @@ async function observeRecordShow(
     observeError = describeError(error)
   }
   const bytes = observation ? Buffer.from(observation.png, 'base64') : null
+  const identity = bytes ? live.frameDeduplicator.observe(bytes) : null
   const seqForFile = live.seq + 1
-  const fileId = bytes
+  const fileId = bytes && identity?.changed
     ? await ctx.saveScreenshot({
         tenantId: ctx.tenantId,
         personId: ctx.personId,
@@ -1335,14 +1341,18 @@ async function observeRecordShow(
         seq: seqForFile,
         bytes,
       })
-    : null
+    : identity
+      ? live.lastScreenshotFileId
+      : null
+  if (identity?.changed && fileId) live.lastScreenshotFileId = fileId
   const recorded: DeskLedgerEventDetail = {
     ...detail,
+    ...(identity ? { frameId: identity.frameId, frameRepeated: !identity.changed } : {}),
     ...(observeError ? { screenshotError: `The screen could not be observed: ${observeError}` } : {}),
   }
   await appendSerialized(ctx, live, kind, recorded, fileId)
   await drainRunnerEvents(ctx, live).catch(() => undefined)
-  const frame = bytes ? await frameForModel(bytes) : null
+  const frame = bytes && identity?.changed ? await frameForModel(bytes) : null
   const policy = await ctx.policy()
   return {
     ...(observation
@@ -1353,6 +1363,7 @@ async function observeRecordShow(
         }
       : { error: `The screen could not be observed: ${observeError ?? 'no observation'}` }),
     ...(fileId ? { fileId } : {}),
+    ...(identity && !identity.changed ? { frameUnchanged: true } : {}),
     step: live.screenSteps,
     stepsLeft: Math.max(0, policy.screenStepCeiling - live.screenSteps),
     ...shownFrame(frame),

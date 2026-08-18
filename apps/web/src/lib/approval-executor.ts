@@ -1,6 +1,7 @@
 import 'server-only'
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
-import type { Ability } from '@bunkhouse/runtime'
+import { redactSecretValue, takeAbilityFrame, type Ability } from '@bunkhouse/runtime'
+import { executeExternalEffect } from '@braedonsaunders/appkit-events'
 import { approvals, people, runs } from '../db/schema'
 import { db } from '../db/client'
 import { assembleAbilities } from './agent-abilities'
@@ -8,6 +9,7 @@ import { ASSIGNMENT_MAX_STEPS, executeAgentRun, replyToThreadAbility, threadIsIn
 import { finalizeAssignmentRun } from './assignments'
 import { planApprovalExecution, settlementAfterFailure } from './approval-execution'
 import { appendRunEvent } from './run-events'
+import { externalEffectStore } from './run-execution'
 
 /**
  * The generic approval executor. Every decided approval is acted on exactly
@@ -217,9 +219,34 @@ async function carryOutDecision(tenantId: string, claimed: ClaimedApproval): Pro
       try {
         const ability = abilities.find((a) => a.name === action.toolName)
         if (!ability?.tool.execute) return { error: `Ability "${action.toolName}" is not available to execute.` }
-        return await ability.tool.execute(action.input, { toolCallId: `approval-${claimed.id}`, messages: [] })
-      } catch (error) {
-        return { error: error instanceof Error ? error.message : String(error) }
+        const execute = ability.tool.execute.bind(ability.tool)
+        return await executeExternalEffect({
+          store: externalEffectStore(tenantId),
+          intent: {
+            tenantId,
+            runId: run.id,
+            // Approval execution has its own durable lease/attempt identity.
+            // It is a UUID and deliberately occupies this provenance slot
+            // without pretending the resumed model attempt performed it.
+            attemptId: claimed.id,
+            kind: `approval:${action.toolName}`,
+            idempotencyKey: `approval:${claimed.id}:${action.toolName}`,
+            request: { approvalId: claimed.id, toolName: action.toolName, input: action.input },
+          },
+          sanitize: (value) => {
+            const { rest } = takeAbilityFrame(value)
+            return redactSecretValue(rest, assembled.secrets)
+          },
+          classifyError: () => 'ambiguous',
+          execute: (signal) =>
+            Promise.resolve(
+              execute(action.input, {
+                toolCallId: `approval-${claimed.id}`,
+                messages: [],
+                abortSignal: signal,
+              }),
+            ),
+        })
       } finally {
         await assembled.close()
       }

@@ -8,7 +8,7 @@ import {
   type GovernanceState,
 } from './abilities'
 import { cachedInputTokens, cachedSystemMessage, sessionPinningOptions } from './caching'
-import { compactMessages, COMPACT_KEEP_RECENT } from './compaction'
+import { compactMessages } from './compaction'
 import { reportedCostUsd, usageAccountingOptions } from './cost'
 import { buildRunInstruction, buildSystemPrompt } from './prompt'
 import { loadSkillAbility, type BoundSkill } from './skills'
@@ -25,6 +25,7 @@ import type {
   RunOutcome,
   RunSink,
   TokenUsage,
+  ExternalEffectGate,
 } from './types'
 
 export type RunAgentArgs = {
@@ -52,6 +53,8 @@ export type RunAgentArgs = {
    */
   toolDeadlineMs?: number
   abortSignal?: AbortSignal
+  /** Application-owned append-only intent/outcome boundary for external effects. */
+  effects?: ExternalEffectGate
   /**
    * The run this work belongs to. Used to pin every step of one run to the
    * same upstream so the prompt cache built on step one is still there on
@@ -182,6 +185,8 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
     state,
     describeAction: args.describeAction,
     ...(args.toolDeadlineMs ? { deadlineMs: args.toolDeadlineMs } : {}),
+    ...(args.abortSignal ? { signal: args.abortSignal } : {}),
+    ...(args.effects ? { effects: args.effects } : {}),
     secrets: runSecrets,
   })
 
@@ -263,13 +268,14 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
       // Evidence the agent has already reasoned over does not need re-buying at
       // full price on every subsequent step. The working set stays verbatim.
       prepareStep: async ({ messages: stepMessages }) => {
-        const { messages: compacted, trimmedChars, trimmedResults } = compactMessages(stepMessages)
-        if (trimmedChars <= 0) return {}
+        const { messages: compacted, trimmedChars, trimmedResults, prunedFrames, deduplicatedFrames } =
+          compactMessages(stepMessages)
+        if (trimmedChars <= 0 && prunedFrames <= 0 && deduplicatedFrames <= 0) return {}
         if (!compactionAnnounced) {
           compactionAnnounced = true
           await sink.event({
             kind: 'message',
-            text: `Trimmed ${trimmedResults} earlier tool result(s) from the working context to keep this run affordable. The most recent ${COMPACT_KEEP_RECENT} are unchanged.`,
+            text: `Trimmed ${trimmedResults} earlier tool result(s) and ${prunedFrames + deduplicatedFrames} historical visual frame(s) from the working context to keep this run affordable. Recent evidence is unchanged.`,
           })
         }
         return { messages: compacted }
@@ -387,6 +393,19 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
       messages: transcript,
     }
   } catch (error) {
+    if (args.abortSignal?.aborted && args.isCancelled && (await args.isCancelled().catch(() => false))) {
+      if (!cancelled) {
+        await sink.event({
+          kind: 'message',
+          text: 'Stopped by an operator. Ending here; everything done up to this point is kept.',
+        })
+      }
+      return {
+        status: 'cancelled',
+        usage,
+        messages: redactSecretValue(messages, runSecrets),
+      }
+    }
     const message = redactSecrets(error instanceof Error ? error.message : String(error), runSecrets)
     await sink.event({ kind: 'error', message })
     return {

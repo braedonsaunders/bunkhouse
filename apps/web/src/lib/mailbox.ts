@@ -276,39 +276,17 @@ export async function syncPersonMailbox(tenantId: string, personId: string): Pro
 }
 
 /**
- * Hand a message to the mail server, giving a wobbly connection a second and
- * third chance before calling it a failure.
- *
- * A send that throws is terminal today: the agent is told "that did not work",
- * the run finishes, and the customer is never written to again. Most of what
- * goes wrong at this seam is transient — a dropped socket, a mail server
- * restarting, a momentary DNS failure — and is over in a couple of seconds.
- * Authentication and rejected-recipient errors are not transient, so they fail
- * immediately rather than being retried three times for nothing.
+ * Submit exactly once. After SMTP DATA, a dropped acknowledgement cannot prove
+ * whether the server accepted the message; retrying inside this adapter could
+ * send it twice before the external-effect ledger ever sees the ambiguity.
+ * Recovery therefore happens only at the durable boundary, with authoritative
+ * completion or operator reconciliation — never as a hidden transport retry.
  */
-async function sendWithRetry(
+async function sendOnce(
   connection: MailboxConnection,
   message: SendMailArgs,
 ): Promise<Awaited<ReturnType<typeof sendMail>>> {
-  const attempts = 3
-  let last: unknown
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      return await sendMail(connection, message)
-    } catch (error) {
-      last = error
-      const text = (error instanceof Error ? error.message : String(error)).toLowerCase()
-      const permanent =
-        text.includes('auth') ||
-        text.includes('credential') ||
-        text.includes('no recipients') ||
-        text.includes('mailbox unavailable') ||
-        /\b5\d\d\b/.test(text)
-      if (permanent || attempt === attempts) break
-      await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** (attempt - 1)))
-    }
-  }
-  throw last
+  return sendMail(connection, message)
 }
 
 /** Send a reply in a thread as the agent, and ledger the outbound message. */
@@ -364,7 +342,7 @@ export async function sendReplyInThread(args: {
       ...(owner ? { fromName: owner.name } : {}),
       ...(attachments.wire.length ? { attachments: attachments.wire } : {}),
     }
-    const sent = await sendWithRetry(await toConnection(args.tenantId, account), sendArgs)
+    const sent = await sendOnce(await toConnection(args.tenantId, account), sendArgs)
 
     await app.db.insert(mailMessages).values({
       tenantId: args.tenantId,
@@ -414,7 +392,7 @@ export async function sendNewMail(args: {
       ? { text: outboundTextBody(args.text, signature.text), html: outboundHtmlBody(args.text, signature.html) }
       : { text: args.text }
 
-    const sent = await sendWithRetry(await toConnection(args.tenantId, account), {
+    const sent = await sendOnce(await toConnection(args.tenantId, account), {
       to: args.to,
       subject: args.subject,
       text: body.text,

@@ -11,6 +11,7 @@ import {
   type ActionCategory,
   type AutonomyLevel,
   type GovernanceState,
+  type ExternalEffectGate,
 } from '@bunkhouse/runtime'
 import { z } from 'zod'
 import { PersonNotWorkingError, isPersonNotWorking, workRefusal, type WorkCandidate } from '../src/lib/person-work'
@@ -31,6 +32,8 @@ function harness(args: {
   levels: Partial<Record<ActionCategory, AutonomyLevel>>
   abilities: Ability[]
   deadlineMs?: number
+  signal?: AbortSignal
+  effects?: ExternalEffectGate
 }) {
   const events: SinkEvent[] = []
   const requests: { category: ActionCategory; description: string }[] = []
@@ -53,8 +56,58 @@ function harness(args: {
     },
     state,
     ...(args.deadlineMs ? { deadlineMs: args.deadlineMs } : {}),
+    ...(args.signal ? { signal: args.signal } : {}),
+    ...(args.effects ? { effects: args.effects } : {}),
   })
   return { tools, events, requests, state }
+}
+
+// --- governed effects are intended before the adapter executes -------------
+{
+  const order: string[] = []
+  const effects: ExternalEffectGate = {
+    execute: async ({ toolName, idempotencyKey, operation, signal }) => {
+      order.push(`intent:${toolName}:${idempotencyKey}`)
+      const result = await operation(signal)
+      order.push('outcome')
+      return result
+    },
+  }
+  const { tools } = harness({
+    levels: { external_email: 'trusted' },
+    effects,
+    abilities: [ability({ onExecute: () => order.push('adapter') })],
+  })
+  await call(tools, 'send_email', { to: 'a@b.test' })
+  assert.deepEqual(order, ['intent:send_email:t1', 'adapter', 'outcome'])
+}
+
+// --- cancellation reaches an in-flight tool, not only the next step --------
+{
+  const controller = new AbortController()
+  let observedAbort = false
+  const slow = defineAbility({
+    name: 'slow_write',
+    description: 'wait until cancelled',
+    category: 'record_write',
+    inputSchema: z.object({}),
+    execute: async (_input, { signal }) =>
+      new Promise((_resolve, reject) => {
+        signal.addEventListener(
+          'abort',
+          () => {
+            observedAbort = signal.aborted
+            reject(signal.reason)
+          },
+          { once: true },
+        )
+      }),
+  })
+  const { tools } = harness({ levels: { record_write: 'trusted' }, abilities: [slow], signal: controller.signal })
+  const pending = call(tools, 'slow_write', {})
+  controller.abort(new Error('operator cancelled'))
+  await assert.rejects(pending, /operator cancelled/)
+  assert.equal(observedAbort, true, 'the adapter receives the cancellation signal')
 }
 
 function ability(over: Partial<Parameters<typeof defineAbility>[0]> & { onExecute?: () => void }): Ability {

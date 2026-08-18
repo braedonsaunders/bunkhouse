@@ -45,6 +45,7 @@ export type {
   CompanyIdentity,
   CompanyProfile,
   DirectoryEntry,
+  ExternalEffectGate,
   AgentPersonality,
   AgentProfile,
   MemoryNote,

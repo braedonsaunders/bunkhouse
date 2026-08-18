@@ -26,6 +26,12 @@ async function appendLocked(database: TenantDatabase, input: AppendInput): Promi
     kind: input.kind,
     payload: input.payload,
   })
+  // NOTIFY is only a wake-up hint and is delivered on commit. Consumers
+  // always cursor-read the table afterwards, so a dropped notification or a
+  // reconnect cannot lose history.
+  await database.execute(
+    sql`select pg_notify('bunkhouse_run_events', ${JSON.stringify({ tenantId: input.tenantId, runId: input.runId, seq: next })})`,
+  )
   return next
 }
 

@@ -18,6 +18,26 @@ function toolResult(id: string, value: unknown, type: 'text' | 'json' = 'json'):
   }
 }
 
+function visualToolResult(id: string, image: string): ModelMessage {
+  return {
+    role: 'tool',
+    content: [
+      {
+        type: 'tool-result',
+        toolCallId: id,
+        toolName: 'desktop_observe',
+        output: {
+          type: 'content',
+          value: [
+            { type: 'text', text: `frame ${id}` },
+            { type: 'image-data', mediaType: 'image/jpeg', data: image },
+          ],
+        },
+      },
+    ],
+  }
+}
+
 /** A transcript of `n` fat tool results, oldest first. */
 const transcript = (n: number, tag = 'r'): ModelMessage[] => [
   { role: 'user', content: 'produce the deposit report' },
@@ -76,5 +96,16 @@ const textual: ModelMessage[] = [
 const textCompacted = compactMessages(textual)
 const textPart = (textCompacted.messages[0] as { content: { output: { type: string } }[] }).content[0]
 assert.equal(textPart!.output.type, 'text', 'a text output stays a text output')
+
+// --- historical screenshots are bounded and exact repeats collapse ---------
+const visual = compactMessages([
+  visualToolResult('screen-1', 'old-frame'),
+  visualToolResult('screen-2', 'new-frame'),
+  visualToolResult('screen-3', 'same-frame'),
+  visualToolResult('screen-4', 'same-frame'),
+])
+assert.equal(visual.deduplicatedFrames, 1, 'an exact repeated frame appears once in model context')
+assert.equal(visual.prunedFrames, 1, 'only the newest two distinct tool frames remain')
+assert.equal(JSON.stringify(visual.messages).split('image-data').length - 1, 2)
 
 console.log('compaction: ok')

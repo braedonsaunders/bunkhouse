@@ -193,6 +193,22 @@ export type RunSink = {
   spend: (usage: TokenUsage & { provider: string; model: string } & Partial<ReportedCost>) => Promise<void>
 }
 
+/**
+ * The application-owned durable boundary around a tool that can change the
+ * outside world. The runtime identifies the exact model tool call; the app
+ * persists the intent and its outcome before/after invoking the adapter.
+ */
+export type ExternalEffectGate = {
+  execute: <T>(input: {
+    toolName: string
+    category: ActionCategory
+    idempotencyKey: string
+    request: unknown
+    signal: AbortSignal
+    operation: (signal: AbortSignal) => Promise<T>
+  }) => Promise<T>
+}
+
 /** Resolves the dial for this agent. Missing categories default to 'approval' —
  *  the safe posture for anything nobody configured. */
 export type AutonomyResolver = (category: ActionCategory) => AutonomyLevel

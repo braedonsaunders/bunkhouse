@@ -1,6 +1,6 @@
 import { tool, type Tool, type ToolSet } from 'ai'
 import { z } from 'zod'
-import type { ActionCategory, ApprovalGate, AutonomyResolver, RunSink } from './types'
+import type { ActionCategory, ApprovalGate, AutonomyResolver, ExternalEffectGate, RunSink } from './types'
 import { containsSecret, normalizeSecrets, redactSecrets, redactSecretValue } from './redaction'
 
 /**
@@ -59,6 +59,18 @@ export type Ability = {
  * replacement for it.
  */
 export const ABILITY_FRAME_KEY = 'screenshot'
+
+/** Categories whose adapters cross the run/desk boundary into another system. */
+const EXTERNAL_EFFECT_CATEGORIES: ReadonlySet<ActionCategory> = new Set([
+  'external_email',
+  'internal_email',
+  'record_write',
+  'money_adjacent',
+  'file_write',
+  'phone_call',
+  'shared_folder',
+  'background_job',
+])
 
 /** A picture an ability produced, ready to put in front of a model. */
 export type AbilityFrame = {
@@ -141,7 +153,7 @@ export function defineAbility<INPUT, OUTPUT>(args: {
   category: ActionCategory | null | ((input: INPUT) => ActionCategory | null)
   approval?: 'each-call' | 'continues'
   inputSchema: z.ZodType<INPUT>
-  execute: (input: INPUT) => Promise<OUTPUT>
+  execute: (input: INPUT, context: { signal: AbortSignal }) => Promise<OUTPUT>
 }): Ability {
   return {
     name: args.name,
@@ -153,7 +165,13 @@ export function defineAbility<INPUT, OUTPUT>(args: {
     tool: tool({
       description: args.description,
       inputSchema: args.inputSchema as z.ZodType<INPUT>,
-      execute: async (input: INPUT) => args.execute(input),
+      execute: async (input: INPUT, options: unknown) => {
+        const optionRecord =
+          typeof options === 'object' && options !== null ? (options as Record<string, unknown>) : {}
+        const signal =
+          optionRecord.abortSignal instanceof AbortSignal ? optionRecord.abortSignal : new AbortController().signal
+        return args.execute(input, { signal })
+      },
       // Generic on purpose: any ability whose result carries a frame is shown
       // to the model, and the runtime needs to know nothing about browsers.
       toModelOutput: ({ output }: { output: unknown }) => abilityModelOutput(output),
@@ -240,21 +258,40 @@ function describeThrown(error: unknown): string {
   return walk(error) || 'The tool failed without reporting a reason.'
 }
 
-/** Reject if the work has not settled by the deadline, without cancelling it. */
-async function withDeadline<T>(name: string, work: Promise<T>, deadlineMs: number): Promise<T> {
+/** Reject and propagate cancellation if the work has not settled by the deadline. */
+async function withDeadline<T>(
+  name: string,
+  parent: AbortSignal | undefined,
+  deadlineMs: number,
+  work: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
+  const abort = () => controller.abort(parent?.reason)
+  if (parent?.aborted) abort()
+  else parent?.addEventListener('abort', abort, { once: true })
   try {
+    timer = setTimeout(() => {
+      controller.abort(new Error(`${name} did not finish within ${Math.round(deadlineMs / 1000)} seconds.`))
+    }, deadlineMs)
     return await Promise.race([
-      work,
+      work(controller.signal),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`${name} did not finish within ${Math.round(deadlineMs / 1000)} seconds.`)),
-          deadlineMs,
-        )
+        const rejectAbort = () => {
+          reject(
+            controller.signal.reason instanceof Error
+              ? controller.signal.reason
+              : new DOMException('The operation was aborted.', 'AbortError'),
+          )
+        }
+        if (controller.signal.aborted) rejectAbort()
+        else controller.signal.addEventListener('abort', rejectAbort, { once: true })
       }),
     ])
   } finally {
     if (timer) clearTimeout(timer)
+    parent?.removeEventListener('abort', abort)
+    if (!controller.signal.aborted) controller.abort()
   }
 }
 
@@ -274,6 +311,10 @@ export function governedToolSet(args: {
   describeAction?: (toolName: string, input: unknown) => string
   /** How long one tool call may take. Short on a live call, generous offline. */
   deadlineMs?: number
+  /** Cancels every in-flight tool when its run is cancelled or loses its lease. */
+  signal?: AbortSignal
+  /** Durable intent/outcome ledger for actions that have an autonomy category. */
+  effects?: ExternalEffectGate
   /** Credentials held by this run. They may never cross a tool boundary. */
   secrets?: readonly string[]
 }): ToolSet {
@@ -370,10 +411,25 @@ export function governedToolSet(args: {
           }
         }
         try {
-          const result = await withDeadline(
-            ability.name,
-            Promise.resolve(execute(input as any, options as any)),
-            deadlineMs,
+          const optionRecord =
+            typeof options === 'object' && options !== null ? (options as Record<string, unknown>) : {}
+          const toolCallId =
+            typeof optionRecord.toolCallId === 'string' && optionRecord.toolCallId
+              ? optionRecord.toolCallId
+              : `${ability.name}:${JSON.stringify(input)}`
+          const invoke = (signal: AbortSignal) =>
+            Promise.resolve(execute(input as any, { ...optionRecord, abortSignal: signal } as any))
+          const result = await withDeadline(ability.name, args.signal, deadlineMs, (signal) =>
+            category !== null && EXTERNAL_EFFECT_CATEGORIES.has(category) && args.effects
+              ? args.effects.execute({
+                  toolName: ability.name,
+                  category,
+                  idempotencyKey: toolCallId,
+                  request: input,
+                  signal,
+                  operation: invoke,
+                })
+              : invoke(signal),
           )
           // Working again clears the count: a flaky endpoint is not a broken one.
           breakers.delete(ability.name)
@@ -381,6 +437,11 @@ export function governedToolSet(args: {
           // echo its own authentication material into the model or transcript.
           return redactSecretValue(result, secrets)
         } catch (error) {
+          // Cancellation is control flow for the whole run, not a recoverable
+          // tool result. Returning it to the model let another step begin
+          // after an operator pressed Stop even though the adapter itself had
+          // correctly received the abort signal.
+          if (args.signal?.aborted) throw error
           const message = redactSecrets(describeThrown(error), secrets)
           const prior = breakers.get(ability.name)
           const failures = prior && prior.error === message ? prior.failures + 1 : 1

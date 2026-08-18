@@ -2,7 +2,9 @@
 
 import * as React from 'react'
 import Image from 'next/image'
-import { Badge, EmptyState, PagedTable, type PagedColumn } from '@braedonsaunders/appkit-ui'
+import { useRouter } from 'next/navigation'
+import { Badge, Button, Drawer, EmptyState, Input, Label, PagedTable, SubtabNav, type PagedColumn } from '@braedonsaunders/appkit-ui'
+import { reconcileExternalEffectAction } from '../app/runs/run-actions'
 
 /**
  * The run record's tabular sections — work product, approvals, computer use,
@@ -170,6 +172,180 @@ export function RunApprovalsTable({ rows }: { rows: RunApprovalRow[] }) {
         />
       }
     />
+  )
+}
+
+export type RunAttemptRow = {
+  id: string
+  fence: number
+  owner: string
+  status: string
+  startedAt: string
+  lastAt: string
+}
+
+export function RunAttemptsTable({ rows }: { rows: RunAttemptRow[] }) {
+  const columns: PagedColumn<RunAttemptRow>[] = [
+    { key: 'fence', header: 'Attempt', cell: (row) => <span className="tabular-nums">#{row.fence}</span>, sortValue: (row) => row.fence },
+    { key: 'owner', header: 'Executor', cell: (row) => <span className="block max-w-xs truncate text-fg-muted">{row.owner}</span>, search: (row) => row.owner },
+    { key: 'status', header: 'Last event', cell: (row) => <Badge variant={row.status === 'failed' || row.status === 'lease_lost' ? 'destructive' : row.status === 'claimed' || row.status === 'renewed' ? 'secondary' : 'outline'}>{row.status.replaceAll('_', ' ')}</Badge>, search: (row) => row.status },
+    { key: 'startedAt', header: 'Started', cell: (row) => <span className="tabular-nums text-fg-muted">{new Date(row.startedAt).toLocaleString()}</span>, sortValue: (row) => row.startedAt },
+    { key: 'lastAt', header: 'Last activity', cell: (row) => <span className="tabular-nums text-fg-muted">{new Date(row.lastAt).toLocaleString()}</span>, sortValue: (row) => row.lastAt },
+  ]
+  return <PagedTable columns={columns} rows={rows} rowKey={(row) => row.id} pageSize={10} searchable labels={{ searchPlaceholder: 'Search attempts…', searchLabel: 'Search execution attempts' }} empty={<EmptyState title="No execution attempts" description="Runs that reached an executor record each fenced attempt here." />} />
+}
+
+export type RunEffectRow = {
+  id: string
+  kind: string
+  idempotencyKey: string
+  status: string
+  createdAt: string
+  lastAt: string
+  request: unknown
+  history: { seq: number; kind: string; at: string; payload: unknown }[]
+}
+
+export function RunEffectsTable({ rows }: { rows: RunEffectRow[] }) {
+  const router = useRouter()
+  const [selected, setSelected] = React.useState<RunEffectRow | null>(null)
+  const [note, setNote] = React.useState('')
+  const [pending, setPending] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const [section, setSection] = React.useState<'request' | 'evidence' | 'resolve'>('request')
+  const actionable =
+    selected?.status === 'ambiguous' || selected?.status === 'intended' || selected?.status === 'retry_started'
+  const reconcile = async (resolution: 'completed' | 'retry') => {
+    if (!selected || pending) return
+    setPending(true)
+    setError(null)
+    const result = await reconcileExternalEffectAction({ effectId: selected.id, resolution, note })
+    setPending(false)
+    if (!result.ok) {
+      setError(result.message)
+      return
+    }
+    setSelected(null)
+    setNote('')
+    router.refresh()
+  }
+  const columns: PagedColumn<RunEffectRow>[] = [
+    { key: 'kind', header: 'Effect', cell: (row) => <span className="font-medium">{row.kind.replaceAll('_', ' ')}</span>, search: (row) => row.kind },
+    { key: 'status', header: 'Outcome', cell: (row) => <Badge variant={row.status === 'ambiguous' ? 'destructive' : row.status === 'completed' || row.status === 'reconciled' ? 'default' : 'outline'}>{row.status.replaceAll('_', ' ')}</Badge>, search: (row) => row.status },
+    { key: 'idempotencyKey', header: 'Idempotency key', cell: (row) => <span className="block max-w-xs truncate font-mono text-xs text-fg-muted">{row.idempotencyKey}</span>, search: (row) => row.idempotencyKey },
+    { key: 'createdAt', header: 'Intended', cell: (row) => <span className="tabular-nums text-fg-muted">{new Date(row.createdAt).toLocaleString()}</span>, sortValue: (row) => row.createdAt },
+    { key: 'lastAt', header: 'Last evidence', cell: (row) => <span className="tabular-nums text-fg-muted">{new Date(row.lastAt).toLocaleString()}</span>, sortValue: (row) => row.lastAt },
+  ]
+  return (
+    <>
+      <PagedTable
+        columns={columns}
+        rows={rows}
+        rowKey={(row) => row.id}
+        pageSize={10}
+        searchable
+        onRowClick={(row) => {
+          setSelected(row)
+          setNote('')
+          setError(null)
+          setSection('request')
+        }}
+        labels={{ searchPlaceholder: 'Search external effects…', searchLabel: 'Search external effects' }}
+        empty={
+          <EmptyState
+            title="No external effects"
+            description="Actions that can change an outside system are intended and settled here."
+          />
+        }
+      />
+      <Drawer
+        open={selected !== null}
+        onClose={() => setSelected(null)}
+        title={selected?.kind.replaceAll('_', ' ') ?? 'External effect'}
+        description="Immutable intent and outcome evidence"
+        size="lg"
+        footer={
+          actionable && section === 'resolve' ? (
+            <div className="flex w-full items-center justify-end gap-2">
+              <Button variant="outline" disabled={pending || !note.trim()} onClick={() => void reconcile('retry')}>
+                Confirm not completed
+              </Button>
+              <Button disabled={pending || !note.trim()} onClick={() => void reconcile('completed')}>
+                Confirm completed
+              </Button>
+            </div>
+          ) : undefined
+        }
+      >
+        {selected ? (
+          <div className="space-y-5">
+            <dl className="grid grid-cols-2 gap-4">
+              <div>
+                <dt className="text-xs text-fg-muted">Outcome</dt>
+                <dd className="mt-1">
+                  <Badge variant="outline">{selected.status.replaceAll('_', ' ')}</Badge>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-fg-muted">Intended</dt>
+                <dd className="mt-1 text-sm text-fg">{new Date(selected.createdAt).toLocaleString()}</dd>
+              </div>
+            </dl>
+            <SubtabNav
+              tabs={[
+                { key: 'request', label: 'Request' },
+                { key: 'evidence', label: `Evidence (${selected.history.length})` },
+                { key: 'resolve', label: 'Resolve' },
+              ]}
+              active={section}
+              onSelect={(key) => setSection(key as typeof section)}
+              ariaLabel="External effect details"
+            />
+            {section === 'request' ? (
+              <pre className="max-h-80 overflow-auto rounded-md border border-border bg-bg-subtle p-3 text-xs text-fg-muted">
+                {JSON.stringify(selected.request, null, 2)}
+              </pre>
+            ) : section === 'evidence' ? (
+              selected.history.length ? (
+                <ol className="space-y-3">
+                  {selected.history.map((event) => (
+                    <li key={event.seq} className="rounded-md border border-border p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <Badge variant="outline">{event.kind.replaceAll('_', ' ')}</Badge>
+                        <span className="text-xs tabular-nums text-fg-muted">{new Date(event.at).toLocaleString()}</span>
+                      </div>
+                      <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap text-xs text-fg-muted">
+                        {JSON.stringify(event.payload, null, 2)}
+                      </pre>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-sm text-fg-muted">No outcome has been recorded yet.</p>
+              )
+            ) : actionable ? (
+              <div className="space-y-2">
+                <Label htmlFor={`effect-note-${selected.id}`}>Resolution reason</Label>
+                <Input
+                  id={`effect-note-${selected.id}`}
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  placeholder="For example: confirmed in the destination audit log"
+                />
+                <p className="text-xs text-fg-muted">
+                  Confirm completion only with independent evidence. Mark it not completed only after confirming the
+                  destination did not apply the action; a future identical request may then retry it. A retry that still
+                  holds an execution lease cannot be reconciled here.
+                </p>
+                {error ? <p className="text-sm text-danger">{error}</p> : null}
+              </div>
+            ) : (
+              <p className="text-sm text-fg-muted">This effect already has authoritative outcome evidence.</p>
+            )}
+          </div>
+        ) : null}
+      </Drawer>
+    </>
   )
 }
 

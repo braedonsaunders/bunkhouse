@@ -16,6 +16,10 @@ import {
   procedureRevisions,
   procedures,
   runEvents,
+  runAttempts,
+  runAttemptEvents,
+  externalEffectIntents,
+  externalEffectEvents,
   runs,
   tokenSpend,
 } from '../../db/schema'
@@ -40,12 +44,16 @@ import {
   RunFilesTable,
   RunProceduresTable,
   RunSpendTable,
+  RunAttemptsTable,
+  RunEffectsTable,
   type RunApprovalRow,
   type RunBrowserStepRow,
   type RunDeskEventRow,
   type RunFileRow,
   type RunProcedureRow,
   type RunSpendRow,
+  type RunAttemptRow,
+  type RunEffectRow,
 } from '../../components/run-tables'
 import { RunDrawer, type RunRecordTab } from '../../components/run-drawer'
 import { LiveToggle } from '../../components/live-toggle'
@@ -136,6 +144,14 @@ export async function loadRunRecord({
       .from(people)
       .where(eq(people.id, run.personId))
     const events = await app.db.select().from(runEvents).where(eq(runEvents.runId, runId)).orderBy(asc(runEvents.seq))
+    const attempts = await app.db.select().from(runAttempts).where(eq(runAttempts.runId, runId)).orderBy(asc(runAttempts.fence))
+    const attemptEvents = attempts.length
+      ? await app.db.select().from(runAttemptEvents).where(inArray(runAttemptEvents.attemptId, attempts.map((attempt) => attempt.id))).orderBy(asc(runAttemptEvents.seq))
+      : []
+    const effects = await app.db.select().from(externalEffectIntents).where(eq(externalEffectIntents.runId, runId)).orderBy(asc(externalEffectIntents.createdAt))
+    const effectEvents = effects.length
+      ? await app.db.select().from(externalEffectEvents).where(inArray(externalEffectEvents.effectId, effects.map((effect) => effect.id))).orderBy(asc(externalEffectEvents.seq))
+      : []
     const [spend] = await app.db
       .select({
         cost: sql<string>`coalesce(sum(${tokenSpend.costUsd}), 0)`,
@@ -265,6 +281,10 @@ export async function loadRunRecord({
       run,
       agent: agent ?? null,
       events,
+      attempts,
+      attemptEvents,
+      effects,
+      effectEvents,
       spend,
       spendRows,
       citedProcedures,
@@ -383,6 +403,39 @@ export async function loadRunRecord({
     url: step.detail.url ?? '—',
     screenshotFileId: step.screenshotFileId,
   }))
+
+  const attemptRows: RunAttemptRow[] = data.attempts.map((attempt) => {
+    const history = data.attemptEvents.filter((event) => event.attemptId === attempt.id)
+    const latest = history.at(-1)
+    return {
+      id: attempt.id,
+      fence: attempt.fence,
+      owner: attempt.owner,
+      status: latest?.kind ?? 'claimed',
+      startedAt: attempt.startedAt.toISOString(),
+      lastAt: (latest?.at ?? attempt.startedAt).toISOString(),
+    }
+  })
+
+  const effectRows: RunEffectRow[] = data.effects.map((effect) => {
+    const history = data.effectEvents.filter((event) => event.effectId === effect.id)
+    const latest = history.at(-1)
+    return {
+      id: effect.id,
+      kind: effect.kind,
+      idempotencyKey: effect.idempotencyKey,
+      status: latest?.kind ?? 'intended',
+      createdAt: effect.createdAt.toISOString(),
+      lastAt: (latest?.at ?? effect.createdAt).toISOString(),
+      request: effect.request,
+      history: history.map((event) => ({
+        seq: event.seq,
+        kind: event.kind,
+        at: event.at.toISOString(),
+        payload: event.payload,
+      })),
+    }
+  })
 
   const spendTableRows: RunSpendRow[] = data.spendRows.map((row) => ({
     id: row.id,
@@ -515,6 +568,46 @@ export async function loadRunRecord({
               agentName={agent?.name ?? 'Agent'}
             />
           </CardContent>
+        </Card>
+      ),
+    })
+  }
+
+  if (attemptRows.length > 0) {
+    tabs.push({
+      key: 'execution',
+      label: 'Execution',
+      count: attemptRows.length,
+      content: (
+        <Card>
+          <CardHeader>
+            <CardTitle>Execution attempts</CardTitle>
+            <CardDescription>
+              Every executor claim and terminal outcome, ordered by its monotonic fence. A superseded attempt cannot
+              finalize this run.
+            </CardDescription>
+          </CardHeader>
+          <CardContent><RunAttemptsTable rows={attemptRows} /></CardContent>
+        </Card>
+      ),
+    })
+  }
+
+  if (effectRows.length > 0) {
+    tabs.push({
+      key: 'effects',
+      label: 'External effects',
+      count: effectRows.length,
+      content: (
+        <Card>
+          <CardHeader>
+            <CardTitle>External effects</CardTitle>
+            <CardDescription>
+              Immutable intent, idempotency identity, and append-only outcome evidence for actions outside Bunkhouse.
+              An uncertain outcome is never repeated automatically.
+            </CardDescription>
+          </CardHeader>
+          <CardContent><RunEffectsTable rows={effectRows} /></CardContent>
         </Card>
       ),
     })

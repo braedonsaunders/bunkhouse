@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 delete process.env.BUNKHOUSE_DESK_URL
 delete process.env.BUNKHOUSE_DESK_TOKEN
 
-import type { ChatRunner, ChatThreadStore, ChatThreadSummary } from '../src/lib/chat-threads'
+import type { ChatRunner, ChatRunWatcher, ChatThreadStore, ChatThreadSummary } from '../src/lib/chat-threads'
 import type { ChatDeskDeps } from '../src/lib/chat-desk'
 import { PersonNotWorkingError } from '../src/lib/person-work'
 
@@ -233,6 +233,78 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   assert.equal(listed.length, 1)
   assert.equal(listed[0]?.title, 'Book the dentist for Thursday morning.', 'the list reads as topics')
   console.log('chat: a message becomes a run through executeAgentRun, with the bridge’s own trigger and input')
+}
+
+// --- (a2) run progress follows a durable cursor and push only wakes it ------
+{
+  const clock = () => new Date('2026-08-17T12:00:00.000Z')
+  const { store } = memoryChatStore(clock)
+  const ledger: Array<{ seq: number; kind: 'tool_call' | 'tool_result'; payload: Record<string, unknown> }> = []
+  const emitted = [
+    { seq: 0, kind: 'tool_call' as const, payload: { toolName: 'browser_open', input: { url: 'https://example.test' } } },
+    { seq: 1, kind: 'tool_result' as const, payload: { toolName: 'browser_open', output: { opened: true } } },
+  ]
+  const tail = [
+    { seq: 2, kind: 'tool_call' as const, payload: { toolName: 'save_file', input: { name: 'report.pdf' } } },
+    { seq: 3, kind: 'tool_result' as const, payload: { toolName: 'save_file', output: { saved: true } } },
+  ]
+  let wake: (() => void) | null = null
+  let listening: (() => void) | null = null
+  const listeningReady = new Promise<void>((resolve) => {
+    listening = resolve
+  })
+  const watcher: ChatRunWatcher = {
+    findRun: async () => 'run-progress',
+    events: async ({ afterSeq }) => ledger.filter((event) => event.seq > afterSeq),
+    waitForWake: async ({ signal }) =>
+      new Promise<void>((resolve) => {
+        const finish = () => {
+          signal.removeEventListener('abort', finish)
+          resolve()
+        }
+        wake = finish
+        listening?.()
+        signal.addEventListener('abort', finish, { once: true })
+      }),
+  }
+  const seen: string[] = []
+  const run: ChatRunner = async () => {
+    await listeningReady
+    ledger.push(...emitted)
+    wake?.()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    // No wake for this tail: stopping the watcher must perform one final
+    // authoritative cursor read rather than losing committed rows.
+    ledger.push(...tail)
+    return {
+      runId: 'run-progress',
+      outcome: { status: 'completed', summary: 'Opened the browser.', usage: { inputTokens: 1, outputTokens: 1 }, messages: [] },
+    }
+  }
+  const deps = { store, run, watcher, now: clock }
+  const { threadId } = await startThread({ tenantId: TENANT, userId: USER, personId: AGENT }, deps)
+  await sendMessage(
+    {
+      tenantId: TENANT,
+      threadId,
+      userId: USER,
+      body: 'Open the site.',
+      progress: {
+        onRun: (runId) => seen.push(`run:${runId}`),
+        onToolCall: ({ toolName }) => seen.push(`call:${toolName}`),
+        onToolResult: ({ output }) => seen.push(`result:${JSON.stringify(output)}`),
+      },
+    },
+    deps,
+  )
+  assert.deepEqual(seen, [
+    'run:run-progress',
+    'call:browser_open',
+    'result:{"opened":true}',
+    'call:save_file',
+    'result:{"saved":true}',
+  ])
+  console.log('chat: durable run events backfill by cursor and push wakes the follower')
 }
 
 // --- (b) the transcript is append-only; a correction is a new message -------

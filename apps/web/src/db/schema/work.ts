@@ -1,4 +1,4 @@
-import { bigint, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { bigint, foreignKey, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { auditColumns, id, money, tenantRef } from '@braedonsaunders/appkit-db'
 
 /**
@@ -106,11 +106,19 @@ export const runs = pgTable(
      * assignments and the only thing that noticed was the invoice.
      */
     rootRunId: uuid('root_run_id'),
+    /** Monotonic authority token. Every worker completion is fenced by it. */
+    leaseFence: integer('lease_fence').notNull().default(0),
+    leaseOwner: text('lease_owner'),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    activeAttemptId: uuid('active_attempt_id'),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     ...auditColumns,
   },
-  (t) => [index('runs_person_idx').on(t.tenantId, t.personId, t.startedAt)],
+  (t) => [
+    uniqueIndex('runs_tenant_id_id_key').on(t.tenantId, t.id),
+    index('runs_person_idx').on(t.tenantId, t.personId, t.startedAt),
+  ],
 )
 
 export const runEventKind = pgEnum('run_event_kind', [
@@ -146,6 +154,109 @@ export const runEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('run_events_seq_key').on(t.runId, t.seq)],
+)
+
+/** One immutable execution attempt. State changes are facts in the event row below. */
+export const runAttempts = pgTable(
+  'run_attempts',
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    runId: uuid('run_id').notNull(),
+    owner: text('owner').notNull(),
+    fence: integer('fence').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('run_attempts_run_fence_key').on(t.runId, t.fence),
+    uniqueIndex('run_attempts_tenant_id_id_key').on(t.tenantId, t.id),
+    index('run_attempts_run_idx').on(t.tenantId, t.runId, t.startedAt),
+    foreignKey({
+      columns: [t.tenantId, t.runId],
+      foreignColumns: [runs.tenantId, runs.id],
+      name: 'run_attempts_tenant_run_fk',
+    }),
+  ],
+)
+
+export type RunAttemptEventKind = 'claimed' | 'renewed' | 'completed' | 'failed' | 'cancelled' | 'lease_lost'
+
+/** Append-only lifecycle evidence for one attempt; renewals never rewrite history. */
+export const runAttemptEvents = pgTable(
+  'run_attempt_events',
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    attemptId: uuid('attempt_id').notNull(),
+    seq: integer('seq').notNull(),
+    kind: text('kind').$type<RunAttemptEventKind>().notNull(),
+    detail: jsonb('detail').$type<Record<string, unknown>>().notNull().default({}),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('run_attempt_events_seq_key').on(t.attemptId, t.seq),
+    index('run_attempt_events_attempt_idx').on(t.tenantId, t.attemptId),
+    foreignKey({
+      columns: [t.tenantId, t.attemptId],
+      foreignColumns: [runAttempts.tenantId, runAttempts.id],
+      name: 'run_attempt_events_tenant_attempt_fk',
+    }),
+  ],
+)
+
+/** Immutable declaration of an action that may change a system outside the run. */
+export const externalEffectIntents = pgTable(
+  'external_effect_intents',
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    runId: uuid('run_id').notNull(),
+    /** Which immutable authority `attemptId` names; enforced by a database trigger. */
+    provenanceKind: text('provenance_kind').$type<'run_attempt' | 'approval'>().notNull(),
+    attemptId: uuid('attempt_id').notNull(),
+    kind: text('kind').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    request: jsonb('request').$type<unknown>().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('external_effect_intents_key').on(t.tenantId, t.idempotencyKey),
+    uniqueIndex('external_effect_intents_tenant_id_id_key').on(t.tenantId, t.id),
+    index('external_effect_intents_run_idx').on(t.tenantId, t.runId, t.createdAt),
+    foreignKey({
+      columns: [t.tenantId, t.runId],
+      foreignColumns: [runs.tenantId, runs.id],
+      name: 'external_effect_intents_tenant_run_fk',
+    }),
+  ],
+)
+
+export type ExternalEffectEventKind = 'retry_started' | 'completed' | 'failed' | 'ambiguous' | 'reconciled'
+
+/** Append-only outcomes and reconciliation evidence for one external intent. */
+export const externalEffectEvents = pgTable(
+  'external_effect_events',
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    effectId: uuid('effect_id').notNull(),
+    seq: integer('seq').notNull(),
+    kind: text('kind').$type<ExternalEffectEventKind>().notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default({}),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('external_effect_events_seq_key').on(t.effectId, t.seq),
+    index('external_effect_events_effect_idx').on(t.tenantId, t.effectId),
+    foreignKey({
+      columns: [t.tenantId, t.effectId],
+      foreignColumns: [externalEffectIntents.tenantId, externalEffectIntents.id],
+      name: 'external_effect_events_tenant_effect_fk',
+    }),
+  ],
 )
 
 /**
@@ -237,4 +348,14 @@ export const tokenSpend = pgTable(
   (t) => [index('token_spend_person_idx').on(t.tenantId, t.personId, t.createdAt)],
 )
 
-export const WORK_TENANT_TABLES = ['duties', 'runs', 'run_events', 'token_spend', 'assignments'] as const
+export const WORK_TENANT_TABLES = [
+  'duties',
+  'runs',
+  'run_events',
+  'run_attempts',
+  'run_attempt_events',
+  'external_effect_intents',
+  'external_effect_events',
+  'token_spend',
+  'assignments',
+] as const

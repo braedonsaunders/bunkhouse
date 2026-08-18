@@ -31,7 +31,7 @@ import {
   setThreadStatusAction,
   startThreadAction,
 } from '../app/chat/actions'
-import { ChatDesk } from './chat-desk'
+import { ChatWorkSurface } from './chat-work-surface'
 
 /**
  * Chat: talk to an agent, and watch the machine it is working on while it
@@ -551,7 +551,7 @@ export function AgentChatWorkspace({
               title: `${detail.thread.personName} · ${detail.thread.title}`,
               welcomeTitle: `Ask ${detail.thread.personName} for something`,
               welcomeDescription:
-                'Anything they do lands on their run record, and on their desk if the work needs one.',
+                'Anything they do lands on their run record, and the active browser, call, headless task, or desktop appears beside the conversation.',
               disabledTitle: 'This conversation is archived',
               disabledDescription:
                 'Everything said in it is still here, and so are its run records. Unarchive it from the list to carry on.',
@@ -583,7 +583,7 @@ export function AgentChatWorkspace({
           onClick={() => setDeskChoice(!deskOpen)}
         >
           {deskOpen ? <PanelRightClose aria-hidden className="size-4" /> : <Monitor aria-hidden className="size-4" />}
-          {deskOpen ? 'Hide desk' : 'Show desk'}
+          {deskOpen ? 'Hide work' : 'Show work'}
         </Button>
       </div>
 
@@ -626,11 +626,11 @@ export function AgentChatWorkspace({
             is not on screen must not be holding a frame stream open. */}
         {deskVisible ? (
           <div className="min-h-0 max-lg:h-[34rem]">
-            {/* Keyed on the agent: a different desk is a different machine,
-                and none of what was true about the last one — its screen,
-                its frames, who was driving it — carries over. */}
-            <ChatDesk
-              key={detail.thread.personId}
+            {/* Keyed on the conversation: its newest run and active surface
+                must never carry over when the operator switches threads. */}
+            <ChatWorkSurface
+              key={detail.thread.id}
+              threadId={detail.thread.id}
               personId={detail.thread.personId}
               personName={detail.thread.personName}
             />

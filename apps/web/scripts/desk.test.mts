@@ -179,6 +179,7 @@ const person = { id: '0194b8a2-3b74-7000-8000-0000000000aa', name: 'Avery' } as 
 function build(runId: string) {
   const { store, sessions, events } = memoryStore()
   const { fetchImpl, calls, counters } = fakeRunner()
+  const savedFrames: string[] = []
   const abilities = deskAbilities({
     tenantId: TENANT,
     person,
@@ -190,7 +191,11 @@ function build(runId: string) {
       store,
       policy: async () => ({ ...DEFAULT_DESK_POLICY, screenStepCeiling: 2 }),
       shellPolicy: async () => DEFAULT_SHELL_EXECUTION_POLICY,
-      saveScreenshot: async () => 'file-1',
+      saveScreenshot: async () => {
+        const id = `file-${savedFrames.length + 1}`
+        savedFrames.push(id)
+        return id
+      },
     },
   })
   const call = async (name: string, input: unknown): Promise<Record<string, unknown>> => {
@@ -198,7 +203,7 @@ function build(runId: string) {
     assert.ok(ability?.tool.execute, `${name} is offered and executable`)
     return (await ability.tool.execute!(input as never, { toolCallId: 't', messages: [] })) as Record<string, unknown>
   }
-  return { abilities, call, sessions, events, calls, counters }
+  return { abilities, call, sessions, events, calls, counters, savedFrames }
 }
 
 // --- (a) fail closed without a configured runner ----------------------------
@@ -243,7 +248,7 @@ function build(runId: string) {
 
 // --- (c) open_desktop requires and records the reason ------------------------
 {
-  const { call, sessions, events, counters } = build('run-screen-test')
+  const { call, sessions, events, counters, savedFrames } = build('run-screen-test')
   const refused = await call('open_desktop', { reason: '' })
   assert.equal(refused.opened, false, 'a blank reason does not open a screen')
   assert.equal(counters.screenStart, 0, 'nothing reached the runner without a reason')
@@ -256,6 +261,12 @@ function build(runId: string) {
   assert.ok(screenOpen, 'screen_open is on the ledger')
   assert.equal(screenOpen?.detail.reason, 'Vendor portal is a GTK app with no CLI or API.')
   assert.equal(screenOpen?.screenshotFileId, 'file-1', 'the opening frame is filed')
+  const unchanged = await call('desktop_click', { x: 10, y: 10, button: 'left' })
+  assert.equal(unchanged.frameUnchanged, true, 'an exact repeated frame is identified')
+  assert.equal(savedFrames.length, 1, 'an exact repeated frame reuses its filed image')
+  const click = events.find((event) => event.kind === 'click')
+  assert.equal(click?.screenshotFileId, 'file-1', 'the repeated event points to the original evidence')
+  assert.equal(click?.detail.frameRepeated, true, 'the ledger explains why no second image was filed')
   console.log('desk: the screen opens only with a stated reason, and the reason is recorded')
 }
 

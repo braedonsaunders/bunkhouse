@@ -24,6 +24,7 @@ import {
   setTakeover,
   type ChatDeskStatus,
 } from '../../lib/chat-desk'
+import { chatWorkSurface, type ChatWorkSurface } from '../../lib/chat-work-surface'
 
 /**
  * The chat page's server actions.
@@ -66,6 +67,13 @@ export async function getThreadAction(
   if (!threadId) return null
   const access = await requireTenantPermission('work.read')
   return getThread(access.tenantId, threadId)
+}
+
+/** The live browser/call/headless/desktop stage for the conversation's newest run. */
+export async function workSurfaceAction(threadId: string): Promise<ChatWorkSurface> {
+  const access = await requireTenantPermission('work.read')
+  if (!threadId) return { kind: 'idle', runId: null }
+  return chatWorkSurface(access.tenantId, threadId)
 }
 
 /**
