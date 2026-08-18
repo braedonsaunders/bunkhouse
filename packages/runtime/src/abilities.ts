@@ -45,6 +45,17 @@ export type Ability = {
    *   step that opens their session, and are recorded like any other.
    */
   approval?: 'each-call' | 'continues'
+  /**
+   * A destination-owned identity for an external effect, when the adapter has
+   * one. This is deliberately separate from the request body: two identical
+   * requests may be two intentional actions, while a provider request id (or
+   * another domain key) identifies the one action that may be retried.
+   *
+   * When absent, the runtime uses the AI SDK's tool-call id as the invocation
+   * identity. Applications may correlate that invocation with an older fenced
+   * attempt, but must never fall back to hashing the request itself.
+   */
+  externalEffectKey?: (input: unknown) => string
   tool: Tool<any, any>
 }
 
@@ -152,6 +163,7 @@ export function defineAbility<INPUT, OUTPUT>(args: {
    */
   category: ActionCategory | null | ((input: INPUT) => ActionCategory | null)
   approval?: 'each-call' | 'continues'
+  externalEffectKey?: (input: INPUT) => string
   inputSchema: z.ZodType<INPUT>
   execute: (input: INPUT, context: { signal: AbortSignal }) => Promise<OUTPUT>
 }): Ability {
@@ -162,6 +174,9 @@ export function defineAbility<INPUT, OUTPUT>(args: {
         ? (input: unknown) => (args.category as (i: INPUT) => ActionCategory | null)(input as INPUT)
         : args.category,
     ...(args.approval ? { approval: args.approval } : {}),
+    ...(args.externalEffectKey
+      ? { externalEffectKey: (input: unknown) => args.externalEffectKey!(input as INPUT) }
+      : {}),
     tool: tool({
       description: args.description,
       inputSchema: args.inputSchema as z.ZodType<INPUT>,
@@ -416,7 +431,11 @@ export function governedToolSet(args: {
           const toolCallId =
             typeof optionRecord.toolCallId === 'string' && optionRecord.toolCallId
               ? optionRecord.toolCallId
-              : `${ability.name}:${JSON.stringify(input)}`
+              : crypto.randomUUID()
+          const domainEffectKey = ability.externalEffectKey?.(input)
+          if (domainEffectKey !== undefined && domainEffectKey.trim().length === 0) {
+            throw new Error(`${ability.name} produced an empty external-effect key.`)
+          }
           const invoke = (signal: AbortSignal) =>
             Promise.resolve(execute(input as any, { ...optionRecord, abortSignal: signal } as any))
           const result = await withDeadline(ability.name, args.signal, deadlineMs, (signal) =>
@@ -424,7 +443,8 @@ export function governedToolSet(args: {
               ? args.effects.execute({
                   toolName: ability.name,
                   category,
-                  idempotencyKey: toolCallId,
+                  idempotencyKey: domainEffectKey ?? toolCallId,
+                  idempotencyScope: domainEffectKey === undefined ? 'invocation' : 'domain',
                   request: input,
                   signal,
                   operation: invoke,

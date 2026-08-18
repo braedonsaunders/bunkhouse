@@ -1,5 +1,5 @@
 import 'server-only'
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { and, desc, eq, gte, ne, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { ModelMessage } from 'ai'
@@ -77,9 +77,10 @@ import {
   finishRunAttempt,
   runExecutionLeaseStore,
   recordRunAttemptEvent,
-  externalEffectRequestIdentity,
+  resolveExternalEffectIdempotencyKey,
 } from './run-execution'
 import { materializeSkillBundle } from './workspace'
+import { registerRunScreenRoom } from './run-screen-room'
 
 
 
@@ -509,6 +510,7 @@ type ExternalEffectInvocation<T> = {
   toolName: string
   category: ActionCategory
   idempotencyKey: string
+  idempotencyScope: 'invocation' | 'domain'
   request: unknown
   signal: AbortSignal
   operation: (signal: AbortSignal) => Promise<T>
@@ -865,20 +867,37 @@ export async function executeAgentRun(args: {
         ...(process.env.BUNKHOUSE_DESK_TOKEN ? [process.env.BUNKHOUSE_DESK_TOKEN] : []),
       ]
       const runLoop = (lease: ExecutionLease, signal: AbortSignal) => {
+        const stopRunScreen = live
+          ? null
+          : registerRunScreenRoom({
+              tenantId: args.tenantId,
+              runId,
+              onError: (message) => void sink.event({ kind: 'message', text: `Live browser view unavailable — ${message}` }),
+            })
+        const effectOrdinals = new Map<string, number>()
         const effects: ExternalEffectGate = {
-          execute: <T>(effect: ExternalEffectInvocation<T>) =>
-            executeExternalEffect<unknown, T>({
+          execute: async <T>(effect: ExternalEffectInvocation<T>) => {
+            const kind = `${effect.category}:${effect.toolName}`
+            const ordinal = effectOrdinals.get(kind) ?? 0
+            effectOrdinals.set(kind, ordinal + 1)
+            const idempotencyKey = await resolveExternalEffectIdempotencyKey({
+              tenantId: args.tenantId,
+              runId,
+              attemptId: lease.attemptId,
+              kind,
+              invocationKey: effect.idempotencyKey,
+              scope: effect.idempotencyScope,
+              request: { toolName: effect.toolName, category: effect.category, input: effect.request },
+              ordinal,
+            })
+            return executeExternalEffect<unknown, T>({
               store: externalEffectStore<T>(args.tenantId),
               intent: {
                 tenantId: args.tenantId,
                 runId,
                 attemptId: lease.attemptId,
-                kind: `${effect.category}:${effect.toolName}`,
-                // Stable across a crash that causes the model step to be
-                // regenerated with a new SDK tool-call id. Within one run,
-                // repeating the exact same outside action is a replay until
-                // an application adapter supplies a narrower domain key.
-                idempotencyKey: `${runId}:${effect.toolName}:${createHash('sha256').update(externalEffectRequestIdentity(effect.request)).digest('hex')}`,
+                kind,
+                idempotencyKey,
                 request: { toolName: effect.toolName, category: effect.category, input: effect.request },
               },
               signal: effect.signal,
@@ -892,7 +911,8 @@ export async function executeAgentRun(args: {
               // an email, payment-adjacent write, or record mutation is worse.
               classifyError: () => 'ambiguous',
               execute: effect.operation,
-            }),
+            })
+          },
         }
         return runAgent({
         runId,
@@ -957,6 +977,7 @@ export async function executeAgentRun(args: {
         // call, which closes them once, when the call ends. Closing them here
         // would tear them out from under whatever else the caller has running.
         if (live) return
+        await stopRunScreen?.()
         await assembled!.close()
         // A browser left open by the model is closed with the run, not leaked,
         // and the run's chapter of the desk ledger is stamped ended.

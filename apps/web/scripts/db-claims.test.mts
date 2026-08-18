@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import pg from 'pg'
+import { eq } from 'drizzle-orm'
 
 // The three database claims the README makes, asserted against a real,
 // fully-migrated PostgreSQL: tenant rows are isolated by forced RLS, material
@@ -410,7 +411,13 @@ await assert.rejects(
     deskSessions: testDeskSessions,
     runs: testRuns,
   } = await import('../src/db/schema/index.ts')
-  const { externalEffectStore, finalizeRunAttempt, reconcileExternalEffect, runExecutionLeaseStore } = await import('../src/lib/run-execution.ts')
+  const {
+    externalEffectStore,
+    finalizeRunAttempt,
+    reconcileExternalEffect,
+    resolveExternalEffectIdempotencyKey,
+    runExecutionLeaseStore,
+  } = await import('../src/lib/run-execution.ts')
   const { chatWorkSurface } = await import('../src/lib/chat-work-surface.ts')
   const { appendRunEvent } = await import('../src/lib/run-events.ts')
   const { closeRunEventNotifications, waitForRunEventWake } = await import('../src/lib/run-event-notifications.ts')
@@ -435,6 +442,131 @@ await assert.rejects(
       'a second executor cannot claim the live fence',
     )
     const effects = externalEffectStore(TENANT)
+
+    // The default contract preserves distinct SDK invocation ids, even when
+    // the adapter request is byte-for-byte identical.
+    const repeatedRequest = {
+      toolName: 'send_email',
+      category: 'external_email',
+      input: { to: 'same@example.test', subject: 'Same', body: 'Same' },
+    }
+    const repeatedKind = 'external_email:send_email'
+    const firstInvocationKey = await resolveExternalEffectIdempotencyKey({
+      tenantId: TENANT,
+      runId,
+      attemptId: first.attemptId,
+      kind: repeatedKind,
+      invocationKey: 'sdk-call-one',
+      scope: 'invocation',
+      request: repeatedRequest,
+      ordinal: 0,
+    })
+    const secondInvocationKey = await resolveExternalEffectIdempotencyKey({
+      tenantId: TENANT,
+      runId,
+      attemptId: first.attemptId,
+      kind: repeatedKind,
+      invocationKey: 'sdk-call-two',
+      scope: 'invocation',
+      request: repeatedRequest,
+      ordinal: 1,
+    })
+    assert.notEqual(firstInvocationKey, secondInvocationKey, 'two intentional identical calls have distinct keys')
+    const firstRepeated = await effects.claim({
+      tenantId: TENANT,
+      runId,
+      attemptId: first.attemptId,
+      kind: repeatedKind,
+      idempotencyKey: firstInvocationKey,
+      request: repeatedRequest,
+      at: new Date(),
+    })
+    const secondRepeated = await effects.claim({
+      tenantId: TENANT,
+      runId,
+      attemptId: first.attemptId,
+      kind: repeatedKind,
+      idempotencyKey: secondInvocationKey,
+      request: repeatedRequest,
+      at: new Date(),
+    })
+    assert.equal(firstRepeated.disposition, 'execute')
+    assert.equal(secondRepeated.disposition, 'execute')
+    await effects.append(firstRepeated.effectId, { kind: 'completed', at: new Date(), result: { providerId: 'one' } })
+    await effects.append(secondRepeated.effectId, { kind: 'completed', at: new Date(), result: { providerId: 'two' } })
+    const replacementAttemptId = crypto.randomUUID()
+    assert.equal(
+      await resolveExternalEffectIdempotencyKey({
+        tenantId: TENANT,
+        runId,
+        attemptId: replacementAttemptId,
+        kind: repeatedKind,
+        invocationKey: 'regenerated-call-one',
+        scope: 'invocation',
+        request: repeatedRequest,
+        ordinal: 0,
+      }),
+      firstInvocationKey,
+      'recovery maps the first repeated action by its persisted ordinal',
+    )
+    assert.equal(
+      await resolveExternalEffectIdempotencyKey({
+        tenantId: TENANT,
+        runId,
+        attemptId: replacementAttemptId,
+        kind: repeatedKind,
+        invocationKey: 'regenerated-call-two',
+        scope: 'invocation',
+        request: repeatedRequest,
+        ordinal: 1,
+      }),
+      secondInvocationKey,
+      'recovery maps the second repeated action independently even when the requests are identical',
+    )
+
+    const domainKey = await resolveExternalEffectIdempotencyKey({
+      tenantId: TENANT,
+      runId,
+      attemptId: first.attemptId,
+      kind: repeatedKind,
+      invocationKey: 'provider-operation-42',
+      scope: 'domain',
+      request: repeatedRequest,
+      ordinal: 2,
+    })
+    assert.match(domainKey, /:domain:provider-operation-42$/, 'an adapter-defined domain key reaches storage')
+
+    const legacyRequest = {
+      toolName: 'send_email',
+      category: 'external_email',
+      input: { to: 'before-cutover@example.test', subject: 'Legacy intent' },
+    }
+    const legacyKey = `${runId}:send_email:legacy-request-hash`
+    const legacyEffect = await effects.claim({
+      tenantId: TENANT,
+      runId,
+      attemptId: first.attemptId,
+      kind: repeatedKind,
+      idempotencyKey: legacyKey,
+      request: legacyRequest,
+      at: new Date(),
+    })
+    assert.equal(legacyEffect.disposition, 'execute')
+    assert.equal(
+      await resolveExternalEffectIdempotencyKey({
+        tenantId: TENANT,
+        runId,
+        attemptId: replacementAttemptId,
+        kind: repeatedKind,
+        invocationKey: 'sdk-after-contract-cutover',
+        scope: 'invocation',
+        request: legacyRequest,
+        ordinal: 2,
+      }),
+      legacyKey,
+      'a rolling deployment preserves an older request-hash intent instead of duplicating its effect',
+    )
+
     const intent = {
       tenantId: TENANT,
       runId,
@@ -562,6 +694,87 @@ await assert.rejects(
       'confirming non-completion appends matching effect and audit evidence',
     )
 
+    // A replacement fence receives a different SDK id, but its first logical
+    // invocation recovers the first immutable intent rather than sending it
+    // again. The durable result is replayed through the real database store.
+    const recoveryRunId = crypto.randomUUID()
+    await testDb().db.insert(testRuns).values({
+      id: recoveryRunId,
+      tenantId: TENANT,
+      personId: REPORT,
+      status: 'running',
+      trigger: { type: 'manual', requestedBy: 'claims-recovery' },
+    })
+    const abandoned = await leases.claim({
+      runId: recoveryRunId,
+      owner: 'worker-that-will-disappear',
+      leaseMs: 1,
+      now: new Date('2026-08-17T11:00:00.000Z'),
+    })
+    assert.ok(abandoned)
+    const recoveryRequest = {
+      toolName: 'send_email',
+      category: 'external_email',
+      input: { to: 'recovery@example.test', body: 'Only once' },
+    }
+    const abandonedKey = await resolveExternalEffectIdempotencyKey({
+      tenantId: TENANT,
+      runId: recoveryRunId,
+      attemptId: abandoned.attemptId,
+      kind: repeatedKind,
+      invocationKey: 'sdk-before-crash',
+      scope: 'invocation',
+      request: recoveryRequest,
+      ordinal: 0,
+    })
+    const abandonedEffect = await effects.claim({
+      tenantId: TENANT,
+      runId: recoveryRunId,
+      attemptId: abandoned.attemptId,
+      kind: repeatedKind,
+      idempotencyKey: abandonedKey,
+      request: recoveryRequest,
+      at: new Date(),
+    })
+    assert.equal(abandonedEffect.disposition, 'execute')
+    await effects.append(abandonedEffect.effectId, {
+      kind: 'completed',
+      at: new Date(),
+      result: { providerId: 'sent-once' },
+    })
+    const replacement = await leases.claim({
+      runId: recoveryRunId,
+      owner: 'replacement-worker',
+      leaseMs: 60_000,
+      now: new Date('2026-08-17T11:01:00.000Z'),
+    })
+    assert.ok(replacement)
+    const recoveredKey = await resolveExternalEffectIdempotencyKey({
+      tenantId: TENANT,
+      runId: recoveryRunId,
+      attemptId: replacement.attemptId,
+      kind: repeatedKind,
+      invocationKey: 'sdk-after-crash',
+      scope: 'invocation',
+      request: recoveryRequest,
+      ordinal: 0,
+    })
+    assert.equal(recoveredKey, abandonedKey, 'the replacement fence correlates the logical invocation')
+    const recoveredEffect = await effects.claim({
+      tenantId: TENANT,
+      runId: recoveryRunId,
+      attemptId: replacement.attemptId,
+      kind: repeatedKind,
+      idempotencyKey: recoveredKey,
+      request: recoveryRequest,
+      at: new Date(),
+    })
+    assert.deepEqual(
+      recoveredEffect.disposition === 'completed' ? recoveredEffect.result : null,
+      { providerId: 'sent-once' },
+      'recovery replays the prior result without a second adapter execution',
+    )
+
     const takeoverRunId = crypto.randomUUID()
     await testDb().db.insert(testRuns).values({
       id: takeoverRunId,
@@ -670,6 +883,42 @@ await assert.rejects(
       status: 'running',
       trigger: { type: 'chat', conversationId: `web:${threadId}` },
     })
+
+    const headlessThreadId = crypto.randomUUID()
+    const headlessRunId = crypto.randomUUID()
+    await testDb().db.insert(testChatThreads).values({
+      id: headlessThreadId,
+      tenantId: TENANT,
+      personId: REPORT,
+      userId: OWNER_USER,
+    })
+    await testDb().db.insert(testRuns).values({
+      id: headlessRunId,
+      tenantId: TENANT,
+      personId: REPORT,
+      status: 'running',
+      trigger: { type: 'chat', conversationId: `web:${headlessThreadId}` },
+    })
+    await appendRunEvent(testDb().db, {
+      tenantId: TENANT,
+      runId: headlessRunId,
+      kind: 'message',
+      payload: { text: 'This belongs in the conversation, not Live work.' },
+    })
+    await appendRunEvent(testDb().db, {
+      tenantId: TENANT,
+      runId: headlessRunId,
+      kind: 'tool_call',
+      payload: { toolName: 'search_records' },
+    })
+    const headlessSurface = await chatWorkSurface(TENANT, headlessThreadId)
+    assert.equal(headlessSurface.kind, 'activity')
+    assert.deepEqual(
+      headlessSurface.kind === 'activity' ? headlessSurface.events.map((event) => event.label) : [],
+      ['Using search records'],
+      'Live work shows execution telemetry without repeating chat messages verbatim',
+    )
+
     await testDb().db.insert(testDeskSessions).values({
       id: deskSessionId,
       tenantId: TENANT,
@@ -693,7 +942,7 @@ await assert.rejects(
       detail: { command: 'process-invoices', exitCode: 0 },
     })
     assert.equal((await chatWorkSurface(TENANT, threadId)).kind, 'activity', 'newer headless work replaces a stale browser frame')
-    await testDb().db.insert(testCallSessions).values({
+    const [surfaceCall] = await testDb().db.insert(testCallSessions).values({
       tenantId: TENANT,
       personId: REPORT,
       runId: surfaceRunId,
@@ -701,24 +950,51 @@ await assert.rejects(
       direction: 'web',
       counterparty: { name: 'Claims caller' },
       status: 'active',
-    })
-    assert.equal((await chatWorkSurface(TENANT, threadId)).kind, 'call', 'an active call is visible without a desktop')
+    }).returning({ id: testCallSessions.id, room: testCallSessions.room })
+    const callSurface = await chatWorkSurface(TENANT, threadId)
+    assert.equal(callSurface.kind, 'call', 'an active call is visible without a desktop')
+    assert.deepEqual(
+      callSurface.kind === 'call' ? { sessionId: callSurface.sessionId, room: callSurface.room } : null,
+      { sessionId: surfaceCall.id, room: surfaceCall.room },
+      'the chat stage receives the exact active LiveKit room rather than a status-only placeholder',
+    )
     await testDb().db.insert(testDeskEvents).values({
       tenantId: TENANT,
       sessionId: deskSessionId,
       seq: 2,
-      kind: 'screen_open',
-      detail: { reason: 'The task requires a graphical application.' },
+      kind: 'navigate',
+      detail: { title: 'Portal opened on the call', url: 'https://call.example.test' },
     })
-    assert.equal((await chatWorkSurface(TENANT, threadId)).kind, 'desktop', 'an open screen takes over the work stage')
+    assert.equal(
+      (await chatWorkSurface(TENANT, threadId)).kind,
+      'call',
+      'browser work on a call stays inside the integrated LiveKit call stage',
+    )
     await testDb().db.insert(testDeskEvents).values({
       tenantId: TENANT,
       sessionId: deskSessionId,
       seq: 3,
+      kind: 'screen_open',
+      detail: { reason: 'The task requires a graphical application.' },
+    })
+    assert.equal(
+      (await chatWorkSurface(TENANT, threadId)).kind,
+      'call',
+      'desktop work on a call remains inside the integrated LiveKit call stage',
+    )
+    await testDb().db
+      .update(testCallSessions)
+      .set({ status: 'ended', endedAt: new Date() })
+      .where(eq(testCallSessions.id, surfaceCall.id))
+    assert.equal((await chatWorkSurface(TENANT, threadId)).kind, 'desktop', 'after the call, the still-open desktop takes over')
+    await testDb().db.insert(testDeskEvents).values({
+      tenantId: TENANT,
+      sessionId: deskSessionId,
+      seq: 4,
       kind: 'screen_close',
       detail: {},
     })
-    assert.equal((await chatWorkSurface(TENANT, threadId)).kind, 'call', 'closing the screen returns to the active call')
+    assert.equal((await chatWorkSurface(TENANT, threadId)).kind, 'activity', 'closing the screen returns to headless work')
   })
 
   await closeRunEventNotifications()

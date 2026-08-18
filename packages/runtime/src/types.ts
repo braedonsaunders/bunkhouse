@@ -203,6 +203,8 @@ export type ExternalEffectGate = {
     toolName: string
     category: ActionCategory
     idempotencyKey: string
+    /** Whether the key names this model invocation or the destination action. */
+    idempotencyScope: 'invocation' | 'domain'
     request: unknown
     signal: AbortSignal
     operation: (signal: AbortSignal) => Promise<T>

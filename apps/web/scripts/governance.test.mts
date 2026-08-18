@@ -66,8 +66,8 @@ function harness(args: {
 {
   const order: string[] = []
   const effects: ExternalEffectGate = {
-    execute: async ({ toolName, idempotencyKey, operation, signal }) => {
-      order.push(`intent:${toolName}:${idempotencyKey}`)
+    execute: async ({ toolName, idempotencyKey, idempotencyScope, operation, signal }) => {
+      order.push(`intent:${toolName}:${idempotencyScope}:${idempotencyKey}`)
       const result = await operation(signal)
       order.push('outcome')
       return result
@@ -79,7 +79,46 @@ function harness(args: {
     abilities: [ability({ onExecute: () => order.push('adapter') })],
   })
   await call(tools, 'send_email', { to: 'a@b.test' })
-  assert.deepEqual(order, ['intent:send_email:t1', 'adapter', 'outcome'])
+  assert.deepEqual(order, ['intent:send_email:invocation:t1', 'adapter', 'outcome'])
+}
+
+// Identical requested actions are still distinct model invocations. The SDK
+// call id—not a request hash—is the default identity handed to persistence.
+{
+  const identities: string[] = []
+  const effects: ExternalEffectGate = {
+    execute: async ({ idempotencyKey, idempotencyScope, operation, signal }) => {
+      identities.push(`${idempotencyScope}:${idempotencyKey}`)
+      return operation(signal)
+    },
+  }
+  const { tools } = harness({
+    levels: { external_email: 'trusted' },
+    effects,
+    abilities: [ability({})],
+  })
+  await call(tools, 'send_email', { to: 'same@b.test' }, 'call-one')
+  await call(tools, 'send_email', { to: 'same@b.test' }, 'call-two')
+  assert.deepEqual(identities, ['invocation:call-one', 'invocation:call-two'])
+}
+
+// A connector can name the destination operation more precisely than the SDK
+// invocation, and the gate is told that the key is domain-owned.
+{
+  const identities: string[] = []
+  const effects: ExternalEffectGate = {
+    execute: async ({ idempotencyKey, idempotencyScope, operation, signal }) => {
+      identities.push(`${idempotencyScope}:${idempotencyKey}`)
+      return operation(signal)
+    },
+  }
+  const { tools } = harness({
+    levels: { external_email: 'trusted' },
+    effects,
+    abilities: [ability({ externalEffectKey: (input: { to: string }) => `provider-message:${input.to}` })],
+  })
+  await call(tools, 'send_email', { to: 'stable@b.test' }, 'sdk-call-that-may-change')
+  assert.deepEqual(identities, ['domain:provider-message:stable@b.test'])
 }
 
 // --- cancellation reaches an in-flight tool, not only the next step --------
@@ -125,10 +164,10 @@ function ability(over: Partial<Parameters<typeof defineAbility>[0]> & { onExecut
   })
 }
 
-async function call(tools: ReturnType<typeof governedToolSet>, name: string, input: unknown) {
+async function call(tools: ReturnType<typeof governedToolSet>, name: string, input: unknown, toolCallId = 't1') {
   const tool = tools[name]
   assert.ok(tool?.execute, `${name} is in the governed set and executable`)
-  return tool.execute!(input as never, { toolCallId: 't1', messages: [] })
+  return tool.execute!(input as never, { toolCallId, messages: [] })
 }
 
 // --- forbidden blocks in the runtime ----------------------------------------

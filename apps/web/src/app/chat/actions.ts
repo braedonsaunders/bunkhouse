@@ -1,6 +1,10 @@
 'use server'
 
+import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
+import { mintLiveKitToken } from '@braedonsaunders/appkit-voice'
+import { ParticipantKind } from '@livekit/rtc-node'
+import { RoomServiceClient } from 'livekit-server-sdk'
 import { requireTenantPermission, type TenantAccess } from '../../lib/tenant'
 import {
   getThread,
@@ -25,6 +29,7 @@ import {
   type ChatDeskStatus,
 } from '../../lib/chat-desk'
 import { chatWorkSurface, type ChatWorkSurface } from '../../lib/chat-work-surface'
+import { runScreenRoomName } from '../../lib/run-screen-room'
 
 /**
  * The chat page's server actions.
@@ -74,6 +79,61 @@ export async function workSurfaceAction(threadId: string): Promise<ChatWorkSurfa
   const access = await requireTenantPermission('work.read')
   if (!threadId) return { kind: 'idle', runId: null }
   return chatWorkSurface(access.tenantId, threadId)
+}
+
+/** A subscribe-only LiveKit credential for the active browser or call stage. */
+export async function observeWorkSurfaceAction(input: {
+  threadId: string
+  runId: string
+  kind: 'browser' | 'call'
+  sessionId?: string
+}): Promise<{ serverUrl: string; token: string }> {
+  const access = await requireTenantPermission('work.read')
+  const current = await chatWorkSurface(access.tenantId, input.threadId)
+  if (current.runId !== input.runId || current.kind !== input.kind) {
+    throw new Error('That live work surface is no longer active.')
+  }
+
+  const serverUrl = process.env.LIVEKIT_URL
+  const apiKey = process.env.LIVEKIT_API_KEY
+  const apiSecret = process.env.LIVEKIT_API_SECRET
+  if (!serverUrl || !apiKey || !apiSecret) {
+    throw new Error('Live work viewing is not available in this deployment.')
+  }
+
+  let room: string
+  if (current.kind === 'call') {
+    if (!input.sessionId || input.sessionId !== current.sessionId) {
+      throw new Error('That call is no longer active.')
+    }
+    room = current.room
+    // A standard observer that arrives before the voice worker could be
+    // selected as the call's human input participant. Wait until LiveKit has
+    // the agent participant on the room; the client retries this short-lived
+    // state while the stage says it is still connecting.
+    const participants = await new RoomServiceClient(serverUrl, apiKey, apiSecret)
+      .listParticipants(room)
+      .catch(() => [])
+    if (!participants.some((participant) => Number(participant.kind) === ParticipantKind.AGENT)) {
+      throw new Error('The live stage is waiting for the agent to join.')
+    }
+  } else {
+    room = runScreenRoomName(current.runId)
+  }
+
+  const token = await mintLiveKitToken(
+    { apiKey, apiSecret },
+    {
+      identity: `observer:${access.user.id}:${randomUUID()}`,
+      name: access.user.name ?? 'Observer',
+      room,
+      metadata: JSON.stringify({ tenantId: access.tenantId, runId: current.runId, kind: 'work-observer' }),
+      canPublish: false,
+      canSubscribe: true,
+      ttlSeconds: 60 * 60,
+    },
+  )
+  return { serverUrl, token }
 }
 
 /**

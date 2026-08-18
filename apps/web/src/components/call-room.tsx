@@ -14,7 +14,7 @@ import {
   useSpeakingParticipants,
   useTracks,
 } from '@livekit/components-react'
-import { ConnectionState, Track, type RoomOptions } from 'livekit-client'
+import { ConnectionState, ParticipantKind, Track, type RoomOptions } from 'livekit-client'
 import {
   Button,
   Card,
@@ -432,11 +432,12 @@ function LiveCallSurface({
   const remotes = useRemoteParticipants()
   // The library's speaking state, not mere presence: useSpeakingParticipants
   // is the unconditional-hook form of useIsSpeaking, which needs a participant
-  // that does not exist until the agent picks up. Any non-local speaker is the
-  // agent's voice — the caller is the only other participant on a web call.
+  // that does not exist until the agent picks up. Match LiveKit's agent kind
+  // explicitly: a subscribe-only chat observer may share this room, and must
+  // never make the caller believe the agent answered or started speaking.
   const speakers = useSpeakingParticipants()
-  const agentJoined = remotes.length > 0
-  const agentSpeaking = agentJoined && speakers.some((participant) => !participant.isLocal)
+  const agentJoined = remotes.some((participant) => participant.kind === ParticipantKind.AGENT)
+  const agentSpeaking = agentJoined && speakers.some((participant) => participant.kind === ParticipantKind.AGENT)
 
   const phase: CallPhase = closed
     ? 'ended'

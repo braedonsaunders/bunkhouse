@@ -353,6 +353,33 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   console.log('chat: the transcript is append-only in the runtime and at the database boundary')
 }
 
+// --- (b2) a completed streamed turn survives a profile-section switch ------
+//
+// AgentPanel keeps the rich live parts while it is mounted. The server tree
+// behind it must still be refreshed after persistence catches up, otherwise
+// leaving Chat and coming back remounts the panel from the pre-send snapshot;
+// a hard browser refresh then appears to "recover" the missing answer.
+{
+  const workspace = readFileSync(
+    fileURLToPath(new URL('../src/components/chat-workspace.tsx', import.meta.url)),
+    'utf8',
+  )
+  const completion = workspace.slice(workspace.indexOf('void response'), workspace.indexOf('return response'))
+  assert.ok(completion.includes('await refreshThread(threadId)'), 'the persisted turn is read after the stream closes')
+  assert.ok(completion.includes('router.refresh()'), 'the backing server snapshot is refreshed before a later remount')
+  assert.ok(
+    completion.indexOf('await refreshThread(threadId)') < completion.indexOf('router.refresh()'),
+    'the server tree is refreshed only after the durable transcript has caught up',
+  )
+  assert.ok(workspace.includes('headerActions={'), 'the work visibility control lives in AgentPanel’s main header')
+  assert.equal(
+    workspace.includes('Separate conversations keep different pieces of work from bleeding into one another.'),
+    false,
+    'the redundant row above the chat no longer consumes vertical space',
+  )
+  console.log('chat: streamed turns survive section switches and work controls stay in the chat header')
+}
+
 // --- (c) concurrency: one conversation, no double-run ----------------------
 {
   const clock = () => new Date('2026-08-17T12:00:00.000Z')

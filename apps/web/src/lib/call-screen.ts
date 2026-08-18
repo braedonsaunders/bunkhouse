@@ -22,11 +22,9 @@ import type { AgentScreenOpener } from './browser-cast'
  * they get smooth live video — the page scrolling, the cursor crossing it, the
  * text going in — with no polling, no new transport, and no new service.
  *
- * Only calls. `registerBrowserCast` is what turns this on, and only the voice
- * agent calls it, for the run its call owns. An email run or a scheduled duty
- * registers nothing, so its desk opens no video source at all.
- *
- * Imported only by the voice agent process; the web app never bundles this.
+ * `registerBrowserCast` turns this on for either an active call room or the
+ * run-scoped observer room used by chat. Both are server-only native LiveKit
+ * publishers; a run that never opens a browser still creates no video source.
  */
 
 /**
@@ -38,9 +36,9 @@ import type { AgentScreenOpener } from './browser-cast'
 const MAX_BITRATE = 2_000_000n
 
 /**
- * Build the opener a desk's capture asks for when it starts. One call, one
- * room; the track itself is not created until a screen actually opens, so a
- * call where the agent never puts anything on screen publishes nothing and
+ * Build the opener a desk's capture asks for when it starts. One destination,
+ * one room; the track itself is not created until a screen actually opens, so
+ * an observed run that never puts anything on screen publishes nothing and
  * costs nothing.
  */
 export function agentScreenOpener(args: {

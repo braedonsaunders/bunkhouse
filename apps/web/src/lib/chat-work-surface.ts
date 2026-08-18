@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import {
   browserSessions,
   browserSteps,
@@ -35,7 +35,7 @@ export type ChatWorkSurface =
       status: string
       frame: { fileId: string | null; title: string; url: string | null; action: string; at: string }
     }
-  | { kind: 'call'; runId: string; status: string; direction: string; startedAt: string }
+  | { kind: 'call'; runId: string; sessionId: string; room: string; status: string; direction: string; startedAt: string }
   | {
       kind: 'activity'
       runId: string
@@ -48,7 +48,6 @@ function eventLabel(kind: string, payload: Record<string, unknown>): string {
   if (kind === 'tool_result') return `${String(payload.toolName ?? 'Tool').replaceAll('_', ' ')} finished`
   if (kind === 'approval_request') return String(payload.description ?? 'Waiting for approval')
   if (kind === 'error') return String(payload.message ?? 'A step did not finish')
-  if (kind === 'message') return String(payload.text ?? 'Working')
   return kind.replaceAll('_', ' ')
 }
 
@@ -65,6 +64,28 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
       .orderBy(desc(runs.startedAt))
       .limit(1)
     if (!run) return { kind: 'idle', runId: null }
+
+    const [call] = await app.db
+      .select({ id: callSessions.id, room: callSessions.room, status: callSessions.status, direction: callSessions.direction, startedAt: callSessions.startedAt })
+      .from(callSessions)
+      .where(and(eq(callSessions.runId, run.id), eq(callSessions.status, 'active')))
+      .orderBy(desc(callSessions.startedAt))
+      .limit(1)
+
+    // A live call owns the conversational stage. Browser or desktop work on
+    // that call arrives inside it as the agent-screen track, preserving the
+    // people and speaking state alongside what the agent is doing.
+    if (call) {
+      return {
+        kind: 'call',
+        runId: run.id,
+        sessionId: call.id,
+        room: call.room,
+        status: call.status,
+        direction: call.direction,
+        startedAt: call.startedAt.toISOString(),
+      }
+    }
 
     const [desk] = await app.db
       .select({
@@ -87,13 +108,6 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
       return { kind: 'desktop', runId: run.id, status: run.status }
     }
 
-    const [call] = await app.db
-      .select({ status: callSessions.status, direction: callSessions.direction, startedAt: callSessions.startedAt })
-      .from(callSessions)
-      .where(and(eq(callSessions.runId, run.id), eq(callSessions.status, 'active')))
-      .orderBy(desc(callSessions.startedAt))
-      .limit(1)
-
     // The current browser driver writes to Desk's one governed event stream.
     // Promote it only when it is the newest thing the desk is doing, so a
     // stale browser frame never covers newer headless, shell, or call work.
@@ -113,8 +127,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
     if (
       desk?.status === 'active' &&
       latestDeskEvent &&
-      isBrowserDeskEvent(latestDeskEvent.kind, latestDeskEvent.detail) &&
-      (!call || latestDeskEvent.at >= call.startedAt)
+      isBrowserDeskEvent(latestDeskEvent.kind, latestDeskEvent.detail)
     ) {
       const detail = latestDeskEvent.detail
       return {
@@ -150,7 +163,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
         .where(eq(browserSteps.sessionId, browser.id))
         .orderBy(desc(browserSteps.seq))
         .limit(1)
-      if (step && browser.status === 'active' && (!call || step.at >= call.startedAt)) {
+      if (step && browser.status === 'active') {
         return {
           kind: 'browser',
           runId: run.id,
@@ -163,16 +176,6 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
             at: step.at.toISOString(),
           },
         }
-      }
-    }
-
-    if (call) {
-      return {
-        kind: 'call',
-        runId: run.id,
-        status: call.status,
-        direction: call.direction,
-        startedAt: call.startedAt.toISOString(),
       }
     }
 
@@ -189,7 +192,11 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
     const latestRunEvents = await app.db
       .select({ seq: runEvents.seq, kind: runEvents.kind, payload: runEvents.payload, at: runEvents.createdAt })
       .from(runEvents)
-      .where(eq(runEvents.runId, run.id))
+      // The transcript already renders messages in the conversation. Live
+      // work is execution telemetry, so repeating model/user prose here is
+      // both noisy and liable to expose a long response as though it were an
+      // action the agent is currently taking.
+      .where(and(eq(runEvents.runId, run.id), ne(runEvents.kind, 'message')))
       .orderBy(desc(runEvents.seq))
       .limit(8)
     const events = (

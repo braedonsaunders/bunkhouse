@@ -23,10 +23,10 @@ import { AGENT_SCREEN_FPS, AGENT_SCREEN_HEIGHT, AGENT_SCREEN_WIDTH } from './age
  *      costs a full capture round trip per frame whether or not anything moved,
  *      and it competes with the agent's actual work for the same page.
  *
- * Who receives the frames is injected. A call registers an opener for its run
- * before any browser exists; an email run or a scheduled duty registers
- * nothing, so `startBrowserCast` returns null and the browser behaves exactly
- * as it did before — no cursor, no screencast, no added latency anywhere.
+ * Who receives the frames is injected. Calls register their own room; other
+ * governed runs register a run-scoped room for the chat work surface. The
+ * opener itself is lazy, so a run that never uses a browser creates no room,
+ * cursor, screencast, encoder, or added latency.
  */
 
 /** One converted frame, in the packed RGBA a video source wants. */
@@ -64,16 +64,95 @@ export type BrowserCast = {
 // --- The registry: who, if anyone, is watching this run --------------------
 
 type CastRegistry = typeof globalThis & {
-  __bunkhouseBrowserCastOpeners?: Map<string, AgentScreenOpener>
+  __bunkhouseBrowserCastOpeners?: Map<string, Set<RegisteredScreenOpener>>
   __bunkhouseBrowserCastsLive?: Map<string, Set<BrowserCast>>
 }
 const castRegistry = globalThis as CastRegistry
 
+type RegisteredScreenOpener = {
+  opener: AgentScreenOpener
+  active: boolean
+  publishers: Set<AgentScreenPublisher>
+}
+
 // On globalThis for the same reason the live browser sessions are: Next
 // rebuilds module graphs in dev, and a reload must never orphan a published
 // track or a running screencast.
-function openers(): Map<string, AgentScreenOpener> {
+function openers(): Map<string, Set<RegisteredScreenOpener>> {
   return (castRegistry.__bunkhouseBrowserCastOpeners ??= new Map())
+}
+
+/** One frame source can have a chat observer and a call observer at once. */
+function fanoutOpener(runId: string): AgentScreenOpener | null {
+  const registered = openers().get(runId)
+  if (!registered?.size) return null
+  return async (size) => {
+    let closed = false
+    const publishers = new Map<RegisteredScreenOpener, AgentScreenPublisher>()
+    const pending = new Set<RegisteredScreenOpener>()
+    const failedAt = new Map<RegisteredScreenOpener, number>()
+
+    const attach = async (registration: RegisteredScreenOpener): Promise<AgentScreenPublisher | null> => {
+      if (closed || !registration.active) return null
+      const existing = publishers.get(registration)
+      if (existing) return existing
+      if (pending.has(registration)) return null
+      const lastFailure = failedAt.get(registration)
+      if (lastFailure !== undefined && Date.now() - lastFailure < 5_000) return null
+      pending.add(registration)
+      try {
+        const publisher = await registration.opener(size)
+        if (closed || !registration.active) {
+          await publisher.close().catch(() => undefined)
+          return null
+        }
+        publishers.set(registration, publisher)
+        registration.publishers.add(publisher)
+        failedAt.delete(registration)
+        return publisher
+      } catch {
+        failedAt.set(registration, Date.now())
+        return null
+      } finally {
+        pending.delete(registration)
+      }
+    }
+
+    const initial = await Promise.all([...registered].map(attach))
+    if (!initial.some(Boolean)) throw new Error('No live-screen destination could be opened.')
+
+    return {
+      publish: (frame) => {
+        const current = openers().get(runId) ?? new Set<RegisteredScreenOpener>()
+        for (const [registration, publisher] of publishers) {
+          if (registration.active && current.has(registration)) publisher.publish(frame)
+          else {
+            publishers.delete(registration)
+            registration.publishers.delete(publisher)
+            void publisher.close().catch(() => undefined)
+          }
+        }
+        // A destination may join after the page started casting (for example,
+        // the run places a call). Attach it on the next damage frame and seed
+        // that destination with the frame that prompted the attachment.
+        for (const registration of current) {
+          if (publishers.has(registration) || pending.has(registration)) continue
+          void attach(registration).then((publisher) => publisher?.publish(frame))
+        }
+      },
+      close: async () => {
+        if (closed) return
+        closed = true
+        await Promise.all(
+          [...publishers].map(async ([registration, publisher]) => {
+            publishers.delete(registration)
+            registration.publishers.delete(publisher)
+            await publisher.close().catch(() => undefined)
+          }),
+        )
+      },
+    }
+  }
 }
 
 /**
@@ -93,11 +172,22 @@ function liveCasts(): Map<string, Set<BrowserCast>> {
  * behind, whatever order the teardown happens in.
  */
 export function registerBrowserCast(runId: string, opener: AgentScreenOpener): () => Promise<void> {
-  openers().set(runId, opener)
+  const registration: RegisteredScreenOpener = { opener, active: true, publishers: new Set() }
+  let registered = openers().get(runId)
+  if (!registered) {
+    registered = new Set()
+    openers().set(runId, registered)
+  }
+  registered.add(registration)
   let withdrawn = false
   return async () => {
     if (withdrawn) return
     withdrawn = true
+    registration.active = false
+    registered!.delete(registration)
+    await Promise.all([...registration.publishers].map((publisher) => publisher.close().catch(() => undefined)))
+    registration.publishers.clear()
+    if (registered!.size > 0) return
     openers().delete(runId)
     for (const cast of [...(liveCasts().get(runId) ?? [])]) await cast.stop()
   }
@@ -105,7 +195,7 @@ export function registerBrowserCast(runId: string, opener: AgentScreenOpener): (
 
 /** True when this run's screen is being watched live by somebody. */
 export function browserCastWanted(runId: string): boolean {
-  return openers().has(runId)
+  return (openers().get(runId)?.size ?? 0) > 0
 }
 
 /**
@@ -114,7 +204,7 @@ export function browserCastWanted(runId: string): boolean {
  * there is one registry and one lifecycle rather than two that drift.
  */
 export function agentScreenOpenerFor(runId: string): AgentScreenOpener | null {
-  return openers().get(runId) ?? null
+  return fanoutOpener(runId)
 }
 
 /** Put a running cast on the run's books, and take it off again. */
@@ -393,9 +483,9 @@ export function exactBytes(buffer: Buffer): Uint8Array {
 }
 
 /**
- * Start casting this page, if anyone registered to watch this run. Returns
- * null when nobody did — the ordinary case for an email run or a duty, where
- * the browser must behave exactly as it always has.
+ * Start casting this page, if a live-view destination was registered for the
+ * run. Returns null when the deployment has no realtime transport configured,
+ * so the browser still behaves exactly as it did before live observation.
  *
  * The pipeline per frame: Chromium encodes a JPEG on repaint → we ack it
  * immediately (an unacked frame stops the stream) → sharp decodes it and
@@ -411,7 +501,7 @@ export function exactBytes(buffer: Buffer): Uint8Array {
  */
 export async function startBrowserCast(args: { page: Page; runId: string }): Promise<BrowserCast | null> {
   const { page, runId } = args
-  const opener = openers().get(runId)
+  const opener = fanoutOpener(runId)
   if (!opener) return null
 
   const width = AGENT_SCREEN_WIDTH

@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, desc, eq, gt, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, ne, sql } from 'drizzle-orm'
 import type {
   ExecutionLease,
   ExecutionLeaseStore,
@@ -285,8 +285,74 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? 'null'
 }
 
-export function externalEffectRequestIdentity(value: unknown): string {
-  return canonicalJson(value)
+/**
+ * Resolve the durable key for one governed adapter invocation.
+ *
+ * A connector-owned domain key is authoritative. Otherwise the first fenced
+ * attempt keeps the SDK tool-call id, so two identical calls remain distinct.
+ * A later fenced attempt correlates its Nth call of this tool with the Nth
+ * immutable intent from the abandoned attempt. A changed request fails closed
+ * instead of silently replaying or duplicating a different outside action.
+ */
+export async function resolveExternalEffectIdempotencyKey(args: {
+  tenantId: string
+  runId: string
+  attemptId: string
+  kind: string
+  invocationKey: string
+  scope: 'invocation' | 'domain'
+  request: unknown
+  ordinal: number
+}): Promise<string> {
+  const toolName = args.kind.slice(args.kind.indexOf(':') + 1)
+  if (args.scope === 'domain') {
+    return `${args.runId}:${toolName}:domain:${args.invocationKey}`
+  }
+
+  const recoveryPrefix = `${args.runId}:${toolName}:invocation:${args.ordinal}:`
+  const proposed = `${recoveryPrefix}${args.invocationKey}`
+  const app = db()
+  const prior = await app.db
+    .select({ idempotencyKey: externalEffectIntents.idempotencyKey, request: externalEffectIntents.request })
+    .from(externalEffectIntents)
+    .where(
+      and(
+        eq(externalEffectIntents.tenantId, args.tenantId),
+        eq(externalEffectIntents.runId, args.runId),
+        eq(externalEffectIntents.kind, args.kind),
+        eq(externalEffectIntents.provenanceKind, 'run_attempt'),
+        ne(externalEffectIntents.attemptId, args.attemptId),
+      ),
+    )
+
+  // The ordinal is part of the immutable key rather than inferred from
+  // created_at. Two intents can share a database timestamp, and UUID order is
+  // not call order; either would make recovery nondeterministic.
+  const recovered = prior.find((intent) => intent.idempotencyKey.startsWith(recoveryPrefix))
+  if (recovered && !sameJson(recovered.request, args.request)) {
+    throw new Error(
+      `Recovered external-effect invocation ${args.ordinal + 1} for ${toolName} does not match its durable intent. Reconcile the prior effect before retrying this run.`,
+    )
+  }
+  if (recovered) return recovered.idempotencyKey
+
+  // Runs fenced before this contract shipped used run + tool + request hash.
+  // Never abandon one of those intents during a rolling deployment: that
+  // could repeat an effect the old worker already delivered. The old key could
+  // not distinguish identical intentional calls, so preserving its one intent
+  // is the only fail-safe interpretation available during recovery.
+  const toolPrefix = `${args.runId}:${toolName}:`
+  const legacy = prior.filter(
+    (intent) =>
+      intent.idempotencyKey.startsWith(toolPrefix) &&
+      !intent.idempotencyKey.startsWith(`${toolPrefix}invocation:`) &&
+      !intent.idempotencyKey.startsWith(`${toolPrefix}domain:`) &&
+      sameJson(intent.request, args.request),
+  )
+  if (legacy.length > 1) {
+    throw new Error(`More than one legacy external-effect intent matches ${toolName}. Reconcile the prior effects before retrying this run.`)
+  }
+  return legacy[0]?.idempotencyKey ?? proposed
 }
 
 function sameJson(left: unknown, right: unknown): boolean {

@@ -280,7 +280,7 @@ exactly the single-model behaviour every existing agent already had.
 | The call itself | `apps/web/scripts/voice-agent.mts` |
 | The two models an agent runs on | `AgentModelConfig` in `apps/web/src/db/schema/people.ts`, resolved by `resolveAgentAiConfig` in `apps/web/src/lib/ai.ts` |
 | Where an operator picks them | the agent record's Model tab — `apps/web/src/components/assign-model-form.tsx` |
-| The agent's screen, live | `apps/web/src/lib/browser-cast.ts` (cursor + screencast), `apps/web/src/lib/call-screen.ts` (the track), `apps/web/src/lib/agent-screen.ts` (the contract they share) |
+| The agent's screen, live | `apps/web/src/lib/browser-cast.ts` (cursor + screencast), `apps/web/src/lib/call-screen.ts` (the track), `apps/web/src/lib/run-screen-room.ts` (run-scoped chat rooms), `apps/web/src/lib/agent-screen.ts` (the contract they share) |
 
 `do_work` is the framework's own async tool. The first `RunContext.update()`
 answers the model with the handle, marks the call non-blocking, and returns

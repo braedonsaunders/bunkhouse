@@ -359,6 +359,49 @@ function build(runId: string) {
   console.log('desk: a desktop opened during a call casts to the stage, and closing it takes the track down')
 }
 
+// --- (e3) chat and call observers share one live frame source ---------------
+{
+  const { agentScreenOpenerFor, registerBrowserCast } = await import('../src/lib/browser-cast')
+  const received = { chat: 0, call: 0 }
+  const closed = { chat: 0, call: 0 }
+  const register = (viewer: keyof typeof received) =>
+    registerBrowserCast('run-cast-fanout', async () => {
+      let ended = false
+      return {
+        publish: () => {
+          if (!ended) received[viewer] += 1
+        },
+        close: async () => {
+          if (ended) return
+          ended = true
+          closed[viewer] += 1
+        },
+      }
+    })
+  const stopChat = register('chat')
+  const opener = agentScreenOpenerFor('run-cast-fanout')
+  assert.ok(opener)
+  const publisher = await opener!({ width: 2, height: 2 })
+  const frame = { data: new Uint8Array(16), width: 2, height: 2 }
+  publisher.publish(frame)
+  assert.deepEqual(received, { chat: 1, call: 0 })
+
+  const stopCall = register('call')
+  publisher.publish(frame)
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 0))
+  assert.deepEqual(received, { chat: 2, call: 1 }, 'a call that joins later receives the live frame source too')
+
+  await stopCall()
+  publisher.publish(frame)
+  assert.deepEqual(received, { chat: 3, call: 1 }, 'leaving the call does not tear down the chat observer')
+  assert.equal(closed.call, 1)
+
+  await stopChat()
+  await publisher.close()
+  assert.equal(closed.chat, 1)
+  console.log('desk: live browser frames fan out to chat and call observers with independent lifecycles')
+}
+
 // --- (f) dial separation: desktop forbidden does not touch the machine -------
 {
   const { abilities } = build('run-dials-test')

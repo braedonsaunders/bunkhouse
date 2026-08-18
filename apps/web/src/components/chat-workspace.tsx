@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   Archive,
   ArchiveRestore,
@@ -31,7 +32,7 @@ import {
   setThreadStatusAction,
   startThreadAction,
 } from '../app/chat/actions'
-import { ChatWorkSurface } from './chat-work-surface'
+import { ChatWorkSurface, type ChatCallAvatar } from './chat-work-surface'
 
 /**
  * Chat: talk to an agent, and watch the machine it is working on while it
@@ -330,6 +331,7 @@ export function AgentChatWorkspace({
   threads: initialThreads,
   agent,
   avatar,
+  callAvatar,
   canStart,
   initialThread,
 }: {
@@ -337,11 +339,13 @@ export function AgentChatWorkspace({
   /** The profile owns the person context; every thread here belongs to this agent. */
   agent: ChatAgentOption
   avatar: React.ReactNode
+  callAvatar: ChatCallAvatar
   /** False when no model is assigned, so starting a thread could only fail. */
   canStart: boolean
   /** The thread named in the URL, already loaded, or null. */
   initialThread: ChatThreadDetail | null
 }) {
+  const router = useRouter()
   const [threads, setThreads] = React.useState(initialThreads)
   const [detail, setDetail] = React.useState<ChatThreadDetail | null>(initialThread)
   const [loading, setLoading] = React.useState(false)
@@ -429,11 +433,19 @@ export function AgentChatWorkspace({
       void response
         .clone()
         .text()
-        .then(() => refreshThread(threadId))
+        .then(async () => {
+          await refreshThread(threadId)
+          // Keep the server-owned snapshot behind this mounted workspace in
+          // step with the durable transcript. AgentPanel deliberately keeps
+          // its richer streamed parts while mounted; refreshing the RSC tree
+          // means a later section switch remounts from the same completed
+          // turn instead of the snapshot from before Send was pressed.
+          router.refresh()
+        })
         .catch(() => undefined)
       return response
     },
-    [activeId, refreshThread],
+    [activeId, refreshThread, router],
   )
 
   /**
@@ -547,6 +559,23 @@ export function AgentChatWorkspace({
             enabled={detail.thread.status === 'open'}
             initialMessages={detail.messages.map(toAgentMessage)}
             send={send}
+            headerActions={
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2"
+                aria-pressed={deskOpen}
+                onClick={() => setDeskChoice(!deskOpen)}
+              >
+                {deskOpen ? (
+                  <PanelRightClose aria-hidden className="size-4" />
+                ) : (
+                  <Monitor aria-hidden className="size-4" />
+                )}
+                {deskOpen ? 'Hide work' : 'Show work'}
+              </Button>
+            }
             labels={{
               title: `${detail.thread.personName} · ${detail.thread.title}`,
               welcomeTitle: `Ask ${detail.thread.personName} for something`,
@@ -565,30 +594,15 @@ export function AgentChatWorkspace({
     </div>
   )
 
-  // The desk column and the desk pane are one decision, not two: a column left
-  // standing with nothing mounted in it would be an empty third of the card.
-  const deskVisible = deskOpen && detail !== null
+  // This pane belongs to the agent, not to one run. Live work follows the
+  // selected conversation inside it, while the Desktop tab remains available
+  // even before a conversation is selected.
+  const deskVisible = deskOpen
 
   return (
-    <div className="flex min-h-[36rem] flex-col gap-3 lg:h-[calc(100vh-13rem)] lg:min-h-0">
-      <div className="flex shrink-0 items-center justify-between gap-3">
-        <p className="text-sm text-fg-muted">
-          Separate conversations keep different pieces of work from bleeding into one another.
-        </p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          aria-pressed={deskOpen}
-          onClick={() => setDeskChoice(!deskOpen)}
-        >
-          {deskOpen ? <PanelRightClose aria-hidden className="size-4" /> : <Monitor aria-hidden className="size-4" />}
-          {deskOpen ? 'Hide work' : 'Show work'}
-        </Button>
-      </div>
-
+    <div className="flex min-h-[36rem] flex-col lg:h-full lg:min-h-0">
       {error !== null ? (
-        <p role="alert" className="shrink-0 text-sm text-danger">
+        <p role="alert" className="shrink-0 pb-2 text-sm text-danger">
           {error}
         </p>
       ) : null}
@@ -626,13 +640,13 @@ export function AgentChatWorkspace({
             is not on screen must not be holding a frame stream open. */}
         {deskVisible ? (
           <div className="min-h-0 max-lg:h-[34rem]">
-            {/* Keyed on the conversation: its newest run and active surface
-                must never carry over when the operator switches threads. */}
             <ChatWorkSurface
-              key={detail.thread.id}
-              threadId={detail.thread.id}
-              personId={detail.thread.personId}
-              personName={detail.thread.personName}
+              key={agent.id}
+              threadId={detail?.thread.id ?? null}
+              personId={agent.id}
+              personName={agent.name}
+              personTitle={agent.title}
+              callAvatar={callAvatar}
             />
           </div>
         ) : null}

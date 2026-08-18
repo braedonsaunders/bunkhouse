@@ -19,7 +19,14 @@ revocation returns the already-recorded cancelled outcome instead of trying to c
 
 Actions that cross into another system pass through the external-effect boundary after
 autonomy and approval, but before the adapter. `external_effect_intents` records a
-tenant/run/attempt, effect kind, redacted request, and stable request-derived idempotency key.
+tenant/run/attempt, effect kind, redacted request, and stable invocation identity. The
+runtime preserves the AI SDK tool-call id by default, so two intentional calls with the same
+request remain two actions. An adapter may instead supply a destination-owned domain key.
+When a crashed fenced attempt is replaced, the new attempt correlates each tool's Nth
+invocation with the Nth immutable intent rather than hashing the request; a changed request
+at that position fails closed instead of replaying or duplicating a different action.
+Recovery also recognizes request-hash intents written before this contract, so a rolling
+deployment cannot abandon an already-delivered effect and execute it again.
 The database verifies that its provenance names either a same-tenant run attempt or the
 same-run approval execution that performed it. Outcomes are new `external_effect_events`
 rows. A recorded completion is replayed; a

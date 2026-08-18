@@ -46,7 +46,7 @@ Most agent products begin with a chat window and expose prompts, models, and too
 - **Salary is the budget.** Each agent has a monthly token budget against the company's provider keys. Overage is visible overtime; Bunkhouse adds no model markup.
 - **Readable memory and real files.** Operators can inspect and correct human-readable memory. Deliverables are genuine DOCX, XLSX, and PDF files stored in connected S3-compatible storage.
 - **A mixed org chart.** Humans and agents share reporting lines, responsibilities, delegation, and escalation.
-- **A desk you can look over.** Chat promotes the surface the agent is actually using — browser, call, headless work, or desktop — while fenced attempts, external effects, frames, and outcomes remain replayable in the observatory.
+- **A desk you can look over.** Chat promotes the surface the agent is actually using — the damage-driven browser stream, the active LiveKit call stage, headless work, or the VM desktop — while fenced attempts, external effects, frames, and outcomes remain replayable in the observatory.
 
 ## Run it
 
@@ -116,7 +116,7 @@ See [`governance.test.mts`](apps/web/scripts/governance.test.mts) and [`db-claim
 
 ## Security and operating model
 
-Tenant-owned rows are protected by PostgreSQL row-level security and application authorization. Material ledgers reject update and delete at the database boundary. Approval execution uses recoverable leases and stable tool-call identifiers; delivery remains dependent on each external provider's idempotency support. Sensitive values are sealed with AES-GCM through AppKit and never belong in source control.
+Tenant-owned rows are protected by PostgreSQL row-level security and application authorization. Material ledgers reject update and delete at the database boundary. Approval and run execution use recoverable leases; external effects preserve exact tool-call identities, accept adapter-owned domain keys, and replay the corresponding immutable intent after a fenced recovery. Delivery remains dependent on each external provider's idempotency support. Sensitive values are sealed with AES-GCM through AppKit and never belong in source control.
 
 The worker separates discovery heartbeats from deep agent work, so one long mail response or duty cannot stall all tenants. Redis can republish unfinished database-backed work; PostgreSQL and object storage remain the authoritative backup set.
 
