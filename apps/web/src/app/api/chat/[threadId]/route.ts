@@ -25,10 +25,9 @@ const MAX_PROMPT_CHARS = 32_000
  * stream (`AgentPanel` decodes it with `readUIMessageStream`), and what goes
  * onto it comes from the run's OWN ledger as the work happens: each `tool_call`
  * becomes a tool part so the panel can render what the agent is doing, and each
- * `tool_result` completes it. The answer itself arrives as one text part when
- * the run finishes — deliberately not fake token-by-token. The governed loop is
- * multi-step and tool-using; its steps are the honest unit of progress here,
- * and dribbling a finished sentence out a character at a time would be theatre.
+ * `tool_result` completes it. Provider text is forwarded as it is generated;
+ * completed steps alone are recorded durably, so an interrupted fragment can
+ * never masquerade as an audited answer.
  *
  * Abort (the panel's Stop button) DETACHES the stream; it does not cancel the
  * run. A governed run is real work — by the time Stop is pressed it may already
@@ -80,7 +79,26 @@ export async function POST(
       }
 
       emit({ type: 'start' })
-      const textId = 'answer'
+      let textIndex = 0
+      let textId = `answer-${textIndex}`
+      let textStarted = false
+      let anyText = false
+      const finishText = (): void => {
+        if (!textStarted) return
+        emit({ type: 'text-end', id: textId })
+        textStarted = false
+        textIndex += 1
+        textId = `answer-${textIndex}`
+      }
+      const emitText = (delta: string): void => {
+        if (!delta) return
+        if (!textStarted) {
+          textStarted = true
+          emit({ type: 'text-start', id: textId })
+        }
+        anyText = true
+        emit({ type: 'text-delta', id: textId, delta })
+      }
       try {
         const { messages } = await sendMessage({
           tenantId: access.tenantId,
@@ -89,7 +107,9 @@ export async function POST(
           body,
           requester,
           progress: {
+            onTextDelta: emitText,
             onToolCall: ({ toolCallId, toolName, input }) => {
+              finishText()
               emit({ type: 'tool-input-available', toolCallId, toolName, input })
             },
             onToolResult: ({ toolCallId, output }) => {
@@ -98,9 +118,10 @@ export async function POST(
           },
         })
         const answer = messages.filter((message) => message.role === 'agent').at(-1)
-        emit({ type: 'text-start', id: textId })
-        if (answer?.body) emit({ type: 'text-delta', id: textId, delta: answer.body })
-        emit({ type: 'text-end', id: textId })
+        // A model may finish with a tool-only step or a provider may decline
+        // streaming. The persisted answer is the authoritative fallback.
+        if (!anyText && answer?.body) emitText(answer.body)
+        finishText()
         emit({ type: 'finish' })
       } catch (error) {
         // Everyday refusals — a closed conversation, somebody else's thread, an

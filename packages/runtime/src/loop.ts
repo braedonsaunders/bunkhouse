@@ -1,4 +1,4 @@
-import { generateText, stepCountIs, type ModelMessage } from 'ai'
+import { stepCountIs, streamText, type ModelMessage } from 'ai'
 import { getModel } from '@braedonsaunders/appkit-ai'
 import {
   citeProcedureAbility,
@@ -12,7 +12,13 @@ import { compactMessages } from './compaction'
 import { reportedCostUsd, usageAccountingOptions } from './cost'
 import { buildRunInstruction, buildSystemPrompt } from './prompt'
 import { loadSkillAbility, type BoundSkill } from './skills'
-import { createRedactingSink, normalizeSecrets, redactSecrets, redactSecretValue } from './redaction'
+import {
+  createRedactingSink,
+  createStreamingRedactor,
+  normalizeSecrets,
+  redactSecrets,
+  redactSecretValue,
+} from './redaction'
 import type {
   ApprovalGate,
   AutonomyResolver,
@@ -80,6 +86,20 @@ export type RunAgentArgs = {
   isCancelled?: () => Promise<boolean>
   /** Additional credentials held by application adapters during this run. */
   runSecrets?: readonly string[]
+  /**
+   * Ephemeral progress for a live reader. Completed steps still go through the
+   * append-only sink; deltas are presentation only and are never a second
+   * source of truth.
+   */
+  progress?: RunAgentProgress
+  /** Per-model-step backstop. Long work may take many steps; no one step may hang forever. */
+  modelStepDeadlineMs?: number
+}
+
+export type RunAgentProgress = {
+  onTextDelta?: (delta: string) => void | Promise<void>
+  onToolCall?: (call: { toolCallId: string; toolName: string; input: unknown }) => void | Promise<void>
+  onToolResult?: (result: { toolCallId: string; output: unknown }) => void | Promise<void>
 }
 
 /**
@@ -121,6 +141,9 @@ const NO_PROGRESS_REPEATS = 6
  * larger context was ever the thing that was missing.
  */
 const MAX_STEP_INPUT_TOKENS = 500_000
+
+/** A slow provider may reason for a while, but a dead stream must release its fenced run. */
+export const DEFAULT_MODEL_STEP_DEADLINE_MS = 120_000
 
 /**
  * One complete unit of an agent's work, headless. The loop enforces what prompts
@@ -250,9 +273,29 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
   let lastCall: string | null = null
   let repeats = 0
   let compactionAnnounced = false
+  const progressRedactor = createStreamingRedactor(runSecrets)
+
+  const publishTextDelta = async (delta: string): Promise<void> => {
+    if (!args.progress?.onTextDelta || !delta) return
+    try {
+      await args.progress.onTextDelta(delta)
+    } catch {
+      // A detached chat/call reader cannot be allowed to stop governed work.
+    }
+  }
+
+  const publishProgress = async (work: (() => void | Promise<void>) | undefined): Promise<void> => {
+    if (!work) return
+    try {
+      await work()
+    } catch {
+      // Presentation is detachable; the governed run is not.
+    }
+  }
 
   try {
-    const result = await generateText({
+    let streamError: unknown = null
+    const result = streamText({
       model,
       system,
       messages,
@@ -281,7 +324,43 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
         return { messages: compacted }
       },
       abortSignal: args.abortSignal,
+      timeout: { stepMs: args.modelStepDeadlineMs ?? DEFAULT_MODEL_STEP_DEADLINE_MS },
+      onChunk: async ({ chunk }) => {
+        if (chunk.type === 'text-delta') {
+          await publishTextDelta(progressRedactor.push(chunk.text))
+        } else if (chunk.type === 'tool-call') {
+          // A tool call is a semantic boundary in the visible response. Flush
+          // the redactor's held suffix before the UI closes this text part.
+          await publishTextDelta(progressRedactor.finish())
+          await publishProgress(
+            args.progress?.onToolCall
+              ? () => args.progress!.onToolCall!({
+                  toolCallId: chunk.toolCallId,
+                  toolName: chunk.toolName,
+                  input: redactSecretValue(chunk.input, runSecrets),
+                })
+              : undefined,
+          )
+        } else if (chunk.type === 'tool-result') {
+          const { rest } = takeAbilityFrame(chunk.output)
+          await publishProgress(
+            args.progress?.onToolResult
+              ? () => args.progress!.onToolResult!({
+                  toolCallId: chunk.toolCallId,
+                  output: redactSecretValue(rest, runSecrets),
+                })
+              : undefined,
+          )
+        }
+      },
+      onError: ({ error }) => {
+        streamError = error
+      },
       onStepFinish: async (step) => {
+        // The streaming redactor keeps only a possible secret prefix between
+        // arbitrary provider chunks. A completed step is a safe boundary, so
+        // do not make its final words wait behind later tool work.
+        await publishTextDelta(progressRedactor.finish())
         usage.inputTokens += step.usage.inputTokens ?? 0
         usage.outputTokens += step.usage.outputTokens ?? 0
         const cached = cachedInputTokens(step.usage)
@@ -304,6 +383,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
           const ability = abilities.find((a) => a.name === call.toolName)
           await sink.event({
             kind: 'tool_call',
+            toolCallId: call.toolCallId,
             toolName: call.toolName,
             // Same resolution the governed wrapper used, so the ledger records
             // the dial that actually applied rather than the ability's label.
@@ -319,6 +399,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
           const { rest } = takeAbilityFrame(toolResult.output)
           await sink.event({
             kind: 'tool_result',
+            toolCallId: toolResult.toolCallId,
             toolName: toolResult.toolName,
             output: rest,
           })
@@ -370,8 +451,18 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
       },
     })
 
+    await result.consumeStream({
+      onError: (error) => {
+        streamError = error
+      },
+    })
+    await publishTextDelta(progressRedactor.finish())
+    if (streamError) throw streamError
+
+    const [response, text] = await Promise.all([result.response, result.text])
+
     const transcript = redactSecretValue<ModelMessage[]>(
-      [...messages, ...result.response.messages],
+      [...messages, ...response.messages],
       runSecrets,
     )
     // Out of money is not a failure and not a success: the work that was done
@@ -388,7 +479,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
     }
     return {
       status: 'completed',
-      summary: redactSecrets(result.text, runSecrets),
+      summary: redactSecrets(text, runSecrets),
       usage,
       messages: transcript,
     }

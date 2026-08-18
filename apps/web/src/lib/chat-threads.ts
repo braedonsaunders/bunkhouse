@@ -351,6 +351,11 @@ export type ChatRunner = (args: {
   personId: string
   trigger: RunTrigger
   input: RunInput
+  progress?: {
+    onTextDelta?: (delta: string) => void | Promise<void>
+    onToolCall?: (call: { toolCallId: string; toolName: string; input: unknown }) => void | Promise<void>
+    onToolResult?: (result: { toolCallId: string; output: unknown }) => void | Promise<void>
+  }
 }) => Promise<{ runId: string; outcome: RunOutcome }>
 
 export type ChatThreadDeps = {
@@ -637,6 +642,7 @@ function serializeByThread<T>(key: string, work: () => Promise<T>): Promise<T> {
  */
 export type ChatTurnProgress = {
   onRun?: (runId: string) => void
+  onTextDelta?: (delta: string) => void
   onToolCall?: (call: { toolCallId: string; toolName: string; input: unknown }) => void
   onToolResult?: (result: { toolCallId: string; output: unknown }) => void
 }
@@ -758,6 +764,15 @@ export async function sendMessage(
           message: messageWithHistory(history, body),
           ...(requester ? { requester } : {}),
         },
+        ...(args.progress
+          ? {
+              progress: {
+                ...(args.progress.onTextDelta ? { onTextDelta: args.progress.onTextDelta } : {}),
+                ...(args.progress.onToolCall ? { onToolCall: args.progress.onToolCall } : {}),
+                ...(args.progress.onToolResult ? { onToolResult: args.progress.onToolResult } : {}),
+              },
+            }
+          : {}),
       })
       runId = result.runId
       outcome = result.outcome
@@ -851,7 +866,9 @@ function startWatching(
   const publish = (event: ChatRunEvent): void => {
       if (event.kind === 'tool_call') {
         const toolName = String(event.payload.toolName ?? 'tool')
-        const toolCallId = `${runId!}:${event.seq}`
+        const toolCallId = typeof event.payload.toolCallId === 'string'
+          ? event.payload.toolCallId
+          : `${runId!}:${event.seq}`
         pending.push({ toolCallId, toolName })
         progress.onToolCall?.({ toolCallId, toolName, input: event.payload.input })
       } else if (event.kind === 'tool_result') {
@@ -859,7 +876,13 @@ function startWatching(
         // unanswered call of the same name — which is the order they finish in.
         const toolName = String(event.payload.toolName ?? 'tool')
         const index = pending.findIndex((call) => call.toolName === toolName)
-        const matched = index === -1 ? pending.shift() : pending.splice(index, 1)[0]
+        const durableId = typeof event.payload.toolCallId === 'string' ? event.payload.toolCallId : null
+        const durableIndex = durableId ? pending.findIndex((call) => call.toolCallId === durableId) : -1
+        const matched = durableId
+          ? (durableIndex === -1 ? { toolCallId: durableId, toolName } : pending.splice(durableIndex, 1)[0])
+          : index === -1
+            ? pending.shift()
+            : pending.splice(index, 1)[0]
         if (matched) progress.onToolResult?.({ toolCallId: matched.toolCallId, output: event.payload.output })
       }
   }

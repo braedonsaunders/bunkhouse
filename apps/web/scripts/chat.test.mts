@@ -315,12 +315,12 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   const { store } = memoryChatStore(clock)
   const ledger: Array<{ seq: number; kind: 'tool_call' | 'tool_result'; payload: Record<string, unknown> }> = []
   const emitted = [
-    { seq: 0, kind: 'tool_call' as const, payload: { toolName: 'browser_open', input: { url: 'https://example.test' } } },
-    { seq: 1, kind: 'tool_result' as const, payload: { toolName: 'browser_open', output: { opened: true } } },
+    { seq: 0, kind: 'tool_call' as const, payload: { toolCallId: 'sdk-browser', toolName: 'browser_open', input: { url: 'https://example.test' } } },
+    { seq: 1, kind: 'tool_result' as const, payload: { toolCallId: 'sdk-browser', toolName: 'browser_open', output: { opened: true } } },
   ]
   const tail = [
-    { seq: 2, kind: 'tool_call' as const, payload: { toolName: 'save_file', input: { name: 'report.pdf' } } },
-    { seq: 3, kind: 'tool_result' as const, payload: { toolName: 'save_file', output: { saved: true } } },
+    { seq: 2, kind: 'tool_call' as const, payload: { toolCallId: 'sdk-save', toolName: 'save_file', input: { name: 'report.pdf' } } },
+    { seq: 3, kind: 'tool_result' as const, payload: { toolCallId: 'sdk-save', toolName: 'save_file', output: { saved: true } } },
   ]
   let wake: (() => void) | null = null
   let listening: (() => void) | null = null
@@ -342,7 +342,8 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
       }),
   }
   const seen: string[] = []
-  const run: ChatRunner = async () => {
+  const run: ChatRunner = async (args) => {
+    await args.progress?.onTextDelta?.('Opening the site…')
     await listeningReady
     ledger.push(...emitted)
     wake?.()
@@ -364,19 +365,21 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
       userId: USER,
       body: 'Open the site.',
       progress: {
+        onTextDelta: (delta) => seen.push(`text:${delta}`),
         onRun: (runId) => seen.push(`run:${runId}`),
-        onToolCall: ({ toolName }) => seen.push(`call:${toolName}`),
-        onToolResult: ({ output }) => seen.push(`result:${JSON.stringify(output)}`),
+        onToolCall: ({ toolCallId, toolName }) => seen.push(`call:${toolCallId}:${toolName}`),
+        onToolResult: ({ toolCallId, output }) => seen.push(`result:${toolCallId}:${JSON.stringify(output)}`),
       },
     },
     deps,
   )
   assert.deepEqual(seen, [
+    'text:Opening the site…',
     'run:run-progress',
-    'call:browser_open',
-    'result:{"opened":true}',
-    'call:save_file',
-    'result:{"saved":true}',
+    'call:sdk-browser:browser_open',
+    'result:sdk-browser:{"opened":true}',
+    'call:sdk-save:save_file',
+    'result:sdk-save:{"saved":true}',
   ])
   console.log('chat: durable run events backfill by cursor and push wakes the follower')
 }

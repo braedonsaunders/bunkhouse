@@ -19,6 +19,7 @@ import {
   type MemoryNote,
   type RunInput,
   type RunInputImage,
+  type RunAgentProgress,
   type RunOutcome,
   type RunSink,
   type ExternalEffectGate,
@@ -678,6 +679,8 @@ export async function executeAgentRun(args: {
   maxSteps?: number
   counterparty?: { name?: string; address?: string }
   live?: LiveRun
+  /** Ephemeral presentation progress; durable evidence remains in run_events. */
+  progress?: RunAgentProgress
 }): Promise<{ runId: string; outcome: RunOutcome }> {
   const app = db()
   const live = args.live ?? null
@@ -918,6 +921,7 @@ export async function executeAgentRun(args: {
         }
         return runAgent({
         runId,
+        ...(args.progress ? { progress: args.progress } : {}),
         // Read straight from the row the operator's Stop writes, rather than a
         // flag held in this process: the run may be executing on a worker that
         // knows nothing about the request until it looks.

@@ -173,8 +173,8 @@ export type RunInput =
 
 export type RunEvent =
   | { kind: 'message'; text: string }
-  | { kind: 'tool_call'; toolName: string; category: ActionCategory | null; input: unknown }
-  | { kind: 'tool_result'; toolName: string; output: unknown }
+  | { kind: 'tool_call'; toolCallId?: string; toolName: string; category: ActionCategory | null; input: unknown }
+  | { kind: 'tool_result'; toolCallId?: string; toolName: string; output: unknown }
   | { kind: 'procedure_citation'; slug: string; version: number }
   /** An installed skill's instructions were disclosed to the agent mid-run. */
   | { kind: 'skill_loaded'; slug: string; version: number }

@@ -23,7 +23,12 @@ export {
 } from './compaction'
 export { reportedCostUsd, reportsItsOwnCost, usageAccountingOptions } from './cost'
 export { buildRunInstruction, buildSystemPrompt } from './prompt'
-export { runAgent, type RunAgentArgs } from './loop'
+export {
+  DEFAULT_MODEL_STEP_DEADLINE_MS,
+  runAgent,
+  type RunAgentArgs,
+  type RunAgentProgress,
+} from './loop'
 export { connectMcpServers, type McpConnection, type McpServerConfig } from './mcp'
 export { isNetsuiteMcp, shimNetsuiteTools } from './netsuite-shim'
 export { loadSkillAbility, renderSkillIndex, type BoundSkill } from './skills'
