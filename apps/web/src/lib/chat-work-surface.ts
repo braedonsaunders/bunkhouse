@@ -9,6 +9,8 @@ import {
   deskSessions,
   runEvents,
   runs,
+  remoteComputers,
+  remoteSessions,
 } from '../db/schema'
 import { db } from '../db/client'
 import { conversationIdFor } from './chat-threads'
@@ -35,7 +37,17 @@ export type ChatWorkHistoryEvent = {
   at: string
 }
 
-export type ChatWorkSurface = { history: ChatWorkHistoryEvent[] } & (
+export type ChatRemoteWorkSurface = {
+  sessionId: string
+  runId: string
+  computerName: string
+  kind: 'computer' | 'terminal'
+  protocol: string
+  status: string
+  lastActivityAt: string
+}
+
+export type ChatWorkSurface = { history: ChatWorkHistoryEvent[]; remote: ChatRemoteWorkSurface | null } & (
   | { kind: 'idle'; runId: null }
   | { kind: 'desktop'; runId: string; status: string }
   | {
@@ -66,7 +78,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
   const app = db()
   return app.withTenantContext(tenantId, async () => {
     const [thread] = await app.db.select({ id: chatThreads.id }).from(chatThreads).where(eq(chatThreads.id, threadId)).limit(1)
-    if (!thread) return { kind: 'idle', runId: null, history: [] }
+    if (!thread) return { kind: 'idle', runId: null, history: [], remote: null }
     const threadRuns = await app.db
       .select({ id: runs.id, status: runs.status })
       .from(runs)
@@ -74,7 +86,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
       .orderBy(desc(runs.startedAt))
       .limit(100)
     const run = threadRuns[0]
-    if (!run) return { kind: 'idle', runId: null, history: [] }
+    if (!run) return { kind: 'idle', runId: null, history: [], remote: null }
 
     // A chat thread is one durable conversation even though each user turn is
     // executed as its own run. Reading only the newest run made the old Live
@@ -110,6 +122,26 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
       }))
       .reverse()
 
+    const [remoteRow] = await app.db
+      .select({
+        sessionId: remoteSessions.id,
+        runId: remoteSessions.runId,
+        computerName: remoteComputers.name,
+        kind: remoteSessions.kind,
+        protocol: remoteSessions.protocol,
+        status: remoteSessions.status,
+        lastActivityAt: remoteSessions.lastActivityAt,
+      })
+      .from(remoteSessions)
+      .innerJoin(remoteComputers, eq(remoteComputers.id, remoteSessions.computerId))
+      .where(and(
+        inArray(remoteSessions.runId, threadRuns.map((candidate) => candidate.id)),
+        inArray(remoteSessions.status, ['opening', 'connected', 'idle']),
+      ))
+      .orderBy(desc(remoteSessions.lastActivityAt))
+      .limit(1)
+    const remote = remoteRow ? { ...remoteRow, lastActivityAt: remoteRow.lastActivityAt.toISOString() } : null
+
     const [call] = await app.db
       .select({ id: callSessions.id, room: callSessions.room, status: callSessions.status, direction: callSessions.direction, startedAt: callSessions.startedAt })
       .from(callSessions)
@@ -130,6 +162,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
         direction: call.direction,
         startedAt: call.startedAt.toISOString(),
         history,
+        remote,
       }
     }
 
@@ -151,7 +184,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
           .limit(1)
       : []
     if (desk?.status === 'active' && latestScreenBoundary?.kind === 'screen_open') {
-      return { kind: 'desktop', runId: run.id, status: run.status, history }
+      return { kind: 'desktop', runId: run.id, status: run.status, history, remote }
     }
 
     // The current browser driver writes to Desk's one governed event stream.
@@ -188,6 +221,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
           at: latestDeskEvent.at.toISOString(),
         },
         history,
+        remote,
       }
     }
 
@@ -223,6 +257,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
             at: step.at.toISOString(),
           },
           history,
+          remote,
         }
       }
     }
@@ -249,6 +284,6 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
           }))
           .reverse()
       : history
-    return { kind: 'activity', runId: run.id, status: run.status, events, history }
+    return { kind: 'activity', runId: run.id, status: run.status, events, history, remote }
   })
 }

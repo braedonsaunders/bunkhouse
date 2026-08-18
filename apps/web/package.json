@@ -54,6 +54,7 @@
     "@braedonsaunders/appkit-office": "^0.3.0",
     "@braedonsaunders/appkit-pdf": "^0.1.1",
     "@braedonsaunders/appkit-process-sandbox": "^0.3.0",
+    "@braedonsaunders/appkit-remote-sessions": "^0.1.0",
     "@braedonsaunders/appkit-sandbox": "^0.1.0",
     "@braedonsaunders/appkit-scene": "^1.0.0",
     "@braedonsaunders/appkit-scripts": "^2.0.0",

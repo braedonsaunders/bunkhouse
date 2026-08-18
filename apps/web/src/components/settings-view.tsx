@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import {
   Activity, DoorOpen, Boxes, Brain, Building2, FileText, Globe, ImageIcon, Mail, MessageSquare,
-  MessagesSquare, Monitor, Phone, Shield, SlidersHorizontal, UserRoundCog } from 'lucide-react'
+  MessagesSquare, Monitor, MonitorUp, Phone, Shield, SlidersHorizontal, UserRoundCog } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -58,6 +58,7 @@ import { ChatSettingsSection, type ChatAgentOption, type ChatChannelRouteRowView
 import { AccessSettings } from './access-settings'
 import type { ScopeOptions } from '@braedonsaunders/appkit-iam'
 import { SectionTabs } from './section-tabs'
+import { RemoteComputersSettings, type RemoteComputerRow } from './remote-computers-settings'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
   <Link href={href} className={className} title={title}>
@@ -171,7 +172,10 @@ const NAV: SettingsNavGroup[] = [
   },
   {
     label: 'Systems',
-    items: [{ key: 'desk', label: 'Desk', icon: <Monitor /> }],
+    items: [
+      { key: 'desk', label: 'Desk', icon: <Monitor /> },
+      { key: 'remote-computers', label: 'Remote computers', icon: <MonitorUp /> },
+    ],
   },
 ]
 
@@ -268,6 +272,7 @@ export function SettingsView({
   sceneKinds,
   workspace,
   desk,
+  remoteComputers,
   features,
   chat,
   callCosts,
@@ -318,6 +323,8 @@ export function SettingsView({
   workspace: WorkspacePolicyView
   /** The desk operator surface: policy, sessions, jobs, escalations. */
   desk: DeskOperationsView
+  /** Customer-owned computers exposed through the tenant's Steward provider. */
+  remoteComputers: RemoteComputerRow[]
   /** The company feature switchboard, resolved — the single source of truth. */
   features: FeaturesView
   callCosts: VoiceCostSettingsView
@@ -621,6 +628,9 @@ export function SettingsView({
       {active === 'features' ? <FeaturesSettings features={features} /> : null}
       {active === 'desk' ? (
         <DeskSection policy={workspace} desk={desk} initialTab={arrival.section === 'desk' ? arrival.tab ?? undefined : undefined} />
+      ) : null}
+      {active === 'remote-computers' ? (
+        <RemoteComputersSettings rows={remoteComputers} enabled={features.remoteComputers} />
       ) : null}
       {active === 'chat' ? (
         <ChatSettingsSection

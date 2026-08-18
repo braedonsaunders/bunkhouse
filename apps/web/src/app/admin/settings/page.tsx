@@ -31,7 +31,7 @@ import { runHealthChecks } from '../../../lib/health'
 import { getTenantAccess } from '../../../lib/tenant'
 import { listDepartments, wanderingEnabled } from '../../../lib/departments'
 import { SCENE_KINDS, SCENE_LABELS } from '../../../components/scene-kinds'
-import {  } from '../../../lib/auth'
+import { listRemoteComputers } from '../../../lib/remote-computers'
 
 export const dynamic = 'force-dynamic'
 
@@ -126,6 +126,7 @@ export default async function SettingsPage({
     getDeskPolicy(tenantId),
   ])
   const deskOperations = await deskOperationsView(tenantId, deskPolicy.screenStepCeiling)
+  const remoteComputerRows = await listRemoteComputers(tenantId)
   const [voiceRetention, voicePricing, templates, filingSettings, filingActivity] = await Promise.all([
     getVoiceRetention(tenantId),
     getVoicePricing(tenantId),
@@ -305,6 +306,18 @@ export default async function SettingsPage({
         jobs: deskOperations.jobs,
         escalations: deskOperations.escalations,
       }}
+      remoteComputers={remoteComputerRows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        host: row.host,
+        port: row.port,
+        protocol: row.protocol,
+        providerBaseUrl: row.providerBaseUrl,
+        providerTargetId: row.providerTargetId,
+        status: row.status,
+        lastConnectedAt: fmt(row.lastConnectedAt),
+        lastError: row.lastError ?? '',
+      }))}
       features={deskFeatures}
       callCosts={{
         recordingDays: voiceRetention.recordingDays,

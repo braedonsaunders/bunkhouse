@@ -31,6 +31,7 @@ import {
 } from '../../lib/chat-desk'
 import { chatWorkSurface, type ChatWorkSurface } from '../../lib/chat-work-surface'
 import { runScreenRoomName } from '../../lib/run-screen-room'
+import { observeRemoteWork } from '../../lib/remote-computers'
 
 /**
  * The chat page's server actions.
@@ -86,8 +87,21 @@ export async function getThreadAction(
 /** The visual stage plus durable step history for the conversation. */
 export async function workSurfaceAction(threadId: string): Promise<ChatWorkSurface> {
   const access = await requireTenantPermission('work.read')
-  if (!threadId) return { kind: 'idle', runId: null, history: [] }
+  if (!threadId) return { kind: 'idle', runId: null, history: [], remote: null }
   return chatWorkSurface(access.tenantId, threadId)
+}
+
+/** Exchange an authenticated observation lease for a short-lived provider viewer URL. */
+export async function observeRemoteWorkSurfaceAction(input: {
+  threadId: string
+  sessionId: string
+}): Promise<{ url: string; expiresAt: string }> {
+  const access = await requireTenantPermission('work.read')
+  const current = await chatWorkSurface(access.tenantId, input.threadId)
+  if (!current.remote || current.remote.sessionId !== input.sessionId) {
+    throw new Error('That remote computer session is no longer active in this conversation.')
+  }
+  return observeRemoteWork({ tenantId: access.tenantId, sessionId: input.sessionId, holder: `operator:${access.user.id}` })
 }
 
 /** A subscribe-only LiveKit credential for the active browser or call stage. */

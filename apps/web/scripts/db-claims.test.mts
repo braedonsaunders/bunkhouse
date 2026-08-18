@@ -229,12 +229,26 @@ await asApp(T1, async (c) => {
 const RID = crypto.randomUUID()
 const BAD_ATTEMPT = crypto.randomUUID()
 const MODEL = `claims-model-${RID.slice(0, 8)}`
+const REMOTE_COMPUTER = crypto.randomUUID()
+const REMOTE_SESSION = crypto.randomUUID()
 await asApp(T1, (c) =>
   c.query(
     `insert into runs (id, tenant_id, person_id, trigger) values ($1, $2, $1, '{"type":"manual","requestedBy":"claims"}')`,
     [RID, T1],
   ),
 )
+await asApp(T1, async (c) => {
+  await c.query(
+    `insert into remote_computers (id, tenant_id, name, host, port, protocol, provider_base_url, provider_target_id, status)
+     values ($1, $2, 'Claims workstation', '192.0.2.30', 3389, 'rdp', 'https://steward.example.test', $3, 'ready')`,
+    [REMOTE_COMPUTER, T1, `claims-device-${RID}`],
+  )
+  await c.query(
+    `insert into remote_sessions (id, tenant_id, computer_id, person_id, run_id, kind, protocol, status)
+     values ($1, $2, $3, $4, $4, 'computer', 'rdp', 'connected')`,
+    [REMOTE_SESSION, T1, REMOTE_COMPUTER, RID],
+  )
+})
 const LEDGERS: [table: string, insert: string][] = [
   ['audit_log', `insert into audit_log (tenant_id, entity_type, action, summary) values ('${T1}', 'test', 'claims.check', 'evidence')`],
   ['run_events', `insert into run_events (tenant_id, run_id, seq, kind, payload) values ('${T1}', '${RID}', 1, 'message', '{"text":"hello"}')`],
@@ -251,6 +265,8 @@ const LEDGERS: [table: string, insert: string][] = [
   ['browser_steps', `insert into browser_steps (tenant_id, session_id, seq, action, detail) values ('${T1}', '${RID}', 1, 'click', '{}')`],
   ['call_turns', `insert into call_turns (tenant_id, session_id, seq, speaker, text, at_ms) values ('${T1}', '${RID}', 1, 'agent', 'Hello', 0)`],
   ['file_filings', `insert into file_filings (tenant_id, file_id, provider, status) values ('${T1}', '${RID}', 'smb', 'filed')`],
+  ['remote_session_leases', `insert into remote_session_leases (tenant_id, session_id, holder, purpose, scope, fence, expires_at) values ('${T1}', '${REMOTE_SESSION}', 'claims', 'test handover', 'observe', 1, now() + interval '5 minutes')`],
+  ['remote_session_events', `insert into remote_session_events (tenant_id, session_id, seq, kind, detail) values ('${T1}', '${REMOTE_SESSION}', 1, 'session_opened', '{"kind":"session_opened","surface":"computer","protocol":"rdp"}')`],
 ]
 
 for (const [table, insert] of LEDGERS) {

@@ -98,13 +98,15 @@ export async function saveDeskPolicy(tenantId: string, value: DeskPolicy): Promi
 export type DeskFeatures = {
   desk: boolean
   desktop: boolean
+  remoteComputers: boolean
 }
 
 export function resolveDeskFeatureValue(value: unknown): DeskFeatures {
-  const stored = (value ?? {}) as Partial<Record<'desk' | 'desktop', unknown>>
+  const stored = (value ?? {}) as Partial<Record<'desk' | 'desktop' | 'remoteComputers', unknown>>
   const desk = stored.desk !== false
   const desktop = desk && stored.desktop !== false
-  return { desk, desktop }
+  const remoteComputers = stored.remoteComputers !== false
+  return { desk, desktop, remoteComputers }
 }
 
 /**

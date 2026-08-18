@@ -2,14 +2,16 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { CheckCircle2, ChevronRight, Globe, History as HistoryIcon, Loader2, Monitor, Phone, TerminalSquare } from 'lucide-react'
+import { CheckCircle2, ChevronRight, Globe, History as HistoryIcon, Loader2, Monitor, MonitorUp, Phone, TerminalSquare } from 'lucide-react'
 import { Badge, EmptyState, SubtabNav } from '@braedonsaunders/appkit-ui'
 import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
 import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@braedonsaunders/appkit-avatars/composition'
 import { LiveKitRoom, VideoTrack, useSpeakingParticipants, useTracks } from '@livekit/components-react'
 import { ParticipantKind, Track } from 'livekit-client'
-import { observeWorkSurfaceAction, workSurfaceAction } from '../app/chat/actions'
+import { observeRemoteWorkSurfaceAction, observeWorkSurfaceAction, workSurfaceAction } from '../app/chat/actions'
 import type { ChatWorkSurface as WorkSurface } from '../lib/chat-work-surface'
+import { RemoteComputerViewer } from '@braedonsaunders/appkit-remote-sessions/react'
+import type { RemoteProtocol } from '@braedonsaunders/appkit-remote-sessions'
 import { AGENT_SCREEN_TRACK_NAME } from '../lib/agent-screen'
 import { ChatDesk } from './chat-desk'
 import { CALL_STAGE_AVATAR_SIZE, CallStage, type CallStageScreenView } from './call-stage'
@@ -302,8 +304,8 @@ export function ChatWorkSurface({
   personTitle: string
   callAvatar: ChatCallAvatar
 }) {
-  const [activeTab, setActiveTab] = React.useState<'desktop' | 'history'>('desktop')
-  const [surface, setSurface] = React.useState<WorkSurface>({ kind: 'idle', runId: null, history: [] })
+  const [activeTab, setActiveTab] = React.useState<'desktop' | 'browser' | 'call' | 'remote' | 'history'>('desktop')
+  const [surface, setSurface] = React.useState<WorkSurface>({ kind: 'idle', runId: null, history: [], remote: null })
 
   React.useEffect(() => {
     // No conversation means History renders its own empty state below. Keep
@@ -333,7 +335,7 @@ export function ChatWorkSurface({
         <SubtabNav
           ariaLabel={`${personName}'s work surfaces`}
           active={activeTab}
-          onSelect={(tab) => setActiveTab(tab === 'history' ? 'history' : 'desktop')}
+          onSelect={(tab) => setActiveTab(tab as typeof activeTab)}
           tabs={[
             {
               key: 'desktop',
@@ -344,6 +346,18 @@ export function ChatWorkSurface({
                 </span>
               ),
             },
+            ...(surface.kind === 'browser' ? [{
+              key: 'browser',
+              label: <span className="flex items-center gap-2"><Globe aria-hidden className="size-4" />Browser</span>,
+            }] : []),
+            ...(surface.kind === 'call' ? [{
+              key: 'call',
+              label: <span className="flex items-center gap-2"><Phone aria-hidden className="size-4" />Call</span>,
+            }] : []),
+            ...(surface.remote ? [{
+              key: 'remote',
+              label: <span className="flex items-center gap-2"><MonitorUp aria-hidden className="size-4" />{surface.remote.computerName}</span>,
+            }] : []),
             {
               key: 'history',
               label: (
@@ -357,9 +371,9 @@ export function ChatWorkSurface({
         />
       </div>
 
-      {activeTab === 'desktop' && threadId !== null && surface.kind === 'browser' ? (
+      {activeTab === 'browser' && threadId !== null && surface.kind === 'browser' ? (
         <BrowserWorkStage threadId={threadId} surface={surface} personName={personName} />
-      ) : activeTab === 'desktop' && threadId !== null && surface.kind === 'call' ? (
+      ) : activeTab === 'call' && threadId !== null && surface.kind === 'call' ? (
         <div className="flex min-h-0 flex-1">
           <LiveCallSurface
             threadId={threadId}
@@ -369,6 +383,14 @@ export function ChatWorkSurface({
             avatar={callAvatar}
           />
         </div>
+      ) : activeTab === 'remote' && threadId !== null && surface.remote ? (
+        <RemoteComputerViewer
+          key={surface.remote.sessionId}
+          targetName={surface.remote.computerName}
+          protocol={surface.remote.protocol as RemoteProtocol}
+          scope="observe"
+          connect={() => observeRemoteWorkSurfaceAction({ threadId, sessionId: surface.remote!.sessionId })}
+        />
       ) : activeTab === 'desktop' ? (
         <div className="min-h-0 flex-1">
           <ChatDesk key={personId} personId={personId} personName={personName} />

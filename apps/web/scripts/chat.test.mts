@@ -458,7 +458,7 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     'utf8',
   )
   assert.ok(
-    workSurface.includes("React.useState<'desktop' | 'history'>('desktop')"),
+    workSurface.includes("React.useState<'desktop' | 'browser' | 'call' | 'remote' | 'history'>('desktop')"),
     'the persistent desktop is the default visual surface',
   )
   assert.ok(
@@ -467,8 +467,9 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   )
   assert.ok(
     workSurface.includes("surface.kind === 'browser'") && workSurface.includes('<BrowserWorkStage'),
-    'the default visual stage promotes a live browser just as the call stage does',
+    'a live browser has its own visual subtab instead of replacing the persistent desktop',
   )
+  assert.ok(workSurface.includes('<RemoteComputerViewer'), 'an active customer computer has its own observable subtab')
   assert.ok(workSurface.includes('surface.history.map'), 'the History tab renders conversation-wide durable steps')
   assert.ok(
     workSurface.includes('href={`/runs/${event.runId}`}'),

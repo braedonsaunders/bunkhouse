@@ -4,7 +4,7 @@ import * as React from 'react'
 import { Badge, SettingsRow, SettingsSection, Switch } from '@braedonsaunders/appkit-ui'
 import { saveFeaturesAction } from '../app/admin/settings/actions'
 
-export type FeaturesView = { desk: boolean; desktop: boolean }
+export type FeaturesView = { desk: boolean; desktop: boolean; remoteComputers: boolean }
 
 /**
  * The one authoritative feature switchboard (AGENTS.md): every org-level gate
@@ -21,7 +21,7 @@ export function FeaturesSettings({ features }: { features: FeaturesView }) {
   const apply = (next: FeaturesView) => {
     // The dependency is enforced on write as well as in the UI: desk off
     // forces desktop off, whatever the click order was.
-    const resolved = { desk: next.desk, desktop: next.desk && next.desktop }
+    const resolved = { desk: next.desk, desktop: next.desk && next.desktop, remoteComputers: next.remoteComputers }
     const previous = state
     setState(resolved)
     startBusy(async () => {
@@ -49,7 +49,7 @@ export function FeaturesSettings({ features }: { features: FeaturesView }) {
               checked={state.desk}
               disabled={busy}
               aria-label="Agent desks"
-              onChange={(event) => apply({ desk: event.target.checked, desktop: state.desktop })}
+              onChange={(event) => apply({ desk: event.target.checked, desktop: state.desktop, remoteComputers: state.remoteComputers })}
             />
           </span>
         }
@@ -64,7 +64,22 @@ export function FeaturesSettings({ features }: { features: FeaturesView }) {
               checked={state.desktop}
               disabled={busy || !state.desk}
               aria-label="Desktop screens"
-              onChange={(event) => apply({ desk: state.desk, desktop: event.target.checked })}
+              onChange={(event) => apply({ desk: state.desk, desktop: event.target.checked, remoteComputers: state.remoteComputers })}
+            />
+          </span>
+        }
+      />
+      <SettingsRow
+        title="Remote computers"
+        description="Existing customer computers that agents can operate through a connected Steward provider. Sessions, commands, human viewing, and control handovers remain recorded even after this capability is switched off."
+        control={
+          <span className="flex items-center gap-2">
+            <Badge variant={state.remoteComputers ? 'default' : 'outline'}>{state.remoteComputers ? 'on' : 'off'}</Badge>
+            <Switch
+              checked={state.remoteComputers}
+              disabled={busy}
+              aria-label="Remote computers"
+              onChange={(event) => apply({ desk: state.desk, desktop: state.desktop, remoteComputers: event.target.checked })}
             />
           </span>
         }

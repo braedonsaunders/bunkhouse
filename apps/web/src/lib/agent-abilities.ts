@@ -31,6 +31,7 @@ import { chatAbilities } from './chat-bridge'
 import { outboundCallAbilities } from './outbound-call'
 import { browserAbilities } from './browser-use'
 import { meetingAbilities } from './meetings'
+import { closeRemoteWork, controlRemoteComputer, listRemoteComputers, openRemoteWork, runRemoteCommand } from './remote-computers'
 
 /**
  * The one place an agent's working abilities are assembled — email runs, duty
@@ -45,6 +46,80 @@ type PersonRow = typeof people.$inferSelect
 /** Ceilings on what an agent may book for itself — see `schedule_task`. */
 const MAX_SELF_SCHEDULED_DUTIES = 25
 const MIN_SELF_SCHEDULE_GAP_MINUTES = 15
+
+function remoteComputerAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {
+  const { tenantId, person, runId } = args
+  return [
+    defineAbility({
+      name: 'list_remote_computers',
+      description: 'List the customer-owned computers you may work on. These are separate from your Bunkhouse desk and remain visible to the human in the conversation while you use their terminal or screen.',
+      category: null,
+      inputSchema: z.object({}),
+      execute: async () => ({
+        computers: (await listRemoteComputers(tenantId))
+          .filter((computer) => computer.status !== 'disabled')
+          .map((computer) => ({ id: computer.id, name: computer.name, protocol: computer.protocol, status: computer.status })),
+      }),
+    }),
+    defineAbility({
+      name: 'open_remote_computer',
+      description: 'Open a durable session on a customer-owned computer. Use computer for its graphical screen or terminal for direct SSH/PowerShell/WinRM work. A reasonable direct request from your manager is a valid work reason when the autonomy gate permits it; do not reject it merely because it is outside your usual duties.',
+      category: (input) => (typeof input === 'object' && input !== null && (input as { kind?: unknown }).kind === 'terminal' ? 'sandbox' : 'desktop'),
+      approval: 'each-call',
+      inputSchema: z.object({ computerId: z.string().uuid(), kind: z.enum(['computer', 'terminal']).default('computer') }),
+      execute: async ({ computerId, kind }) => {
+        const session = await openRemoteWork({ tenantId, computerId, personId: person.id, runId, kind })
+        return { sessionId: session.id, computerId, kind, protocol: session.protocol, status: session.status, note: 'The session stays open while idle; close it when the work or handover is genuinely finished.' }
+      },
+    }),
+    defineAbility({
+      name: 'remote_command',
+      description: 'Drive an open customer computer directly through its remote terminal. Prefer this for repository, file, process, and development work even while its graphical desktop remains open; do not type commands into a visible terminal just to make them observable.',
+      category: 'sandbox',
+      approval: 'continues',
+      inputSchema: z.object({ sessionId: z.string().uuid(), command: z.string().min(1), cwd: z.string().optional() }),
+      execute: async ({ sessionId, command, cwd }) => runRemoteCommand({ tenantId, sessionId, command, ...(cwd ? { cwd } : {}) }),
+    }),
+    defineAbility({
+      name: 'remote_desktop_action',
+      description: 'Operate an open RDP or VNC computer programmatically while the human watches the same computer in chat. Each action returns the resulting screen. Use snapshot first, then click, type, key, drag, or scroll using screen coordinates.',
+      category: 'desktop',
+      approval: 'continues',
+      inputSchema: z.object({
+        sessionId: z.string().uuid(),
+        action: z.discriminatedUnion('action', [
+          z.object({ action: z.literal('snapshot'), label: z.string().optional() }),
+          z.object({ action: z.enum(['click', 'double_click']), x: z.number(), y: z.number(), label: z.string().optional() }),
+          z.object({ action: z.literal('drag'), fromX: z.number(), fromY: z.number(), toX: z.number(), toY: z.number(), durationMs: z.number().optional(), label: z.string().optional() }),
+          z.object({ action: z.literal('scroll'), x: z.number(), y: z.number(), direction: z.enum(['up', 'down']), amount: z.number().optional(), label: z.string().optional() }),
+          z.object({ action: z.literal('type'), text: z.string(), label: z.string().optional() }),
+          z.object({ action: z.literal('key'), key: z.string(), label: z.string().optional() }),
+          z.object({ action: z.literal('wait'), durationMs: z.number().optional(), label: z.string().optional() }),
+        ]),
+      }),
+      execute: async ({ sessionId, action }) => {
+        const controlled = await controlRemoteComputer({ tenantId, sessionId, action })
+        return {
+          actionId: controlled.actionId,
+          ok: controlled.result.ok,
+          ...(controlled.result.message ? { message: controlled.result.message } : {}),
+          ...(controlled.result.frame ? { screenshot: { mediaType: controlled.result.frame.mimeType, data: controlled.result.frame.data, label: `Remote computer after ${action.action}` } } : {}),
+        }
+      },
+    }),
+    defineAbility({
+      name: 'close_remote_computer',
+      description: 'Close a customer-computer session after the task or an operator handover is finished. Do not close it just because you are idle between steps.',
+      category: 'desktop',
+      approval: 'continues',
+      inputSchema: z.object({ sessionId: z.string().uuid() }),
+      execute: async ({ sessionId }) => {
+        await closeRemoteWork({ tenantId, sessionId, reason: 'completed' })
+        return { closed: true, sessionId }
+      },
+    }),
+  ]
+}
 
 /**
  * How many times a repeat an agent booked for ITSELF may fire before it has to
@@ -853,6 +928,7 @@ export async function assembleAbilities(args: {
     // The browser lives in the desk (tier 1 — no screen needed), so it needs
     // the machine, not the desktop feature.
     ...(deskSupported() && deskFeatures.desk ? browserAbilities({ tenantId, person, runId }) : []),
+    ...(deskFeatures.remoteComputers ? remoteComputerAbilities({ tenantId, person, runId }) : []),
     ...assignmentAbilities({
       tenantId,
       person,
