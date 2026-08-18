@@ -13,6 +13,7 @@ import {
   setDeskFrameRateAction,
   takeoverAction,
 } from '../app/chat/actions'
+import { WorkSurfaceFullscreenButton } from './work-surface-fullscreen-button'
 
 /**
  * The agent's desk, beside the conversation: what is on its screen right now,
@@ -1543,26 +1544,12 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
       <span className="flex shrink-0 items-center gap-1.5">
         {statusBadge}
         {screenOpen ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            aria-pressed={showExpanded}
-            title={showExpanded ? 'Leave full screen (Shift F)' : 'Full screen (Shift F)'}
-            onClick={showExpanded ? collapse : expand}
-          >
-            {showExpanded ? (
-              <Minimize2 aria-hidden className="size-4" />
-            ) : (
-              <Maximize2 aria-hidden className="size-4" />
-            )}
-            <span className="sr-only">
-              {showExpanded
-                ? `Return ${personName}'s desktop to this pane (Shift F)`
-                : `Fill the window with ${personName}'s desktop (Shift F)`}
-            </span>
-          </Button>
+          <WorkSurfaceFullscreenButton
+            expanded={showExpanded}
+            onToggle={showExpanded ? collapse : expand}
+            surface="desktop"
+            shortcut="Shift F"
+          />
         ) : null}
       </span>
     </header>
@@ -1946,10 +1933,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
               {statusBadge}
               {/* The way out is always visible, whatever the keyboard is doing:
                   while somebody is driving, Escape belongs to the desktop. */}
-              <Button type="button" variant="ghost" size="icon" className="size-7" onClick={collapse}>
-                <Minimize2 aria-hidden className="size-4" />
-                <span className="sr-only">Return {personName}&apos;s desktop to its pane</span>
-              </Button>
+              <WorkSurfaceFullscreenButton expanded onToggle={collapse} surface="desktop" shortcut="Shift F" />
             </span>
           </header>
         ) : null}

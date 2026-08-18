@@ -481,8 +481,16 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     'a History step opens the work record flyout over the conversation instead of leaving Chat',
   )
   assert.ok(
-    workSurface.includes('label="browser"') && workSurface.includes('label="terminal"'),
+    workSurface.includes('surface="browser"') && workSurface.includes('surface="terminal"'),
     'browser and terminal surfaces both expose fullscreen controls',
+  )
+  const chatDesk = readFileSync(
+    fileURLToPath(new URL('../src/components/chat-desk.tsx', import.meta.url)),
+    'utf8',
+  )
+  assert.ok(
+    chatDesk.includes('<WorkSurfaceFullscreenButton') && chatDesk.includes('surface="desktop"'),
+    'desktop uses the same fullscreen affordance as browser and terminal',
   )
   const personRecord = readFileSync(
     fileURLToPath(new URL('../src/app/organization/person-record.tsx', import.meta.url)),

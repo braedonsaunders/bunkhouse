@@ -2,8 +2,8 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { CheckCircle2, ChevronRight, Globe, History as HistoryIcon, Loader2, Maximize2, Minimize2, Monitor, MonitorUp, Phone, TerminalSquare } from 'lucide-react'
-import { Badge, Button, EmptyState, SubtabNav } from '@braedonsaunders/appkit-ui'
+import { CheckCircle2, ChevronRight, Globe, History as HistoryIcon, Loader2, Monitor, MonitorUp, Phone, TerminalSquare } from 'lucide-react'
+import { Badge, EmptyState, SubtabNav } from '@braedonsaunders/appkit-ui'
 import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
 import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@braedonsaunders/appkit-avatars/composition'
 import { LiveKitRoom, VideoTrack, useSpeakingParticipants, useTracks } from '@livekit/components-react'
@@ -15,6 +15,7 @@ import type { RemoteProtocol } from '@braedonsaunders/appkit-remote-sessions'
 import { AGENT_SCREEN_TRACK_NAME } from '../lib/agent-screen'
 import { ChatDesk } from './chat-desk'
 import { CALL_STAGE_AVATAR_SIZE, CallStage, type CallStageScreenView } from './call-stage'
+import { WorkSurfaceFullscreenButton } from './work-surface-fullscreen-button'
 
 export type ChatCallAvatar = {
   composition: AvatarComposition | null
@@ -240,22 +241,6 @@ function useSurfaceExpansion() {
   return { expanded, toggle: () => setExpanded((current) => !current) }
 }
 
-function FullscreenButton({ expanded, onToggle, label }: { expanded: boolean; onToggle: () => void; label: string }) {
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      className="size-7 shrink-0"
-      onClick={onToggle}
-      title={expanded ? `Exit ${label} fullscreen` : `Open ${label} fullscreen`}
-      aria-label={expanded ? `Exit ${label} fullscreen` : `Open ${label} fullscreen`}
-    >
-      {expanded ? <Minimize2 aria-hidden className="size-4" /> : <Maximize2 aria-hidden className="size-4" />}
-    </Button>
-  )
-}
-
 function ExpandableTerminalSurface(props: React.ComponentProps<typeof TerminalSurface>) {
   const { expanded, toggle } = useSurfaceExpansion()
   const { headerActions, ...surfaceProps } = props
@@ -272,7 +257,7 @@ function ExpandableTerminalSurface(props: React.ComponentProps<typeof TerminalSu
         headerActions={(
           <>
             {headerActions}
-            <FullscreenButton expanded={expanded} onToggle={toggle} label="terminal" />
+            <WorkSurfaceFullscreenButton expanded={expanded} onToggle={toggle} surface="terminal" />
           </>
         )}
       />
@@ -319,7 +304,7 @@ function BrowserWorkStage({
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <Badge variant="secondary">{statusLabel(surface.status)}</Badge>
-          <FullscreenButton expanded={expanded} onToggle={toggle} label="browser" />
+          <WorkSurfaceFullscreenButton expanded={expanded} onToggle={toggle} surface="browser" />
         </div>
       </div>
       <div className="relative min-h-0 flex-1 overflow-hidden bg-bg-subtle">
