@@ -169,10 +169,10 @@ jobs:
           case "$CONTEXT_RELEASE_TAG" in
             ''|*[!A-Za-z0-9._-]*) echo "::error::Invalid deployment context release tag"; exit 1 ;;
           esac
-          case "$CONTEXT_SHA256" in
-            [A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9][A-Fa-f0-9]) ;;
-            *) echo "::error::contextSha256 must contain exactly 64 hexadecimal characters"; exit 1 ;;
-          esac
+          if ! printf '%s\n' "$CONTEXT_SHA256" | grep -Eq '^[A-Fa-f0-9]{64}$'; then
+            echo "::error::contextSha256 must contain exactly 64 hexadecimal characters"
+            exit 1
+          fi
           mkdir -p /tmp/bunkhouse-deploy-context
           gh release download "$CONTEXT_RELEASE_TAG" \
             --repo "${{ github.repository }}" \
