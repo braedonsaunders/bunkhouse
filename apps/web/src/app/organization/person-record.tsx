@@ -593,6 +593,9 @@ export async function personDrawer({
             activeRun={activeRun}
             nextDuty={nextDuty}
             recentRuns={detail.recentRuns}
+            composition={figure}
+            parts={partLibrary}
+            categories={AVATAR_PART_CATEGORIES}
           />
         ),
       },
@@ -664,7 +667,6 @@ export async function personDrawer({
       <AgentRecordPage
         agentId={selected.id}
         name={selected.name}
-        subtitle={`${selected.title}${manager ? ` · reports to ${manager.name}` : ''} · ${selected.email}`}
         status={selected.status}
         avatar={
           <AvatarPortrait
@@ -672,7 +674,7 @@ export async function personDrawer({
             composition={figure}
             parts={partLibrary}
             categories={AVATAR_PART_CATEGORIES}
-            size={44}
+            size={36}
           />
         }
         contactAction={pageAccess?.canCall && callAction ? <CallActionButton action={callAction} name={selected.name} /> : undefined}

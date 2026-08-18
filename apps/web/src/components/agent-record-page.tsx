@@ -2,12 +2,12 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Mail, MessageSquare } from 'lucide-react'
+import { ArrowLeft, MessageSquare } from 'lucide-react'
 import {
   Badge,
   Button,
-  DetailHeader,
   DetailPageLayout,
+  DocumentTitle,
   SubtabNav,
 } from '@braedonsaunders/appkit-ui'
 
@@ -37,13 +37,13 @@ export function AgentRecordSubsections({
   const current = sections.find((section) => section.key === active) ?? sections[0]
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <SubtabNav
         tabs={sections.map(({ key, label }) => ({ key, label }))}
         active={current?.key ?? ''}
         onSelect={setActive}
         ariaLabel={ariaLabel}
-        className="pb-2"
+        className="pb-0"
       />
       <div key={current?.key}>{current?.content}</div>
     </div>
@@ -58,7 +58,6 @@ export function AgentRecordSubsections({
 export function AgentRecordPage({
   agentId,
   name,
-  subtitle,
   status,
   avatar,
   contactAction,
@@ -67,7 +66,6 @@ export function AgentRecordPage({
 }: {
   agentId: string
   name: string
-  subtitle: string
   status: string
   avatar: React.ReactNode
   contactAction?: React.ReactNode
@@ -76,8 +74,8 @@ export function AgentRecordPage({
 }) {
   const [active, setActive] = React.useState(() => validSection(sections, initialSection))
   const current = sections.find((section) => section.key === active) ?? sections[0]
-  const hasInbox = sections.some((section) => section.key === 'inbox')
   const hasChat = sections.some((section) => section.key === 'chat')
+  const fillsPage = current?.key === 'overview' || current?.key === 'chat' || current?.key === 'inbox'
 
   const select = (key: string): void => {
     setActive(key)
@@ -87,16 +85,17 @@ export function AgentRecordPage({
   return (
     <DetailPageLayout
       header={
-        <div className="-mt-2 space-y-1.5">
-          <div className="flex h-7 items-center">
-            <Button asChild size="sm" variant="ghost" className="-ml-2 h-7 px-2">
+        <div className="-mt-3">
+          <DocumentTitle title={name} />
+          <div className="flex h-5 items-center">
+            <Button asChild size="sm" variant="ghost" className="-ml-2 h-5 px-2 text-xs">
               <Link href="/organization">
-                <ArrowLeft aria-hidden className="size-4" />
+                <ArrowLeft aria-hidden className="size-3.5" />
                 All agents
               </Link>
             </Button>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="mt-1 flex min-w-0 items-center gap-2.5">
             <button
               type="button"
               className="shrink-0 rounded-full transition-opacity hover:opacity-80"
@@ -105,38 +104,26 @@ export function AgentRecordPage({
             >
               {avatar}
             </button>
-            <DetailHeader
-              title={name}
-              subtitle={subtitle}
-              badge={
-                <span className="flex items-center gap-2">
+            <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <h1 className="truncate text-lg font-semibold leading-5 text-fg">{name}</h1>
+                <span className="flex shrink-0 items-center gap-1.5">
                   <Badge>Agent</Badge>
                   <Badge variant={status === 'active' ? 'default' : 'outline'}>{status}</Badge>
                 </span>
-              }
-              actions={
-                <>
-                  {hasChat ? (
-                    <React.Fragment key="message">
-                      <Button type="button" size="sm" onClick={() => select('chat')}>
-                        <MessageSquare aria-hidden className="size-4" />
-                        Message
-                      </Button>
-                    </React.Fragment>
-                  ) : null}
-                  {contactAction ? <React.Fragment key="contact">{contactAction}</React.Fragment> : null}
-                  {hasInbox ? (
-                    <React.Fragment key="inbox">
-                      <Button type="button" size="sm" variant="outline" onClick={() => select('inbox')}>
-                        <Mail aria-hidden className="size-4" />
-                        Inbox
-                      </Button>
-                    </React.Fragment>
-                  ) : null}
-                </>
-              }
-              className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-0 space-y-0 [&>p]:col-start-2"
-            />
+              </div>
+              <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
+                {hasChat ? (
+                  <React.Fragment key="message">
+                    <Button type="button" size="sm" onClick={() => select('chat')}>
+                      <MessageSquare aria-hidden className="size-4" />
+                      Message
+                    </Button>
+                  </React.Fragment>
+                ) : null}
+                {contactAction ? <React.Fragment key="contact">{contactAction}</React.Fragment> : null}
+              </div>
+            </div>
           </div>
         </div>
       }
@@ -146,12 +133,14 @@ export function AgentRecordPage({
           active={current?.key ?? ''}
           onSelect={select}
           ariaLabel={`${name}'s employee record`}
-          className="-mt-3 pb-2"
+          className="-mt-4 pb-0"
         />
       }
-      className={current?.key === 'chat' || current?.key === 'inbox' ? 'h-full min-h-0' : 'space-y-6'}
+      className={fillsPage ? 'h-full min-h-0 p-0' : 'p-3 sm:p-4'}
     >
-      <div key={current?.key}>{current?.content}</div>
+      <div key={current?.key} className={fillsPage ? 'h-full min-h-0' : undefined}>
+        {current?.content}
+      </div>
     </DetailPageLayout>
   )
 }

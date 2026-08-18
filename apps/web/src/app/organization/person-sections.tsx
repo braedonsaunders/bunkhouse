@@ -5,7 +5,6 @@ import {
   CalendarClock,
   CheckCircle2,
   CircleDollarSign,
-  Clock3,
   MessageSquare,
   ShieldAlert,
   Sparkles,
@@ -32,6 +31,12 @@ import {
   TableRow,
   Textarea,
 } from '@braedonsaunders/appkit-ui'
+import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
+import type {
+  AvatarComposition,
+  AvatarPart,
+  AvatarPartCategory,
+} from '@braedonsaunders/appkit-avatars/composition'
 import type { ReactNode } from 'react'
 import type { autonomySettings, memories, people, runs } from '../../db/schema'
 import { AssignModelForm } from '../../components/assign-model-form'
@@ -119,6 +124,9 @@ export function AgentOverviewSection({
   activeRun,
   nextDuty,
   recentRuns,
+  composition,
+  parts,
+  categories,
 }: {
   person: Person
   monthSpend: number
@@ -126,6 +134,9 @@ export function AgentOverviewSection({
   activeRun: RecentRun | null
   nextDuty: { title: string; schedule: string; dueAt: string | null } | null
   recentRuns: RecentRun[]
+  composition: AvatarComposition
+  parts: AvatarPart[]
+  categories: AvatarPartCategory[]
 }) {
   const salary = person.salary?.monthlyUsd ?? 0
   const budgetPercent = salary > 0 ? Math.min(100, (monthSpend / salary) * 100) : 0
@@ -136,67 +147,47 @@ export function AgentOverviewSection({
       : activeRun.status === 'waiting_reply'
         ? 'Waiting for a reply'
         : 'Working now'
-  const workingPattern = !person.workingHours
-    ? 'Always available'
-    : `${person.workingHours.start}–${person.workingHours.end} · ${
-        person.workingHours.days.length === 5 ? 'weekdays' : `${person.workingHours.days.length} days a week`
-      }`
   const model = person.modelConfig
     ? `${person.modelConfig.provider} · ${person.modelConfig.model}`
     : 'No model assigned'
-  const overage =
-    person.salary?.overagePolicy === 'overtime'
-      ? 'May work overtime'
-      : person.salary?.overagePolicy === 'pause'
-        ? 'Pauses at budget'
-        : 'Asks before overtime'
 
   return (
-    <div className="space-y-4">
-      <Card className="overflow-hidden">
-        <CardContent className="p-0">
-          <div className="bg-linear-to-br from-primary-subtle via-surface to-bg-subtle p-5 sm:p-6">
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-              <div className="flex min-w-0 gap-4">
-                <span className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-surface text-primary shadow-sm">
-                  {activeRun ? <Activity aria-hidden className="size-5" /> : <Sparkles aria-hidden className="size-5" />}
-                </span>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-primary">{currentLabel}</p>
-                    {activeRun ? <Badge variant={runStatusVariant(activeRun.status)}>{activeRun.status.replaceAll('_', ' ')}</Badge> : null}
-                  </div>
-                  <h2 className="mt-1 max-w-3xl text-xl font-semibold text-fg sm:text-2xl">
-                    {activeRun?.summary ?? `Ready for ${person.title.toLowerCase()} work`}
-                  </h2>
-                  <p className="mt-2 max-w-3xl text-sm text-fg-muted">
-                    {activeRun
-                      ? `Started ${runStamp(activeRun.startedAt)}. The complete evidence trail is available on the run record.`
-                      : nextDuty
-                        ? `Next scheduled responsibility: ${nextDuty.title}.`
-                        : 'No work is running and no standing duty is currently due.'}
-                  </p>
-                </div>
+    <div className="flex h-full min-h-0 flex-col gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_23rem]">
+      <div className="flex min-h-0 flex-col gap-3">
+        <Card className="shrink-0 overflow-hidden">
+          <CardContent className="flex min-w-0 items-center gap-3 p-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary-subtle text-primary">
+              {activeRun ? <Activity aria-hidden className="size-4" /> : <Sparkles aria-hidden className="size-4" />}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-2">
+                <p className="shrink-0 text-xs font-semibold uppercase tracking-wide text-primary">{currentLabel}</p>
+                {activeRun ? <Badge variant={runStatusVariant(activeRun.status)}>{activeRun.status.replaceAll('_', ' ')}</Badge> : null}
               </div>
-              <div className="flex shrink-0 flex-wrap gap-2">
-                {activeRun ? (
-                  <Button asChild size="sm">
-                    <Link href={`/runs/${activeRun.id}`}>
-                      Open run <ArrowUpRight aria-hidden className="size-4" />
-                    </Link>
-                  </Button>
-                ) : null}
-                <Button asChild size="sm" variant={activeRun ? 'outline' : 'default'}>
-                  <Link href={`/organization/${person.id}?section=chat`}>
-                    <MessageSquare aria-hidden className="size-4" />
-                    Message
+              <p className="mt-0.5 truncate text-sm font-medium text-fg">
+                {activeRun?.summary ?? (nextDuty ? `Next: ${nextDuty.title}` : `Ready for ${person.title.toLowerCase()} work`)}
+              </p>
+            </div>
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              {activeRun ? (
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/runs/${activeRun.id}`}>
+                    Open run <ArrowUpRight aria-hidden className="size-4" />
                   </Link>
                 </Button>
-              </div>
+              ) : null}
+              <Button asChild size="sm">
+                <Link href={`/organization/${person.id}?section=chat`}>
+                  <MessageSquare aria-hidden className="size-4" />
+                  Message
+                </Link>
+              </Button>
             </div>
-          </div>
+          </CardContent>
+        </Card>
 
-          <div className="grid divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+        <Card className="shrink-0 overflow-hidden">
+          <CardContent className="grid p-0 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
             <div className="flex min-w-0 gap-3 p-4">
               <span className="mt-0.5 text-fg-muted"><CalendarClock aria-hidden className="size-4" /></span>
               <div className="min-w-0">
@@ -241,17 +232,14 @@ export function AgentOverviewSection({
               </div>
               <Progress value={budgetPercent} className="mt-2" />
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(20rem,0.8fr)]">
-        <Card className="overflow-hidden">
-          <CardHeader className="pb-3">
+        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <CardHeader className="shrink-0 px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <CardTitle>Recent work</CardTitle>
-                <CardDescription>The latest governed runs and their outcomes.</CardDescription>
               </div>
               <Button asChild size="sm" variant="ghost">
                 <Link href={`/organization/${person.id}?section=work&work=activity`}>
@@ -260,53 +248,45 @@ export function AgentOverviewSection({
               </Button>
             </div>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="app-scroll min-h-0 flex-1 overflow-y-auto p-0">
             {recentRuns.length === 0 ? (
               <p className="px-5 pb-5 text-sm text-fg-muted">No runs yet — work appears here once this agent starts.</p>
             ) : (
-              <RunList runs={recentRuns.slice(0, 5)} embedded />
+              <RunList runs={recentRuns} embedded />
             )}
           </CardContent>
         </Card>
+      </div>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle>Operating brief</CardTitle>
-            <CardDescription>The practical context behind this employee.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 text-sm">
+      <Card className="relative hidden min-h-0 overflow-hidden bg-linear-to-b from-primary-subtle via-surface to-bg-subtle lg:block">
+        <CardContent className="flex h-full min-h-0 flex-col p-4">
+          <div className="relative z-10 max-w-48 text-sm">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Responsible for</p>
-              <p className="mt-1 line-clamp-3 leading-5 text-fg">
-                {person.responsibilities?.trim() || `Work assigned to the ${person.title} role.`}
-              </p>
+              <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Role</p>
+              <p className="mt-0.5 font-semibold text-fg">{person.title}</p>
             </div>
-            <dl className="divide-y divide-border-subtle rounded-lg border border-border bg-bg-subtle px-3">
-              <div className="flex items-start gap-3 py-3">
-                <Sparkles aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-muted" />
-                <div className="min-w-0">
-                  <dt className="text-xs text-fg-muted">Model</dt>
-                  <dd className="mt-0.5 truncate font-medium text-fg">{model}</dd>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 py-3">
-                <Clock3 aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-muted" />
-                <div className="min-w-0">
-                  <dt className="text-xs text-fg-muted">Working pattern</dt>
-                  <dd className="mt-0.5 font-medium text-fg">{workingPattern}</dd>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 py-3">
-                <CircleDollarSign aria-hidden className="mt-0.5 size-4 shrink-0 text-fg-muted" />
-                <div className="min-w-0">
-                  <dt className="text-xs text-fg-muted">At the budget limit</dt>
-                  <dd className="mt-0.5 font-medium text-fg">{overage}</dd>
-                </div>
+            <dl className="mt-3 border-t border-border-subtle pt-3">
+              <div className="flex gap-2">
+                <Sparkles aria-hidden className="mt-0.5 size-3.5 shrink-0 text-fg-muted" />
+                <div className="min-w-0"><dt className="text-xs text-fg-muted">Model</dt><dd className="truncate text-xs font-medium text-fg">{model}</dd></div>
               </div>
             </dl>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+          <div className="absolute inset-x-0 bottom-0 flex justify-center">
+            <div className="bhs-sway origin-bottom">
+              <ComposedAvatar
+                composition={composition}
+                parts={parts}
+                categories={categories}
+                variant="full"
+                size={300}
+                animate="idle"
+                name={person.name}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
