@@ -222,23 +222,6 @@ function statusLabel(status: string): string {
   return status.replaceAll('_', ' ')
 }
 
-function SurfaceHeader({ surface, personName }: { surface: { kind: string; status?: string }; personName: string }) {
-  const icon =
-    surface.kind === 'browser' ? <Globe aria-hidden className="size-4" />
-    : surface.kind === 'call' ? <Phone aria-hidden className="size-4" />
-    : surface.kind === 'desktop' ? <Monitor aria-hidden className="size-4" />
-    : <TerminalSquare aria-hidden className="size-4" />
-  return (
-    <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
-      <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-fg">
-        {icon}
-        <span className="truncate">{personName}&apos;s work</span>
-      </div>
-      {surface.status ? <Badge variant="secondary">{statusLabel(surface.status)}</Badge> : null}
-    </div>
-  )
-}
-
 function BrowserWorkStage({
   threadId,
   surface,
@@ -263,13 +246,13 @@ function BrowserWorkStage({
   )
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <SurfaceHeader surface={surface} personName={personName} />
       <div className="flex min-w-0 items-center gap-2 border-b border-border bg-bg-subtle px-3 py-2">
         <Globe aria-hidden className="size-4 shrink-0 text-fg-muted" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-fg">{surface.frame.title}</p>
           {surface.frame.url ? <p className="truncate text-xs text-fg-muted">{surface.frame.url}</p> : null}
         </div>
+        <Badge variant="secondary">{statusLabel(surface.status)}</Badge>
       </div>
       <div className="relative min-h-0 flex-1 overflow-hidden bg-bg-subtle">
         {surface.status === 'active' ? <LiveBrowserSurface threadId={threadId} surface={surface} fallback={fallback} /> : fallback}
@@ -389,7 +372,7 @@ export function ChatWorkSurface({
       ) : activeTab === 'terminal' && (surface.kind === 'terminal' || surface.recentTerminal) ? (
         <TerminalSurface
           title={(surface.kind === 'terminal' ? surface : surface.recentTerminal!).terminal.title}
-          subtitle={(surface.kind === 'terminal' ? surface : surface.recentTerminal!).terminal.subtitle}
+          subtitle={`Real output from ${personName}’s Desk · recorded on the run`}
           cwd={(surface.kind === 'terminal' ? surface : surface.recentTerminal!).terminal.cwd}
           status={(surface.kind === 'terminal' ? surface : surface.recentTerminal!).terminal.status}
           entries={(surface.kind === 'terminal' ? surface : surface.recentTerminal!).terminal.entries}
