@@ -446,6 +446,8 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     'the server tree is refreshed only after the durable transcript has caught up',
   )
   assert.ok(workspace.includes('headerActions={'), 'the work visibility control lives in AgentPanel’s main header')
+  assert.equal(workspace.includes('Run records:'), false, 'internal run boundaries never accumulate above the transcript')
+  assert.ok(workspace.includes('<ThreadNoticeBar'), 'only exceptional system notes occupy the transcript margin')
   assert.equal(
     workspace.includes('Separate conversations keep different pieces of work from bleeding into one another.'),
     false,
@@ -468,6 +470,10 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     'the default visual stage promotes a live browser just as the call stage does',
   )
   assert.ok(workSurface.includes('surface.history.map'), 'the History tab renders conversation-wide durable steps')
+  assert.ok(
+    workSurface.includes('href={`/runs/${event.runId}`}'),
+    'a History step opens the work record that explains it instead of rendering an inert pill',
+  )
   assert.equal(workSurface.includes('is getting started'), false, 'a new run never blanks History with a placeholder')
   console.log('chat: streamed turns survive section switches and work controls stay in the chat header')
 }

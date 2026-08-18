@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { CheckCircle2, Globe, History as HistoryIcon, Loader2, Monitor, Phone, TerminalSquare } from 'lucide-react'
+import Link from 'next/link'
+import { CheckCircle2, ChevronRight, Globe, History as HistoryIcon, Loader2, Monitor, Phone, TerminalSquare } from 'lucide-react'
 import { Badge, EmptyState, SubtabNav } from '@braedonsaunders/appkit-ui'
 import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
 import type { AvatarComposition, AvatarPart, AvatarPartCategory } from '@braedonsaunders/appkit-avatars/composition'
@@ -392,12 +393,19 @@ export function ChatWorkSurface({
             {surface.history.length ? (
               <ol className="space-y-0.5">
                 {surface.history.map((event) => (
-                  <li key={event.id} className="flex min-h-8 items-center gap-2 rounded-md px-2 text-xs hover:bg-surface-hover">
-                    <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-                    <span className="min-w-0 flex-1 truncate text-fg">{event.label}</span>
-                    <time className="shrink-0 tabular-nums text-fg-subtle" dateTime={event.at} suppressHydrationWarning>
-                      {new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </time>
+                  <li key={event.id}>
+                    <Link
+                      href={`/runs/${event.runId}`}
+                      className="group flex min-h-8 items-center gap-2 rounded-md px-2 text-xs hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={`Open work details for ${event.label}`}
+                    >
+                      <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+                      <span className="min-w-0 flex-1 truncate text-fg">{event.label}</span>
+                      <time className="shrink-0 tabular-nums text-fg-subtle" dateTime={event.at} suppressHydrationWarning>
+                        {new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </time>
+                      <ChevronRight aria-hidden className="size-3.5 shrink-0 text-fg-subtle transition-colors group-hover:text-fg" />
+                    </Link>
                   </li>
                 ))}
               </ol>

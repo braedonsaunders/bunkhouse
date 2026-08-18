@@ -41,9 +41,10 @@ import { ChatWorkSurface, type ChatCallAvatar } from './chat-work-surface'
  * owns the streaming decode, cancellation, and the ordered rendering of an
  * assistant turn's parts. The desk beside it is the half no panel can supply.
  *
- * Nothing said here is a second channel: a chat turn is a run like any other,
- * so every turn's run record is one click away and the whole conversation
- * replays in the observatory.
+ * Nothing said here is a second channel: a chat turn is a run like any other.
+ * The conversation stays about what was said; execution evidence lives in the
+ * adjacent History surface and the observatory instead of accumulating as
+ * internal run pills above the transcript.
  */
 
 /** `closed` is archived: out of the default list, still entirely on the record. */
@@ -129,57 +130,27 @@ function Stamp({ at }: { at: string }) {
   return <span suppressHydrationWarning>{stampLabel(at)}</span>
 }
 
-/** The runs a conversation produced, newest first, with nothing listed twice. */
-function runsOf(messages: ChatMessageRecord[]): { runId: string; at: string }[] {
-  const seen = new Set<string>()
-  const runs: { runId: string; at: string }[] = []
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (!message?.runId || seen.has(message.runId)) continue
-    seen.add(message.runId)
-    runs.push({ runId: message.runId, at: message.at })
-  }
-  return runs
-}
-
 /**
- * The record under the thread: the runs this conversation produced, and any
- * note the system put on it.
+ * System notes are on the thread but are not something anyone said, and the
+ * panel does not render them. Keep the few newest notes in the conversation's
+ * margin; run boundaries belong in History, where the underlying work is both
+ * named and actionable.
  *
- * Both belong here rather than in the thread itself. A run is the evidence for
- * a turn, and the panel renders an assistant turn's own parts — so the link to
- * the full record hangs off the conversation instead of being buried in a
- * bubble. System notes are on the thread but are not something anyone said,
- * and the panel does not render them; they are the conversation's margin, and
- * this is the margin.
+ * This bar disappears entirely in the ordinary case, preserving the maximum
+ * height for the transcript.
  */
-function ThreadRecordBar({ messages }: { messages: ChatMessageRecord[] }) {
-  const runs = runsOf(messages)
+function ThreadNoticeBar({ messages }: { messages: ChatMessageRecord[] }) {
   const notes = messages.filter((message) => message.role === 'system')
-  if (runs.length === 0 && notes.length === 0) return null
+  if (notes.length === 0) return null
   return (
-    <div className="shrink-0 space-y-2 border-b border-border px-4 py-2.5">
-      {notes.length > 0 ? (
-        <ul className="space-y-0.5">
-          {notes.slice(-3).map((note) => (
-            <li key={note.id} className="text-xs text-fg-muted">
-              {note.body}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {runs.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="text-xs text-fg-muted">Run records:</span>
-          {runs.slice(0, 8).map((run) => (
-            <Button key={run.runId} asChild size="sm" variant="outline" className="h-6 px-2 text-xs">
-              <Link href={`/runs/${run.runId}`}>
-                <Stamp at={run.at} />
-              </Link>
-            </Button>
-          ))}
-        </div>
-      ) : null}
+    <div className="shrink-0 border-b border-border px-4 py-2">
+      <ul className="space-y-0.5">
+        {notes.slice(-3).map((note) => (
+          <li key={note.id} className="text-xs text-fg-muted">
+            {note.body}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -548,7 +519,7 @@ export function AgentChatWorkspace({
         </div>
       ) : (
         <>
-          <ThreadRecordBar messages={detail.messages} />
+          <ThreadNoticeBar messages={detail.messages} />
           <AgentPanel
             // Keyed by the thread: the panel seeds its transcript once, so a
             // different conversation has to be a different panel.
