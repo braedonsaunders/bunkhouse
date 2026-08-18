@@ -437,6 +437,7 @@ jobs:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
           DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
           COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEW_TAG: ${{ inputs.imageTag || needs.build.outputs.tag }}
           PUBLIC_URL: ${{ vars.BUNKHOUSE_PUBLIC_URL }}
         run: |
@@ -496,6 +497,24 @@ jobs:
               ' >/dev/null 2>&1
           }
 
+          # If Dokploy's queue and its compose-scoped fallback are both down,
+          # move only the existing application services to the image already
+          # recorded in Dokploy. This preserves every service setting while
+          # carrying fresh GHCR credentials to Swarm's worker nodes.
+          update_bunkhouse_services_directly() {
+            local compose app_name expected service
+            compose="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+              -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID")" || return 1
+            app_name="$(printf '%s' "$compose" | jq -r '.appName // empty')"
+            [ -n "$app_name" ] || return 1
+            expected="${IMAGE_NAME}:${NEW_TAG}"
+            printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin >/dev/null
+            for unit in web worker voice-agent; do
+              service="${app_name}_${unit}"
+              docker service update --detach=true --with-registry-auth --image "$expected" "$service" >/dev/null
+            done
+          }
+
           for i in $(seq 1 60); do
             sleep 10
             latest="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
@@ -521,7 +540,12 @@ jobs:
           if deploy_compose_directly; then
             echo "Compose-scoped fallback returned successfully."
           else
-            echo "::warning::Compose-scoped fallback returned non-zero; checking whether Swarm recovered the tasks."
+            echo "::warning::Compose-scoped fallback returned non-zero; updating the existing Bunkhouse services directly."
+          fi
+          if update_bunkhouse_services_directly; then
+            echo "Existing Bunkhouse services now target ${IMAGE_NAME}:${NEW_TAG}."
+          else
+            echo "::warning::Direct Bunkhouse service update returned non-zero; checking whether Swarm recovered the tasks."
           fi
           for _ in $(seq 1 60); do
             sleep 5
