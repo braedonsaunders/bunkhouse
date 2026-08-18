@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { mintLiveKitToken } from '@braedonsaunders/appkit-voice'
 import { ParticipantKind } from '@livekit/rtc-node'
 import { RoomServiceClient } from 'livekit-server-sdk'
+import type { ChatRequester } from '@bunkhouse/runtime'
 import { requireTenantPermission, type TenantAccess } from '../../lib/tenant'
 import {
   getThread,
@@ -53,6 +54,14 @@ import { runScreenRoomName } from '../../lib/run-screen-room'
  */
 
 const CHAT_PATH = '/chat'
+
+function chatRequesterFor(access: TenantAccess): ChatRequester {
+  return {
+    name: access.user.name.trim() || access.user.email,
+    email: access.user.email,
+    relationship: 'operator',
+  }
+}
 
 export async function listThreadsAction(
   options?: { includeArchived?: boolean; personId?: string },
@@ -155,7 +164,13 @@ export async function startThreadAction(personId: string, body: string): Promise
     ...(opening ? { firstMessage: opening } : {}),
   })
   if (opening) {
-    await sendMessage({ tenantId: access.tenantId, threadId, userId: access.user.id, body: opening })
+    await sendMessage({
+      tenantId: access.tenantId,
+      threadId,
+      userId: access.user.id,
+      body: opening,
+      requester: chatRequesterFor(access),
+    })
   }
   revalidatePath(CHAT_PATH)
   return { threadId }
@@ -176,6 +191,7 @@ export async function sendMessageAction(
     threadId,
     userId: access.user.id,
     body,
+    requester: chatRequesterFor(access),
   })
   revalidatePath(CHAT_PATH)
   return result

@@ -1,5 +1,6 @@
 import 'server-only'
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
+import type { ChatRequester } from '@bunkhouse/runtime'
 import { requireTenantPermission } from '../../../../lib/tenant'
 import { sendMessage } from '../../../../lib/chat-threads'
 
@@ -44,6 +45,11 @@ export async function POST(
 ): Promise<Response> {
   const { threadId } = await params
   const access = await requireTenantPermission('work.manage')
+  const requester: ChatRequester = {
+    name: access.user.name.trim() || access.user.email,
+    email: access.user.email,
+    relationship: 'operator',
+  }
 
   let payload: unknown
   try {
@@ -81,6 +87,7 @@ export async function POST(
           threadId,
           userId: access.user.id,
           body,
+          requester,
           progress: {
             onToolCall: ({ toolCallId, toolName, input }) => {
               emit({ type: 'tool-input-available', toolCallId, toolName, input })

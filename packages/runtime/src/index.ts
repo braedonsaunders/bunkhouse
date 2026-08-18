@@ -42,6 +42,7 @@ export type {
   AutonomyResolver,
   BoundProcedure,
   BudgetMeter,
+  ChatRequester,
   CompanyIdentity,
   CompanyProfile,
   DirectoryEntry,

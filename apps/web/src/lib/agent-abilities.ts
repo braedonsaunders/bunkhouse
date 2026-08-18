@@ -72,7 +72,7 @@ export function memoryAbilities(args: { tenantId: string; person: PersonRow; run
     defineAbility({
       name: 'save_memory',
       description:
-        'Save a note to your logbook. kind: fact (currently true), episode (what happened), procedure (how to do something), reflection (a conclusion — cite evidence with [[slug]] links). If a live note with the same title exists, yours supersedes it (the old one is kept in history). Use [[wikilinks]] to connect notes.',
+        'Save durable knowledge to your logbook only when it will materially help a future run and is not already present in the run, mail, desk, or tool ledger. Never save routine operational receipts such as opening or closing the desktop, taking screenshots, running commands, calling tools, or merely completing the current task; those are already recorded and would crowd out useful knowledge. Save stable business facts, reusable procedures, consequential outcomes, and evidence-backed reflections. If a live note with the same title exists, yours supersedes it (the old one is kept in history). Use [[wikilinks]] to connect notes.',
       category: null,
       inputSchema: z.object({
         title: z.string(),

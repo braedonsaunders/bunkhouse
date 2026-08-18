@@ -1502,7 +1502,7 @@ export function deskAbilities(args: {
     defineAbility({
       name: 'run_shell',
       description:
-        'Run a shell command on your own Linux machine. Your home folder persists across runs and calls — files you create are there next time, and anything you install stays installed. Output is captured on the record. Use it for real work: organizing files, processing data, running tools, preparing material you then publish and send. Prefer this and your tier-0 abilities (create_document, create_spreadsheet, run_script) over opening a desktop screen — the screen is the expensive tier and most work never needs it.',
+        'Run a shell command directly on your own Linux machine. Your home folder persists across runs and calls — files you create are there next time, and anything you install stays installed. Output is captured on the record. When the desktop screen is open, this command automatically joins that same DISPLAY and desktop session: you can launch visible applications or drive them programmatically with tools such as xdotool, wmctrl, scripts, and application CLIs without typing commands into the visible terminal. The person watching will see any resulting GUI changes. Use this for efficient mixed automation while the desktop remains available; tier-0 document abilities and connectors are still better for their specialized work.',
       category: 'sandbox',
       inputSchema: z.object({
         command: z.string().describe('The command line, run with /bin/sh -lc'),
@@ -1617,18 +1617,20 @@ export function deskAbilities(args: {
     defineAbility({
       name: 'open_desktop',
       description:
-        'Start a real desktop screen on your machine — the EXPENSIVE tier, for GUI software with no command line and for work you genuinely cannot do any other way. Climb the ladder first: tier-0 abilities (create_document, create_spreadsheet, run_script) and connectors are better at their jobs than any GUI; the browser abilities handle websites; run_shell handles files and tools. Only when all of those genuinely cannot do it, open the screen — and say why: the reason you give here is recorded and reviewed. Each screen session has a hard step budget, so know what you are there to do before you open it.',
+        'Start a real desktop screen on your machine. Prefer purpose-built abilities and connectors for their normal work, browser abilities for websites, and run_shell for files and command-line tools, but this is tool-selection guidance rather than an authorization rule. Open the screen when visual interaction is useful or requested: GUI-only work, observing or demonstrating the environment, a supervisor-led capability test, or handing control to a person are all legitimate reasons. A direct authenticated manager or operator request to open the desktop is itself a sufficient work reason; do not refuse it because the same underlying task could be done another way. The runtime enforces the real autonomy, feature, approval, budget, and step controls when this ability is called, so call it and rely on its result instead of guessing. State the reason because it is recorded and reviewed.',
       category: 'desktop',
       inputSchema: z.object({
         reason: z
           .string()
           .min(3)
-          .describe('Why this work needs a screen — what you tried or ruled out below it. Recorded.'),
+          .describe(
+            'Why the screen is useful for this work, demonstration, observation, or handoff. A manager or operator request is sufficient. Recorded.',
+          ),
       }),
       execute: async ({ reason }) => {
         const stated = reason?.trim()
         if (!stated || stated.length < 3) {
-          return { opened: false, error: 'A screen needs a stated reason. Say why the cheaper tiers cannot do this.' }
+          return { opened: false, error: 'A screen needs a stated reason. Say what the visual session is for.' }
         }
         const live = await ensureDesk(ctx)
         try {
@@ -1654,11 +1656,15 @@ export function deskAbilities(args: {
     defineAbility({
       name: 'close_desktop',
       description:
-        'Stop the desktop screen when you are done with GUI work. The machine keeps running headless — your files and shell are unaffected. Close it as soon as the screen work is finished; an open screen is the expensive tier.',
+        'Explicitly tear down the desktop screen. Do not call this merely because the current task or GUI step is finished: an idle screen makes no model calls, can stay available across turns, and its capture pump stops when nobody is watching. Leave it open for follow-up work and human inspection. Close it only when a manager or operator explicitly asks, a privacy or security boundary requires teardown, or the desktop is broken and must be reset. The machine and files remain available headlessly.',
       category: null,
       approval: 'continues',
-      inputSchema: z.object({}),
-      execute: async () => {
+      inputSchema: z.object({
+        reason: z
+          .enum(['operator_requested', 'privacy_or_security', 'reset_broken_session'])
+          .describe('Why the persistent screen must actually be torn down; finishing ordinary work is not a reason.'),
+      }),
+      execute: async ({ reason }) => {
         const live = await getLiveDesk(ctx)
         if (!live.screenOpen) return { closed: false, note: 'No screen is open.' }
         // The stage empties before the compositor does, so the caller never
@@ -1670,7 +1676,7 @@ export function deskAbilities(args: {
           return { closed: false, error: `The screen could not be stopped: ${describeError(error)}` }
         }
         live.screenOpen = false
-        await appendSerialized(ctx, live, 'screen_close', {})
+        await appendSerialized(ctx, live, 'screen_close', { reason })
         return { closed: true }
       },
     }),

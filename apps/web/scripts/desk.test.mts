@@ -82,7 +82,7 @@ function memoryStore() {
 /** A fake desk runner speaking just enough desk-v1 for the abilities. */
 function fakeRunner() {
   const calls: { method: string; path: string; body?: Record<string, unknown> }[] = []
-  const counters = { lease: 0, exec: 0, input: 0, screenStart: 0, handover: 0, framesOpen: 0, framesStop: 0 }
+  const counters = { lease: 0, exec: 0, input: 0, screenStart: 0, screenStop: 0, handover: 0, framesOpen: 0, framesStop: 0 }
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = new URL(String(input))
     const method = init?.method ?? 'GET'
@@ -121,6 +121,10 @@ function fakeRunner() {
     if (method === 'POST' && /\/screen\/start$/.test(url.pathname)) {
       counters.screenStart += 1
       return Response.json({ running: true })
+    }
+    if (method === 'POST' && /\/screen\/stop$/.test(url.pathname)) {
+      counters.screenStop += 1
+      return Response.json({ running: false })
     }
     if (method === 'GET' && /\/screen\/observe$/.test(url.pathname)) {
       return Response.json({
@@ -352,9 +356,14 @@ function build(runId: string) {
     'packed RGBA, no padding — what the video source wants',
   )
 
-  await live.call('close_desktop', {})
+  await live.call('close_desktop', { reason: 'operator_requested' })
   assert.equal(live.counters.framesStop, 1, 'closing the desktop stopped the guest capture')
   assert.equal(closed, true, 'and unpublished the track')
+  assert.equal(
+    live.events.find((event) => event.kind === 'screen_close')?.detail.reason,
+    'operator_requested',
+    'explicit screen teardown records its constrained reason',
+  )
   await stopOffer()
   console.log('desk: a desktop opened during a call casts to the stage, and closing it takes the track down')
 }

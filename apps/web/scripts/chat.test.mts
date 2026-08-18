@@ -11,7 +11,13 @@ import { fileURLToPath } from 'node:url'
 delete process.env.BUNKHOUSE_DESK_URL
 delete process.env.BUNKHOUSE_DESK_TOKEN
 
-import type { ChatRunner, ChatRunWatcher, ChatThreadStore, ChatThreadSummary } from '../src/lib/chat-threads'
+import type {
+  ChatRunner,
+  ChatRunWatcher,
+  ChatThreadDeps,
+  ChatThreadStore,
+  ChatThreadSummary,
+} from '../src/lib/chat-threads'
 import type { ChatDeskDeps } from '../src/lib/chat-desk'
 import { PersonNotWorkingError } from '../src/lib/person-work'
 
@@ -194,7 +200,20 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   const clock = () => new Date('2026-08-17T12:00:00.000Z')
   const { store, messages } = memoryChatStore(clock)
   const { run, calls } = fakeRunner()
-  const deps = { store, run, now: clock }
+  const deps = {
+    store,
+    run,
+    now: clock,
+    resolveRequester: async ({ fallback }) => {
+      assert.equal(fallback?.relationship, 'operator', 'the client only asserts authenticated operator standing')
+      return {
+        name: 'Braedon Saunders',
+        title: 'Owner',
+        email: 'braedon@example.test',
+        relationship: 'manager' as const,
+      }
+    },
+  } satisfies ChatThreadDeps
 
   const { threadId } = await startThread(
     { tenantId: TENANT, userId: USER, personId: AGENT, firstMessage: 'Book the dentist for Thursday morning.' },
@@ -203,7 +222,13 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   assert.equal(calls.length, 0, 'opening a conversation is not itself work')
 
   const sent = await sendMessage(
-    { tenantId: TENANT, threadId, userId: USER, body: 'Book the dentist for Thursday morning.' },
+    {
+      tenantId: TENANT,
+      threadId,
+      userId: USER,
+      body: 'Book the dentist for Thursday morning.',
+      requester: { name: 'Braedon Saunders', email: 'braedon@example.test', relationship: 'operator' },
+    },
     deps,
   )
 
@@ -217,10 +242,59 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     'the trigger is the bridge’s own `chat` shape — same governance, same ledger',
   )
   assert.equal(call.input.type, 'chat', 'and so is the input')
+  assert.deepEqual(
+    call.input.type === 'chat' ? call.input.requester : undefined,
+    {
+      name: 'Braedon Saunders',
+      title: 'Owner',
+      email: 'braedon@example.test',
+      relationship: 'manager',
+    },
+    'the trusted server resolves the signed-in speaker against the reporting line',
+  )
   assert.match(
     call.input.type === 'chat' ? call.input.message : '',
     /Book the dentist for Thursday morning\./,
   )
+  const { buildRunInstruction, buildSystemPrompt } = await import('@bunkhouse/runtime')
+  assert.match(
+    buildRunInstruction(call.input),
+    /This person is your manager\. Treat their reasonable direct request as a priority/,
+    'the employee sees managerial standing in the run instruction instead of inferring it from prose',
+  )
+  assert.match(buildRunInstruction(call.input), /only a tool result from this run can establish that/)
+  assert.match(buildRunInstruction(call.input), /correct a prior refusal rather than defending it/)
+  const system = buildSystemPrompt({
+    agent: {
+      id: AGENT,
+      name: 'Marla',
+      title: 'Cash Reporting Clerk',
+      email: 'marla@example.test',
+      personality: { bio: 'I report the cash position.', tone: ['warm'], signoff: 'Marla' },
+      ai: { provider: 'openai', apiKey: 'test' },
+      responsibilities: 'Prepare daily cash reporting.',
+      reportsToId: 'manager-person',
+      proactivity: 'duties',
+    },
+    company: {
+      name: 'Example Company',
+      directory: [
+        {
+          id: 'manager-person',
+          kind: 'human',
+          name: 'Braedon Saunders',
+          title: 'Owner',
+          email: 'braedon@example.test',
+        },
+      ],
+    },
+    procedures: [],
+    memories: [],
+  })
+  assert.match(system, /responsibilities describe your usual focus, not the outer limit/)
+  assert.match(system, /reasonable direct requests carry managerial priority/)
+  assert.match(system, /Never guess that autonomy, budget, review, cost, or a feature gate forbids an action/)
+  assert.doesNotMatch(system, /when something exceeds your role/)
 
   assert.equal(sent.messages.length, 2, 'the turn is what was said and what came back')
   assert.equal(sent.messages[0]?.role, 'user')

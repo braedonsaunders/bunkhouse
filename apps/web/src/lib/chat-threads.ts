@@ -1,7 +1,7 @@
 import 'server-only'
-import { and, asc, desc, eq, gte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, or, sql } from 'drizzle-orm'
 import { followDurableCursor } from '@braedonsaunders/appkit-events'
-import type { RunInput, RunOutcome } from '@bunkhouse/runtime'
+import type { ChatRequester, RunInput, RunOutcome } from '@bunkhouse/runtime'
 import { chatMessages, chatThreads, people, runEvents, runs, type RunTrigger } from '../db/schema'
 import { db } from '../db/client'
 import { replyTextForOutcome } from './chat-reply'
@@ -358,6 +358,12 @@ export type ChatThreadDeps = {
   run?: ChatRunner
   watcher?: ChatRunWatcher
   now?: () => Date
+  resolveRequester?: (args: {
+    tenantId: string
+    userId: string
+    personId: string
+    fallback?: ChatRequester
+  }) => Promise<ChatRequester | undefined>
 }
 
 function storeOf(deps: ChatThreadDeps): ChatThreadStore {
@@ -370,6 +376,50 @@ async function runnerOf(deps: ChatThreadDeps): Promise<ChatRunner> {
   // loaded — and tested — without dragging the whole run engine in behind it.
   const { executeAgentRun } = await import('./agent-runs')
   return (args) => executeAgentRun(args)
+}
+
+/**
+ * Resolve the authenticated speaker against the company's people records.
+ *
+ * The browser may supply the signed-in operator's display name, but never its
+ * own claim about hierarchy. Reporting-line standing is derived under tenant
+ * RLS here. Tests with an injected store stay hermetic unless they explicitly
+ * inject this resolver too.
+ */
+async function requesterOf(
+  args: { tenantId: string; userId: string; personId: string; fallback?: ChatRequester },
+  deps: ChatThreadDeps,
+): Promise<ChatRequester | undefined> {
+  if (deps.resolveRequester) return deps.resolveRequester(args)
+  if (deps.store) return args.fallback
+
+  const app = db()
+  const resolved = await app.withTenantContext(args.tenantId, async () => {
+    const identity = args.fallback?.email
+      ? or(eq(people.userId, args.userId), sql`lower(${people.email}) = lower(${args.fallback.email})`)
+      : eq(people.userId, args.userId)
+    const [requester] = await app.db
+      .select({ id: people.id, name: people.name, title: people.title })
+      .from(people)
+      .where(and(identity, eq(people.kind, 'human')))
+      .limit(1)
+    if (!requester) return undefined
+
+    const [employee] = await app.db
+      .select({ reportsToId: people.reportsToId })
+      .from(people)
+      .where(and(eq(people.id, args.personId), eq(people.kind, 'agent')))
+      .limit(1)
+    if (!employee) return undefined
+
+    return {
+      name: requester.name,
+      title: requester.title,
+      ...(args.fallback?.email ? { email: args.fallback.email } : {}),
+      relationship: employee.reportsToId === requester.id ? 'manager' : 'colleague',
+    } satisfies ChatRequester
+  })
+  return resolved ?? args.fallback
 }
 
 // ---------------------------------------------------------------------------
@@ -630,6 +680,8 @@ export async function sendMessage(
     threadId: string
     userId: string
     body: string
+    /** Signed-in operator identity; hierarchy is re-derived from the database. */
+    requester?: ChatRequester
     progress?: ChatTurnProgress
   },
   deps: ChatThreadDeps = {},
@@ -650,6 +702,15 @@ export async function sendMessage(
     if (thread.status !== 'open') throw new Error('That conversation is closed.')
 
     const history = await store.readMessages({ tenantId: args.tenantId, threadId: args.threadId })
+    const requester = await requesterOf(
+      {
+        tenantId: args.tenantId,
+        userId: args.userId,
+        personId: thread.personId,
+        ...(args.requester ? { fallback: args.requester } : {}),
+      },
+      deps,
+    )
 
     // A double-submitted send must not run the agent twice. Serialization
     // orders the two calls; this is what stops the second one being work.
@@ -692,7 +753,11 @@ export async function sendMessage(
         tenantId: args.tenantId,
         personId: thread.personId,
         trigger: { type: 'chat', conversationId },
-        input: { type: 'chat', message: messageWithHistory(history, body) },
+        input: {
+          type: 'chat',
+          message: messageWithHistory(history, body),
+          ...(requester ? { requester } : {}),
+        },
       })
       runId = result.runId
       outcome = result.outcome

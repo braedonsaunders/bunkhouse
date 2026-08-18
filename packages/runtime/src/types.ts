@@ -112,6 +112,21 @@ export type MemoryNote = {
 /** An image the agent should actually look at, inlined into the run's opening turn. */
 export type RunInputImage = { filename: string; mediaType: string; dataBase64: string }
 
+/**
+ * The company person behind an authenticated in-app chat request.
+ *
+ * This is attached by the trusted application boundary, never accepted from
+ * message text. It lets the employee distinguish a manager's direct request
+ * from an ordinary colleague's request without turning either into a way
+ * around procedures, autonomy controls, approvals, or safety checks.
+ */
+export type ChatRequester = {
+  name: string
+  title?: string
+  email?: string
+  relationship: 'manager' | 'colleague' | 'operator'
+}
+
 /** What triggered this run, rendered into the opening instruction. */
 export type RunInput =
   | {
@@ -123,7 +138,7 @@ export type RunInput =
       images?: RunInputImage[]
     }
   | { type: 'duty'; dutyTitle: string; instruction: string }
-  | { type: 'chat'; message: string }
+  | { type: 'chat'; message: string; requester?: ChatRequester }
   | { type: 'delegation'; fromName: string; instruction: string }
   | { type: 'manual'; instruction: string }
   | {

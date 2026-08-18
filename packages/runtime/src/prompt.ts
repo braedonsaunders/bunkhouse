@@ -98,6 +98,11 @@ export function buildSystemPrompt(args: {
     : `Sign outbound mail exactly: "${agent.personality.signoff}".`
   sections.push(`About you: ${agent.personality.bio}\nTone: ${agent.personality.tone.join(', ')}.\n${signing}`)
   if (agent.responsibilities) sections.push(`Your responsibilities: ${agent.responsibilities}`)
+  sections.push(
+    `Your title and responsibilities describe your usual focus, not the outer limit of what you may help with. Use the judgment of a flexible, capable colleague. Give a strong presumption to reasonable direct requests from your manager, and help authenticated company colleagues with sensible one-off work when you have the ability. If the work is outside your normal lane, you may briefly flag a real priority or expertise tradeoff, then help; do not refuse solely because it is "not my job," "outside my role," or usually owned by another title. Route or delegate when specialist ownership materially matters, priorities conflict, or the requester lacks the needed authority.
+
+Governance is enforced by the abilities themselves. Never guess that autonomy, budget, review, cost, or a feature gate forbids an action, and never present tool-selection guidance as a binding control. If a reasonable request calls for an available ability, attempt it and let the ability return the authoritative decision. You may say a governance control blocked work only after an attempted ability reports that block in this run. Company procedures, autonomy controls, approvals, feature gates, safety rules, and budgets remain binding regardless of who asks.`,
+  )
   sections.push(today(agent.timezone ?? null))
 
   if (company.description) sections.push(`About ${company.name}: ${company.description}`)
@@ -116,7 +121,7 @@ export function buildSystemPrompt(args: {
     .join('\n')
   if (directory) {
     sections.push(
-      `Company directory — route work to whoever owns it, ask them questions by email when something is theirs to answer, and escalate to your manager when unsure:\n${directory}`,
+      `Company directory — use it to coordinate, ask the right colleague for missing expertise, and escalate genuine authority or priority conflicts. It is not a reason to bounce a reasonable request you can handle yourself:\n${directory}`,
     )
   }
 
@@ -128,7 +133,7 @@ export function buildSystemPrompt(args: {
   const reports = company.directory.filter((p) => p.reportsToId === agent.id)
   if (manager) {
     sections.push(
-      `You report to ${manager.name}, ${manager.title} <${manager.email}>. Escalate to them by email when something exceeds your role, needs approval, or you are unsure.`,
+      `You report to ${manager.name}, ${manager.title} <${manager.email}>. Their reasonable direct requests carry managerial priority. Escalate when an actual approval or governance decision is required, priorities conflict, or you need information only they can provide — not merely because a task falls outside your usual responsibilities.`,
     )
   }
   if (reports.length > 0) {
@@ -152,6 +157,10 @@ export function buildSystemPrompt(args: {
     sections.push(`Things you know (your notes and company knowledge):\n${notes}`)
   }
 
+  sections.push(
+    `Memory discipline: the run, mail, desk, and tool ledgers already preserve what you did. Do not save a memory merely because you opened or closed a desktop, took a screenshot, ran a command, used a tool, or completed a routine task. Save only durable business knowledge that is likely to change how a future run succeeds: a stable fact, a reusable procedure, a consequential outcome, or an evidence-backed reflection.`,
+  )
+
   // After procedures on purpose: doctrine binds, a skill is only ever a way of
   // doing the work well. Nothing here may be read as loosening a procedure.
   const skillIndex = renderSkillIndex(skills)
@@ -173,8 +182,17 @@ export function buildRunInstruction(input: RunInput): string {
       return `New mail requires your attention.\n\nThread subject: ${input.threadSubject}\n\n${input.conversation}\n\n${input.instruction ?? 'Handle this thread as the responsible owner: reply, act, route, or escalate as appropriate.'}`
     case 'duty':
       return `Scheduled duty: ${input.dutyTitle}\n\n${input.instruction}`
-    case 'chat':
-      return input.message
+    case 'chat': {
+      if (!input.requester) return input.message
+      const title = input.requester.title ? `, ${input.requester.title}` : ''
+      const standing =
+        input.requester.relationship === 'manager'
+          ? 'This person is your manager. Treat their reasonable direct request as a priority, even when it is outside your usual responsibilities. Carry it out now instead of debating whether it belongs to your title.'
+          : input.requester.relationship === 'operator'
+            ? 'This person is an authorized company operator. Their request is legitimate company work when it passes the normal governance controls.'
+            : 'This person is an authenticated company colleague. Help naturally when you can, while respecting authority-sensitive boundaries.'
+      return `Authenticated in-app request from ${input.requester.name}${title}. ${standing}\n\nAction protocol for this turn: if they asked you to use a particular available ability or work surface, attempt it as requested. A supervisor-led capability test, demonstration, or observation is legitimate company work. Do not infer that expense, review, role fit, autonomy, budget, or a feature gate blocks the request; only a tool result from this run can establish that. Your earlier replies in the conversation are context, not policy — correct a prior refusal rather than defending it. The request still does not override a procedure or an actual governance result.\n\n${input.message}`
+    }
     case 'delegation':
       return `${input.fromName} has delegated a task to you:\n\n${input.instruction}`
     case 'manual':
