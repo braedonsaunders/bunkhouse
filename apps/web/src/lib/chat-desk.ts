@@ -628,6 +628,11 @@ export async function deskFrames(
   const admitted = await admit({ ...args, needsDesktop: true }, deps)
   if (refused(admitted)) return admitted
   try {
+    const intended = await (deps.screenRunning ?? (() => screenRunningFromLedger(args.tenantId, args.personId)))({
+      tenantId: args.tenantId,
+      personId: args.personId,
+    })
+    if (!intended) return { error: 'The desktop screen is not open.' }
     await leaseDesk(
       {
         deskId: admitted.deskId,
@@ -635,6 +640,14 @@ export async function deskFrames(
         vcpus: admitted.policy.vcpus,
         leaseMs: admitted.policy.leaseMs,
       },
+      admitted.clientDeps,
+    )
+    // The ledger is the durable intent; the runner's screen handle is
+    // deliberately ephemeral. A runner restart or VM resume can therefore
+    // leave an open screen recorded with no in-memory handle to stream. Start
+    // is idempotent and reconciles those two states before subscribing.
+    await startDeskScreen(
+      { deskId: admitted.deskId, width: AGENT_SCREEN_WIDTH, height: AGENT_SCREEN_HEIGHT },
       admitted.clientDeps,
     )
     const stream = await openDeskFrameStream(
@@ -671,6 +684,11 @@ export async function deskVideo(
   const admitted = await admit({ ...args, needsDesktop: true }, deps)
   if (refused(admitted)) return admitted
   try {
+    const intended = await (deps.screenRunning ?? (() => screenRunningFromLedger(args.tenantId, args.personId)))({
+      tenantId: args.tenantId,
+      personId: args.personId,
+    })
+    if (!intended) return { error: 'The desktop screen is not open.' }
     await leaseDesk(
       {
         deskId: admitted.deskId,
@@ -678,6 +696,10 @@ export async function deskVideo(
         vcpus: admitted.policy.vcpus,
         leaseMs: admitted.policy.leaseMs,
       },
+      admitted.clientDeps,
+    )
+    await startDeskScreen(
+      { deskId: admitted.deskId, width: AGENT_SCREEN_WIDTH, height: AGENT_SCREEN_HEIGHT },
       admitted.clientDeps,
     )
     const stream = await openDeskVideoStream(

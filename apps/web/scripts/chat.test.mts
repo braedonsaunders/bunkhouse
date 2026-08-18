@@ -34,6 +34,7 @@ const {
 
 const {
   closeDesktop,
+  deskVideo,
   deskStatus,
   openDesktop,
   parseDeskInput,
@@ -1053,6 +1054,22 @@ function deskDeps(
 // reason to make a guest paint for nobody — and neither writes to the ledger,
 // because how often we ask to see a screen is not an act on it.
 {
+  const recovering = deskDeps({ screenRunning: true })
+  const recovered = await deskVideo(
+    { tenantId: TENANT, personId: AGENT },
+    recovering.deps,
+  )
+  assert.ok('stream' in recovered, 'an open screen reconnects to its live stream')
+  const recoveredPaths = recovering.calls.map((call) => call.path)
+  const startIndex = recoveredPaths.findIndex((path) => /\/screen\/start$/.test(path))
+  const videoIndex = recoveredPaths.findIndex((path) => /\/screen\/video$/.test(path))
+  assert.ok(startIndex >= 0 && videoIndex > startIndex, 'reconnect repairs the ephemeral screen handle before streaming')
+
+  const closed = deskDeps({ screenRunning: false })
+  const refusedClosed = await deskVideo({ tenantId: TENANT, personId: AGENT }, closed.deps)
+  assert.ok('error' in refusedClosed && /not open/.test(refusedClosed.error))
+  assert.equal(closed.calls.length, 0, 'a stale viewer cannot reopen a screen the ledger says was closed')
+
   const driving = deskDeps()
   const fast = await setDeskFrameRate({ tenantId: TENANT, personId: AGENT, driving: true }, driving.deps)
   assert.ok('ok' in fast && fast.fps === AGENT_SCREEN_DRIVING_FPS, 'driving asks for the fast rate')
