@@ -878,6 +878,10 @@ export async function executeAgentRun(args: {
       // assembled; everything else assembles its own, plus ask_and_wait — an
       // async run can genuinely pause on a person's answer, a live one cannot.
       const waitState: GovernanceState = { pendingApprovalId: null, pendingWait: null }
+      const allowStandingSchedules =
+        args.trigger.type === 'chat' ||
+        (args.trigger.type === 'manual' && Boolean(args.trigger.requestedBy)) ||
+        (args.trigger.type === 'email' && (await threadIsInternal(args.tenantId, args.trigger.threadId)))
       const assembled = live
         ? null
         : await assembleAbilities({
@@ -893,6 +897,7 @@ export async function executeAgentRun(args: {
             // every handoff reported itself as the first, so the depth guard
             // only ever saw "1" and never stopped anything.
             handoffDepth,
+            allowStandingSchedules,
             ...(args.counterparty ? { counterparty: args.counterparty } : {}),
             waitState,
           })

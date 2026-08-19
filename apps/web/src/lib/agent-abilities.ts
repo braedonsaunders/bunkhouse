@@ -2,6 +2,7 @@ import 'server-only'
 import { and, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { unsealSecret } from '@braedonsaunders/appkit-crypto'
+import { auditLog } from '@braedonsaunders/appkit-db'
 import {
   connectMcpServers,
   defineAbility,
@@ -20,7 +21,7 @@ import { mcpM2mHeaders, mcpOauthHeaders } from './mcp-oauth'
 import { authoredSystemAbilities, listAuthoredSystems, proposeAuthoredSystem } from './authored-systems'
 import { sendNewMail } from './mailbox'
 import { createNote, retrieveNotes, supersedeNote } from './memory'
-import { firstOccurrence, gapMinutes } from './duties'
+import { firstOccurrence, gapMinutes, MAX_SELF_SCHEDULED_REPEATS, scheduledRunLimit } from './duties'
 import { readWebpage, webSearch } from './research'
 import { documentAbilities } from './documents'
 import { templateAbilities } from './document-templates'
@@ -122,24 +123,6 @@ function remoteComputerAbilities(args: { tenantId: string; person: PersonRow; ru
     }),
   ]
 }
-
-/**
- * How many times a repeat an agent booked for ITSELF may fire before it has to
- * be renewed deliberately.
- *
- * `maxRuns` was always available and no model ever set it, which is how one
- * agent ended up with two hourly duties — "check whether Dana's note has
- * arrived yet" and "re-check whether Dana's note has arrived yet" — firing
- * forty times overnight, each a full model run, polling for something that
- * could never arrive because the thing it was waiting on was broken. A person
- * checking hourly on something that has not moved in a day stops and asks
- * somebody; the schedule they set does not run for ever on its own.
- *
- * A standing routine belongs to the role, not to a run's follow-up impulse, so
- * this bounds only what an agent books for itself. Twelve is enough for "chase
- * this daily for a fortnight" and far short of all night, every night.
- */
-export const MAX_SELF_SCHEDULED_REPEATS = 12
 
 /** The logbook: save and search notes. Ungoverned — it is the agent's own head. */
 export function memoryAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {
@@ -622,15 +605,20 @@ export function delegationAbilities(args: {
 }
 
 /** Self-scheduling — gated on the proactivity dial at the assembly site. */
-export function schedulingAbilities(args: { tenantId: string; person: PersonRow }): Ability[] {
+export function schedulingAbilities(args: {
+  tenantId: string
+  person: PersonRow
+  runId: string
+  allowStandingSchedules?: boolean
+}): Ability[] {
   const app = db()
-  const { tenantId, person } = args
+  const { tenantId, person, runId } = args
   return [
     defineAbility({
       name: 'schedule_task',
       description:
-        'Schedule work for your future self — once at a specific date and time, or on a repeating schedule. Use it for follow-ups ("chase this invoice on Friday") and reminders. A repeat you book for yourself is bounded and will not run for ever: if what you are waiting on has not moved after a few checks, that is not something to keep checking, it is something to tell a person about. Never schedule a repeat to poll for a colleague\'s answer — they come back to you on their own. Returns when it will first run.',
-      category: null,
+        'Create a durable scheduled duty from this conversation — once at a specific time or on a repeating schedule. When a person explicitly asks for an ongoing routine such as "every morning", set standing=true; it continues until they cancel it. Follow-ups you decide to book yourself must keep standing false and are bounded. Never create a standing routine unless the person actually requested it, and never poll for a colleague\'s answer — colleagues return on their own. Returns the first run time and whether the duty is ongoing.',
+      category: 'background_job',
       inputSchema: z.object({
         title: z.string().describe('Short name, e.g. "Chase Acme invoice"'),
         instruction: z.string().describe('What to do when it runs, written to your future self.'),
@@ -646,6 +634,10 @@ export function schedulingAbilities(args: { tenantId: string; person: PersonRow 
           }),
         ]),
         endsAt: z.string().optional().describe('ISO 8601; a repeating task stops after this.'),
+        standing: z
+          .boolean()
+          .optional()
+          .describe('True only for an ongoing routine the person explicitly requested in this conversation.'),
         maxRuns: z
           .number()
           .int()
@@ -655,7 +647,7 @@ export function schedulingAbilities(args: { tenantId: string; person: PersonRow 
             `How many times a repeating task may fire. Defaults to ${MAX_SELF_SCHEDULED_REPEATS} and cannot exceed it — say how many times this is genuinely worth checking.`,
           ),
       }),
-      execute: async ({ title, instruction, when, endsAt, maxRuns }) => {
+      execute: async ({ title, instruction, when, endsAt, standing, maxRuns }) => {
         const open = await app.db
           .select({ id: duties.id })
           .from(duties)
@@ -699,6 +691,18 @@ export function schedulingAbilities(args: { tenantId: string; person: PersonRow 
           }
         }
 
+        let runLimit: number | null
+        try {
+          runLimit = scheduledRunLimit({
+            kind: when.kind,
+            standing: standing === true,
+            standingAllowed: args.allowStandingSchedules === true,
+            ...(maxRuns === undefined ? {} : { maxRuns }),
+          })
+        } catch (error) {
+          return { scheduled: false, reason: (error as Error).message }
+        }
+
         const base = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'task'
         const taken = new Set(
           (await app.db.select({ slug: duties.slug }).from(duties).where(eq(duties.personId, person.id))).map(
@@ -708,29 +712,52 @@ export function schedulingAbilities(args: { tenantId: string; person: PersonRow 
         let slug = base
         for (let n = 2; taken.has(slug); n += 1) slug = `${base}-${n}`
 
-        await app.db.insert(duties).values({
-          tenantId,
-          personId: person.id,
-          slug,
-          title,
-          instruction,
-          ...spec,
-          // Bounded whatever the model said, including when it said nothing.
-          maxRuns:
-            when.kind === 'once' ? null : Math.min(maxRuns ?? MAX_SELF_SCHEDULED_REPEATS, MAX_SELF_SCHEDULED_REPEATS),
-          nextDueAt,
-          // Audit provenance: this duty was booked by the agent, not an operator.
-          createdBy: person.id,
+        const created = await app.db.transaction(async (tx) => {
+          const [duty] = await tx
+            .insert(duties)
+            .values({
+              tenantId,
+              personId: person.id,
+              slug,
+              title,
+              instruction,
+              ...spec,
+              maxRuns: runLimit,
+              nextDueAt,
+              createdBy: person.id,
+              sourceRunId: runId,
+            })
+            .returning({ id: duties.id })
+          if (!duty) throw new Error('The scheduled task could not be saved.')
+          await tx.insert(auditLog).values({
+            tenantId,
+            entityType: 'duty',
+            entityId: duty.id,
+            action: 'created_by_employee',
+            summary: `${person.name} scheduled ${title}`,
+            after: {
+              personId: person.id,
+              slug,
+              scheduleKind: spec.scheduleKind,
+              schedule: spec.schedule,
+              timezone: spec.timezone,
+              nextDueAt: nextDueAt.toISOString(),
+              maxRuns: runLimit,
+            },
+            metadata: { personId: person.id, runId, standing: standing === true },
+          })
+          return duty
         })
-        const cap = when.kind === 'once' ? null : Math.min(maxRuns ?? MAX_SELF_SCHEDULED_REPEATS, MAX_SELF_SCHEDULED_REPEATS)
         return {
           scheduled: true,
+          dutyId: created.id,
           slug,
           firstRunAt: nextDueAt.toISOString(),
-          ...(cap
+          ongoing: when.kind === 'cron' && runLimit === null,
+          ...(runLimit
             ? {
-                runsAtMost: cap,
-                note: `This repeats at most ${cap} times and then stops on its own. If what you are waiting on still has not happened by then, tell a person rather than booking it again.`,
+                runsAtMost: runLimit,
+                note: `This repeats at most ${runLimit} times and then stops on its own. If what you are waiting on still has not happened by then, tell a person rather than booking it again.`,
               }
             : {}),
         }
@@ -764,14 +791,32 @@ export function schedulingAbilities(args: { tenantId: string; person: PersonRow 
     defineAbility({
       name: 'cancel_scheduled_task',
       description: 'Cancel a task you scheduled for yourself, by its slug from list_scheduled_tasks.',
-      category: null,
+      category: 'background_job',
       inputSchema: z.object({ slug: z.string() }),
       execute: async ({ slug }) => {
-        const [gone] = await app.db
-          .delete(duties)
-          .where(and(eq(duties.personId, person.id), eq(duties.slug, slug)))
-          .returning({ title: duties.title })
-        return gone ? { cancelled: true, title: gone.title } : { cancelled: false, reason: 'No such task.' }
+        const cancelled = await app.db.transaction(async (tx) => {
+          const [before] = await tx
+            .select()
+            .from(duties)
+            .where(and(eq(duties.personId, person.id), eq(duties.slug, slug)))
+          if (!before) return null
+          await tx
+            .update(duties)
+            .set({ enabled: 'off', nextDueAt: null, updatedAt: new Date(), updatedBy: person.id })
+            .where(eq(duties.id, before.id))
+          await tx.insert(auditLog).values({
+            tenantId,
+            entityType: 'duty',
+            entityId: before.id,
+            action: 'cancelled_by_employee',
+            summary: `${person.name} cancelled ${before.title}`,
+            before: { enabled: before.enabled, nextDueAt: before.nextDueAt?.toISOString() ?? null },
+            after: { enabled: 'off', nextDueAt: null },
+            metadata: { personId: person.id, runId },
+          })
+          return before
+        })
+        return cancelled ? { cancelled: true, title: cancelled.title } : { cancelled: false, reason: 'No such task.' }
       },
     }),
   ]
@@ -939,6 +984,8 @@ export async function assembleAbilities(args: {
   rootRunId?: string
   /** How many colleagues this work has already passed between before now. */
   handoffDepth?: number
+  /** A human is presently asking, so an explicit ongoing routine may be recorded. */
+  allowStandingSchedules?: boolean
 }): Promise<{
   abilities: Ability[]
   integrationFailures: string[]
@@ -994,7 +1041,14 @@ export async function assembleAbilities(args: {
     }),
     // Self-scheduling follows the proactivity dial: an agent set to react only
     // answers what reaches it, and has no business booking its own future work.
-    ...((person.proactivity ?? 'duties') !== 'reactive' ? schedulingAbilities({ tenantId, person }) : []),
+    ...((person.proactivity ?? 'duties') !== 'reactive'
+      ? schedulingAbilities({
+          tenantId,
+          person,
+          runId,
+          allowStandingSchedules: args.allowStandingSchedules,
+        })
+      : []),
     ...integrations.abilities,
   ]
   return {

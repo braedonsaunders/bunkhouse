@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict'
-import { firstOccurrence, gapMinutes, nextOccurrence, ScheduleError, type Duty } from '../src/lib/duties'
+import {
+  firstOccurrence,
+  gapMinutes,
+  MAX_SELF_SCHEDULED_REPEATS,
+  nextOccurrence,
+  scheduledRunLimit,
+  ScheduleError,
+  type Duty,
+} from '../src/lib/duties'
 
 const NOW = new Date('2026-07-28T12:00:00Z')
 
@@ -68,5 +76,19 @@ assert.equal(
 
 // --- bad input surfaces as an operator-readable error ------------------------
 assert.throws(() => firstOccurrence({ scheduleKind: 'cron', schedule: 'not cron' }, NOW), ScheduleError)
+
+// A person's explicit standing routine remains active until cancelled; an
+// employee's own follow-up stays bounded even if the model omits maxRuns.
+assert.equal(scheduledRunLimit({ kind: 'cron', standing: true, standingAllowed: true }), null)
+assert.equal(
+  scheduledRunLimit({ kind: 'cron', standing: false, standingAllowed: false }),
+  MAX_SELF_SCHEDULED_REPEATS,
+)
+assert.equal(scheduledRunLimit({ kind: 'cron', standing: false, standingAllowed: false, maxRuns: 3 }), 3)
+assert.throws(
+  () => scheduledRunLimit({ kind: 'cron', standing: true, standingAllowed: false }),
+  ScheduleError,
+)
+assert.equal(scheduledRunLimit({ kind: 'once', standing: false, standingAllowed: false }), null)
 
 console.log('duties scheduling: all assertions passed')

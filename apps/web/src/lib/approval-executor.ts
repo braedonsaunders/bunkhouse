@@ -202,6 +202,10 @@ async function carryOutDecision(tenantId: string, claimed: ClaimedApproval): Pro
         tenantId,
         person,
         runId: run.id,
+        allowStandingSchedules:
+          run.trigger.type === 'chat' ||
+          (run.trigger.type === 'manual' && Boolean(run.trigger.requestedBy)) ||
+          (run.trigger.type === 'email' && (await threadIsInternal(tenantId, run.trigger.threadId))),
         assignmentSource:
           run.trigger.type === 'email' ? { kind: 'mail', threadId: run.trigger.threadId } : { kind: 'manual' },
       })

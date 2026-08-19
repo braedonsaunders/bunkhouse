@@ -33,6 +33,8 @@ export const duties = pgTable(
     runCount: integer('run_count').notNull().default(0),
     /** Slug of the role's duty this was instantiated from, if any. */
     fromRolePackDuty: text('from_role_pack_duty'),
+    /** Run in which an employee created this duty, preserving human-request provenance. */
+    sourceRunId: uuid('source_run_id'),
     enabled: text('enabled').$type<'on' | 'off'>().notNull().default('on'),
     lastRunAt: timestamp('last_run_at', { withTimezone: true }),
     nextDueAt: timestamp('next_due_at', { withTimezone: true }),

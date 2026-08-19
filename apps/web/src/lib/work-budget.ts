@@ -91,11 +91,21 @@ export async function rootBudget(rootRunId: string): Promise<WorkBudget> {
 export async function dutyIsSelfDirected(dutyId: string): Promise<boolean> {
   const app = db()
   const [row] = await app.db
-    .select({ personId: duties.personId, createdBy: duties.createdBy, fromPack: duties.fromRolePackDuty })
+    .select({
+      personId: duties.personId,
+      createdBy: duties.createdBy,
+      fromPack: duties.fromRolePackDuty,
+      sourceTrigger: runs.trigger,
+    })
     .from(duties)
+    .leftJoin(runs, eq(runs.id, duties.sourceRunId))
     .where(eq(duties.id, dutyId))
   if (!row) return false
-  return row.fromPack === null && row.createdBy === row.personId
+  const requested =
+    row.sourceTrigger?.type === 'chat' ||
+    row.sourceTrigger?.type === 'email' ||
+    row.sourceTrigger?.type === 'manual'
+  return row.fromPack === null && row.createdBy === row.personId && !requested
 }
 
 /**

@@ -22,6 +22,27 @@ export type ScheduleInput = Pick<Duty, 'scheduleKind' | 'schedule'> &
 
 export class ScheduleError extends Error {}
 
+/** Repeats an employee books on its own must end; human-requested standing routines need not. */
+export const MAX_SELF_SCHEDULED_REPEATS = 12
+
+export function scheduledRunLimit(input: {
+  kind: 'once' | 'cron'
+  standing: boolean
+  standingAllowed: boolean
+  maxRuns?: number
+}): number | null {
+  if (input.kind === 'once') return null
+  if (input.standing) {
+    if (!input.standingAllowed) {
+      throw new ScheduleError(
+        'An ongoing schedule must be explicitly requested by a person in this conversation. Book a bounded follow-up instead.',
+      )
+    }
+    return null
+  }
+  return Math.min(input.maxRuns ?? MAX_SELF_SCHEDULED_REPEATS, MAX_SELF_SCHEDULED_REPEATS)
+}
+
 /** The instant a `once` duty is pinned to. */
 function parseOnce(schedule: string): Date {
   const at = new Date(schedule)
