@@ -114,9 +114,43 @@ export async function runMemories(args: {
   agent: AgentBinding
   /** What the work is about, in the agent's own terms. */
   query: string
-}): Promise<MemoryNote[]> {
-  const pinned = await pinnedNotes({ tenantId: args.tenantId, agent: args.agent })
-  const retrieved = await retrieveNotes({ tenantId: args.tenantId, agent: args.agent, query: args.query })
+}, deps: {
+  pinned?: (args: { tenantId: string; agent: AgentBinding }) => Promise<{
+    id: string
+    scope: 'agent' | 'company'
+    slug: string
+    title: string
+    body: string
+  }[]>
+  relevant?: (args: { tenantId: string; agent: AgentBinding; query: string }) => Promise<{
+    id: string
+    scope: 'agent' | 'company'
+    slug: string
+    title: string
+    body: string
+  }[]>
+  onRecallFailure?: (error: unknown) => Promise<void>
+} = {}): Promise<MemoryNote[]> {
+  // Pinned notes are the operator-declared always-in-context tier. If those
+  // cannot be read, stopping is safer than quietly omitting them. Ranked
+  // relevance is optional enrichment: after its own safe retry, a failure may
+  // fall back to pinned notes and leave evidence without blocking all work.
+  const pinned = await (deps.pinned ?? pinnedNotes)({ tenantId: args.tenantId, agent: args.agent })
+  let retrieved: Awaited<ReturnType<NonNullable<typeof deps.relevant>>> = []
+  try {
+    retrieved = await (deps.relevant ?? retrieveNotes)({
+      tenantId: args.tenantId,
+      agent: args.agent,
+      query: args.query,
+    })
+  } catch (error) {
+    const cause = error instanceof Error && error.cause instanceof Error ? error.cause : error
+    console.error(
+      '[memory] relevant recall unavailable; continuing with pinned notes:',
+      cause instanceof Error ? cause.message : String(cause),
+    )
+    await deps.onRecallFailure?.(error)
+  }
   const candidates = [...pinned, ...retrieved.filter((r) => !pinned.some((p) => p.id === r.id))]
 
   // Bounded, because a logbook only ever grows and this goes into EVERY step's
@@ -809,7 +843,17 @@ export async function executeAgentRun(args: {
                     : args.input.type === 'reply_received'
                       ? args.input.question
                       : args.input.instruction
-      const memories = await runMemories({ tenantId: args.tenantId, agent: agentBinding(person), query: retrievalQuery })
+      const memories = await runMemories(
+        { tenantId: args.tenantId, agent: agentBinding(person), query: retrievalQuery },
+        {
+          onRecallFailure: async () => {
+            await recordEvent({
+              kind: 'error',
+              message: 'Relevant logbook recall was temporarily unavailable; continuing with pinned memory.',
+            })
+          },
+        },
+      )
 
       // Anything a colleague has said since this agent last worked. Read here,
       // once, and marked read in the same breath — a message delivered twice is

@@ -5,7 +5,7 @@ import { db } from '../db/client'
 import type { ResourceAssignment } from '../db/schema'
 import type { AgentBinding } from './assignment'
 import { embedText, embeddableText, toVectorLiteral } from './embeddings'
-import { anyTermQuery, normalizeFusedScores, reciprocalRankFusion } from './memory-query'
+import { anyTermQuery, normalizeFusedScores, reciprocalRankFusion, retryMemoryRead } from './memory-query'
 
 /**
  * The Logbook engine (docs/memory-design.md). Markdown notes are the source of
@@ -295,12 +295,14 @@ export async function retrieveNotes(args: {
   const pool = Math.max(limit * 5, 40)
 
   const rankedIds = async (order: SQL, having?: SQL): Promise<string[]> => {
-    const rows = await app.db
-      .select({ id: memories.id })
-      .from(memories)
-      .where(having ? and(candidateWhere, having) : candidateWhere)
-      .orderBy(order)
-      .limit(pool)
+    const rows = await retryMemoryRead(() =>
+      app.db
+        .select({ id: memories.id })
+        .from(memories)
+        .where(having ? and(candidateWhere, having) : candidateWhere)
+        .orderBy(order)
+        .limit(pool),
+    )
     return rows.map((row) => row.id)
   }
 

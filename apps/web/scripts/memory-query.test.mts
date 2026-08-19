@@ -14,6 +14,7 @@ import {
   anyTermQuery,
   normalizeFusedScores,
   reciprocalRankFusion,
+  retryMemoryRead,
   searchTerms,
 } from '../src/lib/memory-query'
 
@@ -33,6 +34,28 @@ import {
   assert.deepEqual(searchTerms('the and of'), [], 'a question of pure stopwords has nothing to search')
   assert.deepEqual(searchTerms('aging AGING Aging'), ['aging'], 'case folds, duplicates collapse')
   console.log('memory query: the searchable words come out clean')
+}
+
+// --- a dropped read connection does not fail the employee's whole turn -----
+{
+  let calls = 0
+  const result = await retryMemoryRead(
+    async () => {
+      calls += 1
+      if (calls === 1) throw new Error('connection reset')
+      return 'recovered'
+    },
+    { delayMs: 0 },
+  )
+  assert.equal(result, 'recovered')
+  assert.equal(calls, 2, 'one read-only retry is allowed')
+
+  await assert.rejects(
+    retryMemoryRead(async () => { throw new Error('bad query') }, { delayMs: 0 }),
+    /bad query/,
+    'a persistent defect still surfaces after the bounded retry',
+  )
+  console.log('memory query: one transient read failure recovers, while a persistent defect remains visible')
 }
 
 // --- the disjunction that fixes the zeroing ---------------------------------

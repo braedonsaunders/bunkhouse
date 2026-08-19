@@ -78,6 +78,36 @@ export function anyTermQuery(query: string): string {
  */
 export const RRF_K = 10
 
+/**
+ * Repeat a read-only memory lookup once when the database connection has a
+ * transient wobble. Memory ranking has no external effect, so replay is safe;
+ * a second failure is still surfaced so callers can choose their fallback.
+ *
+ * This deliberately does not try to guess from driver-specific error codes.
+ * Drizzle wraps node-postgres errors and deployments have produced both SQLSTATE
+ * and socket-shaped causes. A deterministic SQL defect simply fails twice and
+ * remains visible, while a dropped pooled connection gets one clean recovery.
+ */
+export async function retryMemoryRead<T>(
+  read: () => Promise<T>,
+  options: { attempts?: number; delayMs?: number } = {},
+): Promise<T> {
+  const attempts = Math.max(1, options.attempts ?? 2)
+  const delayMs = Math.max(0, options.delayMs ?? 25)
+  let lastError: unknown
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await read()
+    } catch (error) {
+      lastError = error
+      if (attempt < attempts && delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+      }
+    }
+  }
+  throw lastError
+}
+
 /** Fuse ranked id lists into one score per id. Ranks are 1-based. */
 export function reciprocalRankFusion(rankings: readonly (readonly string[])[], k = RRF_K): Map<string, number> {
   const fused = new Map<string, number>()

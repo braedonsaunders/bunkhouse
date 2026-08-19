@@ -612,7 +612,7 @@ jobs:
             -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID")"
           app_name="$(printf '%s' "$compose" | jq -r '.appName // empty')"
           : "${app_name:?Dokploy compose has no appName}"
-          for unit in web worker voice-agent; do
+          for unit in web worker voice-agent livekit livekit-egress livekit-sip; do
             service="${app_name}_${unit}"
             if ! image="$(docker service inspect --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}' "$service" 2>/dev/null)"; then
               echo "$service: missing"
@@ -626,12 +626,18 @@ jobs:
               --format 'task={{.Name}} state={{.CurrentState}} error={{.Error}}' "$service" | head -n 6
           done
           if [ "$INCLUDE_STARTUP_LOGS" = "true" ]; then
-            echo "redacted_web_startup_logs:"
-            docker service logs --raw --tail 100 "${app_name}_web" 2>&1 \
-              | sed -E \
-                  -e 's#(postgres(ql)?|redis|https?)://[^[:space:]@/]+:[^[:space:]@]+@#\1://***:***@#g' \
-                  -e 's#(Bearer )[A-Za-z0-9._~-]+#\1***#g' \
-                  -e 's#([A-Za-z0-9_]*(TOKEN|PASSWORD|SECRET|KEY)[A-Za-z0-9_]*=)[^[:space:]]+#\1***#Ig'
+            for unit in web worker voice-agent livekit livekit-egress livekit-sip; do
+              service="${app_name}_${unit}"
+              if ! docker service inspect "$service" >/dev/null 2>&1; then
+                continue
+              fi
+              echo "redacted_${unit}_startup_logs:"
+              docker service logs --raw --tail 100 "$service" 2>&1 \
+                | sed -E \
+                    -e 's#(postgres(ql)?|redis|https?)://[^[:space:]@/]+:[^[:space:]@]+@#\1://***:***@#g' \
+                    -e 's#(Bearer )[A-Za-z0-9._~-]+#\1***#g' \
+                    -e 's#([A-Za-z0-9_]*(TOKEN|PASSWORD|SECRET|KEY)[A-Za-z0-9_]*=)[^[:space:]]+#\1***#Ig'
+            done
           fi
           if [ -n "${PUBLIC_URL:-}" ]; then
             code="$(curl -s -o /dev/null -w '%{http_code}' "${PUBLIC_URL%/}/login" || true)"

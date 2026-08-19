@@ -17,6 +17,7 @@ const tests = [
   'internal-addresses',
   'call-speech-gate',
   'memory-query',
+  'memory-resilience',
   'call-speech-acts',
   'skills',
   'backdrop',
