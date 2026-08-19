@@ -549,6 +549,14 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     filePreviewRoute.includes('docxToPdf') && filePreviewRoute.includes('sofficeConvert') && filePreviewRoute.includes("'text/plain; charset=utf-8'"),
     'DOCX, Excel, Markdown and text previews pass through safe authenticated renderers',
   )
+  const deploymentImage = readFileSync(
+    fileURLToPath(new URL('../../../Dockerfile', import.meta.url)),
+    'utf8',
+  )
+  assert.ok(
+    deploymentImage.includes('libreoffice-writer') && deploymentImage.includes('libreoffice-calc'),
+    'the deployment image carries both Writer and Calc for DOCX and Excel previews',
+  )
   assert.ok(
     workSurface.includes('surface.focus.key') && workSurface.includes('setActiveTab(surface.focus.tab)'),
     'each new observable work event selects its matching work tab, including repeated actions in one run',

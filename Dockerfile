@@ -42,17 +42,20 @@ ENV BUNKHOUSE_VERSION="$BUNKHOUSE_VERSION" \
 #   pipeline (@braedonsaunders/appkit-office, used by documents.ts and the template merge);
 #   pdftoppm is file-reading.ts's OCR raster step, which probes for a
 #   tesseract binary and fails closed where none exists.
-# - libreoffice-writer + fonts-liberation: the tier-0 document pipeline.
-#   create_document and the template merge render through @braedonsaunders/appkit-office's
-#   soffice call ON THE SERVER — that ability is deliberately better than an
-#   agent driving LibreOffice by hand in the guest (docs/desk-host.md),
-#   so the binary stays here even though the guest image also carries one
-#   for GUI work. Server-side rendering without fonts produces tofu.
+# - libreoffice-writer + libreoffice-calc + fonts-liberation: the tier-0
+#   document and spreadsheet pipeline. create_document, create_spreadsheet,
+#   template merge, and authenticated file previews render through
+#   @braedonsaunders/appkit-office's soffice call ON THE SERVER — that ability
+#   is deliberately better than an agent driving LibreOffice by hand in the
+#   guest (docs/desk-host.md), so the binaries stay here even though the guest
+#   image also carries them for GUI work. Server-side rendering without fonts
+#   produces tofu.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
     poppler-utils \
     libreoffice-writer \
+    libreoffice-calc \
     fonts-liberation \
     openssh-client \
     sshpass \
