@@ -181,6 +181,129 @@ await asApp(T1, async (c) => {
   })
 }
 
+// --- inline credential handoff laws ----------------------------------------
+
+// The request is a mutable state projection, but its displayed scope is
+// pinned and its event history is append-only. No column exists for plaintext
+// credential material; the verified value goes to the separately sealed
+// authored-system connection only through the service boundary.
+{
+  const personId = (await su.query<{ id: string }>(
+    `select id from people where tenant_id = $1 order by created_at limit 1`,
+    [T1],
+  )).rows[0]!.id
+  const threadId = crypto.randomUUID()
+  const userId = crypto.randomUUID()
+  const runId = crypto.randomUUID()
+  const systemId = crypto.randomUUID()
+  const requestId = crypto.randomUUID()
+  await asApp(T1, async (c) => {
+    await c.query(
+      `insert into chat_threads (id, tenant_id, person_id, user_id, title)
+       values ($1, $2, $3, $4, 'Secure integration setup')`,
+      [threadId, T1, personId, userId],
+    )
+    await c.query(
+      `insert into runs (id, tenant_id, person_id, trigger)
+       values ($1, $2, $3, $4::jsonb)`,
+      [runId, T1, personId, JSON.stringify({ type: 'chat', conversationId: `web:${threadId}` })],
+    )
+    await c.query(
+      `insert into authored_systems
+         (id, tenant_id, slug, name, description, latest_version, proposed_by_person_id, proposed_by_run_id)
+       values ($1, $2, 'news-api', 'News API', 'Reads approved news data.', 1, $3, $4)`,
+      [systemId, T1, personId, runId],
+    )
+    await c.query(
+      `insert into authored_system_revisions
+         (tenant_id, system_id, version, definition, validation, proposed_by_person_id, proposed_by_run_id)
+       values ($1, $2, 1, $3::jsonb, $4::jsonb, $5, $6)`,
+      [
+        T1,
+        systemId,
+        JSON.stringify({
+          baseUrl: 'https://api.example.test',
+          auth: { kind: 'bearer' },
+          healthCheck: { operation: 'profile', input: {} },
+          operations: [{ name: 'profile', title: 'Read profile', method: 'GET', path: '/profile', category: 'record_write' }],
+        }),
+        JSON.stringify({ checkedAt: new Date().toISOString(), operationCount: 1, healthOperation: 'profile', baseUrlHost: 'api.example.test' }),
+        personId,
+        runId,
+      ],
+    )
+    await c.query(
+      `insert into authored_system_credential_requests
+         (id, tenant_id, thread_id, person_id, run_id, system_id, revision_version,
+          credential_label, purpose, expires_at)
+       values ($1, $2, $3, $4, $5, $6, 1, 'API key', 'Read current news for the requested briefing.', now() + interval '7 days')`,
+      [requestId, T1, threadId, personId, runId, systemId],
+    )
+    await c.query(
+      `insert into authored_system_credential_request_events
+         (tenant_id, request_id, seq, kind, actor_type, actor_id)
+       values ($1, $2, 1, 'requested', 'agent', $3)`,
+      [T1, requestId, personId],
+    )
+
+    await assert.rejects(
+      c.query(
+        `insert into authored_system_credential_requests
+           (tenant_id, thread_id, person_id, run_id, system_id, revision_version,
+            credential_label, purpose, expires_at)
+         values ($1, $2, $3, $4, $5, 1, 'Another key', 'A duplicate live request.', now() + interval '7 days')`,
+        [T1, threadId, personId, runId, systemId],
+      ),
+      (error: { code?: string }) => error.code === '23505',
+      'one conversation cannot carry two live requests for one system',
+    )
+    await assert.rejects(
+      c.query(`update authored_system_credential_requests set purpose = 'Broader access' where id = $1`, [requestId]),
+      (error: { code?: string }) => error.code === 'P0001',
+      'the reviewed credential scope cannot change in place',
+    )
+    await assert.rejects(
+      c.query(`update authored_system_credential_requests set status = 'verifying' where id = $1`, [requestId]),
+      (error: { code?: string }) => error.code === 'P0001',
+      'verification must carry an explicit lease timestamp',
+    )
+    await c.query(
+      `update authored_system_credential_requests
+       set status = 'verifying', attempts = 1, verification_started_at = now()
+       where id = $1`,
+      [requestId],
+    )
+    await assert.rejects(
+      c.query(`update authored_system_credential_requests set status = 'stored' where id = $1`, [requestId]),
+      (error: { code?: string }) => error.code === 'P0001',
+      'a stored request must record when it resolved',
+    )
+    await assert.rejects(
+      c.query(
+        `update authored_system_credential_request_events set detail = '{"changed":true}' where request_id = $1`,
+        [requestId],
+      ),
+      (error: { code?: string }) => error.code === '55000',
+      'credential request evidence is append-only',
+    )
+  })
+  await asApp(T2, async (c) => {
+    assert.equal(
+      await count(c, `select count(*) from authored_system_credential_requests`),
+      0,
+      'another tenant cannot observe credential requests',
+    )
+  })
+  const requestColumns = (await su.query<{ column_name: string }>(
+    `select column_name from information_schema.columns
+     where table_schema = 'public' and table_name in (
+       'authored_system_credential_requests', 'authored_system_credential_request_events'
+     )`,
+  )).rows.map((row) => row.column_name)
+  assert.equal(requestColumns.includes('credential'), false, 'request records have no plaintext credential column')
+  assert.equal(requestColumns.includes('secret'), false, 'request records have no plaintext secret column')
+}
+
 // A continuation's branch point is provenance, not editable metadata. The
 // database rejects partial and retroactively moved origins even if a caller
 // bypasses the service boundary.

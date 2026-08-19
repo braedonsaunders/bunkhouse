@@ -1445,6 +1445,18 @@ export default defineAgent({
     const liveConfig = config!
 
     // --- The working toolset: same abilities as email runs, call posture ---
+    const chatThreadId = session.runId
+      ? await app.withTenantContext(session.tenantId, async () => {
+          const [sourceRun] = await app.db
+            .select({ trigger: runs.trigger })
+            .from(runs)
+            .where(eq(runs.id, session.runId!))
+            .limit(1)
+          return sourceRun?.trigger.type === 'chat' && sourceRun.trigger.conversationId.startsWith('web:')
+            ? sourceRun.trigger.conversationId.slice('web:'.length)
+            : null
+        })
+      : null
     const assembled = await app.withTenantContext(session.tenantId, () =>
       assembleAbilities({
         tenantId: session.tenantId,
@@ -1460,6 +1472,7 @@ export default defineAgent({
           ...(session.counterparty.name ? { name: session.counterparty.name } : {}),
           ...(session.counterparty.email ? { address: session.counterparty.email } : {}),
         },
+        ...(chatThreadId ? { chatThreadId } : {}),
       }),
     )
     for (const failure of assembled.integrationFailures) {

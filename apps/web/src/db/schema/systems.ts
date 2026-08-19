@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import { foreignKey, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
 import type { SealedSecret } from '@braedonsaunders/appkit-crypto'
@@ -6,6 +7,21 @@ import type { ResourceAssignment } from './assignment'
 
 export const authoredSystemStatus = pgEnum('authored_system_status', ['proposed', 'active', 'disabled'])
 export const authoredSystemHealthStatus = pgEnum('authored_system_health_status', ['ok', 'failed'])
+export const authoredSystemCredentialRequestStatus = pgEnum('authored_system_credential_request_status', [
+  'pending',
+  'verifying',
+  'stored',
+  'cancelled',
+  'expired',
+])
+export const authoredSystemCredentialRequestEventKind = pgEnum('authored_system_credential_request_event_kind', [
+  'requested',
+  'verification_started',
+  'verification_failed',
+  'stored',
+  'cancelled',
+  'expired',
+])
 
 /**
  * A company-private system an employee authored. The head is mutable only as a
@@ -95,8 +111,79 @@ export const authoredSystemConnections = pgTable(
   ],
 )
 
+/**
+ * A durable, conversation-local request for a human to connect a proposed
+ * system. The plaintext credential never enters this row: the browser sends
+ * it straight to the server action that verifies and seals it in the existing
+ * connection projection.
+ */
+export const authoredSystemCredentialRequests = pgTable(
+  'authored_system_credential_requests',
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    threadId: uuid('thread_id').notNull(),
+    personId: uuid('person_id').notNull(),
+    runId: uuid('run_id').notNull(),
+    systemId: uuid('system_id').notNull(),
+    revisionVersion: integer('revision_version').notNull(),
+    credentialLabel: text('credential_label').notNull(),
+    purpose: text('purpose').notNull(),
+    helpUrl: text('help_url'),
+    status: authoredSystemCredentialRequestStatus('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    verificationStartedAt: timestamp('verification_started_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolvedBy: uuid('resolved_by'),
+    ...auditColumns,
+  },
+  (table) => [
+    uniqueIndex('authored_system_credential_requests_tenant_id_ux').on(table.tenantId, table.id),
+    uniqueIndex('authored_system_credential_requests_pending_ux')
+      .on(table.tenantId, table.threadId, table.systemId)
+      .where(sql`${table.status} in ('pending', 'verifying')`),
+    index('authored_system_credential_requests_thread_idx').on(table.tenantId, table.threadId, table.createdAt),
+    index('authored_system_credential_requests_system_idx').on(table.tenantId, table.systemId, table.status),
+    foreignKey({
+      name: 'authored_system_credential_requests_tenant_system_fk',
+      columns: [table.tenantId, table.systemId],
+      foreignColumns: [authoredSystems.tenantId, authoredSystems.id],
+    }).onDelete('cascade'),
+  ],
+)
+
+/** Immutable evidence for every credential-request transition; never secret material. */
+export const authoredSystemCredentialRequestEvents = pgTable(
+  'authored_system_credential_request_events',
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    requestId: uuid('request_id').notNull(),
+    seq: integer('seq').notNull(),
+    kind: authoredSystemCredentialRequestEventKind('kind').notNull(),
+    detail: jsonb('detail').$type<Record<string, unknown>>().notNull().default({}),
+    actorType: text('actor_type').notNull(),
+    actorId: uuid('actor_id'),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('authored_system_credential_request_events_seq_ux').on(table.requestId, table.seq),
+    index('authored_system_credential_request_events_tenant_idx').on(table.tenantId, table.requestId, table.seq),
+    foreignKey({
+      name: 'authored_system_credential_request_events_tenant_request_fk',
+      columns: [table.tenantId, table.requestId],
+      foreignColumns: [authoredSystemCredentialRequests.tenantId, authoredSystemCredentialRequests.id],
+    }).onDelete('cascade'),
+  ],
+)
+
 export const AUTHORED_SYSTEM_TENANT_TABLES = [
   'authored_systems',
   'authored_system_revisions',
   'authored_system_connections',
+  'authored_system_credential_requests',
+  'authored_system_credential_request_events',
 ] as const

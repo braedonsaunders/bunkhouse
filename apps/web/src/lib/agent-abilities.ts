@@ -19,6 +19,7 @@ import { loadInternalAddressTest, type InternalAddressTest } from './internal-ad
 import { listMcpIntegrations } from './mcp-integrations'
 import { mcpM2mHeaders, mcpOauthHeaders } from './mcp-oauth'
 import { authoredSystemAbilities, listAuthoredSystems, proposeAuthoredSystem } from './authored-systems'
+import { requestSystemCredential } from './system-credential-requests'
 import { sendNewMail } from './mailbox'
 import { createNote, retrieveNotes, supersedeNote } from './memory'
 import { firstOccurrence, gapMinutes, MAX_SELF_SCHEDULED_REPEATS, scheduledRunLimit } from './duties'
@@ -923,7 +924,12 @@ export async function connectIntegrationAbilities(
  * the credential, reviews the proposed tools, tests the connection, and
  * activates the immutable version from Resources → Systems.
  */
-function systemAuthoringAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {
+function systemAuthoringAbilities(args: {
+  tenantId: string
+  person: PersonRow
+  runId: string
+  chatThreadId?: string
+}): Ability[] {
   return [
     defineAbility({
       name: 'propose_system_integration',
@@ -952,10 +958,44 @@ function systemAuthoringAbilities(args: { tenantId: string; person: PersonRow; r
           proposed: true,
           system: proposed.slug,
           version: proposed.version,
-          note: 'The proposal is visible in Resources → Systems. It cannot run until an operator reviews its abilities, supplies the credential if required, tests it, and activates it.',
+          note: args.chatThreadId && definition.auth.kind !== 'none'
+            ? 'The proposal is saved. Use request_system_credential next to show the operator a secure inline credential form; never ask them to paste a secret into chat.'
+            : 'The proposal is visible in Resources → Systems. It cannot run until an operator reviews its abilities, supplies the credential if required, tests it, and activates it.',
         }
       },
     }),
+    ...(args.chatThreadId ? [defineAbility({
+      name: 'request_system_credential',
+      description:
+        'Show the human a secure inline credential form for a system you proposed in this same run. Use this immediately after propose_system_integration when its auth kind requires a key or token. Explain exactly what the credential enables and link to the provider’s official credential page when known. The submitted value bypasses chat and model context, is tested server-side, and is stored encrypted. Never ask the human to paste a secret into a message or include a secret in any tool input.',
+      // Showing a request grants nothing. The human's authenticated submit is
+      // the gate that tests, seals, assigns and activates the integration.
+      category: null,
+      inputSchema: z.object({
+        systemSlug: z.string().min(1).max(64),
+        credentialLabel: z.string().min(1).max(120),
+        purpose: z.string().min(1).max(500),
+        helpUrl: z.string().url().startsWith('https://').optional(),
+      }),
+      execute: async ({ systemSlug, credentialLabel, purpose, helpUrl }) => {
+        const requested = await requestSystemCredential({
+          tenantId: args.tenantId,
+          threadId: args.chatThreadId!,
+          personId: args.person.id,
+          runId: args.runId,
+          systemSlug,
+          credentialLabel,
+          purpose,
+          ...(helpUrl ? { helpUrl } : {}),
+        })
+        return {
+          requestId: requested.id,
+          status: requested.status,
+          system: requested.systemName,
+          note: 'The secure form is now in the conversation. The credential will not be included in the transcript or returned to you.',
+        }
+      },
+    })] : []),
   ]
 }
 
@@ -986,6 +1026,8 @@ export async function assembleAbilities(args: {
   handoffDepth?: number
   /** A human is presently asking, so an explicit ongoing routine may be recorded. */
   allowStandingSchedules?: boolean
+  /** The first-party web conversation that can render secure inline requests. */
+  chatThreadId?: string
 }): Promise<{
   abilities: Ability[]
   integrationFailures: string[]
@@ -1005,7 +1047,12 @@ export async function assembleAbilities(args: {
   const abilities: Ability[] = [
     ...memoryAbilities({ tenantId, person, runId }),
     ...researchAbilities({ tenantId }),
-    ...systemAuthoringAbilities({ tenantId, person, runId }),
+    ...systemAuthoringAbilities({
+      tenantId,
+      person,
+      runId,
+      ...(args.chatThreadId ? { chatThreadId: args.chatThreadId } : {}),
+    }),
     ...emailAbilities({ tenantId, person, runId, isInternalAddress, ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}) }),
     ...(args.waitState
       ? askAbilities({ tenantId, person, runId, waitState: args.waitState, ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}) })

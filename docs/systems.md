@@ -14,6 +14,21 @@ another tenant. An operator reviews the operations, authentication shape, and
 autonomy category for each ability, then supplies the credential and activates
 the proposal only after its read-only health check succeeds.
 
+In an authenticated Bunkhouse conversation, the employee can make that
+handoff inline. The request card names the system, the credential, its purpose,
+and every ability the pinned revision would enable. The password field posts
+directly to the authenticated connection action: its value is not a chat
+message, model input, tool argument, request record, run event, or audit detail.
+The server tests the credential, seals it with AppKit Crypto, assigns the
+approved system to that employee, and marks the card stored. A failed test
+retains only a redacted error and returns the card to a retryable state.
+
+Requests are durable and tenant-isolated. Their mutable projection has a
+database-enforced state machine and a short verification lease so a crashed
+submit can be recovered; their lifecycle events are append-only. Both point at
+the exact immutable revision the operator saw, so a later proposal cannot
+silently expand what an already-presented credential request authorizes.
+
 The executable definition is deliberately small: an HTTPS base URL, bearer or
 named-header authentication, JSON input schemas, request paths and query/body
 mappings, optional provider idempotency headers, and one harmless `GET` health
@@ -162,7 +177,8 @@ NetSuite requires `PS256` and does not accept `RS256` at all.
 | Renewal and health schedule | the `systems` pass in `scripts/worker.mts` |
 | Authored definition validation and request mapping | `packages/runtime/src/http-system.ts` |
 | Authored revisions, sealed access, activation | `lib/authored-systems.ts` |
-| Authored system records and RLS | `db/schema/systems.ts`, `migrations/0065_employee_authored_systems.sql` |
+| Inline credential request, verification and redaction | `lib/system-credential-requests.ts` |
+| Authored system records and RLS | `db/schema/systems.ts`, `migrations/0065_employee_authored_systems.sql`, `migrations/0069_inline_system_credentials.sql` |
 
 The stored shape is `McpIntegrationEntry` in `db/schema/settings.ts`, under the
 `integrations.mcp` tenant setting. A connection carries exactly one of

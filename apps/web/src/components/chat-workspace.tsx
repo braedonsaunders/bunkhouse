@@ -55,6 +55,8 @@ import {
   retryQueuedMessageAction,
   setThreadStatusAction,
   startThreadAction,
+  submitSystemCredentialRequestAction,
+  cancelSystemCredentialRequestAction,
 } from '../app/chat/actions'
 import { ChatWorkSurface } from './chat-work-surface'
 import { CALL_STAGE_AVATAR_SIZE } from './call-stage'
@@ -116,6 +118,27 @@ export type ChatDispatchRecord = {
   finishedAt: string | null
 }
 
+export type ChatCredentialRequestRecord = {
+  id: string
+  threadId: string
+  runId: string
+  systemId: string
+  systemName: string
+  systemSlug: string
+  revisionVersion: number
+  credentialLabel: string
+  purpose: string
+  helpUrl: string | null
+  authKind: 'bearer' | 'header' | 'query'
+  operations: Array<{ name: string; title: string; category: string }>
+  status: 'pending' | 'verifying' | 'stored' | 'cancelled' | 'expired'
+  attempts: number
+  lastError: string | null
+  createdAt: string
+  expiresAt: string
+  resolvedAt: string | null
+}
+
 export type ChatThreadDetail = {
   thread: {
     id: string
@@ -128,6 +151,7 @@ export type ChatThreadDetail = {
   }
   messages: ChatMessageRecord[]
   dispatches: ChatDispatchRecord[]
+  credentialRequests: ChatCredentialRequestRecord[]
 }
 
 /** An agent that can be talked to — one that has a brain assigned to think with. */
@@ -162,7 +186,13 @@ function useWideViewport(): boolean {
  * a streamed turn arrives with the richer parts (tool cards, steps) already
  * shaped by the SDK and is left alone.
  */
-function toAgentMessage(message: ChatMessageRecord): AgentMessage {
+function toAgentMessage(
+  message: ChatMessageRecord,
+  credentialRequests: ChatCredentialRequestRecord[],
+): AgentMessage {
+  const requests = message.role === 'agent' && message.runId
+    ? credentialRequests.filter((request) => request.runId === message.runId)
+    : []
   return {
     id: message.id,
     role: message.role === 'user' ? 'user' : message.role === 'system' ? 'system' : 'assistant',
@@ -173,6 +203,19 @@ function toAgentMessage(message: ChatMessageRecord): AgentMessage {
         filename: attachment.filename,
         mediaType: attachment.contentType,
         url: `/api/files/${encodeURIComponent(attachment.fileId)}`,
+      })),
+      ...requests.map((request) => ({
+        type: 'secret-request' as const,
+        requestId: request.id,
+        providerLabel: request.systemName,
+        credentialLabel: request.credentialLabel,
+        purpose: `${request.purpose} This enables ${request.operations.length === 1 ? '1 ability' : `${request.operations.length} abilities`}: ${request.operations.map((operation) => operation.title).join(', ')}.`,
+        ...(request.helpUrl ? { helpUrl: request.helpUrl } : {}),
+        status: request.status === 'stored'
+          ? 'stored' as const
+          : request.status === 'pending' || request.status === 'verifying'
+            ? 'pending' as const
+            : 'expired' as const,
       })),
     ],
   }
@@ -188,6 +231,10 @@ function fileSizeLabel(bytes: number): string {
   if (bytes < 1_024) return `${bytes} B`
   if (bytes < 1_024 * 1_024) return `${Math.ceil(bytes / 1_024)} KB`
   return `${(bytes / (1_024 * 1_024)).toFixed(bytes >= 10 * 1_024 * 1_024 ? 0 : 1)} MB`
+}
+
+function credentialRequestSignature(requests: ChatCredentialRequestRecord[]): string {
+  return requests.map((request) => `${request.id}:${request.status}:${request.attempts}:${request.lastError ?? ''}`).join('|')
 }
 
 const DEFAULT_WORK_PANE_WIDTH = 448
@@ -756,7 +803,13 @@ export function AgentChatWorkspace({
         if (loaded === null) return
         // Only the record around the thread is taken: the panel holds the turn
         // that has just streamed, in far more detail than the stored bodies.
-        setDetail((current) => (current && current.thread.id === threadId ? loaded : current))
+        setDetail((current) => {
+          if (!current || current.thread.id !== threadId) return current
+          if (credentialRequestSignature(current.credentialRequests) !== credentialRequestSignature(loaded.credentialRequests)) {
+            setPanelGeneration((generation) => generation + 1)
+          }
+          return loaded
+        })
       } catch {
         // The list simply stays as it was; nothing the reader did has been lost.
       }
@@ -855,6 +908,31 @@ export function AgentChatWorkspace({
     await refreshThread(result.dispatch.threadId)
   }, [refreshThread])
 
+  const submitCredentialRequest = React.useCallback(async (requestId: string, secret: string) => {
+    const threadId = activeId
+    if (!threadId) throw new Error('No conversation is open.')
+    const result = await submitSystemCredentialRequestAction({ threadId, requestId, credential: secret })
+    if (!result.ok) {
+      setError(result.message)
+      await refreshThread(threadId)
+      throw new Error(result.message)
+    }
+    setError(null)
+    await refreshThread(threadId)
+  }, [activeId, refreshThread])
+
+  const cancelCredentialRequest = React.useCallback(async (requestId: string) => {
+    const threadId = activeId
+    if (!threadId) throw new Error('No conversation is open.')
+    const result = await cancelSystemCredentialRequestAction({ threadId, requestId })
+    if (!result.ok) {
+      setError(result.message)
+      throw new Error(result.message)
+    }
+    setError(null)
+    await refreshThread(threadId)
+  }, [activeId, refreshThread])
+
   // A queued turn may finish in a worker after the request that accepted it
   // has returned. Follow the durable projection while there is pending work;
   // when a new persisted answer lands outside the direct stream, remount the
@@ -869,7 +947,9 @@ export function AgentChatWorkspace({
           if (!current || current.thread.id !== threadId) return current
           const previousLast = current.messages.at(-1)?.id
           const nextLast = loaded.messages.at(-1)?.id
-          if (!directStreamRef.current && previousLast !== nextLast) {
+          const credentialRequestsChanged =
+            credentialRequestSignature(current.credentialRequests) !== credentialRequestSignature(loaded.credentialRequests)
+          if (!directStreamRef.current && (previousLast !== nextLast || credentialRequestsChanged)) {
             setPanelGeneration((generation) => generation + 1)
           }
           return loaded
@@ -1103,8 +1183,10 @@ export function AgentChatWorkspace({
             // the composer is closed here too rather than offering a Send that
             // is only going to be refused.
             enabled={detail.thread.status === 'open'}
-            initialMessages={detail.messages.map(toAgentMessage)}
+            initialMessages={detail.messages.map((message) => toAgentMessage(message, detail.credentialRequests))}
             send={send}
+            onSubmitSecretRequest={submitCredentialRequest}
+            onCancelSecretRequest={cancelCredentialRequest}
             composerActions={
               <Popover
                 open={uploadOpen}

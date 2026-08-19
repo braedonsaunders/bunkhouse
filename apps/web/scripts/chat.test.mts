@@ -496,6 +496,21 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   assert.ok(workspace.includes('headerActions={'), 'the work visibility control lives in AgentPanel’s main header')
   assert.equal(workspace.includes('Run records:'), false, 'internal run boundaries never accumulate above the transcript')
   assert.ok(workspace.includes('<ThreadNoticeBar'), 'only exceptional system notes occupy the transcript margin')
+  assert.ok(
+    workspace.includes("type: 'secret-request' as const") &&
+      workspace.includes('onSubmitSecretRequest={submitCredentialRequest}') &&
+      workspace.includes('onCancelSecretRequest={cancelCredentialRequest}'),
+    'credential handoffs render inline and submit outside the transcript composer',
+  )
+  const credentialRequests = readFileSync(
+    fileURLToPath(new URL('../src/lib/system-credential-requests.ts', import.meta.url)),
+    'utf8',
+  )
+  assert.ok(
+    workspace.includes('request.operations.map((operation) => operation.title)') &&
+      credentialRequests.includes('eq(authoredSystemRevisions.version, authoredSystemCredentialRequests.revisionVersion)'),
+    'the inline request presents abilities from the exact pinned revision instead of a generic password box',
+  )
   assert.equal(
     workspace.includes('Separate conversations keep different pieces of work from bleeding into one another.'),
     false,

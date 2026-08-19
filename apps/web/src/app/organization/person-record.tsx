@@ -41,6 +41,7 @@ import { AgentChatWorkspace, type ChatThreadDetail } from '../../components/chat
 import { AgentRecordPage, AgentRecordSubsections, type AgentPageSection } from '../../components/agent-record-page'
 import { getThread, listThreads } from '../../lib/chat-threads'
 import { listChatDispatches } from '../../lib/chat-dispatch'
+import { listThreadSystemCredentialRequests } from '../../lib/system-credential-requests'
 import { listResourceCatalog } from '../../lib/role-resources'
 import { agentBinding, bindsToAgent } from '../../lib/assignment'
 import { listRoles } from '../../lib/roles'
@@ -446,9 +447,14 @@ export async function personDrawer({
       ? await (async () => {
           const detail = await getThread(tenantId, selectedChatThreadId)
           if (!detail) return null
+          const [dispatches, credentialRequests] = await Promise.all([
+            listChatDispatches({ tenantId, threadId: selectedChatThreadId }),
+            listThreadSystemCredentialRequests(tenantId, selectedChatThreadId),
+          ])
           return {
             ...detail,
-            dispatches: await listChatDispatches({ tenantId, threadId: selectedChatThreadId }),
+            dispatches,
+            credentialRequests,
           }
         })()
       : null

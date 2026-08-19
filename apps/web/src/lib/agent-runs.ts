@@ -911,6 +911,9 @@ export async function executeAgentRun(args: {
             // only ever saw "1" and never stopped anything.
             handoffDepth,
             allowStandingSchedules,
+            ...(args.trigger.type === 'chat' && args.trigger.conversationId.startsWith('web:')
+              ? { chatThreadId: args.trigger.conversationId.slice('web:'.length) }
+              : {}),
             ...(args.counterparty ? { counterparty: args.counterparty } : {}),
             waitState,
           })

@@ -14,6 +14,7 @@ const tests = [
   'mailbox',
   'netsuite-shim',
   'http-system',
+  'system-credentials',
   'internal-addresses',
   'call-speech-gate',
   'memory-query',

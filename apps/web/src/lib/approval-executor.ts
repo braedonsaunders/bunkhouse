@@ -208,6 +208,9 @@ async function carryOutDecision(tenantId: string, claimed: ClaimedApproval): Pro
           (run.trigger.type === 'email' && (await threadIsInternal(tenantId, run.trigger.threadId))),
         assignmentSource:
           run.trigger.type === 'email' ? { kind: 'mail', threadId: run.trigger.threadId } : { kind: 'manual' },
+        ...(run.trigger.type === 'chat' && run.trigger.conversationId.startsWith('web:')
+          ? { chatThreadId: run.trigger.conversationId.slice('web:'.length) }
+          : {}),
       })
       const abilities: Ability[] = [...assembled.abilities]
       if (run.trigger.type === 'email') {

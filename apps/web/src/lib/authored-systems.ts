@@ -20,6 +20,7 @@ import {
   type ResourceAssignment,
 } from '../db/schema'
 import { db } from '../db/client'
+import { redactCredentialText } from './credential-redaction'
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 const REQUEST_TIMEOUT_MS = 30_000
@@ -200,11 +201,14 @@ function credentialFor(record: AuthoredSystemRecord, replacement?: string): stri
   return kept
 }
 
-export async function probeAuthoredSystem(
-  tenantId: string,
+type AuthoredSystemProbe =
+  | { ok: true; toolCount: number; credential: string | undefined }
+  | { ok: false; message: string }
+
+async function testAuthoredSystem(
   record: AuthoredSystemRecord,
   replacementCredential?: string,
-): Promise<{ ok: true; toolCount: number } | { ok: false; message: string }> {
+): Promise<AuthoredSystemProbe> {
   const credential = credentialFor(record, replacementCredential)
   const definition = parseDefinition(record.revision.definition)
   const operation = definition.operations.find((candidate) => candidate.name === definition.healthCheck.operation)!
@@ -219,53 +223,75 @@ export async function probeAuthoredSystem(
     if (response.status < 200 || response.status >= 300) {
       throw new Error(`${operation.title} returned ${response.status}${response.statusText ? ` ${response.statusText}` : ''}.`)
     }
-    const app = db()
-    await app.withTenant(tenantId, () => app.db
+    return { ok: true, toolCount: definition.operations.length, credential }
+  } catch (error) {
+    // Query-auth credentials may be part of the request URL a network stack
+    // includes in its error. Health state is durable, so redact before either
+    // persisting or returning the failure to an operator.
+    const rawMessage = error instanceof Error ? error.message : String(error)
+    const message = redactCredentialText(rawMessage, credential)
+    return { ok: false, message }
+  }
+}
+
+async function persistAuthoredSystemProbe(
+  tenantId: string,
+  systemId: string,
+  probe: AuthoredSystemProbe,
+): Promise<void> {
+  const app = db()
+  const now = new Date()
+  await app.withTenant(tenantId, () => probe.ok
+    ? app.db
       .insert(authoredSystemConnections)
       .values({
         tenantId,
-        systemId: record.system.id,
-        sealedCredential: credential ? sealSecret(credential) : null,
+        systemId,
+        sealedCredential: probe.credential ? sealSecret(probe.credential) : null,
         healthStatus: 'ok',
-        lastCheckedAt: new Date(),
-        lastToolCount: definition.operations.length,
+        lastCheckedAt: now,
+        lastToolCount: probe.toolCount,
         lastError: null,
       })
       .onConflictDoUpdate({
         target: authoredSystemConnections.systemId,
         set: {
-          sealedCredential: credential ? sealSecret(credential) : null,
+          sealedCredential: probe.credential ? sealSecret(probe.credential) : null,
           healthStatus: 'ok',
-          lastCheckedAt: new Date(),
-          lastToolCount: definition.operations.length,
+          lastCheckedAt: now,
+          lastToolCount: probe.toolCount,
           lastError: null,
-          updatedAt: new Date(),
+          updatedAt: now,
         },
-      }))
-    return { ok: true, toolCount: definition.operations.length }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    const app = db()
-    await app.withTenant(tenantId, () => app.db
+      })
+    : app.db
       .insert(authoredSystemConnections)
       .values({
         tenantId,
-        systemId: record.system.id,
+        systemId,
         healthStatus: 'failed',
-        lastCheckedAt: new Date(),
-        lastError: message,
+        lastCheckedAt: now,
+        lastError: probe.message,
       })
       .onConflictDoUpdate({
         target: authoredSystemConnections.systemId,
         set: {
           healthStatus: 'failed',
-          lastCheckedAt: new Date(),
-          lastError: message,
-          updatedAt: new Date(),
+          lastCheckedAt: now,
+          lastError: probe.message,
+          updatedAt: now,
         },
       }))
-    return { ok: false, message }
-  }
+}
+
+export async function probeAuthoredSystem(
+  tenantId: string,
+  record: AuthoredSystemRecord,
+  replacementCredential?: string,
+): Promise<{ ok: true; toolCount: number } | { ok: false; message: string }> {
+  const probe = await testAuthoredSystem(record, replacementCredential)
+  await persistAuthoredSystemProbe(tenantId, record.system.id, probe)
+  return probe.ok ? { ok: true, toolCount: probe.toolCount } : probe
 }
 
 export async function activateAuthoredSystem(args: {
@@ -278,19 +304,52 @@ export async function activateAuthoredSystem(args: {
   const records = await listAuthoredSystems(args.tenantId)
   const record = records.find((candidate) => candidate.system.id === args.systemId)
   if (!record) throw new Error('That system proposal no longer exists.')
-  const probe = await probeAuthoredSystem(args.tenantId, record, args.credential)
-  if (!probe.ok) throw new Error(`The connection test failed: ${probe.message}`)
+  const probe = await testAuthoredSystem(record, args.credential)
+  if (!probe.ok) {
+    await persistAuthoredSystemProbe(args.tenantId, record.system.id, probe)
+    throw new Error(`The connection test failed: ${probe.message}`)
+  }
   const app = db()
   await app.withTenant(args.tenantId, () => app.db.transaction(async (tx) => {
-    const [fresh] = await tx.select().from(authoredSystems).where(eq(authoredSystems.id, args.systemId)).limit(1)
+    // The proposal writer takes this same lock. Acquire it only after the
+    // network probe, then re-read: a revision that arrived during the request
+    // wins, and no credential is stored against a scope the operator did not
+    // just review.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${args.tenantId}:${record.system.slug}`}, 0))`)
+    const [fresh] = await tx
+      .select()
+      .from(authoredSystems)
+      .where(eq(authoredSystems.id, args.systemId))
+      .for('update')
+      .limit(1)
     if (!fresh || fresh.latestVersion !== record.system.latestVersion) {
       throw new Error('A newer proposal arrived while this one was being tested. Review that version before activating it.')
     }
+    const now = new Date()
+    await tx.insert(authoredSystemConnections).values({
+      tenantId: args.tenantId,
+      systemId: fresh.id,
+      sealedCredential: probe.credential ? sealSecret(probe.credential) : null,
+      healthStatus: 'ok',
+      lastCheckedAt: now,
+      lastToolCount: probe.toolCount,
+      lastError: null,
+    }).onConflictDoUpdate({
+      target: authoredSystemConnections.systemId,
+      set: {
+        sealedCredential: probe.credential ? sealSecret(probe.credential) : null,
+        healthStatus: 'ok',
+        lastCheckedAt: now,
+        lastToolCount: probe.toolCount,
+        lastError: null,
+        updatedAt: now,
+      },
+    })
     await tx.update(authoredSystems).set({
       status: 'active',
       activeVersion: fresh.latestVersion,
       assignment: args.assignment,
-      updatedAt: new Date(),
+      updatedAt: now,
       updatedBy: args.actorUserId,
     }).where(eq(authoredSystems.id, fresh.id))
     await tx.insert(identity.auditLog).values({

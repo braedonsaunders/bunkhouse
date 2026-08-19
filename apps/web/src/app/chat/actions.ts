@@ -49,6 +49,12 @@ import {
   MAX_CHAT_UPLOAD_BYTES,
   reserveChatFileUpload,
 } from '../../lib/files'
+import {
+  cancelSystemCredentialRequest,
+  listThreadSystemCredentialRequests,
+  submitSystemCredentialRequest,
+  type SystemCredentialRequestView,
+} from '../../lib/system-credential-requests'
 
 /**
  * The chat page's server actions.
@@ -96,12 +102,77 @@ export async function listThreadsAction(
 
 export async function getThreadAction(
   threadId: string,
-): Promise<{ thread: ChatThreadView; messages: ChatMessageView[]; dispatches: ChatDispatchView[] } | null> {
+): Promise<{
+  thread: ChatThreadView
+  messages: ChatMessageView[]
+  dispatches: ChatDispatchView[]
+  credentialRequests: SystemCredentialRequestView[]
+} | null> {
   if (!threadId) return null
   const access = await requireTenantPermission('work.read')
   const detail = await getThread(access.tenantId, threadId)
   if (!detail) return null
-  return { ...detail, dispatches: await listChatDispatches({ tenantId: access.tenantId, threadId }) }
+  const [dispatches, credentialRequests] = await Promise.all([
+    listChatDispatches({ tenantId: access.tenantId, threadId }),
+    listThreadSystemCredentialRequests(access.tenantId, threadId),
+  ])
+  return { ...detail, dispatches, credentialRequests }
+}
+
+/**
+ * A credential travels only through this action. It is neither a chat message
+ * nor an agent-tool argument, and the service returns status without echoing
+ * the submitted value.
+ */
+export async function submitSystemCredentialRequestAction(input: {
+  threadId: string
+  requestId: string
+  credential: string
+}): Promise<{ ok: true; toolCount: number } | { ok: false; message: string }> {
+  const access = await requireTenantPermission('resources.manage')
+  const detail = await getThread(access.tenantId, input.threadId)
+  if (!detail) return { ok: false, message: 'That conversation no longer exists.' }
+  if (detail.thread.userId !== access.user.id) {
+    return { ok: false, message: 'That conversation belongs to someone else.' }
+  }
+  try {
+    const result = await submitSystemCredentialRequest({
+      tenantId: access.tenantId,
+      threadId: input.threadId,
+      requestId: input.requestId,
+      userId: access.user.id,
+      credential: input.credential,
+    })
+    revalidatePath(CHAT_PATH)
+    revalidatePath('/resources')
+    return result
+  } catch (reason) {
+    return { ok: false, message: reason instanceof Error ? reason.message : 'That credential could not be verified.' }
+  }
+}
+
+export async function cancelSystemCredentialRequestAction(input: {
+  threadId: string
+  requestId: string
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const access = await requireTenantPermission('resources.manage')
+  const detail = await getThread(access.tenantId, input.threadId)
+  if (!detail) return { ok: false, message: 'That conversation no longer exists.' }
+  if (detail.thread.userId !== access.user.id) {
+    return { ok: false, message: 'That conversation belongs to someone else.' }
+  }
+  try {
+    await cancelSystemCredentialRequest({
+      tenantId: access.tenantId,
+      threadId: input.threadId,
+      requestId: input.requestId,
+      userId: access.user.id,
+    })
+    revalidatePath(CHAT_PATH)
+    return { ok: true }
+  } catch (reason) {
+    return { ok: false, message: reason instanceof Error ? reason.message : 'That request could not be cancelled.' }
+  }
 }
 
 /** Reserve a tenant-private direct upload for the open conversation. */
