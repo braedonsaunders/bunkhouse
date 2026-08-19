@@ -2,9 +2,8 @@
 
 Everything that runs **inside** a per-agent microVM: the golden disk image the
 desks boot from, and the guest agent that answers the host over vsock. The
-**host** side (Cloud Hypervisor, the desk-runner container) lives elsewhere and
-is not built here — see `apps/web/scripts/desk-runner.mts` and
-[`docs/desk-host.md`](../../docs/desk-host.md) for the operating design.
+**host** side (Cloud Hypervisor, the desk-runner container) lives in
+`apps/web/scripts/desk-runner.mts` and `deploy/desk-runner.compose.yaml`.
 
 ## What's here
 

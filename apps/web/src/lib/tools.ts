@@ -23,7 +23,7 @@ export { TOOL_CATALOGUE }
  * The tool shelf: command-line programs an agent may run, pinned to exact
  * versions with a declared risk and a health an operator can see.
  *
- * The desk cutover (docs/agent-desk.md §3.16, §3.22) changed WHERE these run
+ * The desk cutover changed WHERE these run
  * and WHAT the shelf enforces. Tools execute on the agent's desk — the
  * catalogue is baked into the golden base image (lib/base-image.ts), so a run
  * is just the pinned binary in the guest. The package's install/execute

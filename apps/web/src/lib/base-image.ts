@@ -6,7 +6,7 @@ export { TOOL_CATALOGUE }
 
 /**
  * What the golden base image contains, declared the way the tool shelf is
- * (docs/agent-desk.md §3.16): `defineAgentTool` manifests with exact pinned
+ * declared: `defineAgentTool` manifests with exact pinned
  * versions, health checks, and an operator-visible listing. The install and
  * execute gates that @braedonsaunders/appkit-agent-tools also offers do not sit on the desk's
  * agent path — an agent with a root terminal walks around them in one line

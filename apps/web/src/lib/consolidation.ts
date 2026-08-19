@@ -9,7 +9,7 @@ import { resolveAgentAiConfig } from './ai'
 import { createNote, expireNote, parseWikilinks, slugify } from './memory'
 
 /**
- * The Logbook consolidation jobs (docs/memory-design.md §"Consolidation jobs"):
+ * The Logbook consolidation jobs:
  * sleep-time compute whose every output is a readable note or a reviewable
  * proposal. The nightly journal turns yesterday's run events into episode
  * notes and fact candidates; the weekly reflection distils recent episodes
@@ -490,7 +490,7 @@ function gardenerMarker(rationale: string) {
 }
 
 /**
- * Monthly company gardener (docs/memory-design.md build-order step 4): a
+ * Monthly company gardener: a
  * housekeeping pass over live COMPANY notes only — merge near-duplicates,
  * expire notes that are stale or superseded in substance, and flag pairs
  * that contradict each other. Every finding is a memory_proposals row; the

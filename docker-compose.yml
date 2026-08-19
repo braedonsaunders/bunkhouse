@@ -10,8 +10,8 @@
 #
 # This file is for evaluation on one machine. It is NOT the deployment shape:
 # secrets default in plain sight here so that first contact is one command.
-# For anything reachable by another person, see deploy/dokploy.compose.yaml,
-# docs/operations.md, and SECURITY.md.
+# For anything reachable by another person, see deploy/dokploy.compose.yaml
+# and SECURITY.md.
 #
 # What is bundled: PostgreSQL 16 (with the two-role RLS posture the app is
 # designed for), Redis 7, the web app, and the background worker.
@@ -119,7 +119,7 @@ services:
       BUNKHOUSE_REMOTE_CIPHER_KEY: ${BUNKHOUSE_REMOTE_CIPHER_KEY:-cXVpY2tzdGFydC1yZW1vdGUtY2lwaGVyLWtleSEhISE=}
       GUACD_HOST: guacd
 
-  # The agent desk: one Cloud Hypervisor microVM per agent (docs/desk-host.md).
+  # The agent desk: one Cloud Hypervisor microVM per agent.
   #
   # Opt-in via `docker compose --profile desk up` because it requires /dev/kvm:
   #   - On a Linux host, /dev/kvm is usually present and passes straight into
@@ -162,8 +162,7 @@ services:
       start_period: 20s
 
   # Every byte a desk guest sends is DNAT'd into this proxy at the TAP device
-  # by the desk-runner — enforcement lives outside the guest, which is the
-  # point (docs/desk-host.md).
+  # by the desk-runner — enforcement lives outside the guest by design.
   egress-proxy:
     profiles: ['desk']
     image: ${BUNKHOUSE_IMAGE:-ghcr.io/braedonsaunders/bunkhouse:latest}

@@ -3,7 +3,7 @@ import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
 import type { ResourceAssignment } from './assignment'
 
 /**
- * The Logbook (docs/memory-design.md): human-readable markdown notes are the
+ * The Logbook: human-readable markdown notes are the
  * single source of truth. Notes are typed (fact/episode/procedure/reflection),
  * linked with [[wikilinks]] (memory_links is a parse cache), and bi-temporal:
  * a contradiction closes the old note's validity window and points at its

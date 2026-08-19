@@ -26,7 +26,7 @@ import {
  * step), but the Chromium it drives lives in the agent's own microVM with a
  * PERSISTENT profile in the guest home: sign in once and the login survives
  * into the next run, and a downloaded file lands where run_shell can process
- * it (docs/agent-desk.md Phase 4). Puppeteer connects over the desk-runner's
+ * it. Puppeteer connects over the desk-runner's
  * CDP relay rather than launching a process.
  *
  * Doctrine: gated abilities are recorded. Every step screenshots the viewport,

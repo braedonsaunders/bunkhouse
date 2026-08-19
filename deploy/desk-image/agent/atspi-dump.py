@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Read (and act on) the focused application's AT-SPI tree, as JSON.
 
-This is the OPPORTUNISTIC half of the desk's perception (docs/agent-desk.md
-§3.10). Perception is pixels-primary: the guest agent always ships a
+This is the opportunistic half of the desk's perception. Perception is
+pixels-primary: the guest agent always ships a
 screenshot, and calls this helper on the side. If python3-pyatspi is missing,
 the accessibility bus is down, or the focused application exposes nothing, this
 prints `null` (or exits non-zero with a reason on stderr) and the agent reports

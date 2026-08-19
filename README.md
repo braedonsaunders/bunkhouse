@@ -63,8 +63,8 @@ email, calls, governed documents, connectors, and pure computation remain availa
 browser, terminal, employee-machine files, and desktop fail closed together because they
 are one microVM.
 
-For development from source, deployment, backups, voice, and the local mail/media lab,
-see [Contributing](CONTRIBUTING.md) and [Operations](docs/operations.md).
+For development from source, see [Contributing](CONTRIBUTING.md). Before exposing a
+deployment, review [Security](SECURITY.md).
 
 ## Why Bunkhouse
 
@@ -116,8 +116,7 @@ Remote computers are configured under **Library → Computers** and governed by 
 company feature switch plus the agent's autonomy dial. The default Docker stack includes
 the Bunkhouse-owned gateway and `guacd`; no Steward service or external Guacamole server is
 required. Credentials are sealed, unsealed only inside the server adapter, and never placed
-in prompts, browser payloads, or event records. See [Remote computers](docs/remote-computers.md)
-and [Desk host](docs/desk-host.md) for the operating contracts.
+in prompts, browser payloads, or event records.
 
 ## What is implemented
 
@@ -194,9 +193,7 @@ never belongs in source control. Read [Security](SECURITY.md) before exposing a 
 Bunkhouse is **alpha software**. It has not completed an independent security audit,
 accessibility audit, or published real-business pilot. Evaluate it with synthetic or
 parallel data, keep autonomy conservative, review external actions, and test restoration
-before relying on it. The first measurable role-pack validation protocol is the
-[AR / Collections pilot](docs/validation/ar-collections-pilot.md); it is a protocol, not a
-claim of customer proof.
+before relying on it.
 
 ## Community
 

@@ -1,7 +1,7 @@
 # The agent desk runner — its own application, on its own VM, on purpose.
 #
 # This file replaces deploy/shell-runner.compose.yaml. The desk (a Cloud
-# Hypervisor microVM per agent — docs/agent-desk.md) is the only agent
+# Hypervisor microVM per agent) is the only agent
 # execution surface now; the bubblewrap shell runner is retired with it, and
 # the BUNKHOUSE_SHELL_URL / BUNKHOUSE_SHELL_TOKEN pair on the main stack is
 # superseded by BUNKHOUSE_DESK_URL / BUNKHOUSE_DESK_TOKEN.
@@ -35,7 +35,7 @@
 # in front of it that DNATs ALL guest HTTP and HTTPS into the egress proxy,
 # pins DNS to one resolver, and DROPS everything else — including 443/udp,
 # because Chromium tries QUIC first and would otherwise route straight past a
-# TCP-only proxy without ever telling anyone (docs/agent-desk.md §3.11).
+# TCP-only proxy without ever telling anyone.
 #
 # That is the enforcement §3.22 depends on. The agent has a ROOT SHELL inside
 # the guest, so any control that lives inside the guest is a control the agent
@@ -113,7 +113,7 @@ volumes:
       o: bind
       device: ${BUNKHOUSE_AGENT_DISKS_HOST:-/mnt/agent-disks}
   # The one governed hole in the per-agent boundary: the company shared
-  # folder, mounted into each guest via virtio-fs (docs/agent-desk.md §3.12).
+  # folder, mounted into each guest via virtio-fs.
   shared-folder:
 
 services:
@@ -216,7 +216,7 @@ services:
   # guest traffic at the TAP device into this proxy as it creates each tap, so
   # the guest cannot opt out — there is no proxy setting to unset, and it
   # covers every application including the ones that ignore HTTP_PROXY
-  # (docs/agent-desk.md §3.11). That placement is the point: the agent has a
+  # too. That placement is the point: the agent has a
   # root shell inside the guest, so enforcement has to live outside the
   # boundary the agent controls or it is not enforcement.
   #

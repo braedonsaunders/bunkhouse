@@ -228,7 +228,7 @@ export async function loadRunRecord({
     const producedFiles = await app.db.select().from(files).where(eq(files.runId, runId)).orderBy(asc(files.createdAt))
     // Desk work is recorded, always: one session per run, one interleaved
     // event stream — terminal, browser, and screen in the order they happened
-    // (docs/agent-desk.md §3.19), with the frames filed alongside.
+    // with the frames filed alongside.
     const [deskSession] = await app.db
       .select({
         id: deskSessions.id,

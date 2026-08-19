@@ -93,7 +93,7 @@ export async function saveDeskPolicy(tenantId: string, value: DeskPolicy): Promi
  * The feature gate, per AGENTS.md: one authoritative switchboard setting.
  * `desk` is having a machine at all; `desktop` is opening a screen on it.
  * The child gate is never independently available — desk off forces desktop
- * off, whatever the stored row says (docs/agent-desk.md §6.4).
+ * off, whatever the stored row says.
  */
 export type DeskFeatures = {
   desk: boolean

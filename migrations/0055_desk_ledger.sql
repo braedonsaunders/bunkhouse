@@ -1,4 +1,4 @@
--- The desk ledger (docs/agent-desk.md §3.19, §6.1): on a desk the agent types
+-- The desk ledger: on a desk the agent types
 -- in a terminal and clicks in a GUI as one continuous piece of work, so it gets
 -- ONE session ledger and ONE typed, append-only event stream instead of the
 -- three surfaces it replaces. Because per-command approval moved off the agent

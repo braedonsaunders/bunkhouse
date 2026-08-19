@@ -8,7 +8,7 @@ import {
 } from '@braedonsaunders/appkit-egress-proxy'
 
 /**
- * The egress chokepoint for every desk (docs/agent-desk.md §3.11). All guest
+ * The egress chokepoint for every desk. All guest
  * traffic is DNAT'd here at the TAP device by the desk-runner's network glue,
  * so the guest cannot opt out — there is no proxy setting to unset, and it
  * covers every application including the ones that ignore HTTP_PROXY. That

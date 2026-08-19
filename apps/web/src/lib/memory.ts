@@ -8,7 +8,7 @@ import { embedText, embeddableText, toVectorLiteral } from './embeddings'
 import { anyTermQuery, normalizeFusedScores, reciprocalRankFusion, retryMemoryRead } from './memory-query'
 
 /**
- * The Logbook engine (docs/memory-design.md). Markdown notes are the source of
+ * The Logbook engine. Markdown notes are the source of
  * truth; wikilinks are the graph; supersession is append-only; retrieval is
  * importance × recency × relevance over tsvector. Callers run inside a tenant
  * context (withTenant/withTenantContext).

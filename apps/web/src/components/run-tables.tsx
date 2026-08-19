@@ -407,7 +407,7 @@ const DESK_EVENT_VARIANT = (kind: string) =>
 /**
  * The desk replay: ONE interleaved stream — terminal, browser, and screen in
  * the order they happened, with the recorded frame inline wherever one was
- * captured. This is deliberately a single table (docs/agent-desk.md §3.19):
+ * captured. This is deliberately a single table:
  * three separate ledgers would make an operator interleave them by timestamp,
  * and the seams are where things get missed.
  */

@@ -6,7 +6,7 @@
 # desk-vsock-bridge.service forwards vsock port 5252 into that socket.
 [Unit]
 Description=Bunkhouse in-guest desk agent (framed JSON over UNIX socket)
-Documentation=https://github.com/braedonsaunders/bunkhouse/blob/main/docs/desk-host.md
+Documentation=https://github.com/braedonsaunders/bunkhouse/tree/main/deploy/desk-image
 After=network.target
 Wants=network.target
 

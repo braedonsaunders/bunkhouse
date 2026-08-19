@@ -23,7 +23,7 @@ record; "you"/"the coding agent" means whoever is editing this repo. Do not conf
    can't show which procedure it followed is a bug. Skill/role packs may ship procedures as
    seeds, installed into the governed library on adoption — never as a second live copy.
    A role *links* resources (procedures, skills, knowledge, systems) through the one
-   `assignment` edge; it never restates them (`docs/roles.md`).
+   `assignment` edge; it never restates them.
 4. **Autonomy is a dial, per agent × action category** (external email, money-adjacent,
    record changes, sandbox, desktop). Enforcement lives in the runtime, not in prompts.
 5. **Salary = token budget.** Per-agent monthly budget against the company's own provider
@@ -115,12 +115,12 @@ Adopt AppKit's
 verbatim: fully tokenized styling (no raw colors), one motion system with
 visible-by-default entrances, Server-Component-safe primitives, clean cutover (no legacy
 shims), complete production-grade code (no stubs/TODO paths), search before building,
-no dead code, docs updated in the same change.
+no dead code, and operator-facing guidance updated in the same change.
 
 **AppKit first, both directions — non-negotiable:**
 
 1. **Before building ANYTHING fresh, check AppKit.** Search `../appkit/packages/*` (and
-   `docs/for-agents/orientation.md`) for an existing primitive, package, or pattern before
+   `../appkit/docs/for-agents/orientation.md`) for an existing primitive, package, or pattern before
    writing a component, utility, schema helper, queue, or service. Building a local
    version of something AppKit already ships is a bug (e.g. lists are `RecordList`/
    `PagedTable`, secrets are `@braedonsaunders/appkit-crypto` sealers, queues are `@braedonsaunders/appkit-jobs` profiles).
@@ -141,15 +141,6 @@ After changing AppKit: run its full validation and release workflow, update the 
 - `packages/runtime` — the employee loop: providers, MCP, tools, context assembly,
   autonomy enforcement, budget metering. Publishable; keep it free of web coupling.
 - `packages/roles` — role-pack format + first-party packs (MIT).
-- `docs/organization.md` — the roster, the reporting hierarchy, and the tree invariant.
-- `docs/roles.md` — a role links company resources instead of copying them: the one
-  `assignment` edge, edited from either end, and why duties are the exception.
-- `docs/cost-accounting.md` — where every figure in the spend ledger comes from: reported
-  cost beats calculated cost, and what each provider will and will not tell you.
-- `docs/skills.md` — portable competence in the public `SKILL.md` format: why a skill is not
-  a procedure, progressive disclosure, the commit pin, and why scripts need no new gate.
-- `docs/systems.md` — how an MCP connection proves who it is: why a certificate outlasts a
-  refresh token, what is checked before a connection saves, and where each piece lives.
 
 ## Validation gates (green before "done")
 

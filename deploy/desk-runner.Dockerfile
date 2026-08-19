@@ -4,7 +4,7 @@
 # chromium, libreoffice and the rest of the agent-facing tooling moved into the
 # guest base image, and cloud-hypervisor/qemu-img were never added, because the
 # containers that hold the provider keys, the session secret and the database
-# must not also be able to boot a microVM (docs/agent-desk.md §3.5, §6.3).
+# must not also be able to boot a microVM.
 #
 # The desk-runner is the sole exception: it is the only container that maps
 # /dev/kvm and whose entire job is to spawn per-agent microVMs. So rather than
@@ -30,7 +30,7 @@ FROM ${BUNKHOUSE_IMAGE}:${BUNKHOUSE_TAG}
 #
 # iproute2 and iptables are the other half of a desk: the runner creates each
 # guest's TAP with `ip` and puts the transparent-egress rules in front of it
-# with `iptables` (docs/agent-desk.md §3.11). They are useless without the
+# with `iptables`. They are useless without the
 # NET_ADMIN this container is granted in deploy/desk-runner.compose.yaml, and
 # the runner refuses to serve any desk at all if either is missing — an
 # unfiltered desk is a root shell with an open route out.

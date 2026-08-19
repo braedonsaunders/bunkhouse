@@ -30,7 +30,7 @@ ENV BUNKHOUSE_VERSION="$BUNKHOUSE_VERSION" \
 # Native tools the SERVER's own work depends on — and only those. Everything
 # the agents use with their hands (chromium, libreoffice, git, tesseract,
 # bubblewrap) lives in the desk guest base image now, not here: agent
-# execution happens inside a per-agent microVM (docs/desk-host.md), so shipping
+# execution happens inside a per-agent microVM, so shipping
 # agent tools in the app image would only
 # grow the surface of the containers that hold the keys.
 # - ca-certificates: the system trust store. Node carries its own CA bundle, so
@@ -47,7 +47,7 @@ ENV BUNKHOUSE_VERSION="$BUNKHOUSE_VERSION" \
 #   template merge, and authenticated file previews render through
 #   @braedonsaunders/appkit-office's soffice call ON THE SERVER — that ability
 #   is deliberately better than an agent driving LibreOffice by hand in the
-#   guest (docs/desk-host.md), so the binaries stay here even though the guest
+#   guest, so the binaries stay here even though the guest
 #   image also carries them for GUI work. Server-side rendering without fonts
 #   produces tofu.
 RUN apt-get update \

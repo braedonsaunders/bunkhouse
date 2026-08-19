@@ -2,7 +2,7 @@ import { index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, u
 import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
 
 /**
- * The desk ledger (docs/agent-desk.md §3.19): one session per lease, one
+ * The desk ledger: one session per lease, one
  * append-only typed event stream. On a desk the agent types in a terminal and
  * clicks in a GUI as one continuous piece of work, so this is ONE ledger — an
  * operator replays a session end to end rather than interleaving separate

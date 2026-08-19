@@ -27,7 +27,7 @@ import { deskIdentity } from './desk-security'
 /**
  * The desk: each agent's own Debian machine — a terminal, a filesystem,
  * arbitrary software, and (only when genuinely needed) a real screen, all one
- * machine with one identity (docs/agent-desk.md). This module is bunkhouse's
+ * machine with one identity. This module is bunkhouse's
  * side of the AppKit boundary: the desk-runner owns the mechanism (booting
  * microVMs, vsock, the compositor) and this module owns the POLICY and the
  * RECORD — which desk an agent gets, what the dial governs, and the one
