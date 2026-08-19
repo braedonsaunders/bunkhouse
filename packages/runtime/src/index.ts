@@ -14,6 +14,7 @@ export {
   type PendingApprovalResult,
   type PendingWait,
 } from './abilities'
+export { createAcpRunProgress } from './acp'
 export { cachedInputTokens, cachedSystemMessage, sessionPinningOptions } from './caching'
 export {
   compactMessages,

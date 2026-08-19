@@ -1,7 +1,8 @@
 import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
-import type { ChatRequester } from '@bunkhouse/runtime'
+import type { AcpClient, ChatRequester } from '@bunkhouse/acp'
+import { createAcpRunProgress } from '@bunkhouse/runtime'
 import { requireTenantPermission } from '../../../../lib/tenant'
 import { dispatchChatMessage } from '../../../../lib/chat-dispatch'
 
@@ -109,6 +110,30 @@ export async function POST(
         anyText = true
         emit({ type: 'text-delta', id: textId, delta })
       }
+      // This route is a client adapter, not part of the employee loop. ACP is
+      // the stable seam; the current web UI stream can change independently.
+      const client: AcpClient = {
+        sessionUpdate: ({ sessionId, update }) => {
+          if (sessionId !== threadId) return
+          switch (update.sessionUpdate) {
+            case 'agent_message_chunk':
+              emitText(update.content.text)
+              break
+            case 'tool_call':
+              finishText()
+              emit({
+                type: 'tool-input-available',
+                toolCallId: update.toolCallId,
+                toolName: update.title,
+                input: update.rawInput,
+              })
+              break
+            case 'tool_call_update':
+              emit({ type: 'tool-output-available', toolCallId: update.toolCallId, output: update.rawOutput })
+              break
+          }
+        },
+      }
       try {
         const { messages } = await dispatchChatMessage({
           tenantId: access.tenantId,
@@ -117,16 +142,7 @@ export async function POST(
           body,
           idempotencyKey: requestId,
           requester,
-          progress: {
-            onTextDelta: emitText,
-            onToolCall: ({ toolCallId, toolName, input }) => {
-              finishText()
-              emit({ type: 'tool-input-available', toolCallId, toolName, input })
-            },
-            onToolResult: ({ toolCallId, output }) => {
-              emit({ type: 'tool-output-available', toolCallId, output })
-            },
-          },
+          progress: createAcpRunProgress({ client, sessionId: threadId }),
         })
         const answer = messages?.filter((message) => message.role === 'agent').at(-1)
         if (messages === null) emitText('Added to the conversation queue.')

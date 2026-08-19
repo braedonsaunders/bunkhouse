@@ -1,24 +1,8 @@
 import type { AiConfig } from '@braedonsaunders/appkit-ai'
+import type { ActionCategory, AutonomyLevel, ChatRequester } from '@bunkhouse/acp'
 import type { ModelMessage } from 'ai'
 
-/** The governed action categories. Must stay in sync with the app's
- *  `action_category` enum — the dial is enforced here, not in prompts.
- *  The pg enum still carries the retired 'shell' and 'computer_use' values
- *  (postgres cannot drop them); they are deliberately absent here so no
- *  ability can be defined against a retired dial. */
-export type ActionCategory =
-  | 'external_email'
-  | 'internal_email'
-  | 'record_write'
-  | 'money_adjacent'
-  | 'file_write'
-  | 'phone_call'
-  | 'sandbox'
-  | 'desktop'
-  | 'shared_folder'
-  | 'background_job'
-
-export type AutonomyLevel = 'forbidden' | 'approval' | 'notify' | 'trusted'
+export type { ActionCategory, AutonomyLevel, ChatRequester } from '@bunkhouse/acp'
 
 export type AgentPersonality = {
   bio: string
@@ -111,21 +95,6 @@ export type MemoryNote = {
 
 /** An image the agent should actually look at, inlined into the run's opening turn. */
 export type RunInputImage = { filename: string; mediaType: string; dataBase64: string }
-
-/**
- * The company person behind an authenticated in-app chat request.
- *
- * This is attached by the trusted application boundary, never accepted from
- * message text. It lets the employee distinguish a manager's direct request
- * from an ordinary colleague's request without turning either into a way
- * around procedures, autonomy controls, approvals, or safety checks.
- */
-export type ChatRequester = {
-  name: string
-  title?: string
-  email?: string
-  relationship: 'manager' | 'colleague' | 'operator'
-}
 
 /** What triggered this run, rendered into the opening instruction. */
 export type RunInput =

@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@bunkhouse/acp": "workspace:*",
     "@ai-sdk/mcp": "^1.0.64",
     "@braedonsaunders/appkit-ai": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.21.0",

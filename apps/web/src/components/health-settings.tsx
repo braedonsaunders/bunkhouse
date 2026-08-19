@@ -6,6 +6,7 @@ import {
   ArrowRight,
   Bot,
   CalendarClock,
+  Cable,
   CircleCheck,
   ClipboardCheck,
   HardDrive,
@@ -74,6 +75,7 @@ const FAULT: Record<Fault['status'], { label: string; badge: BadgeProps['variant
  * what an operator still needs at a glance is *which* system is down.
  */
 const SUBJECT: Record<string, LucideIcon> = {
+  'agent-protocol': Cable,
   storage: HardDrive,
   mailboxes: Mail,
   'agent-work': Bot,

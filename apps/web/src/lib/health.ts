@@ -1,5 +1,6 @@
 import 'server-only'
 import { and, desc, eq, gt, isNotNull, ne, sql } from 'drizzle-orm'
+import { ACP_PROTOCOL_VERSION, BUNKHOUSE_ACP_CAPABILITIES } from '@bunkhouse/acp'
 import { approvals, duties, mailboxAccounts, people, runs } from '../db/schema'
 import { db } from '../db/client'
 
@@ -30,6 +31,15 @@ export type HealthCheck = {
 }
 
 const STORAGE_PROBE_MS = 2_500
+
+function checkAgentProtocol(): HealthCheck {
+  return {
+    key: 'agent-protocol',
+    label: 'Agent runtime protocol',
+    status: 'ok',
+    detail: `ACP v${ACP_PROTOCOL_VERSION} carries session text and governed tool activity across a replaceable client/runtime boundary (${BUNKHOUSE_ACP_CAPABILITIES.cancellation ? 'cancellation supported' : 'cancellation unavailable'}).`,
+  }
+}
 
 /**
  * Provider errors are paragraphs; a health line is a line. Ending on a whole
@@ -267,6 +277,7 @@ async function checkScheduler(tenantId: string): Promise<HealthCheck> {
 /** Every check, worst first, so the page opens on what matters. */
 export async function runHealthChecks(tenantId: string): Promise<HealthCheck[]> {
   const checks = await Promise.all([
+    checkAgentProtocol(),
     checkStorage(),
     checkMailboxes(tenantId),
     checkAgentWork(tenantId),

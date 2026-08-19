@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import type { ActionCategory, AutonomyLevel } from '@bunkhouse/runtime'
+import type { ActionCategory, AutonomyLevel } from '@bunkhouse/acp'
 import {
   Badge,
   Button,

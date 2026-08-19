@@ -1,0 +1,19 @@
+{
+  "name": "@bunkhouse/acp",
+  "version": "0.1.0",
+  "description": "The transport-neutral Agent Client Protocol boundary shared by bunkhouse clients and runtimes.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx src/index.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3"
+  }
+}
