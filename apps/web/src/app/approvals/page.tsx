@@ -3,17 +3,12 @@ import { PageContainer, PageHeader } from '@braedonsaunders/appkit-ui'
 import { approvals, people, type ApprovalPayload } from '../../db/schema'
 import { db } from '../../db/client'
 import { requireTenantPermission } from '../../lib/tenant'
+import { approvalCategoryLabel, approvalPresentation } from '../../lib/approval-presentation'
 import { ApprovalsView, type ApprovalDraft, type ApprovalRow } from '../../components/approvals-view'
 
 export const dynamic = 'force-dynamic'
 
 const stamp = (d: Date) => d.toISOString().slice(0, 16).replace('T', ' ')
-
-/** `external_email` is what the enum stores; "External email" is what it means. */
-const categoryLabel = (category: string) => {
-  const words = category.replace(/_/g, ' ')
-  return words.charAt(0).toUpperCase() + words.slice(1)
-}
 
 /**
  * The exact wording an approver is signing off on. Approving an external email
@@ -22,20 +17,7 @@ const categoryLabel = (category: string) => {
  * or the shell command, or the page being opened — as the reviewable text.
  */
 function draftOf(payload: unknown): ApprovalDraft {
-  const action = (payload as { action?: { input?: Record<string, unknown> } } | null)?.action
-  const input = action?.input ?? {}
-  const str = (key: string): string | null => {
-    const value = input[key]
-    return typeof value === 'string' && value.trim() ? value.trim() : null
-  }
-  const fields: { label: string; value: string }[] = []
-  const to = str('to')
-  const subject = str('subject')
-  const cwd = str('cwd')
-  if (to) fields.push({ label: 'To', value: to })
-  if (subject) fields.push({ label: 'Subject', value: subject })
-  if (cwd) fields.push({ label: 'Working directory', value: cwd })
-  return { fields, text: str('body') ?? str('command') ?? str('url') ?? str('target') }
+  return approvalPresentation(payload as ApprovalPayload)
 }
 
 const COLUMNS = {
@@ -110,7 +92,7 @@ const toRow = (row: QueryRow): ApprovalRow => ({
   personName: row.personName,
   personTitle: row.personTitle,
   category: row.category,
-  categoryLabel: categoryLabel(row.category),
+  categoryLabel: approvalCategoryLabel(row.category),
   description: row.payload.description,
   draft: draftOf(row.payload),
   createdAt: stamp(row.createdAt),

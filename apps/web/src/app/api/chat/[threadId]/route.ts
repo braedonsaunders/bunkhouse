@@ -5,6 +5,7 @@ import type { AcpClient, ChatRequester } from '@bunkhouse/acp'
 import { createAcpRunProgress } from '@bunkhouse/runtime'
 import { requireTenantPermission } from '../../../../lib/tenant'
 import { dispatchChatMessage } from '../../../../lib/chat-dispatch'
+import { shouldAppendPersistedAnswer } from '../../../../lib/chat-reply'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -101,6 +102,7 @@ export async function POST(
       let textId = `answer-${textIndex}`
       let textStarted = false
       let anyText = false
+      let streamedText = ''
       const finishText = (): void => {
         if (!textStarted) return
         emit({ type: 'text-end', id: textId })
@@ -115,6 +117,7 @@ export async function POST(
           emit({ type: 'text-start', id: textId })
         }
         anyText = true
+        streamedText += delta
         emit({ type: 'text-delta', id: textId, delta })
       }
       // This route is a client adapter, not part of the employee loop. ACP is
@@ -154,9 +157,15 @@ export async function POST(
         })
         const answer = messages?.filter((message) => message.role === 'agent').at(-1)
         if (messages === null) emitText('Added to the conversation queue.')
-        // A model may finish with a tool-only step or a provider may decline
-        // streaming. The persisted answer is the authoritative fallback.
-        if (!anyText && answer?.body) emitText(answer.body)
+        // A model may finish with a gated tool after streaming only a progress
+        // preamble. The persisted outcome is authoritative: append it whenever
+        // it says something the stream did not, so the turn cannot visually
+        // end on a tool call. Containment avoids duplicating an answer that was
+        // already streamed with different whitespace.
+        if (answer?.body && shouldAppendPersistedAnswer(streamedText, answer.body)) {
+          if (anyText) finishText()
+          emitText(answer.body)
+        }
         finishText()
         emit({ type: 'finish' })
       } catch (error) {

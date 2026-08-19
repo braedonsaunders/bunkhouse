@@ -42,6 +42,7 @@ import { AgentRecordPage, AgentRecordSubsections, type AgentPageSection } from '
 import { getThread, listThreads } from '../../lib/chat-threads'
 import { listChatDispatches } from '../../lib/chat-dispatch'
 import { listThreadSystemCredentialRequests } from '../../lib/system-credential-requests'
+import { listThreadApprovals } from '../../lib/chat-approvals'
 import { listResourceCatalog } from '../../lib/role-resources'
 import { agentBinding, bindsToAgent } from '../../lib/assignment'
 import { listRoles } from '../../lib/roles'
@@ -92,6 +93,7 @@ export async function personDrawer({
     canReadWork: boolean
     canReadMail: boolean
     canCall: boolean
+    canDecideApprovals: boolean
   }
   section?: string
   chatThreadId?: string
@@ -447,14 +449,17 @@ export async function personDrawer({
       ? await (async () => {
           const detail = await getThread(tenantId, selectedChatThreadId)
           if (!detail) return null
-          const [dispatches, credentialRequests] = await Promise.all([
+          const [dispatches, credentialRequests, approvalRequests] = await Promise.all([
             listChatDispatches({ tenantId, threadId: selectedChatThreadId }),
             listThreadSystemCredentialRequests(tenantId, selectedChatThreadId),
+            listThreadApprovals(tenantId, selectedChatThreadId),
           ])
           return {
             ...detail,
             dispatches,
             credentialRequests,
+            approvals: approvalRequests,
+            canDecideApprovals: pageAccess?.canDecideApprovals === true,
           }
         })()
       : null

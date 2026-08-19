@@ -4,6 +4,7 @@ const tests = [
   'authorization',
   'redaction',
   'governance',
+  'approval-presentation',
   'compaction',
   'breaker',
   'call-tones',

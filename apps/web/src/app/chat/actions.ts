@@ -55,6 +55,7 @@ import {
   submitSystemCredentialRequest,
   type SystemCredentialRequestView,
 } from '../../lib/system-credential-requests'
+import { listThreadApprovals, type ChatApprovalView } from '../../lib/chat-approvals'
 
 /**
  * The chat page's server actions.
@@ -107,16 +108,25 @@ export async function getThreadAction(
   messages: ChatMessageView[]
   dispatches: ChatDispatchView[]
   credentialRequests: SystemCredentialRequestView[]
+  approvals: ChatApprovalView[]
+  canDecideApprovals: boolean
 } | null> {
   if (!threadId) return null
   const access = await requireTenantPermission('work.read')
   const detail = await getThread(access.tenantId, threadId)
   if (!detail) return null
-  const [dispatches, credentialRequests] = await Promise.all([
+  const [dispatches, credentialRequests, approvalRequests] = await Promise.all([
     listChatDispatches({ tenantId: access.tenantId, threadId }),
     listThreadSystemCredentialRequests(access.tenantId, threadId),
+    listThreadApprovals(access.tenantId, threadId),
   ])
-  return { ...detail, dispatches, credentialRequests }
+  return {
+    ...detail,
+    dispatches,
+    credentialRequests,
+    approvals: approvalRequests,
+    canDecideApprovals: access.user.isSuperAdmin || access.permissions.has('approvals.decide'),
+  }
 }
 
 /**

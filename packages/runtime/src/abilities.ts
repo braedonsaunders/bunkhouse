@@ -436,7 +436,7 @@ export function governedToolSet(args: {
           const pending: PendingApprovalResult = {
             status: 'pending_approval',
             approvalId,
-            note: 'This action needs human sign-off and has been queued. Finish up: summarize what is awaiting approval and stop.',
+            note: 'This action is ready for human approval and has been queued. End with a direct handoff: say it is ready, ask the requester to review and approve it, and explain that work will continue automatically after their decision.',
           }
           return pending
         }

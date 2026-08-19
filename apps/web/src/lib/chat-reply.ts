@@ -18,7 +18,7 @@ export function replyTextForOutcome(outcome: RunOutcome): string {
     case 'completed':
       return outcome.summary
     case 'waiting_approval':
-      return "I need a colleague's sign-off before I can act on that — I'll follow up here once it's decided."
+      return "It's ready for your approval. Review the request below; once you approve it, I'll continue automatically."
     case 'waiting_reply':
       return `I'm waiting to hear back from ${outcome.wait.to} before I can finish this — I'll follow up here.`
     case 'budget_paused':
@@ -28,4 +28,20 @@ export function replyTextForOutcome(outcome: RunOutcome): string {
     case 'failed':
       return `I ran into a problem and couldn't finish that: ${outcome.error}`
   }
+}
+
+const comparable = (value: string): string => value.replace(/\s+/g, ' ').trim()
+
+/**
+ * A streamed preamble is not a final answer. Persisted outcome copy is appended
+ * whenever it adds something the stream did not already say; containment keeps
+ * providers that stream the same answer with different whitespace from
+ * duplicating it.
+ */
+export function shouldAppendPersistedAnswer(streamedText: string, persistedAnswer: string): boolean {
+  const streamed = comparable(streamedText)
+  const persisted = comparable(persistedAnswer)
+  if (!persisted) return false
+  if (!streamed) return true
+  return !streamed.includes(persisted) && !persisted.includes(streamed)
 }

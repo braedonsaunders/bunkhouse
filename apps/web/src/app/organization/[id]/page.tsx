@@ -60,6 +60,7 @@ export default async function PersonPage({
       canReadWork: allowed('work.read'),
       canReadMail: allowed('mail.read'),
       canCall: allowed('calls.manage'),
+      canDecideApprovals: allowed('approvals.decide'),
     },
     section: query.section === 'inbox' ? 'mail' : query.section,
     chatThreadId: query.section === 'chat' ? query.thread : undefined,

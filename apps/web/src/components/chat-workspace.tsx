@@ -58,6 +58,7 @@ import {
   submitSystemCredentialRequestAction,
   cancelSystemCredentialRequestAction,
 } from '../app/chat/actions'
+import { approveAction, rejectAction } from '../app/approvals/actions'
 import { ChatWorkSurface } from './chat-work-surface'
 import { CALL_STAGE_AVATAR_SIZE } from './call-stage'
 import { ConversationCall, type AgentAvatar } from './call-room'
@@ -139,6 +140,17 @@ export type ChatCredentialRequestRecord = {
   resolvedAt: string | null
 }
 
+export type ChatApprovalRecord = {
+  id: string
+  runId: string
+  categoryLabel: string
+  description: string
+  details: Array<{ label: string; value: string }>
+  status: 'pending' | 'approved' | 'rejected' | 'expired'
+  decisionNote: string | null
+  createdAt: string
+}
+
 export type ChatThreadDetail = {
   thread: {
     id: string
@@ -152,6 +164,8 @@ export type ChatThreadDetail = {
   messages: ChatMessageRecord[]
   dispatches: ChatDispatchRecord[]
   credentialRequests: ChatCredentialRequestRecord[]
+  approvals: ChatApprovalRecord[]
+  canDecideApprovals: boolean
 }
 
 /** An agent that can be talked to — one that has a brain assigned to think with. */
@@ -188,10 +202,24 @@ function useWideViewport(): boolean {
  */
 function toAgentMessage(
   message: ChatMessageRecord,
+  messages: ChatMessageRecord[],
   credentialRequests: ChatCredentialRequestRecord[],
+  approvals: ChatApprovalRecord[],
 ): AgentMessage {
   const requests = message.role === 'agent' && message.runId
     ? credentialRequests.filter((request) => request.runId === message.runId)
+    : []
+  const approvalRequests = message.role === 'agent' && message.runId
+    ? approvals.filter((approval) => {
+        if (approval.runId !== message.runId) return false
+        const createdAt = new Date(approval.createdAt).getTime()
+        const host = messages.find((candidate) => (
+          candidate.role === 'agent'
+          && candidate.runId === approval.runId
+          && new Date(candidate.at).getTime() >= createdAt
+        )) ?? messages.find((candidate) => candidate.role === 'agent' && candidate.runId === approval.runId)
+        return host?.id === message.id
+      })
     : []
   return {
     id: message.id,
@@ -217,6 +245,15 @@ function toAgentMessage(
             ? 'pending' as const
             : 'expired' as const,
       })),
+      ...approvalRequests.map((approval) => ({
+        type: 'approval-request' as const,
+        approvalId: approval.id,
+        categoryLabel: approval.categoryLabel,
+        description: approval.description,
+        details: approval.details,
+        status: approval.status,
+        ...(approval.decisionNote ? { decisionNote: approval.decisionNote } : {}),
+      })),
     ],
   }
 }
@@ -235,6 +272,10 @@ function fileSizeLabel(bytes: number): string {
 
 function credentialRequestSignature(requests: ChatCredentialRequestRecord[]): string {
   return requests.map((request) => `${request.id}:${request.status}:${request.attempts}:${request.lastError ?? ''}`).join('|')
+}
+
+function approvalRequestSignature(requests: ChatApprovalRecord[]): string {
+  return requests.map((request) => `${request.id}:${request.status}:${request.decisionNote ?? ''}`).join('|')
 }
 
 const DEFAULT_WORK_PANE_WIDTH = 448
@@ -805,7 +846,10 @@ export function AgentChatWorkspace({
         // that has just streamed, in far more detail than the stored bodies.
         setDetail((current) => {
           if (!current || current.thread.id !== threadId) return current
-          if (credentialRequestSignature(current.credentialRequests) !== credentialRequestSignature(loaded.credentialRequests)) {
+          if (
+            credentialRequestSignature(current.credentialRequests) !== credentialRequestSignature(loaded.credentialRequests)
+            || approvalRequestSignature(current.approvals) !== approvalRequestSignature(loaded.approvals)
+          ) {
             setPanelGeneration((generation) => generation + 1)
           }
           return loaded
@@ -933,6 +977,22 @@ export function AgentChatWorkspace({
     await refreshThread(threadId)
   }, [activeId, refreshThread])
 
+  const decideApprovalRequest = React.useCallback(async (
+    approvalId: string,
+    decision: 'approved' | 'rejected',
+    note?: string,
+  ) => {
+    const threadId = activeId
+    if (!threadId) throw new Error('No conversation is open.')
+    const form = new FormData()
+    form.set('approvalId', approvalId)
+    if (note) form.set('note', note)
+    if (decision === 'approved') await approveAction(form)
+    else await rejectAction(form)
+    setError(null)
+    await refreshThread(threadId)
+  }, [activeId, refreshThread])
+
   // A queued turn may finish in a worker after the request that accepted it
   // has returned. Follow the durable projection while there is pending work;
   // when a new persisted answer lands outside the direct stream, remount the
@@ -949,7 +1009,9 @@ export function AgentChatWorkspace({
           const nextLast = loaded.messages.at(-1)?.id
           const credentialRequestsChanged =
             credentialRequestSignature(current.credentialRequests) !== credentialRequestSignature(loaded.credentialRequests)
-          if (!directStreamRef.current && (previousLast !== nextLast || credentialRequestsChanged)) {
+          const approvalsChanged =
+            approvalRequestSignature(current.approvals) !== approvalRequestSignature(loaded.approvals)
+          if (!directStreamRef.current && (previousLast !== nextLast || credentialRequestsChanged || approvalsChanged)) {
             setPanelGeneration((generation) => generation + 1)
           }
           return loaded
@@ -1183,10 +1245,11 @@ export function AgentChatWorkspace({
             // the composer is closed here too rather than offering a Send that
             // is only going to be refused.
             enabled={detail.thread.status === 'open'}
-            initialMessages={detail.messages.map((message) => toAgentMessage(message, detail.credentialRequests))}
+            initialMessages={detail.messages.map((message) => toAgentMessage(message, detail.messages, detail.credentialRequests, detail.approvals))}
             send={send}
             onSubmitSecretRequest={submitCredentialRequest}
             onCancelSecretRequest={cancelCredentialRequest}
+            onDecideApprovalRequest={detail.canDecideApprovals ? decideApprovalRequest : undefined}
             composerActions={
               <Popover
                 open={uploadOpen}

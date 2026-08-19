@@ -98,6 +98,11 @@ Calling an agent no longer opens a separate product. **New → Call** creates a 
 and replaces the center transcript with the animated live-call stage and controls. The same
 right-hand work surface stays available before, during, and after the call.
 
+When a governed action needs a decision, the agent ends with an explicit handoff and the
+conversation renders the exact request inline with an optional note and **Approve** or
+**Decline** controls. Approval resumes the parked run automatically; a progress sentence or
+tool call can never masquerade as the end of the turn.
+
 | Surface | What the human can see | How the agent works |
 | --- | --- | --- |
 | **Desktop** | The agent's persistent Linux desktop, live or replayed, with the same fullscreen control as every visual surface | A Cloud Hypervisor microVM per agent, headless until a screen is needed; the agent can combine GUI control with direct shell commands on that same machine |
