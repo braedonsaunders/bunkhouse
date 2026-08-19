@@ -25,7 +25,7 @@ export {
 export { reportedCostUsd, reportsItsOwnCost, usageAccountingOptions } from './cost'
 export { buildRunInstruction, buildSystemPrompt } from './prompt'
 export {
-  DEFAULT_MODEL_STEP_DEADLINE_MS,
+  DEFAULT_MODEL_INACTIVITY_DEADLINE_MS,
   runAgent,
   type RunAgentArgs,
   type RunAgentProgress,

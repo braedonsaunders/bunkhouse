@@ -92,8 +92,12 @@ export type RunAgentArgs = {
    * source of truth.
    */
   progress?: RunAgentProgress
-  /** Per-model-step backstop. Long work may take many steps; no one step may hang forever. */
-  modelStepDeadlineMs?: number
+  /**
+   * Maximum silence from the model stream. This is a liveness guard, not a
+   * wall-clock limit on a step: every chunk resets it, and tool execution has
+   * its own disposition-aware deadline.
+   */
+  modelInactivityDeadlineMs?: number
 }
 
 export type RunAgentProgress = {
@@ -142,8 +146,12 @@ const NO_PROGRESS_REPEATS = 6
  */
 const MAX_STEP_INPUT_TOKENS = 500_000
 
-/** A slow provider may reason for a while, but a dead stream must release its fenced run. */
-export const DEFAULT_MODEL_STEP_DEADLINE_MS = 120_000
+/**
+ * A run may work for hours and a model step may stream for as long as it is
+ * making progress. Only a stream that has produced absolutely nothing for
+ * half an hour is treated as dead infrastructure.
+ */
+export const DEFAULT_MODEL_INACTIVITY_DEADLINE_MS = 30 * 60_000
 
 /**
  * One complete unit of an agent's work, headless. The loop enforces what prompts
@@ -305,6 +313,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
 
   try {
     let streamError: unknown = null
+    let streamAborted = false
     const result = streamText({
       model,
       system,
@@ -334,7 +343,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
         return { messages: compacted }
       },
       abortSignal: args.abortSignal,
-      timeout: { stepMs: args.modelStepDeadlineMs ?? DEFAULT_MODEL_STEP_DEADLINE_MS },
+      timeout: { chunkMs: args.modelInactivityDeadlineMs ?? DEFAULT_MODEL_INACTIVITY_DEADLINE_MS },
       onChunk: async ({ chunk }) => {
         if (chunk.type === 'text-delta') {
           await publishTextDelta(progressRedactor.push(chunk.text))
@@ -365,6 +374,12 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
       },
       onError: ({ error }) => {
         streamError = error
+      },
+      // AI SDK reports a timeout/cancellation through onAbort rather than
+      // onError. Without this bit, result.text resolves to the last completed
+      // step and a half-finished run is falsely finalized as successful.
+      onAbort: () => {
+        streamAborted = true
       },
       onStepFinish: async (step) => {
         // The streaming redactor keeps only a possible secret prefix between
@@ -468,6 +483,9 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
     })
     await publishTextDelta(progressRedactor.finish())
     if (streamError) throw streamError
+    if (streamAborted) {
+      throw new Error('The model stream stopped before completing its current step.')
+    }
 
     const [response, text] = await Promise.all([result.response, result.text])
 

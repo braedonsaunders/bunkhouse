@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
   citeProcedureAbility,
+  DEFAULT_MODEL_INACTIVITY_DEADLINE_MS,
   defineAbility,
   governedToolSet,
   takeAbilityFrame,
@@ -164,10 +165,46 @@ function ability(over: Partial<Parameters<typeof defineAbility>[0]> & { onExecut
   })
 }
 
-async function call(tools: ReturnType<typeof governedToolSet>, name: string, input: unknown, toolCallId = 't1') {
+async function call(
+  tools: ReturnType<typeof governedToolSet>,
+  name: string,
+  input: unknown,
+  toolCallId = 't1',
+  options: Record<string, unknown> = {},
+) {
   const tool = tools[name]
   assert.ok(tool?.execute, `${name} is in the governed set and executable`)
-  return tool.execute!(input as never, { toolCallId, messages: [] })
+  return tool.execute!(input as never, { toolCallId, messages: [], ...options })
+}
+
+// The model SDK owns a per-invocation signal in addition to the run's signal.
+// Losing it allowed a timed-out tool to keep writing after the run had closed.
+{
+  const controller = new AbortController()
+  let observedAbort = false
+  const slow = defineAbility({
+    name: 'late_shell',
+    description: 'must stop with its model step',
+    category: 'sandbox',
+    inputSchema: z.object({}),
+    execute: async (_input, { signal }) =>
+      new Promise((_resolve, reject) => {
+        signal.addEventListener(
+          'abort',
+          () => {
+            observedAbort = true
+            reject(signal.reason)
+          },
+          { once: true },
+        )
+      }),
+  })
+  const { tools } = harness({ levels: { sandbox: 'trusted' }, abilities: [slow] })
+  const pending = call(tools, 'late_shell', {}, 'late-call', { abortSignal: controller.signal })
+  controller.abort(new Error('model step expired'))
+  const result = (await pending) as { error?: string }
+  assert.equal(observedAbort, true, 'the adapter receives the SDK invocation cancellation')
+  assert.match(result.error ?? '', /model step expired/, 'the cancelled invocation cannot escape as background work')
 }
 
 // --- forbidden blocks in the runtime ----------------------------------------
@@ -414,6 +451,18 @@ console.log('governance: autonomy dial, approvals, breaker, deadline, citations 
 // ===========================================================================
 
 const src = (file: string): string => readFileSync(fileURLToPath(new URL(file, import.meta.url)), 'utf8')
+
+// Long work is made of however many active steps it needs. The model guard is
+// silence-based, not a total duration cap that can cut off a healthy tool call
+// and recycle an earlier progress sentence as the answer.
+{
+  assert.equal(DEFAULT_MODEL_INACTIVITY_DEADLINE_MS, 30 * 60_000, 'the default tolerates a slow provider')
+  const loop = src('../../../packages/runtime/src/loop.ts')
+  assert.ok(loop.includes('timeout: { chunkMs:'), 'model liveness resets whenever another chunk arrives')
+  assert.ok(!loop.includes('timeout: { stepMs:'), 'there is no wall-clock deadline on a whole model/tool step')
+  assert.ok(loop.includes('if (streamAborted)'), 'an aborted stream cannot be finalized from an earlier message')
+}
+
 function agent(over: Partial<WorkCandidate>): WorkCandidate {
   return { kind: 'agent', status: 'active', name: 'Bill McDonald', ...over }
 }

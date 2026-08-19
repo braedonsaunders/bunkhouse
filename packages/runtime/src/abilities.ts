@@ -300,15 +300,21 @@ export function describeThrown(error: unknown): string {
 /** Reject and propagate cancellation if the work has not settled by the deadline. */
 async function withDeadline<T>(
   name: string,
-  parent: AbortSignal | undefined,
+  parents: readonly AbortSignal[],
   deadlineMs: number,
   work: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
-  const abort = () => controller.abort(parent?.reason)
-  if (parent?.aborted) abort()
-  else parent?.addEventListener('abort', abort, { once: true })
+  const listeners = new Map<AbortSignal, () => void>()
+  for (const parent of parents) {
+    const abort = () => {
+      if (!controller.signal.aborted) controller.abort(parent.reason)
+    }
+    listeners.set(parent, abort)
+    if (parent.aborted) abort()
+    else parent.addEventListener('abort', abort, { once: true })
+  }
   try {
     timer = setTimeout(() => {
       controller.abort(new Error(`${name} did not finish within ${Math.round(deadlineMs / 1000)} seconds.`))
@@ -329,9 +335,22 @@ async function withDeadline<T>(
     ])
   } finally {
     if (timer) clearTimeout(timer)
-    parent?.removeEventListener('abort', abort)
+    for (const [parent, abort] of listeners) parent.removeEventListener('abort', abort)
     if (!controller.signal.aborted) controller.abort()
   }
+}
+
+function abortSignal(value: unknown): AbortSignal | undefined {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    typeof (value as { addEventListener?: unknown }).addEventListener !== 'function' ||
+    typeof (value as { removeEventListener?: unknown }).removeEventListener !== 'function' ||
+    typeof (value as { aborted?: unknown }).aborted !== 'boolean'
+  ) {
+    return undefined
+  }
+  return value as AbortSignal
 }
 
 /**
@@ -452,6 +471,14 @@ export function governedToolSet(args: {
         try {
           const optionRecord =
             typeof options === 'object' && options !== null ? (options as Record<string, unknown>) : {}
+          // The SDK owns a narrower signal for the current model/tool step;
+          // the application owns the run/lease signal. A tool belongs to both
+          // lifetimes. Dropping the SDK signal let a timed-out call continue
+          // after its run was already finalized and its desk session closed.
+          const invocationSignal = abortSignal(optionRecord.abortSignal)
+          const parentSignals = [args.signal, invocationSignal].filter(
+            (signal): signal is AbortSignal => signal !== undefined,
+          )
           const toolCallId =
             typeof optionRecord.toolCallId === 'string' && optionRecord.toolCallId
               ? optionRecord.toolCallId
@@ -462,7 +489,7 @@ export function governedToolSet(args: {
           }
           const invoke = (signal: AbortSignal) =>
             Promise.resolve(execute(input as any, { ...optionRecord, abortSignal: signal } as any))
-          const result = await withDeadline(ability.name, args.signal, deadlineMs, (signal) =>
+          const result = await withDeadline(ability.name, parentSignals, deadlineMs, (signal) =>
             category !== null && EXTERNAL_EFFECT_CATEGORIES.has(category) && args.effects
               ? args.effects.execute({
                   toolName: ability.name,
