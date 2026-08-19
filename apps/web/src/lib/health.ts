@@ -41,6 +41,18 @@ function checkAgentProtocol(): HealthCheck {
   }
 }
 
+function checkRelease(): HealthCheck {
+  const version = process.env.BUNKHOUSE_VERSION?.trim() || 'development'
+  const revision = process.env.BUNKHOUSE_REVISION?.trim()
+  const identity = revision && revision !== 'unknown' ? `${version} · ${revision.slice(0, 12)}` : version
+  return {
+    key: 'release',
+    label: 'Application release',
+    status: 'ok',
+    detail: `${identity} · ${process.platform}/${process.arch}`,
+  }
+}
+
 /**
  * Provider errors are paragraphs; a health line is a line. Ending on a whole
  * sentence when one fits, and on a whole word otherwise, is what keeps the page
@@ -278,6 +290,7 @@ async function checkScheduler(tenantId: string): Promise<HealthCheck> {
 export async function runHealthChecks(tenantId: string): Promise<HealthCheck[]> {
   const checks = await Promise.all([
     checkAgentProtocol(),
+    checkRelease(),
     checkStorage(),
     checkMailboxes(tenantId),
     checkAgentWork(tenantId),

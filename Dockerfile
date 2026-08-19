@@ -15,6 +15,18 @@ FROM node:24-bookworm-slim AS base
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.30.0 --activate
 
+ARG BUNKHOUSE_VERSION=development
+ARG BUNKHOUSE_REVISION=unknown
+ARG BUNKHOUSE_BUILD_DATE=unknown
+LABEL org.opencontainers.image.title="Bunkhouse" \
+      org.opencontainers.image.version="$BUNKHOUSE_VERSION" \
+      org.opencontainers.image.revision="$BUNKHOUSE_REVISION" \
+      org.opencontainers.image.created="$BUNKHOUSE_BUILD_DATE" \
+      org.opencontainers.image.source="https://github.com/braedonsaunders/bunkhouse"
+ENV BUNKHOUSE_VERSION="$BUNKHOUSE_VERSION" \
+    BUNKHOUSE_REVISION="$BUNKHOUSE_REVISION" \
+    BUNKHOUSE_BUILD_DATE="$BUNKHOUSE_BUILD_DATE"
+
 # Native tools the SERVER's own work depends on — and only those. Everything
 # the agents use with their hands (chromium, libreoffice, git, tesseract,
 # bubblewrap) lives in the desk guest base image now, not here: agent
@@ -60,6 +72,7 @@ RUN apt-get update \
 # production only when the processes start.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/
+COPY packages/acp/package.json packages/acp/
 COPY packages/roles/package.json packages/roles/
 COPY packages/runtime/package.json packages/runtime/
 RUN pnpm install --frozen-lockfile

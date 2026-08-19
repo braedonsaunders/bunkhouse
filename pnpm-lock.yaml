@@ -5,55 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@appkit/ai': file:./vendor/appkit/appkit-ai-0.2.0-14744bedc34c.tgz
-  '@appkit/analytics': file:./vendor/appkit/appkit-analytics-0.2.0-14744bedc34c.tgz
-  '@appkit/api': file:./vendor/appkit/appkit-api-0.1.1-14744bedc34c.tgz
-  '@appkit/apps': file:./vendor/appkit/appkit-apps-1.0.0-14744bedc34c.tgz
-  '@appkit/auth': file:./vendor/appkit/appkit-auth-0.1.2-14744bedc34c.tgz
-  '@appkit/crypto': file:./vendor/appkit/appkit-crypto-0.3.0-14744bedc34c.tgz
-  '@appkit/customization': file:./vendor/appkit/appkit-customization-1.0.0-14744bedc34c.tgz
-  '@appkit/dashboard': file:./vendor/appkit/appkit-dashboard-1.0.2-14744bedc34c.tgz
-  '@appkit/db': file:./vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz
-  '@appkit/design-studio': file:./vendor/appkit/appkit-design-studio-0.2.0-14744bedc34c.tgz
-  '@appkit/editor': file:./vendor/appkit/appkit-editor-0.2.1-14744bedc34c.tgz
-  '@appkit/email-designer': file:./vendor/appkit/appkit-email-designer-0.2.0-14744bedc34c.tgz
-  '@appkit/email-render': file:./vendor/appkit/appkit-email-render-0.1.1-14744bedc34c.tgz
-  '@appkit/emails': file:./vendor/appkit/appkit-emails-0.2.1-14744bedc34c.tgz
-  '@appkit/endpoints': file:./vendor/appkit/appkit-endpoints-0.1.1-14744bedc34c.tgz
-  '@appkit/events': file:./vendor/appkit/appkit-events-0.2.0-14744bedc34c.tgz
-  '@appkit/forms': file:./vendor/appkit/appkit-forms-0.2.1-14744bedc34c.tgz
-  '@appkit/forms-core': file:./vendor/appkit/appkit-forms-core-0.1.1-14744bedc34c.tgz
-  '@appkit/forms-documents': file:./vendor/appkit/appkit-forms-documents-0.1.1-14744bedc34c.tgz
-  '@appkit/forms-pdf': file:./vendor/appkit/appkit-forms-pdf-1.0.0-14744bedc34c.tgz
-  '@appkit/i18n': file:./vendor/appkit/appkit-i18n-0.1.1-14744bedc34c.tgz
-  '@appkit/iam': file:./vendor/appkit/appkit-iam-1.0.0-14744bedc34c.tgz
-  '@appkit/integrations': file:./vendor/appkit/appkit-integrations-1.0.0-14744bedc34c.tgz
-  '@appkit/jobs': file:./vendor/appkit/appkit-jobs-0.2.0-14744bedc34c.tgz
-  '@appkit/office': file:./vendor/appkit/appkit-office-0.2.0-14744bedc34c.tgz
-  '@appkit/notifications': file:./vendor/appkit/appkit-notifications-1.0.0-14744bedc34c.tgz
-  '@appkit/pdf': file:./vendor/appkit/appkit-pdf-0.1.1-14744bedc34c.tgz
-  '@appkit/reports': file:./vendor/appkit/appkit-reports-0.2.1-14744bedc34c.tgz
-  '@appkit/process-sandbox': file:./vendor/appkit/appkit-process-sandbox-0.3.0-14744bedc34c.tgz
-  '@appkit/sandbox': file:./vendor/appkit/appkit-sandbox-0.1.0-14744bedc34c.tgz
-  '@appkit/scheduling': file:./vendor/appkit/appkit-scheduling-0.2.0-14744bedc34c.tgz
-  '@appkit/scripts': file:./vendor/appkit/appkit-scripts-1.0.0-14744bedc34c.tgz
-  '@appkit/sms': file:./vendor/appkit/appkit-sms-0.2.0-14744bedc34c.tgz
-  '@appkit/storage': file:./vendor/appkit/appkit-storage-0.2.0-14744bedc34c.tgz
-  '@appkit/superadmin': file:./vendor/appkit/appkit-superadmin-0.3.0-14744bedc34c.tgz
-  '@appkit/sync': file:./vendor/appkit/appkit-sync-1.0.0-14744bedc34c.tgz
-  '@appkit/telephony': file:./vendor/appkit/appkit-telephony-0.2.0-14744bedc34c.tgz
-  '@appkit/tenant': file:./vendor/appkit/appkit-tenant-0.1.1-14744bedc34c.tgz
-  '@appkit/tokens': file:./vendor/appkit/appkit-tokens-0.1.2-14744bedc34c.tgz
-  '@appkit/ui': file:./vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz
-  '@appkit/workflows': file:./vendor/appkit/appkit-workflows-1.0.0-14744bedc34c.tgz
-  '@appkit/mailbox': file:./vendor/appkit/appkit-mailbox-0.5.1-14744bedc34c.tgz
-  '@appkit/avatars': file:./vendor/appkit/appkit-avatars-0.5.2-14744bedc34c.tgz
-  '@appkit/voice': file:./vendor/appkit/appkit-voice-0.1.1-14744bedc34c.tgz
-  '@appkit/scene': file:./vendor/appkit/appkit-scene-0.3.4-14744bedc34c.tgz
-  '@appkit/oauth': file:./vendor/appkit/appkit-oauth-0.1.0-14744bedc34c.tgz
-  '@appkit/agent-tools': file:./vendor/appkit/appkit-agent-tools-0.2.0-14744bedc34c.tgz
-  '@appkit/desk': file:./vendor/appkit/appkit-desk-0.3.2-14744bedc34c.tgz
-  '@appkit/egress-proxy': file:./vendor/appkit/appkit-egress-proxy-0.1.0-14744bedc34c.tgz
+  '@braedonsaunders/appkit-sync': file:./vendor/appkit/braedonsaunders-appkit-sync-1.1.0-05f281b688b5.tgz
   adm-zip@<0.6.0: 0.6.0
   brace-expansion@<1.1.18: 1.1.18
   brace-expansion@>=2.0.0 <2.1.4: 2.1.4
@@ -74,132 +26,138 @@ importers:
 
   apps/web:
     dependencies:
-      '@appkit/agent-tools':
-        specifier: file:../../vendor/appkit/appkit-agent-tools-0.2.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-agent-tools-0.2.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))
-      '@appkit/ai':
-        specifier: file:../../vendor/appkit/appkit-ai-0.2.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-ai-0.2.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)
-      '@appkit/api':
-        specifier: file:../../vendor/appkit/appkit-api-0.1.1-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-api-0.1.1-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-      '@appkit/apps':
-        specifier: file:../../vendor/appkit/appkit-apps-1.0.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-apps-1.0.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@appkit/auth':
-        specifier: file:../../vendor/appkit/appkit-auth-0.1.2-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-auth-0.1.2-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(kysely@0.29.4)(next@16.2.11(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      '@appkit/avatars':
-        specifier: file:../../vendor/appkit/appkit-avatars-0.5.2-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-avatars-0.5.2-14744bedc34c.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(framer-motion@12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
-      '@appkit/crypto':
-        specifier: file:../../vendor/appkit/appkit-crypto-0.3.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-crypto-0.3.0-14744bedc34c.tgz
-      '@appkit/db':
-        specifier: file:../../vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/design-studio':
-        specifier: file:../../vendor/appkit/appkit-design-studio-0.2.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-design-studio-0.2.0-14744bedc34c.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      '@appkit/desk':
-        specifier: file:../../vendor/appkit/appkit-desk-0.3.2-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-desk-0.3.2-14744bedc34c.tgz
-      '@appkit/editor':
-        specifier: file:../../vendor/appkit/appkit-editor-0.2.1-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-editor-0.2.1-14744bedc34c.tgz(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      '@appkit/egress-proxy':
-        specifier: file:../../vendor/appkit/appkit-egress-proxy-0.1.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-egress-proxy-0.1.0-14744bedc34c.tgz
-      '@appkit/email-designer':
-        specifier: file:../../vendor/appkit/appkit-email-designer-0.2.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-email-designer-0.2.0-14744bedc34c.tgz(@grapesjs/react@2.0.0(grapesjs@0.22.16)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@noble/hashes@2.2.0)(grapesjs@0.22.16)(juice@12.1.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@appkit/email-render':
-        specifier: file:../../vendor/appkit/appkit-email-render-0.1.1-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-email-render-0.1.1-14744bedc34c.tgz(@noble/hashes@2.2.0)
-      '@appkit/emails':
-        specifier: file:../../vendor/appkit/appkit-emails-0.2.1-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-emails-0.2.1-14744bedc34c.tgz
-      '@appkit/endpoints':
-        specifier: file:../../vendor/appkit/appkit-endpoints-0.1.1-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-endpoints-0.1.1-14744bedc34c.tgz
-      '@appkit/events':
-        specifier: file:../../vendor/appkit/appkit-events-0.2.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-events-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-      '@appkit/forms':
-        specifier: file:../../vendor/appkit/appkit-forms-0.2.1-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-forms-0.2.1-14744bedc34c.tgz(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      '@appkit/forms-core':
-        specifier: file:../../vendor/appkit/appkit-forms-core-0.1.1-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-forms-core-0.1.1-14744bedc34c.tgz(@noble/hashes@2.2.0)
-      '@appkit/forms-documents':
-        specifier: file:../../vendor/appkit/appkit-forms-documents-0.1.1-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-forms-documents-0.1.1-14744bedc34c.tgz(@noble/hashes@2.2.0)(tailwindcss@4.3.3)
-      '@appkit/forms-pdf':
-        specifier: file:../../vendor/appkit/appkit-forms-pdf-1.0.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-forms-pdf-1.0.0-14744bedc34c.tgz(@appkit/design-studio@file:vendor/appkit/appkit-design-studio-0.2.0-14744bedc34c.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@appkit/pdf@file:vendor/appkit/appkit-pdf-0.1.1-14744bedc34c.tgz(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)
-      '@appkit/i18n':
-        specifier: file:../../vendor/appkit/appkit-i18n-0.1.1-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-i18n-0.1.1-14744bedc34c.tgz
-      '@appkit/iam':
-        specifier: file:../../vendor/appkit/appkit-iam-1.0.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-iam-1.0.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/tenant@file:vendor/appkit/appkit-tenant-0.1.1-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@appkit/jobs':
-        specifier: file:../../vendor/appkit/appkit-jobs-0.2.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-jobs-0.2.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))
-      '@appkit/mailbox':
-        specifier: file:../../vendor/appkit/appkit-mailbox-0.5.1-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-mailbox-0.5.1-14744bedc34c.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@appkit/notifications':
-        specifier: file:../../vendor/appkit/appkit-notifications-1.0.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-notifications-1.0.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/jobs@file:vendor/appkit/appkit-jobs-0.2.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@appkit/oauth':
-        specifier: file:../../vendor/appkit/appkit-oauth-0.1.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-oauth-0.1.0-14744bedc34c.tgz
-      '@appkit/office':
-        specifier: file:../../vendor/appkit/appkit-office-0.2.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-office-0.2.0-14744bedc34c.tgz(exceljs@4.4.0)
-      '@appkit/pdf':
-        specifier: file:../../vendor/appkit/appkit-pdf-0.1.1-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-pdf-0.1.1-14744bedc34c.tgz(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)
-      '@appkit/process-sandbox':
-        specifier: file:../../vendor/appkit/appkit-process-sandbox-0.3.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-process-sandbox-0.3.0-14744bedc34c.tgz
-      '@appkit/sandbox':
-        specifier: file:../../vendor/appkit/appkit-sandbox-0.1.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-sandbox-0.1.0-14744bedc34c.tgz
-      '@appkit/scene':
-        specifier: file:../../vendor/appkit/appkit-scene-0.3.4-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-scene-0.3.4-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      '@appkit/scripts':
-        specifier: file:../../vendor/appkit/appkit-scripts-1.0.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-scripts-1.0.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@appkit/sms':
-        specifier: file:../../vendor/appkit/appkit-sms-0.2.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-sms-0.2.0-14744bedc34c.tgz
-      '@appkit/storage':
-        specifier: file:../../vendor/appkit/appkit-storage-0.2.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-storage-0.2.0-14744bedc34c.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@appkit/superadmin':
-        specifier: file:../../vendor/appkit/appkit-superadmin-0.3.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-superadmin-0.3.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@appkit/telephony':
-        specifier: file:../../vendor/appkit/appkit-telephony-0.2.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-telephony-0.2.0-14744bedc34c.tgz
-      '@appkit/tenant':
-        specifier: file:../../vendor/appkit/appkit-tenant-0.1.1-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-tenant-0.1.1-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-      '@appkit/tokens':
-        specifier: file:../../vendor/appkit/appkit-tokens-0.1.2-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-tokens-0.1.2-14744bedc34c.tgz(tailwindcss@4.3.3)
-      '@appkit/ui':
-        specifier: file:../../vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      '@appkit/voice':
-        specifier: file:../../vendor/appkit/appkit-voice-0.1.1-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-voice-0.1.1-14744bedc34c.tgz
-      '@appkit/workflows':
-        specifier: file:../../vendor/appkit/appkit-workflows-1.0.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-workflows-1.0.0-14744bedc34c.tgz(d41e4c847ac3d5fa0e3c9aeb0f25d434)
+      '@braedonsaunders/appkit-agent-tools':
+        specifier: ^0.2.0
+        version: 0.2.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))
+      '@braedonsaunders/appkit-ai':
+        specifier: ^1.0.2
+        version: 1.0.3(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)
+      '@braedonsaunders/appkit-api':
+        specifier: ^0.1.2
+        version: 0.1.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+      '@braedonsaunders/appkit-apps':
+        specifier: ^2.0.0
+        version: 2.0.0(@babel/runtime@7.29.7)(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@braedonsaunders/appkit-auth':
+        specifier: ^0.1.3
+        version: 0.1.3(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(drizzle-kit@0.31.10)(kysely@0.29.4)(next@16.2.11(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-avatars':
+        specifier: ^1.0.0
+        version: 1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(framer-motion@12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
+      '@braedonsaunders/appkit-crypto':
+        specifier: ^0.3.0
+        version: 0.3.0
+      '@braedonsaunders/appkit-db':
+        specifier: ^0.2.0
+        version: 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
+      '@braedonsaunders/appkit-design-studio':
+        specifier: ^1.0.0
+        version: 1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-desk':
+        specifier: ^0.5.0
+        version: 0.5.1
+      '@braedonsaunders/appkit-editor':
+        specifier: ^0.2.2
+        version: 0.2.2(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-egress-proxy':
+        specifier: ^0.1.0
+        version: 0.1.1
+      '@braedonsaunders/appkit-email-designer':
+        specifier: ^0.2.0
+        version: 0.2.0(@grapesjs/react@2.0.0(grapesjs@0.22.16)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@noble/hashes@2.2.0)(grapesjs@0.22.16)(juice@12.1.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@braedonsaunders/appkit-email-render':
+        specifier: ^0.1.1
+        version: 0.1.1(@noble/hashes@2.2.0)
+      '@braedonsaunders/appkit-emails':
+        specifier: ^0.2.1
+        version: 0.2.1
+      '@braedonsaunders/appkit-endpoints':
+        specifier: ^0.1.1
+        version: 0.1.1
+      '@braedonsaunders/appkit-events':
+        specifier: ^0.3.0
+        version: 0.3.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+      '@braedonsaunders/appkit-forms':
+        specifier: ^0.2.2
+        version: 0.2.2(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-forms-core':
+        specifier: ^0.1.1
+        version: 0.1.1(@noble/hashes@2.2.0)
+      '@braedonsaunders/appkit-forms-documents':
+        specifier: ^0.1.1
+        version: 0.1.1(@noble/hashes@2.2.0)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-forms-pdf':
+        specifier: ^2.0.0
+        version: 2.0.0(@braedonsaunders/appkit-design-studio@1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@braedonsaunders/appkit-pdf@0.1.1(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-i18n':
+        specifier: ^0.1.1
+        version: 0.1.1
+      '@braedonsaunders/appkit-iam':
+        specifier: ^2.0.0
+        version: 2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-tenant@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@braedonsaunders/appkit-jobs':
+        specifier: ^0.2.1
+        version: 0.2.1(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))
+      '@braedonsaunders/appkit-mailbox':
+        specifier: ^1.0.0
+        version: 1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@braedonsaunders/appkit-notifications':
+        specifier: ^2.0.0
+        version: 2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-jobs@0.2.1(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@braedonsaunders/appkit-oauth':
+        specifier: ^0.1.0
+        version: 0.1.0
+      '@braedonsaunders/appkit-office':
+        specifier: ^0.3.0
+        version: 0.3.0(exceljs@4.4.0)
+      '@braedonsaunders/appkit-pdf':
+        specifier: ^0.1.1
+        version: 0.1.1(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-process-sandbox':
+        specifier: ^0.3.0
+        version: 0.3.0
+      '@braedonsaunders/appkit-remote-sessions':
+        specifier: ^0.1.0
+        version: 0.1.0(react@19.2.8)
+      '@braedonsaunders/appkit-sandbox':
+        specifier: ^0.1.0
+        version: 0.1.0
+      '@braedonsaunders/appkit-scene':
+        specifier: ^1.0.0
+        version: 1.0.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-scripts':
+        specifier: ^2.0.0
+        version: 2.0.0(@babel/runtime@7.29.7)(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@braedonsaunders/appkit-sms':
+        specifier: ^0.2.0
+        version: 0.2.0
+      '@braedonsaunders/appkit-storage':
+        specifier: ^1.0.0
+        version: 1.0.1(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@braedonsaunders/appkit-superadmin':
+        specifier: ^1.0.0
+        version: 1.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@braedonsaunders/appkit-telephony':
+        specifier: ^0.2.0
+        version: 0.2.0
+      '@braedonsaunders/appkit-tenant':
+        specifier: ^0.2.0
+        version: 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+      '@braedonsaunders/appkit-tokens':
+        specifier: ^0.1.2
+        version: 0.1.2(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui':
+        specifier: ^0.2.0
+        version: 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-voice':
+        specifier: ^0.1.1
+        version: 0.1.1
+      '@braedonsaunders/appkit-workflows':
+        specifier: ^2.0.0
+        version: 2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-forms-core@0.1.1(@noble/hashes@2.2.0))(@braedonsaunders/appkit-forms@0.2.2(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@xyflow/react@12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@bunkhouse/acp':
+        specifier: workspace:*
+        version: link:../../packages/acp
       '@bunkhouse/roles':
         specifier: workspace:*
         version: link:../../packages/roles
@@ -241,7 +199,7 @@ importers:
         version: 6.0.236(zod@4.4.3)
       better-auth:
         specifier: ^1.6.23
-        version: 1.6.25(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(next@16.2.11(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(pg@8.22.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 1.6.25(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(next@16.2.11(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(pg@8.22.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       cron-parser:
         specifier: ^5.6.2
         version: 5.6.2
@@ -250,7 +208,7 @@ importers:
         version: 3.24.0
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
+        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0
@@ -327,6 +285,9 @@ importers:
       '@types/node':
         specifier: ^22
         version: 22.20.1
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
       '@types/react':
         specifier: ^19
         version: 19.2.17
@@ -355,6 +316,18 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  packages/acp:
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.20.1
+      tsx:
+        specifier: ^4.23.1
+        version: 4.23.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/roles:
     devDependencies:
       '@types/node':
@@ -372,9 +345,12 @@ importers:
       '@ai-sdk/mcp':
         specifier: ^1.0.64
         version: 1.0.64(zod@4.4.3)
-      '@appkit/ai':
-        specifier: file:../../vendor/appkit/appkit-ai-0.2.0-14744bedc34c.tgz
-        version: file:vendor/appkit/appkit-ai-0.2.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)
+      '@braedonsaunders/appkit-ai':
+        specifier: ^1.0.1
+        version: 1.0.3(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)
+      '@bunkhouse/acp':
+        specifier: workspace:*
+        version: link:../acp
       '@modelcontextprotocol/sdk':
         specifier: ^1.21.0
         version: 1.30.0(zod@4.4.3)
@@ -443,526 +419,6 @@ packages:
 
   '@antfu/install-pkg@1.1.0':
     resolution: {integrity: sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ==}
-
-  '@appkit/agent-tools@file:vendor/appkit/appkit-agent-tools-0.2.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-Hfv+o0VO9oAqou/4lLKtBinCcqyibk80AGCGNqmTaXlgIKCphWR2UfQEGzGwEq9cphIgPcet9ZbD5RRON2IaWw==, tarball: file:vendor/appkit/appkit-agent-tools-0.2.0-14744bedc34c.tgz}
-    version: 0.2.0
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@appkit/db': ^0.2.0
-      drizzle-orm: ^0.45.2
-    peerDependenciesMeta:
-      '@appkit/db':
-        optional: true
-      drizzle-orm:
-        optional: true
-
-  '@appkit/ai@file:vendor/appkit/appkit-ai-0.2.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-jmqqmSbcLsQaokwS3uwDz/MLrbI82GBgJtnzn/rvRS+IlbjocmKpk3rqfR5BT/nleakeS4huKfyeWtgK9tcd+A==, tarball: file:vendor/appkit/appkit-ai-0.2.0-14744bedc34c.tgz}
-    version: 0.2.0
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@appkit/ui': ^0.1.10
-      lucide-react: ^1.24.0
-      react: ^19.0.0
-      react-dom: ^19.0.0
-      react-markdown: ^10.1.0
-      remark-gfm: ^4.0.1
-    peerDependenciesMeta:
-      '@appkit/ui':
-        optional: true
-      lucide-react:
-        optional: true
-      react:
-        optional: true
-      react-dom:
-        optional: true
-      react-markdown:
-        optional: true
-      remark-gfm:
-        optional: true
-
-  '@appkit/api@file:vendor/appkit/appkit-api-0.1.1-14744bedc34c.tgz':
-    resolution: {integrity: sha512-Dr+QYynKC3PP+V0+WIyMIdWzb96dpOFijGaBhjiUPUQ5icvAn43+GrypfaIHQkPPRALXVpBb4IIcjiSeYw7pcA==, tarball: file:vendor/appkit/appkit-api-0.1.1-14744bedc34c.tgz}
-    version: 0.1.1
-    engines: {node: '>=22'}
-
-  '@appkit/apps@file:vendor/appkit/appkit-apps-1.0.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-uAKhZF0SUGETh19aKRlqVAn4m6WtuNM6f30NAIEGlPVEc/xSMNcdGB3GATmfxUabWJzCZj3Kv0ZjIjAUET9ACA==, tarball: file:vendor/appkit/appkit-apps-1.0.0-14744bedc34c.tgz}
-    version: 1.0.0
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@appkit/db': ^0.2.0
-      '@appkit/ui': ^0.1.10
-      drizzle-orm: ^0.45.2
-      lucide-react: ^1.24.0
-      react: ^19.0.0
-      react-dom: ^19.0.0
-    peerDependenciesMeta:
-      '@appkit/db':
-        optional: true
-      '@appkit/ui':
-        optional: true
-      drizzle-orm:
-        optional: true
-      lucide-react:
-        optional: true
-      react:
-        optional: true
-      react-dom:
-        optional: true
-
-  '@appkit/auth@file:vendor/appkit/appkit-auth-0.1.2-14744bedc34c.tgz':
-    resolution: {integrity: sha512-X0+2bckjoKNaM8EXyeM0BHOZZE23CGIAO31V/Q+Y9gRn/6EVXNGDsy0vZ1zx/7OMisIX9m8c3ShdIwBmbV5DWA==, tarball: file:vendor/appkit/appkit-auth-0.1.2-14744bedc34c.tgz}
-    version: 0.1.2
-    engines: {node: '>=22'}
-    peerDependencies:
-      react: '>=18.2 <20'
-
-  '@appkit/avatars@file:vendor/appkit/appkit-avatars-0.5.2-14744bedc34c.tgz':
-    resolution: {integrity: sha512-jeCk8s2MEfH9lMbICqsxdJA6HnKZme0M7m925gq1o3TkpPyCS5/ADQVta31XrcyRb3ZJpj9cji5WMPcEx7fxxQ==, tarball: file:vendor/appkit/appkit-avatars-0.5.2-14744bedc34c.tgz}
-    version: 0.5.2
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@appkit/ui': ^0.1.10
-      framer-motion: ^12.34.0
-      lucide-react: ^1.24.0
-      react: ^19.0.0
-      react-dom: ^19.0.0
-    peerDependenciesMeta:
-      '@appkit/ui':
-        optional: true
-      framer-motion:
-        optional: true
-      lucide-react:
-        optional: true
-      react:
-        optional: true
-      react-dom:
-        optional: true
-
-  '@appkit/crypto@file:vendor/appkit/appkit-crypto-0.3.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-eT++MQP1/nVyEIuA+5lV47a4Cnxrg7wCzd/+gMQ7qv1GpFYL2IB9mDJ/LYqiORu9hzfXQyIv7gmOPVp2Jt7zyg==, tarball: file:vendor/appkit/appkit-crypto-0.3.0-14744bedc34c.tgz}
-    version: 0.3.0
-    engines: {node: '>=22'}
-
-  '@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-Gt9OybLxdNuaIdcLghZwpbkgdL2wCv+UFAVRpAW5NoteUYr43LiL1JjzM5ST0YMz2Kgsq7JNNYin5zYg0BHODQ==, tarball: file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz}
-    version: 0.2.0
-    engines: {node: '>=22'}
-
-  '@appkit/design-studio@file:vendor/appkit/appkit-design-studio-0.2.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-yG/XZM/lbrf+WjxJR5kRodqdpJEX8hEjUoFBCMBR8cvEt5mfmXgZLGUm7Lj4KaoFYwoLoh5vEj2Dz+ze9W+2wQ==, tarball: file:vendor/appkit/appkit-design-studio-0.2.0-14744bedc34c.tgz}
-    version: 0.2.0
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@appkit/ui': ^0.1.10
-      fabric: ^7.0.0
-      lucide-react: ^1.24.0
-      react: ^19.0.0
-      react-dom: ^19.0.0
-    peerDependenciesMeta:
-      '@appkit/ui':
-        optional: true
-      fabric:
-        optional: true
-      lucide-react:
-        optional: true
-      react:
-        optional: true
-      react-dom:
-        optional: true
-
-  '@appkit/desk@file:vendor/appkit/appkit-desk-0.3.2-14744bedc34c.tgz':
-    resolution: {integrity: sha512-ccgKJen+ztG63HfsUCUr/PB04mGHOyP14rElydOAVeSQNN/Ja50d+BMhPH+wapgzkaDwiChDACXQaXeCIK3GUA==, tarball: file:vendor/appkit/appkit-desk-0.3.2-14744bedc34c.tgz}
-    version: 0.3.2
-    engines: {node: '>=22'}
-
-  '@appkit/editor@file:vendor/appkit/appkit-editor-0.2.1-14744bedc34c.tgz':
-    resolution: {integrity: sha512-vWINYIUJ5xIcWrKnFmrSrz3tzOj+j2mAqAo6PyDJZK6GYv9W4LfCNjs0Mc/pOwuYJ8JlhHTE1kHWp+JphY0nsA==, tarball: file:vendor/appkit/appkit-editor-0.2.1-14744bedc34c.tgz}
-    version: 0.2.1
-    engines: {node: '>=22'}
-    peerDependencies:
-      react: ^19.0.0
-      react-dom: ^19.0.0
-
-  '@appkit/egress-proxy@file:vendor/appkit/appkit-egress-proxy-0.1.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-GJwJBTh3+YmYoYgwsM6p4XlCU7z72N/bW9rwUbkGGVzwtbp2Sptx+xJsQwUgfBuJnGg1Jjk6CtzR1BdBU414dg==, tarball: file:vendor/appkit/appkit-egress-proxy-0.1.0-14744bedc34c.tgz}
-    version: 0.1.0
-    engines: {node: '>=22'}
-
-  '@appkit/email-designer@file:vendor/appkit/appkit-email-designer-0.2.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-LKng24kEE48HsfISgdjqcZA6MZU6xAYzjMqRutV539/kXXu7vYkRydRrCo+mxmvUasUpzfZrbRplxSo+eyh9kA==, tarball: file:vendor/appkit/appkit-email-designer-0.2.0-14744bedc34c.tgz}
-    version: 0.2.0
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@grapesjs/react': ^2.0.0
-      grapesjs: ^0.22.16
-      juice: ^12.0.0
-      react: ^19.0.0
-      react-dom: ^19.0.0
-    peerDependenciesMeta:
-      '@grapesjs/react':
-        optional: true
-      grapesjs:
-        optional: true
-      juice:
-        optional: true
-      react:
-        optional: true
-      react-dom:
-        optional: true
-
-  '@appkit/email-render@file:vendor/appkit/appkit-email-render-0.1.1-14744bedc34c.tgz':
-    resolution: {integrity: sha512-PC2aeBtbwHWcNh4ZlSWsvE3LZvYYXViI2WxoQyKnStvV+DQva3OcW9C741olOwotu8C5E4L7Rtsv4/56rcUzgw==, tarball: file:vendor/appkit/appkit-email-render-0.1.1-14744bedc34c.tgz}
-    version: 0.1.1
-    engines: {node: '>=22'}
-
-  '@appkit/emails@file:vendor/appkit/appkit-emails-0.2.1-14744bedc34c.tgz':
-    resolution: {integrity: sha512-LQi2tlMZ5yONiLZY+0CtGaJ5iw5y4LBj0Aaxg189iUEdTVUxoPvG+2h+ptk76vBvrhk5TJApKFgy/JgGNVk0XA==, tarball: file:vendor/appkit/appkit-emails-0.2.1-14744bedc34c.tgz}
-    version: 0.2.1
-    engines: {node: '>=22'}
-
-  '@appkit/endpoints@file:vendor/appkit/appkit-endpoints-0.1.1-14744bedc34c.tgz':
-    resolution: {integrity: sha512-NLyRBauuV9rEJzZ6mp5rnHsbvmrDlGv7qAiiLUZbBRbXtzhsSmB/6G+KfsC0Qt1CMdV9ceg4LLrGgkxBXxmrbA==, tarball: file:vendor/appkit/appkit-endpoints-0.1.1-14744bedc34c.tgz}
-    version: 0.1.1
-    engines: {node: '>=22'}
-
-  '@appkit/events@file:vendor/appkit/appkit-events-0.2.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-ymgGyAN/Hhz06tLodQVS/CBZVxt2XZK39XXhDknqLhz+Evg5yUru/ai5BZYDFqznk9ni1zxTWTpIaToA3zH0FQ==, tarball: file:vendor/appkit/appkit-events-0.2.0-14744bedc34c.tgz}
-    version: 0.2.0
-    engines: {node: '>=22'}
-
-  '@appkit/forms-core@file:vendor/appkit/appkit-forms-core-0.1.1-14744bedc34c.tgz':
-    resolution: {integrity: sha512-bB8YaWqSjoPPfyQqmrp3iolC8C4eJZQdOYXF51cef+EwME3HumwZTuVJAEzfZqf3qxo4qVL/hq6l6Mm10pkPSg==, tarball: file:vendor/appkit/appkit-forms-core-0.1.1-14744bedc34c.tgz}
-    version: 0.1.1
-    engines: {node: '>=22'}
-
-  '@appkit/forms-documents@file:vendor/appkit/appkit-forms-documents-0.1.1-14744bedc34c.tgz':
-    resolution: {integrity: sha512-GKhg7NvNzhutb7Q3dMz0yIXmHgJT4s93s4teeWbyvDdN1IUX9Fyu2xnRZU30UpVM07OuLFLKKTCLQ9gn7d506g==, tarball: file:vendor/appkit/appkit-forms-documents-0.1.1-14744bedc34c.tgz}
-    version: 0.1.1
-    engines: {node: '>=22'}
-
-  '@appkit/forms-pdf@file:vendor/appkit/appkit-forms-pdf-1.0.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-DxTKJvKB0pEgZyFchYG/dAwQ4iz4M9nBEeHbdn2udvM9rqYspaBSyMSL45VMNFeDH/PLWqAzT5jIcvYTBQZ/WA==, tarball: file:vendor/appkit/appkit-forms-pdf-1.0.0-14744bedc34c.tgz}
-    version: 1.0.0
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@appkit/design-studio': ^0.2.0
-      '@appkit/pdf': ^0.1.1
-      '@appkit/reports': ^0.2.1
-      '@appkit/sync': ^1.0.0
-      puppeteer-core: ^25.3.0
-    peerDependenciesMeta:
-      '@appkit/design-studio':
-        optional: true
-      '@appkit/pdf':
-        optional: true
-      '@appkit/reports':
-        optional: true
-      '@appkit/sync':
-        optional: true
-      puppeteer-core:
-        optional: true
-
-  '@appkit/forms@file:vendor/appkit/appkit-forms-0.2.1-14744bedc34c.tgz':
-    resolution: {integrity: sha512-UDdNDLEcRuHblf0jtyo7i1040CV0qNJXIaWWZfAMR8jCdvhklovK9nqlLCTzJtCZPJ5njcfbgDUxvuSOOXJ09A==, tarball: file:vendor/appkit/appkit-forms-0.2.1-14744bedc34c.tgz}
-    version: 0.2.1
-    engines: {node: '>=22'}
-    peerDependencies:
-      react: ^19.0.0
-      react-dom: ^19.0.0
-
-  '@appkit/i18n@file:vendor/appkit/appkit-i18n-0.1.1-14744bedc34c.tgz':
-    resolution: {integrity: sha512-09IbynI4GuUZljO0kyg5QmdqD6NPZG7+X+6dzNpgs0AeazEQ5xncmsZH+9+b3xUBop+NuN/9yTjLgF9ZmEgmxg==, tarball: file:vendor/appkit/appkit-i18n-0.1.1-14744bedc34c.tgz}
-    version: 0.1.1
-    engines: {node: '>=22'}
-
-  '@appkit/iam@file:vendor/appkit/appkit-iam-1.0.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-IMYM1SJNc8ZfOUN4d8PskV7IhJEqaJv4H9QwxLWnh9aoLZkIiqw8/8DbgtKO8lSR/7ZR7zNKf2oY1HOGY0YvoA==, tarball: file:vendor/appkit/appkit-iam-1.0.0-14744bedc34c.tgz}
-    version: 1.0.0
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@appkit/db': ^0.2.0
-      '@appkit/tenant': ^0.1.1
-      '@appkit/ui': ^0.1.10
-      drizzle-orm: ^0.45.2
-      lucide-react: ^1.24.0
-      react: ^19.0.0
-      react-dom: ^19.0.0
-    peerDependenciesMeta:
-      '@appkit/db':
-        optional: true
-      '@appkit/tenant':
-        optional: true
-      '@appkit/ui':
-        optional: true
-      drizzle-orm:
-        optional: true
-      lucide-react:
-        optional: true
-      react:
-        optional: true
-      react-dom:
-        optional: true
-
-  '@appkit/jobs@file:vendor/appkit/appkit-jobs-0.2.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-uTomhlvF9W+Yt3s792GQV+kmnRZw3jMfkn7lrdOmKEZvbAaxBGnp/g91uU0bA+/JaSRdfK1KhjnBMY9IWOvDJg==, tarball: file:vendor/appkit/appkit-jobs-0.2.0-14744bedc34c.tgz}
-    version: 0.2.0
-    engines: {node: '>=22'}
-
-  '@appkit/mailbox@file:vendor/appkit/appkit-mailbox-0.5.1-14744bedc34c.tgz':
-    resolution: {integrity: sha512-FIn1aKlFt5DDAMm6/wkKZKePP8jGJfyHmM+wp977As2V6WfEOwrGkdtJ8miHYhu7ymnSdKZmWUNnnrhZbArqmg==, tarball: file:vendor/appkit/appkit-mailbox-0.5.1-14744bedc34c.tgz}
-    version: 0.5.1
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@appkit/ui': ^0.1.10
-      lucide-react: ^1.24.0
-      react: ^19.0.0
-      react-dom: ^19.0.0
-    peerDependenciesMeta:
-      '@appkit/ui':
-        optional: true
-      lucide-react:
-        optional: true
-      react:
-        optional: true
-      react-dom:
-        optional: true
-
-  '@appkit/notifications@file:vendor/appkit/appkit-notifications-1.0.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-Vr6K1yw7eODondDMoI9rZc+9VKY9G2Rkdhy3BrA6HSpFiegzfPnQZK4u5ZN0bhHkxbhbdItBE+SsJSyFpJPokw==, tarball: file:vendor/appkit/appkit-notifications-1.0.0-14744bedc34c.tgz}
-    version: 1.0.0
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@appkit/db': ^0.2.0
-      '@appkit/jobs': ^0.2.0
-      '@appkit/ui': ^0.1.10
-      drizzle-orm: ^0.45.2
-      lucide-react: ^1.24.0
-      react: ^19.0.0
-      react-dom: ^19.0.0
-    peerDependenciesMeta:
-      '@appkit/db':
-        optional: true
-      '@appkit/jobs':
-        optional: true
-      '@appkit/ui':
-        optional: true
-      drizzle-orm:
-        optional: true
-      lucide-react:
-        optional: true
-      react:
-        optional: true
-      react-dom:
-        optional: true
-
-  '@appkit/oauth@file:vendor/appkit/appkit-oauth-0.1.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-hVBgpfThQ7iDC2tcr7sMuYIspzROge3yFL0OnPnnc0TLAnhZnwx1CMVuGP8bKdTRvsxZzDfcNFy2tdOan3P2Qg==, tarball: file:vendor/appkit/appkit-oauth-0.1.0-14744bedc34c.tgz}
-    version: 0.1.0
-    engines: {node: '>=22'}
-
-  '@appkit/office@file:vendor/appkit/appkit-office-0.2.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-Mn6zusSQjrb7p9NghnrwDtNfZc05xMs0U3RHAsj16EH4cGmVoJA3ZMwdvi5iSCG4nZseldlhxKYILjBKCGfCKw==, tarball: file:vendor/appkit/appkit-office-0.2.0-14744bedc34c.tgz}
-    version: 0.2.0
-    engines: {node: '>=22'}
-    peerDependencies:
-      exceljs: ^4.4.0
-    peerDependenciesMeta:
-      exceljs:
-        optional: true
-
-  '@appkit/pdf@file:vendor/appkit/appkit-pdf-0.1.1-14744bedc34c.tgz':
-    resolution: {integrity: sha512-UXXFq2TedyoRWoQAORlgkpC9Tq64rQFv5tuSNgICQgFP2ljDiiD1CvOd1slCT13liAqlERgfvVgYE2tugQMutg==, tarball: file:vendor/appkit/appkit-pdf-0.1.1-14744bedc34c.tgz}
-    version: 0.1.1
-    engines: {node: '>=22'}
-    peerDependencies:
-      isomorphic-dompurify: ^3.18.0
-      puppeteer-core: ^25.3.0
-    peerDependenciesMeta:
-      isomorphic-dompurify:
-        optional: true
-      puppeteer-core:
-        optional: true
-
-  '@appkit/process-sandbox@file:vendor/appkit/appkit-process-sandbox-0.3.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-RMrwvEIw7iqxc1WjJUfoCXz+rvW6Z9IyUyfuERJz5Cebxy14XyKTOMA+MLaz+9yzGzPc1RbYKlsN+W1/B6Dslw==, tarball: file:vendor/appkit/appkit-process-sandbox-0.3.0-14744bedc34c.tgz}
-    version: 0.3.0
-    engines: {node: '>=22'}
-
-  '@appkit/sandbox@file:vendor/appkit/appkit-sandbox-0.1.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-2ZPh/UNtPPaRhO06AaPEIVzafmVO7kGJZrLtf2v9Ya2Ct0u4LGvo33C1D17+YJgDnTKgJ3IFmtExSbPePnNorQ==, tarball: file:vendor/appkit/appkit-sandbox-0.1.0-14744bedc34c.tgz}
-    version: 0.1.0
-    engines: {node: '>=22'}
-
-  '@appkit/scene@file:vendor/appkit/appkit-scene-0.3.4-14744bedc34c.tgz':
-    resolution: {integrity: sha512-IPXkZaO0k3HrcluBUZhFd767cHDYLpzytO6IjDApSB1BG1RRGSVObbmALtDn8+RpxAkeOU836tjnAyhwUU5OAw==, tarball: file:vendor/appkit/appkit-scene-0.3.4-14744bedc34c.tgz}
-    version: 0.3.4
-    engines: {node: '>=22'}
-    peerDependencies:
-      react: ^19.0.0
-      react-dom: ^19.0.0
-
-  '@appkit/scripts@file:vendor/appkit/appkit-scripts-1.0.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-pJsTZjQ8TtsLxInz6/kq7YB6Dn3J1at+3DWlLn4MGTbkLfiYxVgFLNDcuHbG5S7/91c+UAw9qzJbqQ2oOLw6Qg==, tarball: file:vendor/appkit/appkit-scripts-1.0.0-14744bedc34c.tgz}
-    version: 1.0.0
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@appkit/db': ^0.2.0
-      '@appkit/ui': ^0.1.10
-      drizzle-orm: ^0.45.2
-      lucide-react: ^1.24.0
-      react: ^19.0.0
-      react-dom: ^19.0.0
-    peerDependenciesMeta:
-      '@appkit/db':
-        optional: true
-      '@appkit/ui':
-        optional: true
-      drizzle-orm:
-        optional: true
-      lucide-react:
-        optional: true
-      react:
-        optional: true
-      react-dom:
-        optional: true
-
-  '@appkit/sms@file:vendor/appkit/appkit-sms-0.2.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-icxijrZCTn7x6+EoBG4Zj267dnJiFESBM/KYGhi24coaCalrFhBK9TvyPf79q+/5FazzNacrt4fLYCnkWZVlAQ==, tarball: file:vendor/appkit/appkit-sms-0.2.0-14744bedc34c.tgz}
-    version: 0.2.0
-    engines: {node: '>=22'}
-
-  '@appkit/storage@file:vendor/appkit/appkit-storage-0.2.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-A4vNigRq4NnoDdyKS9NsF+To49uQYH6teMwukby1JZTZl5ThP/qypVJpmPnP1q/YG3RRDXue7WToGjbggK/+xw==, tarball: file:vendor/appkit/appkit-storage-0.2.0-14744bedc34c.tgz}
-    version: 0.2.0
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@appkit/ui': ^0.1.10
-      lucide-react: ^1.24.0
-      react: ^19.0.0
-      react-dom: ^19.0.0
-    peerDependenciesMeta:
-      '@appkit/ui':
-        optional: true
-      lucide-react:
-        optional: true
-      react:
-        optional: true
-      react-dom:
-        optional: true
-
-  '@appkit/superadmin@file:vendor/appkit/appkit-superadmin-0.3.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-WINSjaPB/vX4yb+/pdNb/NVIf8shHKJn30qOr9XiunMF4+WOiIYyDN4urxfp8QEOI4TNvfRWY/nsK7K1cJliGg==, tarball: file:vendor/appkit/appkit-superadmin-0.3.0-14744bedc34c.tgz}
-    version: 0.3.0
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@appkit/db': ^0.2.0
-      '@appkit/ui': ^0.1.10
-      drizzle-orm: ^0.45.2
-      lucide-react: ^1.24.0
-      react: ^19.0.0
-      react-dom: ^19.0.0
-    peerDependenciesMeta:
-      '@appkit/db':
-        optional: true
-      '@appkit/ui':
-        optional: true
-      drizzle-orm:
-        optional: true
-      lucide-react:
-        optional: true
-      react:
-        optional: true
-      react-dom:
-        optional: true
-
-  '@appkit/sync@file:vendor/appkit/appkit-sync-1.0.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-OebvVtAOzIgU5DqojHpO8cfhQ1xvu7gh5IBwjV+NH50bv5WV3xMe3qE9+i8MCSBzH/qd3vNovJDqQn6UIAKwVA==, tarball: file:vendor/appkit/appkit-sync-1.0.0-14744bedc34c.tgz}
-    version: 1.0.0
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@appkit/db': ^0.2.0
-      drizzle-orm: ^0.45.2
-      mssql: ^11.0.1
-      mysql2: ^3.22.6
-      postgres: ^3.4.9
-    peerDependenciesMeta:
-      '@appkit/db':
-        optional: true
-      drizzle-orm:
-        optional: true
-      mssql:
-        optional: true
-      mysql2:
-        optional: true
-      postgres:
-        optional: true
-
-  '@appkit/telephony@file:vendor/appkit/appkit-telephony-0.2.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-S1MKDknKnc6YckV+RNzoixEY2G2xmd8tXwRIoOK5xWms/QS7ZfIOrYi3vwKPRsjfPnYgkunH9yEm8qN85ChOqQ==, tarball: file:vendor/appkit/appkit-telephony-0.2.0-14744bedc34c.tgz}
-    version: 0.2.0
-    engines: {node: '>=22'}
-
-  '@appkit/tenant@file:vendor/appkit/appkit-tenant-0.1.1-14744bedc34c.tgz':
-    resolution: {integrity: sha512-i7ADDeHPd2J+xcKg9AkNwo22cWup222p+IMHYt6/CENYh9apPt5pQjk6g736BFnq0NJMLt7MOS6KdfxZiT+ycg==, tarball: file:vendor/appkit/appkit-tenant-0.1.1-14744bedc34c.tgz}
-    version: 0.1.1
-    engines: {node: '>=22'}
-
-  '@appkit/tokens@file:vendor/appkit/appkit-tokens-0.1.2-14744bedc34c.tgz':
-    resolution: {integrity: sha512-5ofgPQ3ODM4qGTREcAvI3yhnYJuZY/Mve6XGICRaZjPQ5KU3Z1HWOOnY75PAMAEkI69OVDBR7m/R2i/gR8tHbg==, tarball: file:vendor/appkit/appkit-tokens-0.1.2-14744bedc34c.tgz}
-    version: 0.1.2
-    engines: {node: '>=22'}
-    peerDependencies:
-      tailwindcss: ^4.0.0
-
-  '@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz':
-    resolution: {integrity: sha512-R8tWnWbQmYjJ+VraFFeSlC6TuKdQGicf8TZ8O5xnVtq00mnBI+Dz+xVA8RIJN0DfJZOXMh+P1eYKNXg5vyb3oQ==, tarball: file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz}
-    version: 0.1.11
-    engines: {node: '>=22'}
-    peerDependencies:
-      react: ^19.0.0
-      react-dom: ^19.0.0
-
-  '@appkit/voice@file:vendor/appkit/appkit-voice-0.1.1-14744bedc34c.tgz':
-    resolution: {integrity: sha512-HFsH1o5fvJ4jhmpCf3BoVaeLy8713NVpDuIFN6lqx2DOBd+mAwIr4gzSH5pXfpjNhEu3MKkfbFy1lbFbo8lGQw==, tarball: file:vendor/appkit/appkit-voice-0.1.1-14744bedc34c.tgz}
-    version: 0.1.1
-    engines: {node: '>=22'}
-
-  '@appkit/workflows@file:vendor/appkit/appkit-workflows-1.0.0-14744bedc34c.tgz':
-    resolution: {integrity: sha512-zP/hm6aCzpmYGAkq1wPNbpRZYiWaJ7EchN7cX7fwR350XURZLn0CbNE31dULkk9NfYl+XazwgDynp4Xz49IEGg==, tarball: file:vendor/appkit/appkit-workflows-1.0.0-14744bedc34c.tgz}
-    version: 1.0.0
-    engines: {node: '>=22'}
-    peerDependencies:
-      '@appkit/db': ^0.2.0
-      '@appkit/forms': ^0.2.1
-      '@appkit/forms-core': ^0.1.1
-      '@appkit/ui': ^0.1.10
-      '@xyflow/react': ^12.10.0
-      drizzle-orm: ^0.45.2
-      lucide-react: ^1.24.0
-      react: ^19.0.0
-      react-dom: ^19.0.0
-    peerDependenciesMeta:
-      '@appkit/db':
-        optional: true
-      '@appkit/forms':
-        optional: true
-      '@appkit/forms-core':
-        optional: true
-      '@appkit/ui':
-        optional: true
-      '@xyflow/react':
-        optional: true
-      drizzle-orm:
-        optional: true
-      lucide-react:
-        optional: true
-      react:
-        optional: true
-      react-dom:
-        optional: true
 
   '@asamuzakjp/css-color@5.1.11':
     resolution: {integrity: sha512-KVw6qIiCTUQhByfTd78h2yD1/00waTmm9uy/R7Ck/ctUyAPj+AEDLkQIdJW0T8+qGgj3j5bpNKK7Q3G+LedJWg==}
@@ -1210,6 +666,493 @@ packages:
 
   '@better-fetch/fetch@1.3.1':
     resolution: {integrity: sha512-ABkD1WhyfPZprKRQI3bhATjeiFuNWC9PXhfGWqL+sg/gKrM977oFrYkdb4msM3hgUGonr7KlOsOFT5TU2rht9g==}
+
+  '@braedonsaunders/appkit-agent-tools@0.2.0':
+    resolution: {integrity: sha512-nqRtKFbftLRBdarZV3iuV4ueAFpxibqKpYMaI0YhJLGLxjeTHhmZnJfBtaJtpZG1l7AkkzySds30085qFYrq8g==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@braedonsaunders/appkit-db': ^0.2.0
+      drizzle-orm: ^0.45.2
+    peerDependenciesMeta:
+      '@braedonsaunders/appkit-db':
+        optional: true
+      drizzle-orm:
+        optional: true
+
+  '@braedonsaunders/appkit-ai@1.0.3':
+    resolution: {integrity: sha512-jgvC0wTw90OoHT4Cp1XtwNM90TqPhsKLQEtZxQWLefg79zx8dQS/bKsn4mTFZizJFaaVZbBcOXYNg9c3gwYVpw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@braedonsaunders/appkit-ui': ^0.2.0
+      lucide-react: ^1.24.0
+      react: ^19.0.0
+      react-dom: ^19.0.0
+      react-markdown: ^10.1.0
+      remark-gfm: ^4.0.1
+    peerDependenciesMeta:
+      '@braedonsaunders/appkit-ui':
+        optional: true
+      lucide-react:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+      react-markdown:
+        optional: true
+      remark-gfm:
+        optional: true
+
+  '@braedonsaunders/appkit-api@0.1.2':
+    resolution: {integrity: sha512-N7wE5XD+T+dGUu/lWVWge9Q0l8v7f4P5b0IXjsZOjMjm3kvxQgOxAPjK+el9glC4sPFbxXC0Djmcbk6/HxeIvA==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-apps@2.0.0':
+    resolution: {integrity: sha512-mF6QWZWitwupBn+B21/KPcMDjS4vnyOeFbPRJzCT0vCgofA4f12+EvNWyGeImubP/X291TqqR1TOSkwGoTO2qQ==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@braedonsaunders/appkit-db': ^0.2.0
+      '@braedonsaunders/appkit-ui': ^0.2.0
+      drizzle-orm: ^0.45.2
+      lucide-react: ^1.24.0
+      react: ^19.0.0
+      react-dom: ^19.0.0
+    peerDependenciesMeta:
+      '@braedonsaunders/appkit-db':
+        optional: true
+      '@braedonsaunders/appkit-ui':
+        optional: true
+      drizzle-orm:
+        optional: true
+      lucide-react:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
+  '@braedonsaunders/appkit-auth@0.1.3':
+    resolution: {integrity: sha512-ds3cAD1z7xKvtBSe8BNzYWqK1D7AkTgRZEVyDsRcNhScYO3y7rzjkSc/cEga4OnqnjGao1ZvdlLYGRV8mR4t3A==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      react: '>=18.2 <20'
+
+  '@braedonsaunders/appkit-avatars@1.0.0':
+    resolution: {integrity: sha512-PTdiGD6XWOoaJYNurnSDt1Mdid+Z0fH27NOulATNUd9mBGX4Ju9F7adudBEVZe1uQrS5annBDSWpJgyIMe8L/g==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@braedonsaunders/appkit-ui': ^0.2.0
+      framer-motion: ^12.34.0
+      lucide-react: ^1.24.0
+      react: ^19.0.0
+      react-dom: ^19.0.0
+    peerDependenciesMeta:
+      '@braedonsaunders/appkit-ui':
+        optional: true
+      framer-motion:
+        optional: true
+      lucide-react:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
+  '@braedonsaunders/appkit-crypto@0.3.0':
+    resolution: {integrity: sha512-7gpC5YjRpS8HzyOBpYNOCXFBZPbUbsabIWgPKV5OBTy0FUlVZEGl4RwiIFWSx+NrIwIimjBOZhhIQcltFZdbrw==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-db@0.2.0':
+    resolution: {integrity: sha512-1oOjAFHSyWMF947dqzHeIorLh49nHhzFuMfP0LVlYcUys4RqOMT8XVKH8c8yrzpdB0cdhLjOvTpSTKJ40q8TBw==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-design-studio@1.0.0':
+    resolution: {integrity: sha512-Tw4BT3T/7NRxl7P03KamLMYFmyz1JO6S1e4aietVweVlUyoD9JGjp1bHmctT5wlBbxmmpOMQy/jiV86smtVTPQ==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@braedonsaunders/appkit-ui': ^0.2.0
+      fabric: ^7.0.0
+      lucide-react: ^1.24.0
+      react: ^19.0.0
+      react-dom: ^19.0.0
+    peerDependenciesMeta:
+      '@braedonsaunders/appkit-ui':
+        optional: true
+      fabric:
+        optional: true
+      lucide-react:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
+  '@braedonsaunders/appkit-desk@0.5.1':
+    resolution: {integrity: sha512-8hLYoo8c2zfWQrXsVtveEQ0D71bd0HTkNAColwIW5yyCmxuPD+CW4Rt+zlNgUJwuvGTgukrPd4b8omubV56Gjw==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-editor@0.2.2':
+    resolution: {integrity: sha512-NvP+KpvWBtD/u+A9JzmAYnhoqz706i4QB24KiOD9cg4AplLLBj8gqPWr4WRgbhy62VXW2hrk4JQSV8rhyE91eA==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      react: ^19.0.0
+      react-dom: ^19.0.0
+
+  '@braedonsaunders/appkit-egress-proxy@0.1.1':
+    resolution: {integrity: sha512-svFopWJDiWvkDDR0yyen8Sqp3dtHejo2i/h0D8bWakADV6U+AYc40wAD0Q0jMt5vCXTl4nBOd/UKew6cqO/a2g==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-email-designer@0.2.0':
+    resolution: {integrity: sha512-Qef19E/JVfy1zFXPGsA7NN+LcwVGcsYeCNVXxsqXS2229aULs1PDwHs5nceQIdmEmwKVPSSvPANXZbXUGrwyrw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@grapesjs/react': ^2.0.0
+      grapesjs: ^0.22.16
+      juice: ^12.0.0
+      react: ^19.0.0
+      react-dom: ^19.0.0
+    peerDependenciesMeta:
+      '@grapesjs/react':
+        optional: true
+      grapesjs:
+        optional: true
+      juice:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
+  '@braedonsaunders/appkit-email-render@0.1.1':
+    resolution: {integrity: sha512-ni9v1h+5FJDUHm7sjqAWw31bP6u2bwhQ6ESKP3CJXNdLj7S2hDlsp4Bw1oGLy6wM1p0aqmm/6OJnIOrGaKByaQ==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-emails@0.2.1':
+    resolution: {integrity: sha512-IUeDOBdrT+zPS2r1mO+dIXOl4KUwOq2TIat1WdwxUCXCkKsNFayLPOfJjnvFQtlW+eLniUix7YVUupdBejLQVA==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-endpoints@0.1.1':
+    resolution: {integrity: sha512-384+NkKSsKjme5P6bKD5WLKujhDU8xr+wxCJNHeP771lCwsupYcfD543TT4Hk3k9CE5prgFtWYq5cswE5dpGEA==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-events@0.3.0':
+    resolution: {integrity: sha512-sVMFyhysjj0X4aY7aLqkkN1a5A4Jk6IYN7IBBOw75BZGTk2FhfQJtg9ahmCkD7w1Szf0jkv+2QOZ3B7s78BLEQ==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-forms-core@0.1.1':
+    resolution: {integrity: sha512-fv78yjG7tm0no3F264YHWEZXzs2M3FFbPwI/WzIihpuwGPR13lfFprpsTQ7Nzoubld7KQRzAch8zsy7gwgWSuw==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-forms-documents@0.1.1':
+    resolution: {integrity: sha512-A+ACeLHWCQuaNz0dVsUf5Sa0E/pFh1Ya7R3R5w6eAgT1WUODAzQRbKc2DFSqzvPGhrA5+7bMlJq1TSMMg8UP6w==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-forms-pdf@2.0.0':
+    resolution: {integrity: sha512-DENm3YaC4LEKJ428cwJDcE+F9QFVz+1IxoA9yfTq5y6FTrXp0MowNB5zDea5SFeIPpEU25YX1mgmRIzmAFqcJA==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@braedonsaunders/appkit-design-studio': ^1.0.0
+      '@braedonsaunders/appkit-pdf': ^0.1.1
+      '@braedonsaunders/appkit-reports': ^1.0.0
+      '@braedonsaunders/appkit-sync': ^1.1.0
+      puppeteer-core: ^25.3.0
+    peerDependenciesMeta:
+      '@braedonsaunders/appkit-design-studio':
+        optional: true
+      '@braedonsaunders/appkit-pdf':
+        optional: true
+      '@braedonsaunders/appkit-reports':
+        optional: true
+      '@braedonsaunders/appkit-sync':
+        optional: true
+      puppeteer-core:
+        optional: true
+
+  '@braedonsaunders/appkit-forms@0.2.2':
+    resolution: {integrity: sha512-SJ5XTjYriJv67trIFMTjXHC12kfbJYSSWZvNMpV/IfYioYd7d4OHIH5YZzDdOdZ1hNUb1niML/T0yhVFW20H3g==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      react: ^19.0.0
+      react-dom: ^19.0.0
+
+  '@braedonsaunders/appkit-i18n@0.1.1':
+    resolution: {integrity: sha512-KKP/5NmXUD16yP1MdgxXYKUr7hl++10La2w7yI1dSTdxikQMcaOfib5PfvNmc5eXfkYXAhVXMtSr5XLieoL0ug==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-iam@2.0.0':
+    resolution: {integrity: sha512-kHkjxAWxvSKbty8vxDEGplYQ8KqefySEOZAAy4iEKnCskyRHkARRlT61NX4apmLBmjMcQQ+qe7j4EFSIxR1f8A==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@braedonsaunders/appkit-db': ^0.2.0
+      '@braedonsaunders/appkit-tenant': ^0.2.0
+      '@braedonsaunders/appkit-ui': ^0.2.0
+      drizzle-orm: ^0.45.2
+      lucide-react: ^1.24.0
+      react: ^19.0.0
+      react-dom: ^19.0.0
+    peerDependenciesMeta:
+      '@braedonsaunders/appkit-db':
+        optional: true
+      '@braedonsaunders/appkit-tenant':
+        optional: true
+      '@braedonsaunders/appkit-ui':
+        optional: true
+      drizzle-orm:
+        optional: true
+      lucide-react:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
+  '@braedonsaunders/appkit-jobs@0.2.1':
+    resolution: {integrity: sha512-T2wdWc0yi1vYgg4y2zNbNfdWVSozEI2NQcQm7w4fhY4RoFAu0rm2oYNApp93PnfJEm2JeBbBJqhfhNzSqyN+qg==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-mailbox@1.0.0':
+    resolution: {integrity: sha512-CrrgVqlt2P5kwMAPLlUbVx+WSSxYXxuISLVK9qOloGjaMHRpe/D4cpPdVO41h7iH13fvDlbGqwlUNxDaWdxvCQ==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@braedonsaunders/appkit-ui': ^0.2.0
+      lucide-react: ^1.24.0
+      react: ^19.0.0
+      react-dom: ^19.0.0
+    peerDependenciesMeta:
+      '@braedonsaunders/appkit-ui':
+        optional: true
+      lucide-react:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
+  '@braedonsaunders/appkit-notifications@2.0.0':
+    resolution: {integrity: sha512-o392OzAj3JHHKyk39cUsYbLtbpbKOCJ2CQP0yHRdDpqR01ucTES+E3rcCsAQGRZRQTX4zAbKuPUIKhTfrJlQDA==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@braedonsaunders/appkit-db': ^0.2.0
+      '@braedonsaunders/appkit-jobs': ^0.2.1
+      '@braedonsaunders/appkit-ui': ^0.2.0
+      drizzle-orm: ^0.45.2
+      lucide-react: ^1.24.0
+      react: ^19.0.0
+      react-dom: ^19.0.0
+    peerDependenciesMeta:
+      '@braedonsaunders/appkit-db':
+        optional: true
+      '@braedonsaunders/appkit-jobs':
+        optional: true
+      '@braedonsaunders/appkit-ui':
+        optional: true
+      drizzle-orm:
+        optional: true
+      lucide-react:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
+  '@braedonsaunders/appkit-oauth@0.1.0':
+    resolution: {integrity: sha512-kUGX2b151pw0hGCFVu8MNiV1+5O4WSO8KQ5Hw7A6pJBakd+eDtbrb0PEDbf+DX1F/was4QNHbYZ+FPQQfEbC0w==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-office@0.3.0':
+    resolution: {integrity: sha512-lbavPO+hjfPhPNiOSKX/hRgBJGnv2qXrc8bcL5OHeFSZECzc4XTrzSRR5t44uaQOmy+RFeaeNb2NXjMoKk3s7Q==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      exceljs: ^4.4.0
+    peerDependenciesMeta:
+      exceljs:
+        optional: true
+
+  '@braedonsaunders/appkit-pdf@0.1.1':
+    resolution: {integrity: sha512-hVYUFe1OIXsgNRfgI2N9/5NKtcWuQHXa5BDxjik1FajGXoFoaKb7qu7eyiBo0j35orJU7YDnLsXX/QKzU5Yj9g==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      isomorphic-dompurify: ^3.18.0
+      puppeteer-core: ^25.3.0
+    peerDependenciesMeta:
+      isomorphic-dompurify:
+        optional: true
+      puppeteer-core:
+        optional: true
+
+  '@braedonsaunders/appkit-process-sandbox@0.3.0':
+    resolution: {integrity: sha512-lXzNikNucocZjlbvI7Kn3mabPH4QYtPuMBDfQpCvaOD5sHDdpUtuK0f2dHEPN0hvfCY7fiTYTbIKWvcKAh38EA==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-remote-sessions@0.1.0':
+    resolution: {integrity: sha512-twFNUsfSB1X8R/dwWSBq8m3zrcIgtgupC148nCKGwE8Zahwk6CH2Ljlq2wX+EQ43FmVya28VQJGUl/wCUHvRWQ==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      react: '>=18.2.0'
+    peerDependenciesMeta:
+      react:
+        optional: true
+
+  '@braedonsaunders/appkit-sandbox@0.1.0':
+    resolution: {integrity: sha512-Pg1q/KUOF0Z+7I/IhqU5HcxRfmh5HVRx0zO+UJysXiGx343S01SMFqeoyFBC783fz2Vggkt87aAlhG3rMs/MHQ==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-scene@1.0.0':
+    resolution: {integrity: sha512-NvvRuXSII+LNXLg1CewVTzpG4BUhUSjGa2R2FMKLEtQZtfZiPu1upbLu7atjtEdGe+HGkMDrKSEhhzPTYbRf0g==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      react: ^19.0.0
+      react-dom: ^19.0.0
+
+  '@braedonsaunders/appkit-scripts@2.0.0':
+    resolution: {integrity: sha512-AlVV2i+btopIzDv3x1arNMi8AtbVAr9T7V+jyJZXQDzV6GSrlCGOkt1l8wUsjlBq4JR7maKug19f0iFcFfWMoA==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@braedonsaunders/appkit-db': ^0.2.0
+      '@braedonsaunders/appkit-ui': ^0.2.0
+      drizzle-orm: ^0.45.2
+      lucide-react: ^1.24.0
+      react: ^19.0.0
+      react-dom: ^19.0.0
+    peerDependenciesMeta:
+      '@braedonsaunders/appkit-db':
+        optional: true
+      '@braedonsaunders/appkit-ui':
+        optional: true
+      drizzle-orm:
+        optional: true
+      lucide-react:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
+  '@braedonsaunders/appkit-sms@0.2.0':
+    resolution: {integrity: sha512-BT9ymeMnnglDkeKhONoOrGvbzZt14/2yaD74/NaD146ZVZyLJo3zyhd3BjrrBJKKrdTUDe1PoMH81Gjh3Szy0g==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-storage@1.0.1':
+    resolution: {integrity: sha512-vxyIxlrhUV1HBWEtmzUm0SfhXI/DvGbtA9yicWoIzmCkJ2+xKXiKJVde+SFrD34n2aaHEiOdt0svdlwaJvvbbg==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@braedonsaunders/appkit-ui': ^0.2.0
+      lucide-react: ^1.24.0
+      react: ^19.0.0
+      react-dom: ^19.0.0
+    peerDependenciesMeta:
+      '@braedonsaunders/appkit-ui':
+        optional: true
+      lucide-react:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
+  '@braedonsaunders/appkit-superadmin@1.0.0':
+    resolution: {integrity: sha512-cq2xjjJVIcWkCgag82HBz6gbwcHhIAKdd+R719Rx9eW4SkMBzXU5u/EFA5O1rgqBBLzcVz1bxHfw/B/tZYhS2Q==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@braedonsaunders/appkit-db': ^0.2.0
+      '@braedonsaunders/appkit-ui': ^0.2.0
+      drizzle-orm: ^0.45.2
+      lucide-react: ^1.24.0
+      react: ^19.0.0
+      react-dom: ^19.0.0
+    peerDependenciesMeta:
+      '@braedonsaunders/appkit-db':
+        optional: true
+      '@braedonsaunders/appkit-ui':
+        optional: true
+      drizzle-orm:
+        optional: true
+      lucide-react:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
+  '@braedonsaunders/appkit-sync@file:vendor/appkit/braedonsaunders-appkit-sync-1.1.0-05f281b688b5.tgz':
+    resolution: {integrity: sha512-/Xz6QR3lT7tDxqcMvST1UVJI93QWEtvSrUdThBt/rg3xXQyiXwVuwU9NKKP0ST9n+/OhBkgOy/P+0yp1knqHmQ==, tarball: file:vendor/appkit/braedonsaunders-appkit-sync-1.1.0-05f281b688b5.tgz}
+    version: 1.1.0
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@braedonsaunders/appkit-db': ^0.2.0
+      drizzle-orm: ^0.45.2
+      mssql: ^11.0.1
+      mysql2: ^3.22.6
+      postgres: ^3.4.9
+    peerDependenciesMeta:
+      '@braedonsaunders/appkit-db':
+        optional: true
+      drizzle-orm:
+        optional: true
+      mssql:
+        optional: true
+      mysql2:
+        optional: true
+      postgres:
+        optional: true
+
+  '@braedonsaunders/appkit-telephony@0.2.0':
+    resolution: {integrity: sha512-0X6GvviMumz9xgYDPbbcdxQTwBQaKtiR2koRURK9nejXSc82HFkHqyONvp0HF5kYA3vb1x7rIlQtsTGv+FrvuA==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-tenant@0.2.0':
+    resolution: {integrity: sha512-F7dZQZO4AqEWdliGDujoOBKDr9XR/LDK+xoGjQJ2R9Psemmuf6TfgAw3B/4E7LsZ4HJl8gBqArKBa440lgGkgg==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-tokens@0.1.2':
+    resolution: {integrity: sha512-coIavTu9rbfIHYL2kBiyPl4qXbu5R5UMYTsS5KZCKqSdKV9Hpix4NGE1UAHeLVOrQPMx0ow/6qnS3muP/4mlvg==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      tailwindcss: ^4.0.0
+
+  '@braedonsaunders/appkit-ui@0.2.0':
+    resolution: {integrity: sha512-aULqo6VB/b18JhMVil64PadPWvPVVjzHVdMJY4mf/i5eYFUCIocT5QvUzk8GTM0DUl5Xdb3ioHFZWfVLlmzeZw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      react: ^19.0.0
+      react-dom: ^19.0.0
+
+  '@braedonsaunders/appkit-voice@0.1.1':
+    resolution: {integrity: sha512-0da1m5/5tjL8aOsuP/W0qrrp9hfRKmWjVVB4HuvzU6zsj4q7A0Bk+ZY8KUyXZrb0ZB6DVdCaKl+hbOWKI9C/eg==}
+    engines: {node: '>=22'}
+
+  '@braedonsaunders/appkit-workflows@2.0.0':
+    resolution: {integrity: sha512-Ak9BX8AwfJYxCsDQsj82+QUO941KkaOWMun6zRU8t9YeeSTY9z9UztXkdaDEED0RGQ0Q/w+o0/AWMaMwHrfaPA==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@braedonsaunders/appkit-db': ^0.2.0
+      '@braedonsaunders/appkit-forms': ^0.2.2
+      '@braedonsaunders/appkit-forms-core': ^0.1.1
+      '@braedonsaunders/appkit-ui': ^0.2.0
+      '@xyflow/react': ^12.10.0
+      drizzle-orm: ^0.45.2
+      lucide-react: ^1.24.0
+      react: ^19.0.0
+      react-dom: ^19.0.0
+    peerDependenciesMeta:
+      '@braedonsaunders/appkit-db':
+        optional: true
+      '@braedonsaunders/appkit-forms':
+        optional: true
+      '@braedonsaunders/appkit-forms-core':
+        optional: true
+      '@braedonsaunders/appkit-ui':
+        optional: true
+      '@xyflow/react':
+        optional: true
+      drizzle-orm:
+        optional: true
+      lucide-react:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
 
   '@braintree/sanitize-url@6.0.2':
     resolution: {integrity: sha512-Tbsj02wXCbqGmzdnXNk0SOF19ChhRU70BsroIi4Pm6Ehp56in6vch94mfbdQ17DozxkL3BAVjbZ4Qc1a0HFRAg==}
@@ -3406,6 +3349,9 @@ packages:
   '@types/node@22.20.1':
     resolution: {integrity: sha512-EANqOCF9QFyra+4pfxUcX9STKJpCLjMbObVzljIJomAWSnuSIEAvyzEU53GaajbXJEgdh0iEcPL+DGvpUd4k1Q==}
 
+  '@types/pg@8.23.1':
+    resolution: {integrity: sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==}
+
   '@types/pidusage@2.0.5':
     resolution: {integrity: sha512-MIiyZI4/MK9UGUXWt0jJcCZhVw7YdhBuTOuqP/BjuLDLZ2PmmViMIQgZiWxtaMicQfAz/kMrZ5T7PKxFSkTeUA==}
 
@@ -3657,6 +3603,12 @@ packages:
   '@vercel/oidc@3.2.0':
     resolution: {integrity: sha512-UycprH3T6n3jH0k44NHMa7pnFHGu/N05MjojYr+Mc6I7obkoLIJujSWwin1pCvdy/eOxrI/l3uDLQsmcrOb4ug==}
     engines: {node: '>= 20'}
+
+  '@xterm/addon-fit@0.11.0':
+    resolution: {integrity: sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g==}
+
+  '@xterm/xterm@6.0.0':
+    resolution: {integrity: sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg==}
 
   '@xyflow/react@12.11.2':
     resolution: {integrity: sha512-eLAlDWJfWnQEhJwGMjlWdAXO9eYllKpliUmPQlAmOLxz6mExXuzMVDUKLMquixgkrtmMFFtug3jGKmYYld12cA==}
@@ -4588,6 +4540,10 @@ packages:
   decode-named-character-reference@1.3.0:
     resolution: {integrity: sha512-GtpQYB283KrPp6nRw50q3U9/VfOutZOe103qlN7BPP6Ad27xYnOIWv4lPzo8HCAL+mMZofJ9KEy30fq6MfaK6Q==}
 
+  deep-extend@0.6.0:
+    resolution: {integrity: sha512-LOHxIOaPYdHlJRtCQfDIVZtfw/ufM8+rVj649RIHzcm/vGwQRXFt6OPqIFWsm2XEMrNIEtWR64sY1LEKD2vAOA==}
+    engines: {node: '>=4.0.0'}
+
   deep-is@0.1.4:
     resolution: {integrity: sha512-oIPzksmTg4/MriiaYGO+okXDT7ztn/w3Eptv/+gSIdMdKsJo0u4CfYNFJPy+4SKMuCqGw2wxnA+URMg3t8a/bQ==}
 
@@ -5352,6 +5308,13 @@ packages:
 
   grapesjs@0.22.16:
     resolution: {integrity: sha512-kCfphgpC7pqJPuMYmIhMR6ueyB3+V67isdpMZOvmuGeWDMomkgzqRWOMH3matfdqIJW7LUivHZo9GeyVQAGmLw==}
+
+  guacamole-common-js@1.5.0:
+    resolution: {integrity: sha512-zxztif3GGhKbg1RgOqwmqot8kXgv2HmHFg1EvWwd4q7UfEKvBcYZ0f+7G8HzvU+FUxF0Psqm9Kl5vCbgfrRgJg==}
+
+  guacamole-lite@1.2.0:
+    resolution: {integrity: sha512-NeSYgbT5s5rxF0SE/kzJsV5Gg0IvnqoTOCbNIUMl23z1+SshaVfLExpxrEXSGTG0cdvY5lfZC1fOAepYriaXGg==}
+    engines: {node: '>=10.0.0'}
 
   hachure-fill@0.5.2:
     resolution: {integrity: sha512-3GKBOn+m2LX9iq+JC1064cSFprJY4jL1jCXTcpnfER5HYE2l/4EfWSGzkPa/ZDBmYI0ZOEj5VHV/eKnPGkHuOg==}
@@ -7951,574 +7914,6 @@ snapshots:
       package-manager-detector: 1.8.0
       tinyexec: 1.2.4
 
-  '@appkit/agent-tools@file:vendor/appkit/appkit-agent-tools-0.2.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))':
-    dependencies:
-      '@appkit/process-sandbox': file:vendor/appkit/appkit-process-sandbox-0.3.0-14744bedc34c.tgz
-      zod: 4.4.3
-    optionalDependencies:
-      '@appkit/db': file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-
-  '@appkit/ai@file:vendor/appkit/appkit-ai-0.2.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)':
-    dependencies:
-      '@ai-sdk/anthropic': 3.0.103(zod@4.4.3)
-      '@ai-sdk/google': 3.0.101(zod@4.4.3)
-      '@ai-sdk/openai': 3.0.88(zod@4.4.3)
-      '@ai-sdk/openai-compatible': 2.0.62(zod@4.4.3)
-      '@appkit/sync': file:vendor/appkit/appkit-sync-1.0.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))
-      ai: 6.0.236(zod@4.4.3)
-      zod: 4.4.3
-    optionalDependencies:
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      lucide-react: 1.27.0(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-      react-markdown: 10.1.0(@types/react@19.2.17)(react@19.2.8)
-      remark-gfm: 4.0.1
-    transitivePeerDependencies:
-      - '@appkit/db'
-      - drizzle-orm
-      - mssql
-      - mysql2
-      - postgres
-
-  '@appkit/api@file:vendor/appkit/appkit-api-0.1.1-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)':
-    dependencies:
-      '@appkit/db': file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/i18n': file:vendor/appkit/appkit-i18n-0.1.1-14744bedc34c.tgz
-      '@appkit/tenant': file:vendor/appkit/appkit-tenant-0.1.1-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@upstash/redis'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-
-  '@appkit/apps@file:vendor/appkit/appkit-apps-1.0.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
-    dependencies:
-      '@appkit/endpoints': file:vendor/appkit/appkit-endpoints-0.1.1-14744bedc34c.tgz
-      '@codemirror/lang-css': 6.3.1
-      '@codemirror/lang-html': 6.4.11
-      '@codemirror/lang-javascript': 6.2.5
-      '@codemirror/lang-json': 6.0.2
-      '@uiw/react-codemirror': 4.25.11(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      fflate: 0.8.3
-      zod: 4.4.3
-    optionalDependencies:
-      '@appkit/db': file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-      lucide-react: 1.27.0(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-    transitivePeerDependencies:
-      - '@babel/runtime'
-      - '@codemirror/autocomplete'
-      - '@codemirror/language'
-      - '@codemirror/lint'
-      - '@codemirror/search'
-      - '@codemirror/state'
-      - '@codemirror/theme-one-dark'
-      - '@codemirror/view'
-      - codemirror
-
-  '@appkit/auth@file:vendor/appkit/appkit-auth-0.1.2-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(kysely@0.29.4)(next@16.2.11(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
-    dependencies:
-      '@appkit/db': file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      better-auth: 1.6.25(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(next@16.2.11(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(pg@8.22.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-      pg: 8.22.0
-      react: 19.2.8
-      zod: 4.4.3
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@emotion/is-prop-valid'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@lynx-js/react'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@sveltejs/kit'
-      - '@tanstack/react-start'
-      - '@tanstack/solid-start'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@upstash/redis'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - drizzle-kit
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mongodb
-      - mysql2
-      - next
-      - pg-native
-      - postgres
-      - prisma
-      - react-dom
-      - solid-js
-      - sql.js
-      - sqlite3
-      - svelte
-      - tailwindcss
-      - vitest
-      - vue
-
-  '@appkit/avatars@file:vendor/appkit/appkit-avatars-0.5.2-14744bedc34c.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(framer-motion@12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)':
-    dependencies:
-      '@ai-sdk/google': 3.0.101(zod@4.4.3)
-      '@ai-sdk/openai': 3.0.88(zod@4.4.3)
-      ai: 6.0.236(zod@4.4.3)
-    optionalDependencies:
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      framer-motion: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      lucide-react: 1.27.0(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-    transitivePeerDependencies:
-      - zod
-
-  '@appkit/crypto@file:vendor/appkit/appkit-crypto-0.3.0-14744bedc34c.tgz': {}
-
-  '@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)':
-    dependencies:
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-      pg: 8.22.0
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@upstash/redis'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-
-  '@appkit/design-studio@file:vendor/appkit/appkit-design-studio-0.2.0-14744bedc34c.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
-    dependencies:
-      '@appkit/tokens': file:vendor/appkit/appkit-tokens-0.1.2-14744bedc34c.tgz(tailwindcss@4.3.3)
-    optionalDependencies:
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      lucide-react: 1.27.0(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-    transitivePeerDependencies:
-      - tailwindcss
-
-  '@appkit/desk@file:vendor/appkit/appkit-desk-0.3.2-14744bedc34c.tgz': {}
-
-  '@appkit/editor@file:vendor/appkit/appkit-editor-0.2.1-14744bedc34c.tgz(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
-    dependencies:
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      '@tiptap/extension-link': 3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)
-      '@tiptap/extension-placeholder': 3.29.1(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))
-      '@tiptap/extension-table': 3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)
-      '@tiptap/react': 3.29.1(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@tiptap/starter-kit': 3.29.1
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-    transitivePeerDependencies:
-      - '@emotion/is-prop-valid'
-      - '@floating-ui/dom'
-      - '@tiptap/core'
-      - '@tiptap/extensions'
-      - '@tiptap/pm'
-      - '@types/react'
-      - '@types/react-dom'
-      - tailwindcss
-
-  '@appkit/egress-proxy@file:vendor/appkit/appkit-egress-proxy-0.1.0-14744bedc34c.tgz': {}
-
-  '@appkit/email-designer@file:vendor/appkit/appkit-email-designer-0.2.0-14744bedc34c.tgz(@grapesjs/react@2.0.0(grapesjs@0.22.16)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@noble/hashes@2.2.0)(grapesjs@0.22.16)(juice@12.1.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
-    dependencies:
-      '@appkit/email-render': file:vendor/appkit/appkit-email-render-0.1.1-14744bedc34c.tgz(@noble/hashes@2.2.0)
-    optionalDependencies:
-      '@grapesjs/react': 2.0.0(grapesjs@0.22.16)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      grapesjs: 0.22.16
-      juice: 12.1.1
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-    transitivePeerDependencies:
-      - '@noble/hashes'
-      - canvas
-
-  '@appkit/email-render@file:vendor/appkit/appkit-email-render-0.1.1-14744bedc34c.tgz(@noble/hashes@2.2.0)':
-    dependencies:
-      isomorphic-dompurify: 3.19.0(@noble/hashes@2.2.0)
-    transitivePeerDependencies:
-      - '@noble/hashes'
-      - canvas
-
-  '@appkit/emails@file:vendor/appkit/appkit-emails-0.2.1-14744bedc34c.tgz':
-    dependencies:
-      '@appkit/crypto': file:vendor/appkit/appkit-crypto-0.3.0-14744bedc34c.tgz
-      nodemailer: 9.0.3
-
-  '@appkit/endpoints@file:vendor/appkit/appkit-endpoints-0.1.1-14744bedc34c.tgz':
-    dependencies:
-      '@appkit/sandbox': file:vendor/appkit/appkit-sandbox-0.1.0-14744bedc34c.tgz
-
-  '@appkit/events@file:vendor/appkit/appkit-events-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)':
-    dependencies:
-      '@appkit/db': file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@upstash/redis'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-
-  '@appkit/forms-core@file:vendor/appkit/appkit-forms-core-0.1.1-14744bedc34c.tgz(@noble/hashes@2.2.0)':
-    dependencies:
-      '@appkit/i18n': file:vendor/appkit/appkit-i18n-0.1.1-14744bedc34c.tgz
-      htmlparser2: 10.1.0
-      isomorphic-dompurify: 3.19.0(@noble/hashes@2.2.0)
-      zod: 4.4.3
-    transitivePeerDependencies:
-      - '@noble/hashes'
-      - canvas
-
-  '@appkit/forms-documents@file:vendor/appkit/appkit-forms-documents-0.1.1-14744bedc34c.tgz(@noble/hashes@2.2.0)(tailwindcss@4.3.3)':
-    dependencies:
-      '@appkit/forms-core': file:vendor/appkit/appkit-forms-core-0.1.1-14744bedc34c.tgz(@noble/hashes@2.2.0)
-      '@appkit/i18n': file:vendor/appkit/appkit-i18n-0.1.1-14744bedc34c.tgz
-      '@appkit/tokens': file:vendor/appkit/appkit-tokens-0.1.2-14744bedc34c.tgz(tailwindcss@4.3.3)
-    transitivePeerDependencies:
-      - '@noble/hashes'
-      - canvas
-      - tailwindcss
-
-  '@appkit/forms-pdf@file:vendor/appkit/appkit-forms-pdf-1.0.0-14744bedc34c.tgz(@appkit/design-studio@file:vendor/appkit/appkit-design-studio-0.2.0-14744bedc34c.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@appkit/pdf@file:vendor/appkit/appkit-pdf-0.1.1-14744bedc34c.tgz(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)':
-    dependencies:
-      '@appkit/tokens': file:vendor/appkit/appkit-tokens-0.1.2-14744bedc34c.tgz(tailwindcss@4.3.3)
-    optionalDependencies:
-      '@appkit/design-studio': file:vendor/appkit/appkit-design-studio-0.2.0-14744bedc34c.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      '@appkit/pdf': file:vendor/appkit/appkit-pdf-0.1.1-14744bedc34c.tgz(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)
-      puppeteer-core: 25.4.0
-    transitivePeerDependencies:
-      - tailwindcss
-
-  '@appkit/forms@file:vendor/appkit/appkit-forms-0.2.1-14744bedc34c.tgz(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
-    dependencies:
-      '@appkit/editor': file:vendor/appkit/appkit-editor-0.2.1-14744bedc34c.tgz(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      '@appkit/forms-core': file:vendor/appkit/appkit-forms-core-0.1.1-14744bedc34c.tgz(@noble/hashes@2.2.0)
-      '@appkit/i18n': file:vendor/appkit/appkit-i18n-0.1.1-14744bedc34c.tgz
-      '@appkit/tokens': file:vendor/appkit/appkit-tokens-0.1.2-14744bedc34c.tgz(tailwindcss@4.3.3)
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      '@excalidraw/excalidraw': 0.18.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      framer-motion: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      lucide-react: 1.27.0(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-      react-grid-layout: 2.2.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-    transitivePeerDependencies:
-      - '@emotion/is-prop-valid'
-      - '@floating-ui/dom'
-      - '@noble/hashes'
-      - '@tiptap/core'
-      - '@tiptap/extensions'
-      - '@tiptap/pm'
-      - '@types/react'
-      - '@types/react-dom'
-      - canvas
-      - immer
-      - tailwindcss
-
-  '@appkit/i18n@file:vendor/appkit/appkit-i18n-0.1.1-14744bedc34c.tgz': {}
-
-  '@appkit/iam@file:vendor/appkit/appkit-iam-1.0.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/tenant@file:vendor/appkit/appkit-tenant-0.1.1-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
-    optionalDependencies:
-      '@appkit/db': file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/tenant': file:vendor/appkit/appkit-tenant-0.1.1-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-      lucide-react: 1.27.0(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-
-  '@appkit/jobs@file:vendor/appkit/appkit-jobs-0.2.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))':
-    dependencies:
-      '@appkit/email-render': file:vendor/appkit/appkit-email-render-0.1.1-14744bedc34c.tgz(@noble/hashes@2.2.0)
-      '@appkit/sync': file:vendor/appkit/appkit-sync-1.0.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))
-      bullmq: 5.81.2
-      ioredis: 5.11.1
-      web-push: 3.6.7
-    transitivePeerDependencies:
-      - '@appkit/db'
-      - '@noble/hashes'
-      - canvas
-      - drizzle-orm
-      - mssql
-      - mysql2
-      - postgres
-      - redis
-      - supports-color
-
-  '@appkit/mailbox@file:vendor/appkit/appkit-mailbox-0.5.1-14744bedc34c.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
-    dependencies:
-      imapflow: 1.6.1
-      mailparser: 3.9.14
-      nodemailer: 9.0.3
-    optionalDependencies:
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      lucide-react: 1.27.0(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-
-  '@appkit/notifications@file:vendor/appkit/appkit-notifications-1.0.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/jobs@file:vendor/appkit/appkit-jobs-0.2.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
-    optionalDependencies:
-      '@appkit/db': file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/jobs': file:vendor/appkit/appkit-jobs-0.2.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-      lucide-react: 1.27.0(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-
-  '@appkit/oauth@file:vendor/appkit/appkit-oauth-0.1.0-14744bedc34c.tgz': {}
-
-  '@appkit/office@file:vendor/appkit/appkit-office-0.2.0-14744bedc34c.tgz(exceljs@4.4.0)':
-    optionalDependencies:
-      exceljs: 4.4.0
-
-  '@appkit/pdf@file:vendor/appkit/appkit-pdf-0.1.1-14744bedc34c.tgz(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)':
-    dependencies:
-      '@appkit/tokens': file:vendor/appkit/appkit-tokens-0.1.2-14744bedc34c.tgz(tailwindcss@4.3.3)
-      pdfkit: 0.17.2
-    optionalDependencies:
-      isomorphic-dompurify: 3.19.0(@noble/hashes@2.2.0)
-      puppeteer-core: 25.4.0
-    transitivePeerDependencies:
-      - tailwindcss
-
-  '@appkit/process-sandbox@file:vendor/appkit/appkit-process-sandbox-0.3.0-14744bedc34c.tgz': {}
-
-  '@appkit/sandbox@file:vendor/appkit/appkit-sandbox-0.1.0-14744bedc34c.tgz':
-    dependencies:
-      quickjs-emscripten: 0.31.0
-
-  '@appkit/scene@file:vendor/appkit/appkit-scene-0.3.4-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
-    dependencies:
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      framer-motion: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-    transitivePeerDependencies:
-      - '@emotion/is-prop-valid'
-      - tailwindcss
-
-  '@appkit/scripts@file:vendor/appkit/appkit-scripts-1.0.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
-    dependencies:
-      '@appkit/sandbox': file:vendor/appkit/appkit-sandbox-0.1.0-14744bedc34c.tgz
-      '@codemirror/lang-javascript': 6.2.5
-      '@uiw/react-codemirror': 4.25.11(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      cron-parser: 4.9.0
-    optionalDependencies:
-      '@appkit/db': file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-      lucide-react: 1.27.0(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-    transitivePeerDependencies:
-      - '@babel/runtime'
-      - '@codemirror/autocomplete'
-      - '@codemirror/language'
-      - '@codemirror/lint'
-      - '@codemirror/search'
-      - '@codemirror/state'
-      - '@codemirror/theme-one-dark'
-      - '@codemirror/view'
-      - codemirror
-
-  '@appkit/sms@file:vendor/appkit/appkit-sms-0.2.0-14744bedc34c.tgz':
-    dependencies:
-      '@appkit/crypto': file:vendor/appkit/appkit-crypto-0.3.0-14744bedc34c.tgz
-
-  '@appkit/storage@file:vendor/appkit/appkit-storage-0.2.0-14744bedc34c.tgz(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
-    dependencies:
-      '@aws-sdk/client-s3': 3.1096.0
-      '@aws-sdk/s3-request-presigner': 3.1096.0
-    optionalDependencies:
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      lucide-react: 1.27.0(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-
-  '@appkit/superadmin@file:vendor/appkit/appkit-superadmin-0.3.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
-    optionalDependencies:
-      '@appkit/db': file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-      lucide-react: 1.27.0(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-
-  '@appkit/sync@file:vendor/appkit/appkit-sync-1.0.0-14744bedc34c.tgz(@appkit/db@file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))':
-    optionalDependencies:
-      '@appkit/db': file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-
-  '@appkit/telephony@file:vendor/appkit/appkit-telephony-0.2.0-14744bedc34c.tgz':
-    dependencies:
-      '@appkit/crypto': file:vendor/appkit/appkit-crypto-0.3.0-14744bedc34c.tgz
-
-  '@appkit/tenant@file:vendor/appkit/appkit-tenant-0.1.1-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)':
-    dependencies:
-      '@appkit/db': file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/i18n': file:vendor/appkit/appkit-i18n-0.1.1-14744bedc34c.tgz
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-    transitivePeerDependencies:
-      - '@aws-sdk/client-rds-data'
-      - '@cloudflare/workers-types'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@libsql/client-wasm'
-      - '@neondatabase/serverless'
-      - '@op-engineering/op-sqlite'
-      - '@opentelemetry/api'
-      - '@planetscale/database'
-      - '@prisma/client'
-      - '@tidbcloud/serverless'
-      - '@types/better-sqlite3'
-      - '@types/pg'
-      - '@types/sql.js'
-      - '@upstash/redis'
-      - '@vercel/postgres'
-      - '@xata.io/client'
-      - better-sqlite3
-      - bun-types
-      - expo-sqlite
-      - gel
-      - knex
-      - kysely
-      - mysql2
-      - pg
-      - pg-native
-      - postgres
-      - prisma
-      - sql.js
-      - sqlite3
-
-  '@appkit/tokens@file:vendor/appkit/appkit-tokens-0.1.2-14744bedc34c.tgz(tailwindcss@4.3.3)':
-    dependencies:
-      tailwindcss: 4.3.3
-
-  '@appkit/ui@file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
-    dependencies:
-      '@appkit/tokens': file:vendor/appkit/appkit-tokens-0.1.2-14744bedc34c.tgz(tailwindcss@4.3.3)
-      class-variance-authority: 0.7.1
-      clsx: 2.1.1
-      framer-motion: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      lucide-react: 1.27.0(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-      tailwind-merge: 3.6.0
-    transitivePeerDependencies:
-      - '@emotion/is-prop-valid'
-      - tailwindcss
-
-  '@appkit/voice@file:vendor/appkit/appkit-voice-0.1.1-14744bedc34c.tgz':
-    dependencies:
-      livekit-server-sdk: 2.17.0
-
-  '@appkit/workflows@file:vendor/appkit/appkit-workflows-1.0.0-14744bedc34c.tgz(d41e4c847ac3d5fa0e3c9aeb0f25d434)':
-    optionalDependencies:
-      '@appkit/db': file:vendor/appkit/appkit-db-0.2.0-14744bedc34c.tgz(@opentelemetry/api@1.9.1)(kysely@0.29.4)
-      '@appkit/forms': file:vendor/appkit/appkit-forms-0.2.1-14744bedc34c.tgz(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      '@appkit/forms-core': file:vendor/appkit/appkit-forms-core-0.1.1-14744bedc34c.tgz(@noble/hashes@2.2.0)
-      '@appkit/ui': file:vendor/appkit/appkit-ui-0.1.11-14744bedc34c.tgz(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
-      '@xyflow/react': 12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
-      lucide-react: 1.27.0(react@19.2.8)
-      react: 19.2.8
-      react-dom: 19.2.8(react@19.2.8)
-
   '@asamuzakjp/css-color@5.1.11':
     dependencies:
       '@asamuzakjp/generational-cache': 1.0.1
@@ -8831,12 +8226,12 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
 
-  '@better-auth/drizzle-adapter@1.6.25(@better-auth/core@1.6.25(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@opentelemetry/api@1.9.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.4)(kysely@0.29.4)(nanostores@1.4.1))(@better-auth/utils@0.4.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))':
+  '@better-auth/drizzle-adapter@1.6.25(@better-auth/core@1.6.25(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@opentelemetry/api@1.9.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.4)(kysely@0.29.4)(nanostores@1.4.1))(@better-auth/utils@0.4.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))':
     dependencies:
       '@better-auth/core': 1.6.25(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@opentelemetry/api@1.9.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.4)(kysely@0.29.4)(nanostores@1.4.1)
       '@better-auth/utils': 0.4.2
     optionalDependencies:
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
 
   '@better-auth/kysely-adapter@1.6.25(@better-auth/core@1.6.25(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@opentelemetry/api@1.9.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.4)(kysely@0.29.4)(nanostores@1.4.1))(@better-auth/utils@0.4.2)(kysely@0.29.4)':
     dependencies:
@@ -8871,6 +8266,580 @@ snapshots:
       '@noble/hashes': 2.2.0
 
   '@better-fetch/fetch@1.3.1': {}
+
+  '@braedonsaunders/appkit-agent-tools@0.2.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))':
+    dependencies:
+      '@braedonsaunders/appkit-process-sandbox': 0.3.0
+      zod: 4.4.3
+    optionalDependencies:
+      '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+
+  '@braedonsaunders/appkit-ai@1.0.3(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)':
+    dependencies:
+      '@ai-sdk/anthropic': 3.0.103(zod@4.4.3)
+      '@ai-sdk/google': 3.0.101(zod@4.4.3)
+      '@ai-sdk/openai': 3.0.88(zod@4.4.3)
+      '@ai-sdk/openai-compatible': 2.0.62(zod@4.4.3)
+      '@braedonsaunders/appkit-egress-proxy': 0.1.1
+      ai: 6.0.236(zod@4.4.3)
+      zod: 4.4.3
+    optionalDependencies:
+      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      lucide-react: 1.27.0(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+      react-markdown: 10.1.0(@types/react@19.2.17)(react@19.2.8)
+      remark-gfm: 4.0.1
+
+  '@braedonsaunders/appkit-api@0.1.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)':
+    dependencies:
+      '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
+      '@braedonsaunders/appkit-i18n': 0.1.1
+      '@braedonsaunders/appkit-tenant': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+    transitivePeerDependencies:
+      - '@aws-sdk/client-rds-data'
+      - '@cloudflare/workers-types'
+      - '@electric-sql/pglite'
+      - '@libsql/client'
+      - '@libsql/client-wasm'
+      - '@neondatabase/serverless'
+      - '@op-engineering/op-sqlite'
+      - '@opentelemetry/api'
+      - '@planetscale/database'
+      - '@prisma/client'
+      - '@tidbcloud/serverless'
+      - '@types/better-sqlite3'
+      - '@types/pg'
+      - '@types/sql.js'
+      - '@upstash/redis'
+      - '@vercel/postgres'
+      - '@xata.io/client'
+      - better-sqlite3
+      - bun-types
+      - expo-sqlite
+      - gel
+      - knex
+      - kysely
+      - mysql2
+      - pg
+      - pg-native
+      - postgres
+      - prisma
+      - sql.js
+      - sqlite3
+
+  '@braedonsaunders/appkit-apps@2.0.0(@babel/runtime@7.29.7)(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      '@braedonsaunders/appkit-endpoints': 0.1.1
+      '@codemirror/lang-css': 6.3.1
+      '@codemirror/lang-html': 6.4.11
+      '@codemirror/lang-javascript': 6.2.5
+      '@codemirror/lang-json': 6.0.2
+      '@uiw/react-codemirror': 4.25.11(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      fflate: 0.8.3
+      zod: 4.4.3
+    optionalDependencies:
+      '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
+      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+      lucide-react: 1.27.0(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+    transitivePeerDependencies:
+      - '@babel/runtime'
+      - '@codemirror/autocomplete'
+      - '@codemirror/language'
+      - '@codemirror/lint'
+      - '@codemirror/search'
+      - '@codemirror/state'
+      - '@codemirror/theme-one-dark'
+      - '@codemirror/view'
+      - codemirror
+
+  '@braedonsaunders/appkit-auth@0.1.3(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(drizzle-kit@0.31.10)(kysely@0.29.4)(next@16.2.11(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
+    dependencies:
+      '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
+      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      better-auth: 1.6.25(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(next@16.2.11(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(pg@8.22.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+      pg: 8.22.0
+      react: 19.2.8
+      zod: 4.4.3
+    transitivePeerDependencies:
+      - '@aws-sdk/client-rds-data'
+      - '@cloudflare/workers-types'
+      - '@electric-sql/pglite'
+      - '@emotion/is-prop-valid'
+      - '@libsql/client'
+      - '@libsql/client-wasm'
+      - '@lynx-js/react'
+      - '@neondatabase/serverless'
+      - '@op-engineering/op-sqlite'
+      - '@opentelemetry/api'
+      - '@planetscale/database'
+      - '@prisma/client'
+      - '@sveltejs/kit'
+      - '@tanstack/react-start'
+      - '@tanstack/solid-start'
+      - '@tidbcloud/serverless'
+      - '@types/better-sqlite3'
+      - '@types/pg'
+      - '@types/sql.js'
+      - '@upstash/redis'
+      - '@vercel/postgres'
+      - '@xata.io/client'
+      - better-sqlite3
+      - bun-types
+      - drizzle-kit
+      - expo-sqlite
+      - gel
+      - knex
+      - kysely
+      - mongodb
+      - mysql2
+      - next
+      - pg-native
+      - postgres
+      - prisma
+      - react-dom
+      - solid-js
+      - sql.js
+      - sqlite3
+      - svelte
+      - tailwindcss
+      - vitest
+      - vue
+
+  '@braedonsaunders/appkit-avatars@1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(framer-motion@12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/google': 3.0.101(zod@4.4.3)
+      '@ai-sdk/openai': 3.0.88(zod@4.4.3)
+      ai: 6.0.236(zod@4.4.3)
+    optionalDependencies:
+      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      framer-motion: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      lucide-react: 1.27.0(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+    transitivePeerDependencies:
+      - zod
+
+  '@braedonsaunders/appkit-crypto@0.3.0': {}
+
+  '@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)':
+    dependencies:
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+      pg: 8.22.0
+    transitivePeerDependencies:
+      - '@aws-sdk/client-rds-data'
+      - '@cloudflare/workers-types'
+      - '@electric-sql/pglite'
+      - '@libsql/client'
+      - '@libsql/client-wasm'
+      - '@neondatabase/serverless'
+      - '@op-engineering/op-sqlite'
+      - '@opentelemetry/api'
+      - '@planetscale/database'
+      - '@prisma/client'
+      - '@tidbcloud/serverless'
+      - '@types/better-sqlite3'
+      - '@types/pg'
+      - '@types/sql.js'
+      - '@upstash/redis'
+      - '@vercel/postgres'
+      - '@xata.io/client'
+      - better-sqlite3
+      - bun-types
+      - expo-sqlite
+      - gel
+      - knex
+      - kysely
+      - mysql2
+      - pg-native
+      - postgres
+      - prisma
+      - sql.js
+      - sqlite3
+
+  '@braedonsaunders/appkit-design-studio@1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
+    dependencies:
+      '@braedonsaunders/appkit-tokens': 0.1.2(tailwindcss@4.3.3)
+    optionalDependencies:
+      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      lucide-react: 1.27.0(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+    transitivePeerDependencies:
+      - tailwindcss
+
+  '@braedonsaunders/appkit-desk@0.5.1': {}
+
+  '@braedonsaunders/appkit-editor@0.2.2(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
+    dependencies:
+      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@tiptap/extension-link': 3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)
+      '@tiptap/extension-placeholder': 3.29.1(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))
+      '@tiptap/extension-table': 3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)
+      '@tiptap/react': 3.29.1(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@tiptap/starter-kit': 3.29.1
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+    transitivePeerDependencies:
+      - '@emotion/is-prop-valid'
+      - '@floating-ui/dom'
+      - '@tiptap/core'
+      - '@tiptap/extensions'
+      - '@tiptap/pm'
+      - '@types/react'
+      - '@types/react-dom'
+      - tailwindcss
+
+  '@braedonsaunders/appkit-egress-proxy@0.1.1': {}
+
+  '@braedonsaunders/appkit-email-designer@0.2.0(@grapesjs/react@2.0.0(grapesjs@0.22.16)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@noble/hashes@2.2.0)(grapesjs@0.22.16)(juice@12.1.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      '@braedonsaunders/appkit-email-render': 0.1.1(@noble/hashes@2.2.0)
+    optionalDependencies:
+      '@grapesjs/react': 2.0.0(grapesjs@0.22.16)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      grapesjs: 0.22.16
+      juice: 12.1.1
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+    transitivePeerDependencies:
+      - '@noble/hashes'
+      - canvas
+
+  '@braedonsaunders/appkit-email-render@0.1.1(@noble/hashes@2.2.0)':
+    dependencies:
+      isomorphic-dompurify: 3.19.0(@noble/hashes@2.2.0)
+    transitivePeerDependencies:
+      - '@noble/hashes'
+      - canvas
+
+  '@braedonsaunders/appkit-emails@0.2.1':
+    dependencies:
+      '@braedonsaunders/appkit-crypto': 0.3.0
+      nodemailer: 9.0.3
+
+  '@braedonsaunders/appkit-endpoints@0.1.1':
+    dependencies:
+      '@braedonsaunders/appkit-sandbox': 0.1.0
+
+  '@braedonsaunders/appkit-events@0.3.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)':
+    dependencies:
+      '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+    transitivePeerDependencies:
+      - '@aws-sdk/client-rds-data'
+      - '@cloudflare/workers-types'
+      - '@electric-sql/pglite'
+      - '@libsql/client'
+      - '@libsql/client-wasm'
+      - '@neondatabase/serverless'
+      - '@op-engineering/op-sqlite'
+      - '@opentelemetry/api'
+      - '@planetscale/database'
+      - '@prisma/client'
+      - '@tidbcloud/serverless'
+      - '@types/better-sqlite3'
+      - '@types/pg'
+      - '@types/sql.js'
+      - '@upstash/redis'
+      - '@vercel/postgres'
+      - '@xata.io/client'
+      - better-sqlite3
+      - bun-types
+      - expo-sqlite
+      - gel
+      - knex
+      - kysely
+      - mysql2
+      - pg
+      - pg-native
+      - postgres
+      - prisma
+      - sql.js
+      - sqlite3
+
+  '@braedonsaunders/appkit-forms-core@0.1.1(@noble/hashes@2.2.0)':
+    dependencies:
+      '@braedonsaunders/appkit-i18n': 0.1.1
+      htmlparser2: 10.1.0
+      isomorphic-dompurify: 3.19.0(@noble/hashes@2.2.0)
+      zod: 4.4.3
+    transitivePeerDependencies:
+      - '@noble/hashes'
+      - canvas
+
+  '@braedonsaunders/appkit-forms-documents@0.1.1(@noble/hashes@2.2.0)(tailwindcss@4.3.3)':
+    dependencies:
+      '@braedonsaunders/appkit-forms-core': 0.1.1(@noble/hashes@2.2.0)
+      '@braedonsaunders/appkit-i18n': 0.1.1
+      '@braedonsaunders/appkit-tokens': 0.1.2(tailwindcss@4.3.3)
+    transitivePeerDependencies:
+      - '@noble/hashes'
+      - canvas
+      - tailwindcss
+
+  '@braedonsaunders/appkit-forms-pdf@2.0.0(@braedonsaunders/appkit-design-studio@1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@braedonsaunders/appkit-pdf@0.1.1(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)':
+    dependencies:
+      '@braedonsaunders/appkit-tokens': 0.1.2(tailwindcss@4.3.3)
+    optionalDependencies:
+      '@braedonsaunders/appkit-design-studio': 1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-pdf': 0.1.1(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)
+      puppeteer-core: 25.4.0
+    transitivePeerDependencies:
+      - tailwindcss
+
+  '@braedonsaunders/appkit-forms@0.2.2(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
+    dependencies:
+      '@braedonsaunders/appkit-editor': 0.2.2(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-forms-core': 0.1.1(@noble/hashes@2.2.0)
+      '@braedonsaunders/appkit-i18n': 0.1.1
+      '@braedonsaunders/appkit-tokens': 0.1.2(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@excalidraw/excalidraw': 0.18.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      framer-motion: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      lucide-react: 1.27.0(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+      react-grid-layout: 2.2.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+    transitivePeerDependencies:
+      - '@emotion/is-prop-valid'
+      - '@floating-ui/dom'
+      - '@noble/hashes'
+      - '@tiptap/core'
+      - '@tiptap/extensions'
+      - '@tiptap/pm'
+      - '@types/react'
+      - '@types/react-dom'
+      - canvas
+      - immer
+      - tailwindcss
+
+  '@braedonsaunders/appkit-i18n@0.1.1': {}
+
+  '@braedonsaunders/appkit-iam@2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-tenant@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    optionalDependencies:
+      '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
+      '@braedonsaunders/appkit-tenant': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+      lucide-react: 1.27.0(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+
+  '@braedonsaunders/appkit-jobs@0.2.1(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))':
+    dependencies:
+      '@braedonsaunders/appkit-email-render': 0.1.1(@noble/hashes@2.2.0)
+      '@braedonsaunders/appkit-sync': file:vendor/appkit/braedonsaunders-appkit-sync-1.1.0-05f281b688b5.tgz(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))
+      bullmq: 5.81.2
+      ioredis: 5.11.1
+      web-push: 3.6.7
+    transitivePeerDependencies:
+      - '@braedonsaunders/appkit-db'
+      - '@noble/hashes'
+      - canvas
+      - drizzle-orm
+      - mssql
+      - mysql2
+      - postgres
+      - redis
+      - supports-color
+
+  '@braedonsaunders/appkit-mailbox@1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      imapflow: 1.6.1
+      mailparser: 3.9.14
+      nodemailer: 9.0.3
+    optionalDependencies:
+      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      lucide-react: 1.27.0(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+
+  '@braedonsaunders/appkit-notifications@2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-jobs@0.2.1(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    optionalDependencies:
+      '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
+      '@braedonsaunders/appkit-jobs': 0.2.1(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@noble/hashes@2.2.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))
+      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+      lucide-react: 1.27.0(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+
+  '@braedonsaunders/appkit-oauth@0.1.0': {}
+
+  '@braedonsaunders/appkit-office@0.3.0(exceljs@4.4.0)':
+    optionalDependencies:
+      exceljs: 4.4.0
+
+  '@braedonsaunders/appkit-pdf@0.1.1(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)':
+    dependencies:
+      '@braedonsaunders/appkit-tokens': 0.1.2(tailwindcss@4.3.3)
+      pdfkit: 0.17.2
+    optionalDependencies:
+      isomorphic-dompurify: 3.19.0(@noble/hashes@2.2.0)
+      puppeteer-core: 25.4.0
+    transitivePeerDependencies:
+      - tailwindcss
+
+  '@braedonsaunders/appkit-process-sandbox@0.3.0': {}
+
+  '@braedonsaunders/appkit-remote-sessions@0.1.0(react@19.2.8)':
+    dependencies:
+      '@xterm/addon-fit': 0.11.0
+      '@xterm/xterm': 6.0.0
+      guacamole-common-js: 1.5.0
+      guacamole-lite: 1.2.0
+    optionalDependencies:
+      react: 19.2.8
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@braedonsaunders/appkit-sandbox@0.1.0':
+    dependencies:
+      quickjs-emscripten: 0.31.0
+
+  '@braedonsaunders/appkit-scene@1.0.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
+    dependencies:
+      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      framer-motion: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+    transitivePeerDependencies:
+      - '@emotion/is-prop-valid'
+      - tailwindcss
+
+  '@braedonsaunders/appkit-scripts@2.0.0(@babel/runtime@7.29.7)(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      '@braedonsaunders/appkit-sandbox': 0.1.0
+      '@codemirror/lang-javascript': 6.2.5
+      '@uiw/react-codemirror': 4.25.11(@babel/runtime@7.29.7)(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      cron-parser: 4.9.0
+    optionalDependencies:
+      '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
+      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+      lucide-react: 1.27.0(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+    transitivePeerDependencies:
+      - '@babel/runtime'
+      - '@codemirror/autocomplete'
+      - '@codemirror/language'
+      - '@codemirror/lint'
+      - '@codemirror/search'
+      - '@codemirror/state'
+      - '@codemirror/theme-one-dark'
+      - '@codemirror/view'
+      - codemirror
+
+  '@braedonsaunders/appkit-sms@0.2.0':
+    dependencies:
+      '@braedonsaunders/appkit-crypto': 0.3.0
+
+  '@braedonsaunders/appkit-storage@1.0.1(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      '@aws-sdk/client-s3': 3.1096.0
+      '@aws-sdk/s3-request-presigner': 3.1096.0
+    optionalDependencies:
+      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      lucide-react: 1.27.0(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+
+  '@braedonsaunders/appkit-superadmin@1.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    optionalDependencies:
+      '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
+      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+      lucide-react: 1.27.0(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+
+  '@braedonsaunders/appkit-sync@file:vendor/appkit/braedonsaunders-appkit-sync-1.1.0-05f281b688b5.tgz(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))':
+    optionalDependencies:
+      '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+
+  '@braedonsaunders/appkit-telephony@0.2.0':
+    dependencies:
+      '@braedonsaunders/appkit-crypto': 0.3.0
+
+  '@braedonsaunders/appkit-tenant@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)':
+    dependencies:
+      '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
+      '@braedonsaunders/appkit-i18n': 0.1.1
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+    transitivePeerDependencies:
+      - '@aws-sdk/client-rds-data'
+      - '@cloudflare/workers-types'
+      - '@electric-sql/pglite'
+      - '@libsql/client'
+      - '@libsql/client-wasm'
+      - '@neondatabase/serverless'
+      - '@op-engineering/op-sqlite'
+      - '@opentelemetry/api'
+      - '@planetscale/database'
+      - '@prisma/client'
+      - '@tidbcloud/serverless'
+      - '@types/better-sqlite3'
+      - '@types/pg'
+      - '@types/sql.js'
+      - '@upstash/redis'
+      - '@vercel/postgres'
+      - '@xata.io/client'
+      - better-sqlite3
+      - bun-types
+      - expo-sqlite
+      - gel
+      - knex
+      - kysely
+      - mysql2
+      - pg
+      - pg-native
+      - postgres
+      - prisma
+      - sql.js
+      - sqlite3
+
+  '@braedonsaunders/appkit-tokens@0.1.2(tailwindcss@4.3.3)':
+    dependencies:
+      tailwindcss: 4.3.3
+
+  '@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
+    dependencies:
+      '@braedonsaunders/appkit-tokens': 0.1.2(tailwindcss@4.3.3)
+      class-variance-authority: 0.7.1
+      clsx: 2.1.1
+      framer-motion: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      lucide-react: 1.27.0(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+      tailwind-merge: 3.6.0
+    transitivePeerDependencies:
+      - '@emotion/is-prop-valid'
+      - tailwindcss
+
+  '@braedonsaunders/appkit-voice@0.1.1':
+    dependencies:
+      livekit-server-sdk: 2.17.0
+
+  '@braedonsaunders/appkit-workflows@2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-forms-core@0.1.1(@noble/hashes@2.2.0))(@braedonsaunders/appkit-forms@0.2.2(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@xyflow/react@12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    optionalDependencies:
+      '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
+      '@braedonsaunders/appkit-forms': 0.2.2(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/extensions@3.29.1(@tiptap/core@3.29.1(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1))(@tiptap/pm@3.29.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-forms-core': 0.1.1(@noble/hashes@2.2.0)
+      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@xyflow/react': 12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
+      lucide-react: 1.27.0(react@19.2.8)
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
 
   '@braintree/sanitize-url@6.0.2': {}
 
@@ -10990,6 +10959,12 @@ snapshots:
     dependencies:
       undici-types: 6.21.0
 
+  '@types/pg@8.23.1':
+    dependencies:
+      '@types/node': 22.20.1
+      pg-protocol: 1.15.0
+      pg-types: 2.2.0
+
   '@types/pidusage@2.0.5': {}
 
   '@types/react-dom@19.2.3(@types/react@19.2.17)':
@@ -11224,6 +11199,10 @@ snapshots:
       d3-transition: 3.0.1(d3-selection@3.0.0)
 
   '@vercel/oidc@3.2.0': {}
+
+  '@xterm/addon-fit@0.11.0': {}
+
+  '@xterm/xterm@6.0.0': {}
 
   '@xyflow/react@12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
@@ -11542,10 +11521,10 @@ snapshots:
     dependencies:
       tweetnacl: 0.14.5
 
-  better-auth@1.6.25(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))(next@16.2.11(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(pg@8.22.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+  better-auth@1.6.25(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(next@16.2.11(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(pg@8.22.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
     dependencies:
       '@better-auth/core': 1.6.25(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@opentelemetry/api@1.9.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.4)(kysely@0.29.4)(nanostores@1.4.1)
-      '@better-auth/drizzle-adapter': 1.6.25(@better-auth/core@1.6.25(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@opentelemetry/api@1.9.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.4)(kysely@0.29.4)(nanostores@1.4.1))(@better-auth/utils@0.4.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0))
+      '@better-auth/drizzle-adapter': 1.6.25(@better-auth/core@1.6.25(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@opentelemetry/api@1.9.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.4)(kysely@0.29.4)(nanostores@1.4.1))(@better-auth/utils@0.4.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))
       '@better-auth/kysely-adapter': 1.6.25(@better-auth/core@1.6.25(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@opentelemetry/api@1.9.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.4)(kysely@0.29.4)(nanostores@1.4.1))(@better-auth/utils@0.4.2)(kysely@0.29.4)
       '@better-auth/memory-adapter': 1.6.25(@better-auth/core@1.6.25(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@opentelemetry/api@1.9.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.4)(kysely@0.29.4)(nanostores@1.4.1))(@better-auth/utils@0.4.2)
       '@better-auth/mongo-adapter': 1.6.25(@better-auth/core@1.6.25(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@opentelemetry/api@1.9.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.4)(kysely@0.29.4)(nanostores@1.4.1))(@better-auth/utils@0.4.2)
@@ -11563,7 +11542,7 @@ snapshots:
       zod: 4.4.3
     optionalDependencies:
       drizzle-kit: 0.31.10
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0)
+      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
       next: 16.2.11(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0)
       pg: 8.22.0
       react: 19.2.8
@@ -12204,6 +12183,8 @@ snapshots:
     dependencies:
       character-entities: 2.0.2
 
+  deep-extend@0.6.0: {}
+
   deep-is@0.1.4: {}
 
   deepmerge-ts@8.0.0: {}
@@ -12307,9 +12288,10 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.1
 
-  drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(pg@8.22.0):
+  drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0):
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
+      '@types/pg': 8.23.1
       kysely: 0.29.4
       pg: 8.22.0
 
@@ -13136,6 +13118,16 @@ snapshots:
       html-entities: 1.4.0
       promise-polyfill: 8.3.0
       underscore: 1.13.8
+
+  guacamole-common-js@1.5.0: {}
+
+  guacamole-lite@1.2.0:
+    dependencies:
+      deep-extend: 0.6.0
+      ws: 8.21.1
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
 
   hachure-fill@0.5.2: {}
 

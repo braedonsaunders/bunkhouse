@@ -16,6 +16,8 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write
+  attestations: write
 
 env:
   IMAGE_NAME: ghcr.io/braedonsaunders/bunkhouse
@@ -65,6 +67,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -74,8 +77,13 @@ jobs:
       - uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
+          provenance: mode=max
+          sbom: true
+          build-args: |
+            BUNKHOUSE_VERSION=${{ github.ref_name }}
+            BUNKHOUSE_REVISION=${{ github.sha }}
           tags: |
             ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
@@ -98,5 +106,7 @@ jobs:
             --title "Bunkhouse $GITHUB_REF_NAME" \
             --generate-notes \
             --notes "Image: \`${IMAGE_NAME}:${GITHUB_REF_NAME}\`
+
+          Platforms: `linux/amd64`, `linux/arm64`. The image includes signed provenance and an SBOM in the registry manifest.
 
           Bunkhouse is alpha software: evaluate with synthetic or parallel data, keep autonomy conservative, and read SECURITY.md before exposing a deployment."

@@ -13,6 +13,7 @@ import {
   Hourglass,
   Mail,
   OctagonAlert,
+  PackageCheck,
   ShieldCheck,
   TriangleAlert,
   type LucideIcon,
@@ -76,6 +77,7 @@ const FAULT: Record<Fault['status'], { label: string; badge: BadgeProps['variant
  */
 const SUBJECT: Record<string, LucideIcon> = {
   'agent-protocol': Cable,
+  release: PackageCheck,
   storage: HardDrive,
   mailboxes: Mail,
   'agent-work': Bot,
