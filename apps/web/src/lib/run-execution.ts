@@ -17,18 +17,10 @@ import {
   runs,
 } from '../db/schema'
 import { db } from '../db/client'
+import { assertRunAttemptTransition, type RunAttemptEventKind } from './run-attempt-lifecycle'
 
 const leaseExpiry = (now: Date, leaseMs: number) => new Date(now.getTime() + leaseMs)
-const ATTEMPT_TERMINAL_KINDS = new Set(['completed', 'failed', 'cancelled', 'lease_lost'])
-
-function assertAttemptTransition(previous: string | null, next: string): void {
-  if (previous && ATTEMPT_TERMINAL_KINDS.has(previous)) {
-    throw new Error(`Execution attempt is already terminal (${previous}).`)
-  }
-  if (next === 'renewed' && previous !== 'claimed' && previous !== 'renewed') {
-    throw new Error(`Execution attempt cannot renew after ${previous ?? 'no recorded claim'}.`)
-  }
-}
+const ATTEMPT_TERMINAL_KINDS = new Set<RunAttemptEventKind>(['completed', 'failed', 'cancelled', 'lease_lost'])
 
 async function appendAttemptEvent(args: {
   tenantId: string
@@ -46,7 +38,7 @@ async function appendAttemptEvent(args: {
       .where(eq(runAttemptEvents.attemptId, args.attemptId))
       .orderBy(desc(runAttemptEvents.seq))
       .limit(1)
-    assertAttemptTransition(latest?.kind ?? null, args.kind)
+    assertRunAttemptTransition(latest?.kind ?? null, args.kind)
     await tx.insert(runAttemptEvents).values({
       tenantId: args.tenantId,
       attemptId: args.attemptId,

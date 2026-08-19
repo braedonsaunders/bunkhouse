@@ -54,6 +54,7 @@ import {
 import { ChatWorkSurface } from './chat-work-surface'
 import { CALL_STAGE_AVATAR_SIZE } from './call-stage'
 import { ConversationCall, type AgentAvatar } from './call-room'
+import { chatQueueUiProjection } from '../lib/chat-ui-state'
 
 /**
  * Chat: talk to an agent, and watch the machine it is working on while it
@@ -545,6 +546,7 @@ export function AgentChatWorkspace({
   const deskOpen = deskChoice ?? wide
 
   const activeId = detail?.thread.id ?? null
+  const queueUi = React.useMemo(() => chatQueueUiProjection(detail?.dispatches ?? []), [detail?.dispatches])
 
   const load = React.useCallback(async (threadId: string) => {
     setLoading(true)
@@ -925,23 +927,8 @@ export function AgentChatWorkspace({
             enabled={detail.thread.status === 'open'}
             initialMessages={detail.messages.map(toAgentMessage)}
             send={send}
-            dispatchState={
-              detail.dispatches.some((dispatch) => dispatch.status === 'running')
-                ? 'running'
-                : detail.dispatches.some((dispatch) => dispatch.status === 'failed')
-                  ? 'recovering'
-                  : 'idle'
-            }
-            queuedMessages={detail.dispatches.map((dispatch, index) => ({
-              id: dispatch.id,
-              text: dispatch.body,
-              position: index + 1,
-              status: dispatch.status === 'running' ? 'dispatching' : dispatch.status === 'failed' ? 'failed' : 'queued',
-              ...(dispatch.status === 'failed' && dispatch.lastError ? { statusLabel: dispatch.lastError } : {}),
-              editable: dispatch.status === 'queued' || dispatch.status === 'failed',
-              removable: dispatch.status === 'queued' || dispatch.status === 'failed',
-              retryable: dispatch.status === 'failed',
-            }))}
+            dispatchState={queueUi.state}
+            queuedMessages={queueUi.messages}
             enqueue={enqueue}
             onEditQueuedMessage={(message) => void editQueued(message)}
             onRemoveQueuedMessage={(message) => void removeQueued(message)}

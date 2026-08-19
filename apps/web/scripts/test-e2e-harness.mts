@@ -24,7 +24,8 @@ const env = {
   ...database.env,
   APP_URL: baseUrl,
   BETTER_AUTH_SECRET: 'e2e-only-secret-value-at-least-thirty-two-characters',
-  ADMIN_EMAIL: 'operator@bunkhouse.test',
+  APPKIT_SECRET: 'e2e-only-appkit-secret-at-least-thirty-two-characters',
+  ADMIN_EMAIL: 'owner@bunkhouse.local',
   ADMIN_PASSWORD: 'correct-horse-battery-staple',
   BUNKHOUSE_E2E_BASE_URL: baseUrl,
   NODE_ENV: 'test',
@@ -32,7 +33,9 @@ const env = {
 
 try {
   await runProcess('pnpm', ['exec', 'tsx', 'scripts/seed.mts'], env)
-  web = spawn('pnpm', ['exec', 'next', 'dev', '-p', String(port)], {
+  await runProcess('pnpm', ['exec', 'tsx', 'scripts/seed-e2e.mts'], env)
+  await runProcess('pnpm', ['exec', 'next', 'build'], env)
+  web = spawn('pnpm', ['exec', 'next', 'start', '-p', String(port)], {
     cwd: process.cwd(),
     env: { ...process.env, ...env },
     stdio: 'inherit',

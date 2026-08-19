@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { Button, confirmDialog, toast } from '@braedonsaunders/appkit-ui'
-import { setPersonStatusAction, type PersonStatus } from '../app/organization/actions'
+import { setPersonStatusAction } from '../app/organization/actions'
+import type { PersonStatus } from '../lib/person-lifecycle'
 
 /**
  * Stand an agent down, or bring one back — from the roster row, without opening

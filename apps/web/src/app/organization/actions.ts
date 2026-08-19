@@ -30,38 +30,17 @@ import { correctNote, createNote, expireNote, proposePromotion } from '../../lib
 import { ACTION_CATEGORIES, DEFAULT_AUTONOMY_LEVEL, isActionCategory, isAutonomyLevel } from '../../lib/autonomy'
 import { assertValidManager } from '../../lib/org'
 import { setPersonAccount } from '../../lib/person-accounts'
+import {
+  assertPersonStatusTransition,
+  isPersonStatus,
+  type PersonStatus,
+} from '../../lib/person-lifecycle'
 
 /** Everything the roster and the org chart re-read after a personnel change. */
 function revalidateOrganization(): void {
   revalidatePath('/organization/people')
   revalidatePath('/organization')
   revalidatePath('/organization/chart')
-}
-
-export type PersonStatus = 'onboarding' | 'active' | 'offboarded'
-
-/**
- * The only moves a personnel record may make. Nobody is ever deleted — an
- * agent that has stopped working is offboarded, which is a state its record
- * keeps, and coming back is a re-onboarding rather than a silent flip to
- * active. Everything an offboarded agent did stays on the record.
- */
-const STATUS_TRANSITIONS: Record<PersonStatus, readonly PersonStatus[]> = {
-  onboarding: ['active', 'offboarded'],
-  active: ['offboarded'],
-  offboarded: ['onboarding'],
-}
-
-// Not exported: every export of a 'use server' module must be an async
-// function, and a type guard is neither.
-function isPersonStatus(value: string): value is PersonStatus {
-  return value === 'onboarding' || value === 'active' || value === 'offboarded'
-}
-
-function assertStatusTransition(from: PersonStatus, to: PersonStatus): void {
-  if (!STATUS_TRANSITIONS[from].includes(to)) {
-    throw new Error(`Status cannot move directly from ${from} to ${to}.`)
-  }
 }
 
 type PersonRow = typeof people.$inferSelect
@@ -184,7 +163,7 @@ export async function setPersonStatusAction(formData: FormData): Promise<PersonU
       const [person] = await app.db.select().from(people).where(eq(people.id, personId))
       if (!person) throw new Error('Person not found.')
       if (person.status === status) return
-      assertStatusTransition(person.status, status)
+      assertPersonStatusTransition(person.status, status)
 
       const now = new Date()
       const update: Partial<typeof people.$inferInsert> = { status, updatedAt: now }
@@ -737,7 +716,7 @@ export async function updatePerson(formData: FormData): Promise<PersonUpdateResu
       const [person] = await app.db.select().from(people).where(eq(people.id, personId))
       if (!person) throw new Error('Person not found.')
 
-      if (status !== person.status) assertStatusTransition(person.status, status)
+      if (status !== person.status) assertPersonStatusTransition(person.status, status)
 
       const update: Partial<typeof people.$inferInsert> = {
         name, title, email, status, reportsToId, responsibilities, updatedAt: new Date(),

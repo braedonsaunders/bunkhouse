@@ -7,6 +7,7 @@ import {
   runs,
 } from '../db/schema'
 import { db, type BunkhouseDb } from '../db/client'
+import { assertChatDispatchTransition, type ChatDispatchStatus } from './chat-dispatch-lifecycle'
 import {
   getThread,
   sendMessage,
@@ -16,7 +17,7 @@ import {
 } from './chat-threads'
 import type { ChatRequester } from '@bunkhouse/runtime'
 
-export type ChatDispatchStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type { ChatDispatchStatus } from './chat-dispatch-lifecycle'
 export type ChatDispatchEventKind =
   | 'queued'
   | 'claimed'
@@ -230,6 +231,7 @@ export function dbChatDispatchStore(): ChatDispatchStore {
             .limit(1)
           // Failure is a deliberate queue barrier. Later work never skips it.
           if (!head || head.status === 'failed') return null
+          assertChatDispatchTransition(head.status, 'running')
           const now = new Date()
           const [claimed] = await tx
             .update(chatDispatches)
@@ -280,7 +282,7 @@ export function dbChatDispatchStore(): ChatDispatchStore {
             .where(eq(chatDispatches.id, dispatchId))
             .limit(1)
           if (!current || current.status === status) return
-          if (current.status !== 'running') throw new Error(`A ${current.status} queued message cannot become ${status}.`)
+          assertChatDispatchTransition(current.status, status)
           const now = new Date()
           await tx
             .update(chatDispatches)
@@ -371,6 +373,7 @@ async function changeFailedOrQueued(
       }
       const now = new Date()
       const nextStatus = args.action === 'cancelled' ? 'cancelled' : args.action === 'retried' ? 'queued' : current.status
+      if (nextStatus !== current.status) assertChatDispatchTransition(current.status, nextStatus)
       const [updated] = await tx
         .update(chatDispatches)
         .set({

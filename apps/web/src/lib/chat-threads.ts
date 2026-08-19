@@ -679,10 +679,10 @@ export async function setThreadStatus(
       ? await deps.hasPendingDispatches({ tenantId: args.tenantId, threadId: args.threadId })
       : deps.store
         ? false
-        : (await import('./chat-dispatch')).listChatDispatches({
+        : (await (await import('./chat-dispatch')).listChatDispatches({
             tenantId: args.tenantId,
             threadId: args.threadId,
-          }).then((dispatches) => dispatches.length > 0)
+          })).length > 0
     if (hasPending) {
       throw new Error('Finish or remove the queued messages before archiving this conversation.')
     }

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { ListNavProvider, RecordList, type RecordColumn } from '@braedonsaunders/appkit-ui'
 import type { CallAction } from '../lib/call-action'
-import type { PersonStatus } from '../app/organization/actions'
+import type { PersonStatus } from '../lib/person-lifecycle'
 import { CallActionButton } from './call-action-button'
 import { PersonStatusAction } from './person-status-action'
 
