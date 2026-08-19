@@ -275,12 +275,16 @@ jobs:
           # either unset and the desk abilities simply fail closed.
           DESK_URL: ${{ vars.BUNKHOUSE_DESK_URL }}
           DESK_TOKEN: ${{ secrets.BUNKHOUSE_DESK_TOKEN }}
+          LIVEKIT_NODE_IP: ${{ vars.LIVEKIT_NODE_IP }}
+          LIVEKIT_TURN_DOMAIN: ${{ vars.LIVEKIT_TURN_DOMAIN }}
         run: |
           set -euo pipefail
           # Fail here, naming the variable, rather than letting an empty value
           # reach the compose and mount agent workspaces onto nothing.
           : "${NFS_ADDR:?repository variable BUNKHOUSE_NFS_ADDR is not set}"
           : "${NFS_EXPORT:?repository variable BUNKHOUSE_NFS_EXPORT is not set}"
+          : "${LIVEKIT_NODE_IP:?repository variable LIVEKIT_NODE_IP is not set}"
+          : "${LIVEKIT_TURN_DOMAIN:?repository variable LIVEKIT_TURN_DOMAIN is not set}"
           base="${DOKPLOY_URL%/}"
           current="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
             -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID")"
@@ -298,6 +302,8 @@ jobs:
           upsert BUNKHOUSE_TAG "$NEW_TAG"
           upsert BUNKHOUSE_NFS_ADDR "$NFS_ADDR"
           upsert BUNKHOUSE_NFS_EXPORT "$NFS_EXPORT"
+          upsert LIVEKIT_NODE_IP "$LIVEKIT_NODE_IP"
+          upsert LIVEKIT_TURN_DOMAIN "$LIVEKIT_TURN_DOMAIN"
 
           # The desk pair is optional on purpose. A deployment without a desk
           # host is a supported shape — it is the one every developer without
@@ -589,6 +595,58 @@ jobs:
             fi
           done
           echo "::error::The deployed application did not become healthy within 10 minutes."
+          exit 1
+
+      - name: LiveKit media-plane health gate
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
+          COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
+        run: |
+          set -euo pipefail
+          base="${DOKPLOY_URL%/}"
+          compose="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+            -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID")"
+          app_name="$(printf '%s' "$compose" | jq -r '.appName // empty')"
+          : "${app_name:?Dokploy compose has no appName}"
+
+          media_is_live() {
+            local unit service desired running
+            for unit in livekit livekit-egress livekit-sip voice-agent; do
+              service="${app_name}_${unit}"
+              desired="$(docker service inspect --format '{{.Spec.Mode.Replicated.Replicas}}' "$service" 2>/dev/null)" || return 1
+              running="$(docker service ps --filter desired-state=running --format '{{.CurrentState}}' "$service" 2>/dev/null \
+                | grep -c '^Running' || true)"
+              [ "$running" -ge "$desired" ] || return 1
+            done
+          }
+
+          voice_task=""
+          stable_ticks=0
+          for _ in $(seq 1 120); do
+            if media_is_live; then
+              # A voice worker retries LiveKit for roughly 100 seconds before
+              # exiting. Requiring the same task to remain running beyond that
+              # catches a 404/502 signalling route that a momentary replica
+              # count would falsely call healthy.
+              current_task="$(docker service ps --filter desired-state=running --format '{{.ID}}' "${app_name}_voice-agent" | head -n 1)"
+              if [ -n "$current_task" ] && [ "$current_task" = "$voice_task" ]; then
+                stable_ticks=$((stable_ticks + 1))
+              else
+                voice_task="$current_task"
+                stable_ticks=1
+              fi
+              if [ "$stable_ticks" -ge 21 ]; then
+                echo "LiveKit, SIP, egress, and the voice agent are stable."
+                exit 0
+              fi
+            else
+              voice_task=""
+              stable_ticks=0
+            fi
+            sleep 5
+          done
+          echo "::error::The LiveKit media plane did not become stable."
           exit 1
 
   diagnose:
