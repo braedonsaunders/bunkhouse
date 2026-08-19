@@ -53,7 +53,7 @@ const rawPaletteUtility = /(?:bg|text|border|ring|fill|stroke)-(?:slate|gray|zin
 const arbitraryColourUtility = /(?:bg|text|border|ring|fill|stroke)-\[(?:#|rgb\(|hsl\()/
 
 for (const path of uiFiles) {
-  const rel = relative(sourceRoot, path)
+  const rel = relative(sourceRoot, path).replaceAll('\\', '/')
   const source = readFileSync(path, 'utf8')
   if (/<textarea\b/.test(source)) failures.push(`${rel}: use the AppKit rich-text editor for prose`)
   if (/<select\b/.test(source)) failures.push(`${rel}: use AppKit Select instead of a native select`)
