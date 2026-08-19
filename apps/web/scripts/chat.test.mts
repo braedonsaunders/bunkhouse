@@ -29,8 +29,11 @@ const {
   sendMessage,
   setThreadStatus,
   startThread,
+  continueThread,
   titleFromMessage,
 } = await import('../src/lib/chat-threads')
+
+const { chatExportFilename, chatExportJson, chatExportMarkdown, chatExportRecord } = await import('../src/lib/chat-export')
 
 const {
   closeDesktop,
@@ -66,6 +69,8 @@ type StoredThread = {
   status: 'open' | 'closed'
   lastMessageAt: Date
   updatedBy: string | null
+  originThreadId: string | null
+  originMessageSeq: number | null
 }
 
 type StoredMessage = {
@@ -83,11 +88,17 @@ function memoryChatStore(clock: () => Date) {
   const threads: StoredThread[] = []
   const messages: StoredMessage[] = []
   const store: ChatThreadStore = {
-    async listThreads({ tenantId, userId, includeArchived, personId }): Promise<ChatThreadSummary[]> {
+    async listThreads({ tenantId, userId, includeArchived, personId, query }): Promise<ChatThreadSummary[]> {
+      const search = query?.toLocaleLowerCase()
       return threads
         .filter((thread) => thread.tenantId === tenantId && thread.userId === userId)
         .filter((thread) => !personId || thread.personId === personId)
         .filter((thread) => includeArchived || thread.status === 'open')
+        .filter((thread) => {
+          if (!search) return true
+          return (thread.title ?? 'New conversation').toLocaleLowerCase().includes(search)
+            || messages.some((message) => message.threadId === thread.id && message.body.toLocaleLowerCase().includes(search))
+        })
         .sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime())
         .map((thread) => ({
           id: thread.id,
@@ -97,6 +108,8 @@ function memoryChatStore(clock: () => Date) {
           personName: 'Avery',
           status: thread.status,
           userId: thread.userId,
+          originThreadId: thread.originThreadId,
+          originMessageSeq: thread.originMessageSeq,
           lastMessageAt: thread.lastMessageAt.toISOString(),
         }))
     },
@@ -111,6 +124,8 @@ function memoryChatStore(clock: () => Date) {
         personName: 'Avery',
         status: thread.status,
         userId: thread.userId,
+        originThreadId: thread.originThreadId,
+        originMessageSeq: thread.originMessageSeq,
       }
     },
     async readMessages({ threadId }) {
@@ -130,7 +145,7 @@ function memoryChatStore(clock: () => Date) {
     async agentName({ personId }) {
       return personId === AGENT ? 'Avery' : null
     },
-    async createThread({ tenantId, userId, personId, title }) {
+    async createThread({ tenantId, userId, personId, title, originThreadId, originMessageSeq }) {
       const id = `thread-${threads.length + 1}`
       threads.push({
         id,
@@ -141,6 +156,8 @@ function memoryChatStore(clock: () => Date) {
         status: 'open',
         lastMessageAt: clock(),
         updatedBy: userId,
+        originThreadId: originThreadId ?? null,
+        originMessageSeq: originMessageSeq ?? null,
       })
       return id
     },
@@ -633,6 +650,40 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   assert.equal(titleFromMessage('x'.repeat(200))?.length, 72)
 }
 
+// --- portable exports keep transcript and evidence joins --------------------
+{
+  const record = chatExportRecord(
+    {
+      id: 'thread-export',
+      title: 'Dawson receivable / follow-up',
+      personId: AGENT,
+      personName: 'Avery',
+      status: 'open',
+      originThreadId: 'thread-source',
+      originMessageSeq: 4,
+    },
+    [{
+      id: 'message-export',
+      seq: 0,
+      role: 'agent',
+      body: 'Drafted the follow-up.\r\nIt is ready for review.',
+      at: '2026-08-17T12:00:00.000Z',
+      runId: 'run-export',
+      dispatchId: 'dispatch-export',
+    }],
+    '2026-08-17T13:00:00.000Z',
+  )
+  const markdown = chatExportMarkdown(record)
+  assert.match(markdown, /^# Dawson receivable \/ follow-up/m)
+  assert.match(markdown, /Continued from: thread-source through message 4/)
+  assert.match(markdown, /Run run-export · Dispatch dispatch-export/)
+  assert.match(markdown, /Drafted the follow-up\.\nIt is ready for review\./)
+  assert.equal(JSON.parse(chatExportJson(record)).messages[0].runId, 'run-export')
+  assert.equal(chatExportFilename('Dawson receivable / follow-up', 'md'), 'dawson-receivable-follow-up.md')
+  assert.equal(chatExportFilename('!!!', 'json'), 'conversation.json')
+  console.log('chat: Markdown and JSON exports preserve readable transcript and audit joins')
+}
+
 // --- (c2) a name someone chose outlives the next message --------------------
 //
 // The auto-title exists so the list reads as topics; it must never be the
@@ -731,7 +782,52 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   console.log('chat: archiving takes a conversation out of the list and destroys nothing; it comes back whole')
 }
 
-// --- (c4) somebody else's conversation is not theirs to keep ----------------
+// --- (c4) search reads titles and transcript; continuation keeps its branch --
+{
+  let tick = 0
+  const clock = () => new Date(Date.parse('2026-08-17T12:00:00.000Z') + (tick += 60_000))
+  const { store } = memoryChatStore(clock)
+  const { run, calls } = fakeRunner('The Dawson balance is $1,240.')
+  const deps = { store, run, now: clock }
+
+  const { threadId: sourceId } = await startThread({ tenantId: TENANT, userId: USER, personId: AGENT }, deps)
+  await sendMessage({ tenantId: TENANT, threadId: sourceId, userId: USER, body: 'Review the Dawson receivable.' }, deps)
+
+  assert.equal(
+    (await listThreads({ tenantId: TENANT, userId: USER, query: 'dAwSoN' }, deps))[0]?.id,
+    sourceId,
+    'search is case-insensitive across the title',
+  )
+  assert.equal(
+    (await listThreads({ tenantId: TENANT, userId: USER, query: '$1,240' }, deps))[0]?.id,
+    sourceId,
+    'search also finds words in the immutable transcript',
+  )
+  assert.equal((await listThreads({ tenantId: TENANT, userId: USER, query: 'nothing here' }, deps)).length, 0)
+
+  const continued = await continueThread({ tenantId: TENANT, userId: USER, sourceThreadId: sourceId }, deps)
+  const childBefore = await getThread(TENANT, continued.threadId, deps)
+  assert.equal(childBefore?.thread.originThreadId, sourceId)
+  assert.equal(childBefore?.thread.originMessageSeq, 1, 'the branch point is the last recorded message')
+  assert.equal(childBefore?.messages.length, 0, 'the child has its own transcript; history is linked, never copied')
+
+  await sendMessage({ tenantId: TENANT, threadId: sourceId, userId: USER, body: 'This happened after the branch.' }, deps)
+  await sendMessage({ tenantId: TENANT, threadId: continued.threadId, userId: USER, body: 'Draft a follow-up.' }, deps)
+  const childInput = calls.at(-1)?.input
+  const childMessage = childInput?.type === 'chat' ? childInput.message : ''
+  assert.match(childMessage, /Review the Dawson receivable/)
+  assert.match(childMessage, /The Dawson balance is \$1,240/)
+  assert.doesNotMatch(childMessage, /This happened after the branch/, 'later source turns cannot move the branch point')
+  assert.match(childMessage, /Draft a follow-up/)
+
+  await assert.rejects(
+    () => continueThread({ tenantId: TENANT, userId: OTHER_USER, sourceThreadId: sourceId }, deps),
+    /belongs to someone else/,
+  )
+  console.log('chat: search covers titles and transcript; a continued conversation inherits exactly its branch context')
+}
+
+// --- (c5) somebody else's conversation is not theirs to keep ----------------
 //
 // The same rule that stops a colleague posting into a thread (block c) stops
 // them renaming it or filing it away: reading is shared, keeping is not.

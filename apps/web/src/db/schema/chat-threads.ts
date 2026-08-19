@@ -56,6 +56,11 @@ export const chatThreads = pgTable(
     userId: uuid('user_id').notNull(),
     /** Derived from the first message, so the list reads as a list of topics. */
     title: text('title'),
+    /** Immutable provenance for "Continue in new conversation". The child
+     * receives context through this message but keeps its own transcript and
+     * governed run identity from that point forward. */
+    originThreadId: uuid('origin_thread_id'),
+    originMessageSeq: integer('origin_message_seq'),
     status: chatThreadStatus('status').notNull().default('open'),
     lastMessageAt: timestamp('last_message_at', { withTimezone: true }).notNull().defaultNow(),
     ...auditColumns,
@@ -63,6 +68,7 @@ export const chatThreads = pgTable(
   (t) => [
     index('chat_threads_user_idx').on(t.tenantId, t.userId, t.lastMessageAt),
     index('chat_threads_person_idx').on(t.tenantId, t.personId),
+    index('chat_threads_origin_idx').on(t.tenantId, t.originThreadId),
   ],
 )
 

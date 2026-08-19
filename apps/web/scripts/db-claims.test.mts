@@ -180,6 +180,43 @@ await asApp(T1, async (c) => {
     )
   })
 }
+
+// A continuation's branch point is provenance, not editable metadata. The
+// database rejects partial and retroactively moved origins even if a caller
+// bypasses the service boundary.
+{
+  const parentId = crypto.randomUUID()
+  const childId = crypto.randomUUID()
+  const personId = crypto.randomUUID()
+  const userId = crypto.randomUUID()
+  await asApp(T1, async (c) => {
+    await c.query(
+      `insert into chat_threads (id, tenant_id, person_id, user_id, title)
+       values ($1, $2, $3, $4, 'Origin conversation')`,
+      [parentId, T1, personId, userId],
+    )
+    await c.query(
+      `insert into chat_threads
+         (id, tenant_id, person_id, user_id, title, origin_thread_id, origin_message_seq)
+       values ($1, $2, $3, $4, 'Continued conversation', $5, 3)`,
+      [childId, T1, personId, userId, parentId],
+    )
+    await assert.rejects(
+      c.query(`update chat_threads set origin_message_seq = 4 where id = $1`, [childId]),
+      (error: { code?: string }) => error.code === 'P0001',
+      'a continuation cannot move its branch point after creation',
+    )
+    await assert.rejects(
+      c.query(
+        `insert into chat_threads (tenant_id, person_id, user_id, title, origin_thread_id)
+         values ($1, $2, $3, 'Incomplete origin', $4)`,
+        [T1, personId, userId, parentId],
+      ),
+      (error: { code?: string }) => error.code === '23514',
+      'origin thread and message sequence must be recorded together',
+    )
+  })
+}
 await asApp(T2, async (c) => {
   assert.equal(await count(c, `select count(*) from people`), 1, 'T2 sees one person')
   const { rows } = await c.query(`select name from people`)

@@ -35,6 +35,7 @@ export type ServerActionModule =
 export type RouteModule =
   | 'app/api/auth/[...all]/route.ts'
   | 'app/api/avatar-parts/[partId]/route.ts'
+  | 'app/api/chat/[threadId]/export/route.ts'
   | 'app/api/chat/[threadId]/route.ts'
   | 'app/api/chat/slack/route.ts'
   | 'app/api/chat/teams/route.ts'
@@ -88,6 +89,7 @@ export const SERVER_ACTION_AUTHORIZATION = {
 export const ROUTE_AUTHORIZATION = {
   'app/api/auth/[...all]/route.ts': 'auth_provider',
   'app/api/avatar-parts/[partId]/route.ts': 'tenant_session',
+  'app/api/chat/[threadId]/export/route.ts': 'tenant_session',
   'app/api/chat/[threadId]/route.ts': 'tenant_session',
   'app/api/chat/slack/route.ts': 'signed_webhook',
   'app/api/chat/teams/route.ts': 'signed_webhook',

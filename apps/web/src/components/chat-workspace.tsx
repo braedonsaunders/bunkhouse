@@ -7,6 +7,8 @@ import {
   Archive,
   ArchiveRestore,
   ChevronDown,
+  Download,
+  GitBranch,
   Loader2,
   MessageSquarePlus,
   Monitor,
@@ -15,6 +17,8 @@ import {
   Pencil,
   Phone,
   Plus,
+  Search,
+  X,
 } from 'lucide-react'
 import {
   Badge,
@@ -22,6 +26,7 @@ import {
   Card,
   ContextMenu,
   EmptyState,
+  Input,
   Popover,
   cn,
   promptDialog,
@@ -36,6 +41,7 @@ import {
 import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
 import {
   getThreadAction,
+  continueThreadAction,
   editQueuedMessageAction,
   enqueueMessageAction,
   listThreadsAction,
@@ -73,6 +79,8 @@ export type ChatThreadSummary = {
   /** ISO — the ledger's own stamp, formatted where it is read. */
   lastMessageAt: string
   status: ChatThreadStatus
+  originThreadId: string | null
+  originMessageSeq: number | null
 }
 
 /** One persisted turn. */
@@ -102,7 +110,15 @@ export type ChatDispatchRecord = {
 }
 
 export type ChatThreadDetail = {
-  thread: { id: string; title: string; personId: string; personName: string; status: ChatThreadStatus }
+  thread: {
+    id: string
+    title: string
+    personId: string
+    personName: string
+    status: ChatThreadStatus
+    originThreadId: string | null
+    originMessageSeq: number | null
+  }
   messages: ChatMessageRecord[]
   dispatches: ChatDispatchRecord[]
 }
@@ -222,6 +238,21 @@ function ThreadNoticeBar({ messages }: { messages: ChatMessageRecord[] }) {
   )
 }
 
+function ContinuationNotice({ originThreadId, onOpen }: { originThreadId: string | null; onOpen: (id: string) => void }) {
+  if (!originThreadId) return null
+  return (
+    <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-surface-hover px-4 py-2 text-xs text-fg-muted">
+      <span className="flex min-w-0 items-center gap-2">
+        <GitBranch aria-hidden className="size-3.5 shrink-0" />
+        <span className="truncate">Continued from an earlier conversation</span>
+      </span>
+      <button type="button" className="shrink-0 font-medium text-primary hover:underline" onClick={() => onOpen(originThreadId)}>
+        Open earlier
+      </button>
+    </div>
+  )
+}
+
 /** The conversations, newest first — navigation, so a list rather than a table. */
 function ThreadList({
   threads,
@@ -236,6 +267,10 @@ function ThreadList({
   onShowArchived,
   onRename,
   onSetStatus,
+  onContinue,
+  onExport,
+  query,
+  onQueryChange,
 }: {
   threads: ChatThreadSummary[]
   activeId: string | null
@@ -249,6 +284,10 @@ function ThreadList({
   onShowArchived: (next: boolean) => void
   onRename: (thread: ChatThreadSummary) => void
   onSetStatus: (thread: ChatThreadSummary, status: ChatThreadStatus) => void
+  onContinue: (thread: ChatThreadSummary) => void
+  onExport: (thread: ChatThreadSummary, format: 'md' | 'json') => void
+  query: string
+  onQueryChange: (query: string) => void
 }) {
   // One menu for the whole list, opened against whichever row asked for it —
   // `useContextMenu` is a hook, so a controller per row is not a thing that can
@@ -271,6 +310,24 @@ function ThreadList({
             label: 'Rename…',
             icon: Pencil,
             onSelect: () => onRename(target),
+          },
+          {
+            key: 'continue',
+            label: 'Continue in new conversation',
+            icon: GitBranch,
+            onSelect: () => onContinue(target),
+          },
+          {
+            key: 'export-markdown',
+            label: 'Download transcript (.md)',
+            icon: Download,
+            onSelect: () => onExport(target, 'md'),
+          },
+          {
+            key: 'export-json',
+            label: 'Download record (.json)',
+            icon: Download,
+            onSelect: () => onExport(target, 'json'),
           },
           {
             key: 'status',
@@ -352,10 +409,35 @@ function ThreadList({
           ) : null}
         </span>
       </header>
+      <div className="border-b border-border p-2">
+        <div className="relative">
+          <Search aria-hidden className="pointer-events-none absolute left-2.5 top-2 size-4 text-fg-subtle" />
+          <Input
+            type="search"
+            aria-label="Search conversations"
+            placeholder="Search conversations…"
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            className="h-8 pl-9 pr-8 [&::-webkit-search-cancel-button]:hidden"
+          />
+          {query ? (
+            <button
+              type="button"
+              aria-label="Clear conversation search"
+              onClick={() => onQueryChange('')}
+              className="absolute right-2 top-2 text-fg-subtle hover:text-fg"
+            >
+              <X aria-hidden className="size-4" />
+            </button>
+          ) : null}
+        </div>
+      </div>
       <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-2 max-lg:max-h-64">
         {threads.length === 0 ? (
           <p className="py-6 text-sm text-fg-muted">
-            {showArchived
+            {query
+              ? 'No conversations match this search.'
+              : showArchived
               ? 'No conversations yet. Start one and it appears here, alongside the run record it produces.'
               : 'No open conversations. Start one, or show the archived ones.'}
           </p>
@@ -453,6 +535,8 @@ export function AgentChatWorkspace({
   // is arriving on a link to one: it would otherwise open in a pane with no row
   // behind it and no way back to itself.
   const [showArchived, setShowArchived] = React.useState(initialThread?.thread.status === 'closed')
+  const [searchQuery, setSearchQuery] = React.useState('')
+  const searchRequestRef = React.useRef(0)
 
   const wide = useWideViewport()
   // One preference, resolved against the viewport: untouched, the desk is
@@ -489,9 +573,25 @@ export function AgentChatWorkspace({
 
   /** The list as this pane is currently asking for it. */
   const fetchThreads = React.useCallback(
-    () => listThreadsAction({ includeArchived: showArchived, personId: agent.id }),
-    [agent.id, showArchived],
+    () => listThreadsAction({ includeArchived: showArchived, personId: agent.id, query: searchQuery }),
+    [agent.id, searchQuery, showArchived],
   )
+
+  React.useEffect(() => {
+    const request = ++searchRequestRef.current
+    const timer = window.setTimeout(() => {
+      void listThreadsAction({ includeArchived: showArchived, personId: agent.id, query: searchQuery })
+        .then((list) => {
+          if (searchRequestRef.current === request) setThreads(list)
+        })
+        .catch((reason) => {
+          if (searchRequestRef.current === request) {
+            setError(reason instanceof Error ? reason.message : 'Conversations could not be searched.')
+          }
+        })
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [agent.id, searchQuery, showArchived])
 
   /**
    * What the pane learns after something happens to a thread: the run a turn
@@ -679,12 +779,12 @@ export function AgentChatWorkspace({
     setShowArchived(next)
     setError(null)
     try {
-      setThreads(await listThreadsAction({ includeArchived: next, personId: agent.id }))
+      setThreads(await listThreadsAction({ includeArchived: next, personId: agent.id, query: searchQuery }))
     } catch (reason) {
       setShowArchived(!next)
       setError(reason instanceof Error ? reason.message : 'Archived conversations could not be loaded.')
     }
-  }, [agent.id])
+  }, [agent.id, searchQuery])
 
   /**
    * Naming a conversation by hand. The shared prompt is the app's way of
@@ -710,6 +810,23 @@ export function AgentChatWorkspace({
     },
     [refreshThread],
   )
+
+  const continueConversation = React.useCallback(async (thread: ChatThreadSummary) => {
+    setError(null)
+    const result = await continueThreadAction(thread.id)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    const list = await fetchThreads().catch(() => threads)
+    setThreads(list)
+    await load(result.threadId)
+  }, [fetchThreads, load, threads])
+
+  const exportConversation = React.useCallback((thread: ChatThreadSummary, format: 'md' | 'json') => {
+    const url = `/api/chat/${encodeURIComponent(thread.id)}/export?format=${format}`
+    window.location.assign(url)
+  }, [])
 
   /**
    * Archiving, and bringing one back. Never a delete: the conversation's
@@ -796,6 +913,7 @@ export function AgentChatWorkspace({
         </>
       ) : (
         <>
+          <ContinuationNotice originThreadId={detail.thread.originThreadId} onOpen={(id) => void load(id)} />
           <ThreadNoticeBar messages={detail.messages} />
           <AgentPanel
             // Keyed by the thread: the panel seeds its transcript once, so a
@@ -904,6 +1022,10 @@ export function AgentChatWorkspace({
           onShowArchived={(next) => void toggleArchived(next)}
           onRename={(thread) => void renameThread(thread)}
           onSetStatus={(thread, status) => void setThreadStatus(thread, status)}
+          onContinue={(thread) => void continueConversation(thread)}
+          onExport={exportConversation}
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
         />
         {conversation}
         {/* Unmounted rather than hidden when it is folded away: a pane that

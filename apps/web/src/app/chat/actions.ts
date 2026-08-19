@@ -10,6 +10,7 @@ import { RoomServiceClient } from 'livekit-server-sdk'
 import type { ChatRequester } from '@bunkhouse/runtime'
 import { requireTenantPermission, type TenantAccess } from '../../lib/tenant'
 import {
+  continueThread,
   getThread,
   listThreads,
   renameThread,
@@ -76,7 +77,7 @@ function chatRequesterFor(access: TenantAccess): ChatRequester {
 }
 
 export async function listThreadsAction(
-  options?: { includeArchived?: boolean; personId?: string },
+  options?: { includeArchived?: boolean; personId?: string; query?: string },
 ): Promise<ChatThreadSummary[]> {
   const access = await requireTenantPermission('work.read')
   return listThreads({
@@ -84,6 +85,7 @@ export async function listThreadsAction(
     userId: access.user.id,
     includeArchived: options?.includeArchived === true,
     ...(options?.personId ? { personId: options.personId } : {}),
+    ...(options?.query ? { query: options.query } : {}),
   })
 }
 
@@ -199,6 +201,22 @@ export async function startThreadAction(personId: string, body: string): Promise
   }
   revalidatePath(CHAT_PATH)
   return { threadId }
+}
+
+/** Start an independent conversation with immutable provenance to this one's latest message. */
+export async function continueThreadAction(sourceThreadId: string): Promise<{ threadId: string } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  try {
+    const result = await continueThread({
+      tenantId: access.tenantId,
+      userId: access.user.id,
+      sourceThreadId,
+    })
+    revalidatePath(CHAT_PATH)
+    return { threadId: result.threadId }
+  } catch (reason) {
+    return { error: reason instanceof Error ? reason.message : 'A new conversation could not be started from this one.' }
+  }
 }
 
 /**

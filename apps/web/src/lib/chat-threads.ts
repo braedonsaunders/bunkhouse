@@ -66,6 +66,10 @@ export type ChatThreadView = {
   /** The human whose conversation this is. A thread is between one person and
    *  one agent; a colleague may not post into it. */
   userId: string
+  /** The immutable branch point when this conversation continued from
+   * another one. Null for an original conversation. */
+  originThreadId: string | null
+  originMessageSeq: number | null
 }
 
 export type ChatThreadSummary = ChatThreadView & { lastMessageAt: string }
@@ -82,6 +86,7 @@ export type ChatThreadStore = {
     userId: string
     includeArchived: boolean
     personId?: string
+    query?: string
   }): Promise<ChatThreadSummary[]>
   readThread(args: { tenantId: string; threadId: string }): Promise<ChatThreadView | null>
   readMessages(args: { tenantId: string; threadId: string }): Promise<ChatMessageView[]>
@@ -92,6 +97,8 @@ export type ChatThreadStore = {
     userId: string
     personId: string
     title: string | null
+    originThreadId?: string | null
+    originMessageSeq?: number | null
   }): Promise<string>
   /** Appends under the thread's serialized seq allocator. */
   appendMessage(args: {
@@ -153,8 +160,9 @@ function messageView(row: {
  */
 export function dbChatThreadStore(): ChatThreadStore {
   return {
-    async listThreads({ tenantId, userId, includeArchived, personId }) {
+    async listThreads({ tenantId, userId, includeArchived, personId, query }) {
       const app = db()
+      const search = query?.trim().toLocaleLowerCase() ?? ''
       const rows = await app.withTenantContext(tenantId, () =>
         app.db
           .select({
@@ -164,6 +172,8 @@ export function dbChatThreadStore(): ChatThreadStore {
             personName: people.name,
             status: chatThreads.status,
             userId: chatThreads.userId,
+            originThreadId: chatThreads.originThreadId,
+            originMessageSeq: chatThreads.originMessageSeq,
             lastMessageAt: chatThreads.lastMessageAt,
           })
           .from(chatThreads)
@@ -173,6 +183,17 @@ export function dbChatThreadStore(): ChatThreadStore {
               eq(chatThreads.userId, userId),
               ...(includeArchived ? [] : [eq(chatThreads.status, 'open')]),
               ...(personId ? [eq(chatThreads.personId, personId)] : []),
+              ...(search
+                ? [sql`(
+                    position(${search} in lower(coalesce(${chatThreads.title}, ''))) > 0
+                    or position(${search} in lower(${people.name})) > 0
+                    or exists (
+                      select 1 from ${chatMessages}
+                      where ${chatMessages.threadId} = ${chatThreads.id}
+                        and position(${search} in lower(${chatMessages.body})) > 0
+                    )
+                  )`]
+                : []),
             ),
           )
           .orderBy(desc(chatThreads.lastMessageAt)),
@@ -185,6 +206,8 @@ export function dbChatThreadStore(): ChatThreadStore {
         personName: row.personName,
         status: row.status,
         userId: row.userId,
+        originThreadId: row.originThreadId,
+        originMessageSeq: row.originMessageSeq,
         lastMessageAt: row.lastMessageAt.toISOString(),
       }))
     },
@@ -199,6 +222,8 @@ export function dbChatThreadStore(): ChatThreadStore {
             personName: people.name,
             status: chatThreads.status,
             userId: chatThreads.userId,
+            originThreadId: chatThreads.originThreadId,
+            originMessageSeq: chatThreads.originMessageSeq,
           })
           .from(chatThreads)
           .innerJoin(people, eq(people.id, chatThreads.personId))
@@ -237,12 +262,21 @@ export function dbChatThreadStore(): ChatThreadStore {
       )
       return row?.name ?? null
     },
-    async createThread({ tenantId, userId, personId, title }) {
+    async createThread({ tenantId, userId, personId, title, originThreadId, originMessageSeq }) {
       const app = db()
       return app.withTenant(tenantId, async () => {
         const [row] = await app.db
           .insert(chatThreads)
-          .values({ tenantId, userId, personId, title, createdBy: userId, updatedBy: userId })
+          .values({
+            tenantId,
+            userId,
+            personId,
+            title,
+            originThreadId: originThreadId ?? null,
+            originMessageSeq: originMessageSeq ?? null,
+            createdBy: userId,
+            updatedBy: userId,
+          })
           .returning({ id: chatThreads.id })
         if (!row) throw new Error('The conversation could not be started.')
         return row.id
@@ -454,14 +488,16 @@ async function requesterOf(
  * thread, its messages and the runs under them are all still there.
  */
 export async function listThreads(
-  args: { tenantId: string; userId: string; includeArchived?: boolean; personId?: string },
+  args: { tenantId: string; userId: string; includeArchived?: boolean; personId?: string; query?: string },
   deps: ChatThreadDeps = {},
 ): Promise<ChatThreadSummary[]> {
+  const query = args.query?.trim().slice(0, 200)
   return storeOf(deps).listThreads({
     tenantId: args.tenantId,
     userId: args.userId,
     includeArchived: args.includeArchived ?? false,
     ...(args.personId ? { personId: args.personId } : {}),
+    ...(query ? { query } : {}),
   })
 }
 
@@ -542,6 +578,45 @@ export async function startThread(
 }
 
 /**
+ * Continue from the latest recorded point in another conversation.
+ *
+ * This creates an independent conversation and records its branch point; it
+ * does not copy or edit old messages. The first run in the child receives the
+ * inherited context, while every new message and run is attributed to the
+ * child's own id. That keeps both the user experience and the audit graph
+ * honest about where the paths separated.
+ */
+export async function continueThread(
+  args: { tenantId: string; userId: string; sourceThreadId: string },
+  deps: ChatThreadDeps = {},
+): Promise<{ threadId: string; originMessageSeq: number }> {
+  const store = storeOf(deps)
+  const source = await ownedThread(
+    { tenantId: args.tenantId, threadId: args.sourceThreadId, userId: args.userId },
+    store,
+  )
+  const name = await store.agentName({ tenantId: args.tenantId, personId: source.personId })
+  if (!name) throw new Error('This agent is not available for a new conversation.')
+  const messages = await store.readMessages({ tenantId: args.tenantId, threadId: source.id })
+  const last = messages.at(-1)
+  if (!last) throw new Error('Say something in this conversation before continuing it in a new one.')
+  const prefix = 'Continuation of '
+  const available = TITLE_MAX - prefix.length
+  const sourceTitle = source.title.length > available
+    ? `${source.title.slice(0, Math.max(1, available - 1)).trimEnd()}…`
+    : source.title
+  const threadId = await store.createThread({
+    tenantId: args.tenantId,
+    userId: args.userId,
+    personId: source.personId,
+    title: `${prefix}${sourceTitle}`,
+    originThreadId: source.id,
+    originMessageSeq: last.seq,
+  })
+  return { threadId, originMessageSeq: last.seq }
+}
+
+/**
  * The one gate on changing a conversation record.
  *
  * Tenant isolation is enforced underneath by RLS; this is the second half of
@@ -619,6 +694,32 @@ export async function setThreadStatus(
     status: args.status,
   })
   return { status: args.status }
+}
+
+/** The immutable lineage that precedes a continued conversation. */
+async function inheritedHistory(
+  args: { tenantId: string; thread: ChatThreadView },
+  store: ChatThreadStore,
+): Promise<ChatMessageView[]> {
+  const generations: ChatMessageView[][] = []
+  const seen = new Set<string>([args.thread.id])
+  let child = args.thread
+
+  // A practical corruption guard as well as a bound on legacy data. The
+  // normal graph is acyclic because origin is fixed at creation time.
+  for (let depth = 0; child.originThreadId && child.originMessageSeq !== null && depth < 16; depth += 1) {
+    if (seen.has(child.originThreadId)) throw new Error('This conversation has an invalid continuation history.')
+    seen.add(child.originThreadId)
+    const parent = await store.readThread({ tenantId: args.tenantId, threadId: child.originThreadId })
+    if (!parent || parent.userId !== child.userId || parent.personId !== child.personId) {
+      throw new Error('This conversation’s earlier context is no longer available.')
+    }
+    const messages = await store.readMessages({ tenantId: args.tenantId, threadId: parent.id })
+    generations.unshift(messages.filter((message) => message.seq <= child.originMessageSeq!))
+    child = parent
+  }
+  if (child.originThreadId) throw new Error('This conversation’s continuation history is too deep to load safely.')
+  return generations.flat()
 }
 
 /**
@@ -737,6 +838,7 @@ export async function sendMessage(
     if (thread.status !== 'open') throw new Error('That conversation is closed.')
 
     const history = await store.readMessages({ tenantId: args.tenantId, threadId: args.threadId })
+    const inherited = await inheritedHistory({ tenantId: args.tenantId, thread }, store)
     const requester = await requesterOf(
       {
         tenantId: args.tenantId,
@@ -800,7 +902,10 @@ export async function sendMessage(
         input: {
           type: 'chat',
           message: messageWithHistory(
-            recorded ? history.filter((message) => message.seq < recorded.seq) : history,
+            [
+              ...inherited,
+              ...(recorded ? history.filter((message) => message.seq < recorded.seq) : history),
+            ],
             body,
           ),
           ...(requester ? { requester } : {}),
