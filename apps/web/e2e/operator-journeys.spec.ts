@@ -55,9 +55,13 @@ test('conversation components cover search, provenance, export, and archive stat
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe('dawson-receivable-review.md')
 
+  await page.getByRole('button', { name: /Dawson receivable review Avery Chen/ }).click()
+  await expect(page).toHaveURL(new RegExp(`thread=${E2E_SOURCE_THREAD_ID}$`))
   await page.getByRole('button', { name: 'Actions for Dawson receivable review' }).click()
   await page.getByRole('menuitem', { name: 'Archive' }).click()
   await expect(page.getByRole('button', { name: 'Actions for Dawson receivable review' })).toHaveCount(0)
+  await expect(page.getByText('The balance is $1,240. I drafted a concise reminder with the invoice details.', { exact: true })).toHaveCount(0)
+  await expect.poll(() => new URL(page.url()).searchParams.get('thread')).toBeNull()
   await page.goto(chatUrl(E2E_SOURCE_THREAD_ID))
   await expect(page.getByRole('button', { name: /Dawson receivable review.*archived/ })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Message Avery Chen…' })).toHaveCount(0)

@@ -843,9 +843,32 @@ export function AgentChatWorkspace({
         setError(result.error)
         return
       }
-      await refreshThread(thread.id)
+      const list = await fetchThreads().catch(() => threads)
+      setThreads(list)
+
+      // Filing away the conversation currently in the middle pane means it is
+      // no longer open there. Reloading the just-closed record (the previous
+      // behaviour) removed its row but left the entire archived transcript on
+      // screen, disconnected from the list beside it. Clear every piece of
+      // selection state and its URL instead. Archived conversations remain
+      // available through the Archived filter and can be selected explicitly.
+      if (status === 'closed' && activeId === thread.id) {
+        setDetail(null)
+        setCallThreadId((current) => (current === thread.id ? null : current))
+        const url = new URL(window.location.href)
+        url.searchParams.delete('thread')
+        url.searchParams.delete('call')
+        const query = url.searchParams.toString()
+        window.history.replaceState(null, '', `${url.pathname}${query ? `?${query}` : ''}`)
+        router.refresh()
+        return
+      }
+
+      // Unarchiving a selected record updates its composer in place. A status
+      // change on any other row only needs the freshly fetched list above.
+      if (activeId === thread.id) await refreshThread(thread.id)
     },
-    [refreshThread],
+    [activeId, fetchThreads, refreshThread, router, threads],
   )
 
   const conversation = (

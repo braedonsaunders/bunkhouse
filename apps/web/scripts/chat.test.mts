@@ -491,6 +491,16 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
       workspace.includes("variant={showArchived ? 'secondary' : 'ghost'}"),
     'the archived filter makes its active state and inverse action visible',
   )
+  const archiveStatus = workspace.slice(
+    workspace.indexOf('const setThreadStatus = React.useCallback'),
+    workspace.indexOf('const conversation ='),
+  )
+  assert.ok(
+    archiveStatus.includes("status === 'closed' && activeId === thread.id") &&
+      archiveStatus.includes('setDetail(null)') &&
+      archiveStatus.includes("url.searchParams.delete('thread')"),
+    'archiving the selected conversation clears the middle pane and its URL instead of reloading the closed transcript',
+  )
   const workSurface = readFileSync(
     fileURLToPath(new URL('../src/components/chat-work-surface.tsx', import.meta.url)),
     'utf8',
