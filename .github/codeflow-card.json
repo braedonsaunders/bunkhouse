@@ -2,108 +2,6 @@
   "version": 1,
   "runs": [
     {
-      "at": "2026-08-07T03:28:14.885Z",
-      "sha": "96d6386f3b5a58b7a88096aa4741c13048ba5a60",
-      "pr": null,
-      "actor": "braedonsaunders",
-      "files": 392,
-      "functions": 1187,
-      "loc": 112993,
-      "languages": 13,
-      "topLanguages": [
-        {
-          "ext": "ts",
-          "pct": 34,
-          "lines": 38372
-        },
-        {
-          "ext": "json",
-          "pct": 24,
-          "lines": 26699
-        },
-        {
-          "ext": "tsx",
-          "pct": 23,
-          "lines": 26228
-        },
-        {
-          "ext": "yaml",
-          "pct": 14,
-          "lines": 15486
-        },
-        {
-          "ext": "sql",
-          "pct": 3,
-          "lines": 2987
-        }
-      ],
-      "dead": 39,
-      "deadPct": 3.3,
-      "circular": 1,
-      "godObjects": 1,
-      "avgCoupling": 2.6,
-      "securityIssues": 41,
-      "patterns": 7,
-      "duplicates": 12,
-      "layerViolations": 208,
-      "connections": 1005,
-      "avgFnLines": 15.6,
-      "longestFn": 16,
-      "testFiles": 1,
-      "testRatio": 0.3,
-      "topFolders": [
-        {
-          "name": "apps",
-          "count": 294
-        },
-        {
-          "name": "migrations",
-          "count": 51
-        },
-        {
-          "name": "packages",
-          "count": 21
-        },
-        {
-          "name": "root",
-          "count": 12
-        },
-        {
-          "name": "docs",
-          "count": 8
-        }
-      ],
-      "folders": 5,
-      "grade": "D",
-      "score": 69,
-      "topBlast": {
-        "path": "apps/web/src/db/client.ts",
-        "direct": 85,
-        "transitive": 158,
-        "total": 243
-      },
-      "fragility": [
-        {
-          "path": "apps/web/src/db/client.ts",
-          "direct": 85,
-          "transitive": 158,
-          "total": 243
-        },
-        {
-          "path": "apps/web/src/lib/tenant.ts",
-          "direct": 45,
-          "transitive": 99,
-          "total": 144
-        },
-        {
-          "path": "apps/web/src/lib/auth.ts",
-          "direct": 5,
-          "transitive": 92,
-          "total": 97
-        }
-      ]
-    },
-    {
       "at": "2026-08-07T03:44:17.103Z",
       "sha": "e64d8dc7bc5a9044e1b58a5550853bf434fc2f69",
       "pr": null,
@@ -3005,6 +2903,108 @@
       "duplicates": 14,
       "layerViolations": 336,
       "connections": 1541,
+      "avgFnLines": 15.5,
+      "longestFn": 16,
+      "testFiles": 4,
+      "testRatio": 0.8,
+      "topFolders": [
+        {
+          "name": "apps",
+          "count": 353
+        },
+        {
+          "name": "migrations",
+          "count": 69
+        },
+        {
+          "name": "packages",
+          "count": 28
+        },
+        {
+          "name": "root",
+          "count": 13
+        },
+        {
+          "name": "docs",
+          "count": 12
+        }
+      ],
+      "folders": 5,
+      "grade": "D",
+      "score": 69,
+      "topBlast": {
+        "path": "apps/web/src/db/client.ts",
+        "direct": 97,
+        "transitive": 246,
+        "total": 343
+      },
+      "fragility": [
+        {
+          "path": "apps/web/src/db/client.ts",
+          "direct": 97,
+          "transitive": 246,
+          "total": 343
+        },
+        {
+          "path": "deploy/desk-image/agent/desk-guest-agent.mjs",
+          "direct": 48,
+          "transitive": 213,
+          "total": 261
+        },
+        {
+          "path": "deploy/desk-image/agent/atspi-dump.py",
+          "direct": 22,
+          "transitive": 226,
+          "total": 248
+        }
+      ]
+    },
+    {
+      "at": "2026-08-19T18:55:49.487Z",
+      "sha": "977fb38cec244849e5d41abbd64fab68705c8994",
+      "pr": null,
+      "actor": "braedonsaunders",
+      "files": 487,
+      "functions": 1711,
+      "loc": 141049,
+      "languages": 14,
+      "topLanguages": [
+        {
+          "ext": "ts",
+          "pct": 37,
+          "lines": 52093
+        },
+        {
+          "ext": "tsx",
+          "pct": 23,
+          "lines": 33128
+        },
+        {
+          "ext": "json",
+          "pct": 19,
+          "lines": 26714
+        },
+        {
+          "ext": "yaml",
+          "pct": 12,
+          "lines": 17340
+        },
+        {
+          "ext": "sql",
+          "pct": 3,
+          "lines": 4130
+        }
+      ],
+      "dead": 44,
+      "deadPct": 2.6,
+      "circular": 1,
+      "godObjects": 1,
+      "avgCoupling": 3.2,
+      "securityIssues": 46,
+      "patterns": 7,
+      "duplicates": 14,
+      "layerViolations": 336,
+      "connections": 1542,
       "avgFnLines": 15.5,
       "longestFn": 16,
       "testFiles": 4,
