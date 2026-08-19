@@ -28,6 +28,32 @@ import { resolveDeskPolicy, saveDeskFeatures, saveDeskPolicy, type DeskPolicy } 
 import { isMailOauthProvider, removeMailOauthApp, saveMailOauthApp } from '../../../lib/mail-oauth'
 import { db } from '../../../db/client'
 import { listImageModels, type ImageModelId } from '@braedonsaunders/appkit-avatars'
+import { saveLocaleSettings } from '../../../lib/localization'
+import { requireTenantPermission } from '../../../lib/tenant'
+import type { AppLocale } from '../../../lib/product-locales'
+
+export async function saveLocaleSettingsAction(input: {
+  defaultLocale: AppLocale
+  enabledLocales: AppLocale[]
+}): Promise<
+  | { ok: true; settings: { defaultLocale: AppLocale; enabledLocales: AppLocale[] } }
+  | { ok: false; message: string }
+> {
+  try {
+    const access = await requireTenantPermission('settings.manage')
+    const settings = await saveLocaleSettings({
+      tenantId: access.tenantId,
+      actorId: access.user.id,
+      defaultLocale: input.defaultLocale,
+      enabledLocales: input.enabledLocales,
+    })
+    revalidatePath('/', 'layout')
+    revalidatePath('/admin/settings')
+    return { ok: true, settings }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+}
 
 /** Add a model provider. Returns the failure rather than throwing: a thrown
  *  server-action error reaches the browser as an opaque digest in production,

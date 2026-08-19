@@ -1,11 +1,14 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
+import { headers } from 'next/headers'
 import { ConfirmRoot, getThemeScript, PromptRoot, Toaster } from '@braedonsaunders/appkit-ui'
 import { AppFrame, type FrameTenant } from '@/components/app-frame'
 import { SplashScreen } from '@/components/brand-splash'
 import { getSessionUser } from '@/lib/auth'
 import { getTenantAccess, getTenantSelectionForChrome } from '@/lib/tenant'
 import { switchTenantAction } from '@/app/tenant-actions'
+import { localeFromAcceptLanguage } from '@braedonsaunders/appkit-i18n'
+import { effectiveLocale } from '@/lib/localization'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -29,6 +32,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       }
     : null
   const access = user && tenant ? await getTenantAccess() : null
+  const locale = access
+    ? await effectiveLocale({ tenantId: access.tenantId, userLocale: access.localeOverride })
+    : localeFromAcceptLanguage((await headers()).get('accept-language'))
   const allowedSections = user?.isSuperAdmin
     ? ['home', 'agents', 'roles', 'approvals', 'observatory', 'resources', 'settings']
     : [
@@ -41,12 +47,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         access?.permissions.has('settings.read') ? 'settings' : null,
       ].filter((value): value is string => value !== null)
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={locale} suppressHydrationWarning>
       <head>
         <script id="appkit-theme" dangerouslySetInnerHTML={{ __html: getThemeScript() }} />
       </head>
       <body className="min-h-screen bg-bg text-fg antialiased">
-        <AppFrame user={user} tenant={tenant} switchTenant={switchTenantAction} allowedSections={allowedSections}>
+        <AppFrame user={user} tenant={tenant} switchTenant={switchTenantAction} allowedSections={allowedSections} locale={locale}>
           {children}
         </AppFrame>
         <SplashScreen />

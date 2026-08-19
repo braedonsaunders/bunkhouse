@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import {
-  Activity, DoorOpen, Boxes, Brain, Building2, FileText, Globe, ImageIcon, Mail, MessageSquare,
+  Activity, DoorOpen, Boxes, Brain, Building2, FileText, Globe, ImageIcon, Languages, Mail, MessageSquare,
   MessagesSquare, Monitor, Phone, Shield, SlidersHorizontal, UserRoundCog } from 'lucide-react'
 import {
   Badge,
@@ -58,6 +58,9 @@ import { ChatSettingsSection, type ChatAgentOption, type ChatChannelRouteRowView
 import { AccessSettings } from './access-settings'
 import type { ScopeOptions } from '@braedonsaunders/appkit-iam'
 import { SectionTabs } from './section-tabs'
+import { LocalizationSettings } from './localization-settings'
+import { LOCALE_OPTIONS } from '../lib/product-locales'
+import type { LocaleSettingsView } from '../lib/localization'
 
 const nextLink: LinkRender = ({ href, children, className, title }) => (
   <Link href={href} className={className} title={title}>
@@ -139,6 +142,7 @@ const NAV: SettingsNavGroup[] = [
     label: 'Company',
     items: [
       { key: 'identity', label: 'Identity', icon: <Building2 /> },
+      { key: 'languages', label: 'Language & region', icon: <Languages /> },
       { key: 'features', label: 'Features', icon: <SlidersHorizontal /> },
       { key: 'documents', label: 'Documents', icon: <FileText /> },
       { key: 'avatar-parts', label: 'Avatars', icon: <Boxes /> },
@@ -282,6 +286,7 @@ export function SettingsView({
   avatarPartLibrary,
   accessScopes,
   canManageAccess,
+  localeSettings,
 }: {
   providers: ProviderSummary[]
   /** Which agent works on which provider, so removing one shows its cost. */
@@ -346,6 +351,8 @@ export function SettingsView({
   avatarPartLibrary: AvatarPart[]
   accessScopes: ScopeOptions
   canManageAccess: boolean
+  /** Tenant language policy and its last recorded update. */
+  localeSettings: LocaleSettingsView
 }) {
   const arrival = React.useMemo(() => {
     const requested = resolveSection(initialSection)
@@ -410,6 +417,8 @@ export function SettingsView({
         <CompanyIdentitySettings identity={companyIdentity} providers={identityProviders} />
       ) : null}
 
+      {active === 'languages' ? <LocalizationSettings settings={localeSettings} /> : null}
+
       {active === 'autonomy' ? (
         <SettingsSection
           title="Autonomy"
@@ -419,7 +428,15 @@ export function SettingsView({
         </SettingsSection>
       ) : null}
 
-      {active === 'access' && canManageAccess ? <AccessSettings scopeOptions={accessScopes} /> : null}
+      {active === 'access' && canManageAccess ? (
+        <AccessSettings
+          scopeOptions={accessScopes}
+          locales={LOCALE_OPTIONS.filter((option) => localeSettings.enabledLocales.includes(option.value)).map((option) => ({
+            value: option.value,
+            label: option.nativeLabel,
+          }))}
+        />
+      ) : null}
 
       {active === 'ai' ? (
         <ModelSettings

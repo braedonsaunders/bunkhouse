@@ -7,47 +7,48 @@ import { AccountMenu, AppShell, ThemeProvider, UiLinkProvider, type SidebarNavGr
 import { PageTransition } from '@braedonsaunders/appkit-ui/page-transition'
 import { authClient } from '@/lib/auth-client'
 import { Logo } from '@/components/brand-logo'
+import { productMessage, type AppLocale } from '@/lib/product-locales'
 
 type NavigationGroup = Omit<SidebarNavGroup, 'items'> & {
   items: Array<SidebarNavGroup['items'][number] & { section: string }>
 }
 
 /** Five operator destinations; related records live inside their workspace menu. */
-const navigation: NavigationGroup[] = [
+const navigationFor = (locale: AppLocale): NavigationGroup[] => [
   {
     id: 'home',
-    label: 'Home',
-    items: [{ section: 'home', href: '/', label: 'Home', iconKey: 'home', exact: true, mobile: true }],
+    label: productMessage(locale, 'nav.home'),
+    items: [{ section: 'home', href: '/', label: productMessage(locale, 'nav.home'), iconKey: 'home', exact: true, mobile: true }],
   },
   {
     id: 'team',
-    label: 'Team',
+    label: productMessage(locale, 'nav.team'),
     iconKey: 'hard-hat',
     items: [
-      { section: 'agents', href: '/organization', label: 'Agents', iconKey: 'hard-hat', mobile: true },
-      { section: 'agents', href: '/organization/people', label: 'People', iconKey: 'users' },
-      { section: 'agents', href: '/organization/chart', label: 'Org chart', iconKey: 'workflow' },
-      { section: 'roles', href: '/roles', label: 'Roles', iconKey: 'clipboard' },
+      { section: 'agents', href: '/organization', label: productMessage(locale, 'nav.agents'), iconKey: 'hard-hat', mobile: true },
+      { section: 'agents', href: '/organization/people', label: productMessage(locale, 'nav.people'), iconKey: 'users' },
+      { section: 'agents', href: '/organization/chart', label: productMessage(locale, 'nav.orgChart'), iconKey: 'workflow' },
+      { section: 'roles', href: '/roles', label: productMessage(locale, 'nav.roles'), iconKey: 'clipboard' },
     ],
   },
   {
     id: 'work',
-    label: 'Work',
+    label: productMessage(locale, 'nav.work'),
     iconKey: 'activity',
     items: [
-      { section: 'observatory', href: '/observatory', label: 'Activity', iconKey: 'activity', mobile: true },
-      { section: 'approvals', href: '/approvals', label: 'Approvals', iconKey: 'list-checks', mobile: true },
+      { section: 'observatory', href: '/observatory', label: productMessage(locale, 'nav.activity'), iconKey: 'activity', mobile: true },
+      { section: 'approvals', href: '/approvals', label: productMessage(locale, 'nav.approvals'), iconKey: 'list-checks', mobile: true },
     ],
   },
   {
     id: 'library',
-    label: 'Library',
-    items: [{ section: 'resources', href: '/resources', label: 'Library', iconKey: 'library' }],
+    label: productMessage(locale, 'nav.library'),
+    items: [{ section: 'resources', href: '/resources', label: productMessage(locale, 'nav.library'), iconKey: 'library' }],
   },
   {
     id: 'settings',
-    label: 'Settings',
-    items: [{ section: 'settings', href: '/admin/settings', label: 'Settings', iconKey: 'settings', mobile: true }],
+    label: productMessage(locale, 'nav.settings'),
+    items: [{ section: 'settings', href: '/admin/settings', label: productMessage(locale, 'nav.settings'), iconKey: 'settings', mobile: true }],
   },
 ]
 
@@ -66,6 +67,7 @@ export function AppFrame({
   tenant,
   switchTenant,
   allowedSections,
+  locale,
 }: {
   children: ReactNode
   user: FrameUser | null
@@ -74,9 +76,11 @@ export function AppFrame({
   switchTenant?: (tenantId: string) => Promise<{ ok: boolean; message?: string }>
   /** Navigation is derived from the same server-resolved grants as page authorization. */
   allowedSections: string[]
+  /** Effective tenant/member locale, resolved on the server. */
+  locale: AppLocale
 }) {
   const pathname = usePathname()
-  const visibleNavigation: SidebarNavGroup[] = navigation
+  const visibleNavigation: SidebarNavGroup[] = navigationFor(locale)
     .map((group) => ({
       ...group,
       items: group.items
@@ -97,7 +101,7 @@ export function AppFrame({
   const organization =
     tenant && switchTenant && tenant.options.length > 1
       ? {
-          label: 'Workspace',
+          label: productMessage(locale, 'account.workspacePicker'),
           summary: tenant.name,
           value: tenant.id,
           options: tenant.options,
@@ -119,14 +123,14 @@ export function AppFrame({
           brand={<Logo animated size={17} />}
           header={
             <AccountMenu
-              name={user?.name || user?.email || 'Signed in'}
+              name={user?.name || user?.email || productMessage(locale, 'account.signedIn')}
               email={user?.email ?? ''}
-              contextLabel={tenant ? `${tenant.name} · workspace` : undefined}
+              contextLabel={tenant ? `${tenant.name} · ${productMessage(locale, 'account.workspace')}` : undefined}
               organization={organization}
               // Instance operation lives outside tenant settings; only super
               // admins see the doorway.
               {...(user?.isSuperAdmin
-                ? { elevatedAccess: { label: 'Platform administration', href: '/superadmin' } }
+                ? { elevatedAccess: { label: productMessage(locale, 'account.platformAdministration'), href: '/superadmin' } }
                 : {})}
               showTheme
               onSignOut={async () => {

@@ -6,10 +6,17 @@ import { AuditAdmin, RolesAdmin, UsersAdmin } from '@braedonsaunders/appkit-iam/
 import type { ScopeOptions } from '@braedonsaunders/appkit-iam'
 import { PERMISSION_GROUPS } from '../lib/permissions'
 import { SectionTabs } from './section-tabs'
+import type { AppLocale } from '../lib/product-locales'
 
 const service = createHttpIamService({ endpoint: '/api/iam' })
 
-export function AccessSettings({ scopeOptions }: { scopeOptions: ScopeOptions }) {
+export function AccessSettings({
+  scopeOptions,
+  locales,
+}: {
+  scopeOptions: ScopeOptions
+  locales: Array<{ value: AppLocale; label: string }>
+}) {
   const [tab, setTab] = React.useState('roles')
   return (
     <div className="space-y-4">
@@ -31,11 +38,10 @@ export function AccessSettings({ scopeOptions }: { scopeOptions: ScopeOptions })
           service={service}
           permissionGroups={[...PERMISSION_GROUPS]}
           scopeOptions={scopeOptions}
-          locales={[{ value: 'en', label: 'English' }]}
+          locales={locales}
         />
       ) : null}
       {tab === 'audit' ? <AuditAdmin service={service} /> : null}
     </div>
   )
 }
-

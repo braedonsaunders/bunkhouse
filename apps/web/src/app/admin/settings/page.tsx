@@ -31,6 +31,7 @@ import { runHealthChecks } from '../../../lib/health'
 import { getTenantAccess } from '../../../lib/tenant'
 import { listDepartments, wanderingEnabled } from '../../../lib/departments'
 import { SCENE_KINDS, SCENE_LABELS } from '../../../components/scene-kinds'
+import { getLocaleSettings } from '../../../lib/localization'
 
 export const dynamic = 'force-dynamic'
 
@@ -113,6 +114,7 @@ export default async function SettingsPage({
     loadAvatarPartLibrary(tenantId),
   ])
   const research = await getResearchSettings(tenantId)
+  const localeSettings = await getLocaleSettings(tenantId)
   const branding = await getDocumentBranding(tenantId)
   const identity = await getCompanyIdentity(tenantId)
   const workspacePolicy = await getWorkspacePolicy(tenantId)
@@ -404,6 +406,7 @@ export default async function SettingsPage({
         people: activeAgents.map((person) => ({ value: person.id, label: person.name })),
       }}
       canManageAccess={access.user.isSuperAdmin || access.permissions.has('access.manage')}
+      localeSettings={localeSettings}
     />
   )
 }

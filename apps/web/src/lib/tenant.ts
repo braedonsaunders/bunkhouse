@@ -101,6 +101,7 @@ export type TenantAccess = {
   tenantId: string
   user: SessionUser
   membershipId: string | null
+  localeOverride: string | null
   permissions: Set<string>
   scopes: RoleScope[]
 }
@@ -114,7 +115,7 @@ export async function getTenantAccess(): Promise<TenantAccess> {
   const app = db()
   const [membership] = await app.withTenantContext(tenantId, () =>
     app.db
-      .select({ id: identity.memberships.id })
+      .select({ id: identity.memberships.id, localeOverride: identity.memberships.localeOverride })
       .from(identity.memberships)
       .where(
         and(
@@ -133,6 +134,7 @@ export async function getTenantAccess(): Promise<TenantAccess> {
     tenantId,
     user,
     membershipId: membership?.id ?? null,
+    localeOverride: membership?.localeOverride ?? null,
     permissions: access.permissions,
     scopes: access.scopes,
   }

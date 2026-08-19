@@ -90,3 +90,20 @@ test('conversation queue components cover running, waiting, and recovery states'
   await expect(recovery.getByRole('button', { name: 'Edit queued message' })).toBeVisible()
   await expect(recovery.getByRole('button', { name: 'Remove queued message' })).toBeVisible()
 })
+
+test('company language policy drives document language and translated navigation', async ({ page }) => {
+  await page.goto('/admin/settings?section=languages')
+  await expect(page.getByRole('heading', { name: 'Language & region' })).toBeVisible()
+  await page.getByLabel('Default language').click()
+  await page.getByRole('option', { name: 'Français' }).click()
+  await page.getByLabel('Allow Spanish').locator('..').click()
+  await expect(page.getByLabel('Allow Spanish')).toBeChecked()
+  await page.getByRole('button', { name: 'Save languages' }).click()
+  await expect(page.getByText('Languages saved')).toBeVisible()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'fr')
+  await expect(page.getByRole('button', { name: 'Équipe' })).toBeVisible()
+
+  await page.goto('/admin/settings?section=languages')
+  await expect(page.getByLabel('Default language')).toContainText('Français')
+  await expect(page.getByLabel('Allow Spanish')).toBeChecked()
+})

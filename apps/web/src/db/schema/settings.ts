@@ -4,6 +4,7 @@ import type { AgentToolPolicy } from '@braedonsaunders/appkit-agent-tools'
 import type { SealedSecret } from '@braedonsaunders/appkit-crypto'
 import type { RawSmsConfig } from '@braedonsaunders/appkit-sms'
 import type { RawCarrierConfig } from '@braedonsaunders/appkit-telephony'
+import type { AppLocale } from '@braedonsaunders/appkit-i18n'
 import type { ResourceAssignment } from './assignment'
 
 /**
@@ -21,6 +22,14 @@ export const tenantSettings = pgTable(
   },
   (t) => [uniqueIndex('tenant_settings_key_ux').on(t.tenantId, t.key)],
 )
+
+/** settings key: 'company.locale' — the tenant-wide language policy. */
+export type CompanyLocaleSettings = {
+  defaultLocale: AppLocale
+  enabledLocales: AppLocale[]
+}
+
+export const COMPANY_LOCALE_KEY = 'company.locale'
 
 /** settings key: 'ai.providers' — the tenant's model providers, keys sealed. */
 export type AiProviderEntry = {
