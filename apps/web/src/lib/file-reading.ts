@@ -295,7 +295,11 @@ async function ocrImageBytes(bytes: Uint8Array, extension: string): Promise<stri
   }
 }
 
-async function pdfToText(bytes: Uint8Array): Promise<ExtractedFileText> {
+/**
+ * Extract a PDF's text layer, falling back to bounded OCR for scanned pages.
+ * Exported so URL-backed documents and ledgered files share one reading path.
+ */
+export async function extractPdfText(bytes: Uint8Array): Promise<ExtractedFileText> {
   // pdf.js detaches the buffer it is handed, so it gets its own copy.
   const pdf = await getDocumentProxy(new Uint8Array(bytes))
   const { totalPages, text } = await extractText(pdf, { mergePages: true })
@@ -341,7 +345,7 @@ export async function extractFileText(record: FileRecord, bytes: Uint8Array): Pr
     return clip('docx', (await docxToText(Buffer.from(bytes))).trim())
   }
   if (extension === 'pdf' || mediaType === PDF_MIME_TYPE) {
-    return pdfToText(bytes)
+    return extractPdfText(bytes)
   }
   if (extension === 'xlsx' || mediaType === XLSX_MIME_TYPE) {
     return clip('xlsx', await xlsxToText(bytes))

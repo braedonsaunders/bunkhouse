@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
+import { renderPdfDocument, DEFAULT_PDF_LAYOUT } from '@braedonsaunders/appkit-pdf'
 import { readPage, type SeeingModel } from '../src/lib/page-reading'
 import { echoOfAgent } from '../src/lib/call-echo'
+import { MAX_RESEARCH_DOWNLOAD_BYTES, readWebResponse } from '../src/lib/research'
 
 /**
  * The perception contract: whatever a page is made of, asking to look at it
@@ -26,6 +28,45 @@ const seeingModel = (answer: string, onCall?: () => void): SeeingModel => ({
     return answer
   },
 })
+
+// --- a web-hosted PDF uses the same reader as an uploaded PDF ---------------
+{
+  const pdf = await renderPdfDocument({
+    title: 'XEQT factsheet',
+    dateRangeLabel: 'August 2026',
+    generatedAt: new Date('2026-08-19T12:00:00Z'),
+    branding: { orgName: 'BlackRock test fixture' },
+    groups: [
+      {
+        kind: 'results',
+        title: 'Portfolio',
+        columns: ['Fund', 'Holdings'],
+        rows: [['XEQT', '8,379 underlying holdings']],
+      },
+    ],
+    layout: DEFAULT_PDF_LAYOUT,
+  })
+  const url = new URL('https://example.test/factsheets/xeqt.pdf')
+  const proper = await readWebResponse(new Response(pdf, { headers: { 'content-type': 'application/pdf' } }), url)
+  assert.match(proper.text, /XEQT/)
+  assert.match(proper.text, /8,379 underlying holdings/)
+  assert.equal(proper.title, 'xeqt.pdf')
+
+  const mislabeled = await readWebResponse(
+    new Response(pdf, { headers: { 'content-type': 'application/octet-stream' } }),
+    url,
+  )
+  assert.match(mislabeled.text, /XEQT/, 'the PDF signature wins when a server sends a generic MIME type')
+
+  await assert.rejects(
+    readWebResponse(
+      new Response('small', { headers: { 'content-length': String(MAX_RESEARCH_DOWNLOAD_BYTES + 1) } }),
+      new URL('https://example.test/too-large'),
+    ),
+    /20 MB reading limit/,
+  )
+  console.log('page reading: web-hosted PDFs are extracted and downloads are bounded')
+}
 
 // --- a page with real text is read where it is found ------------------------
 {

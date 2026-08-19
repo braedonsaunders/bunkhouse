@@ -5,6 +5,7 @@ import { and, eq } from 'drizzle-orm'
 import { sealSecret, unsealSecret, type SealedSecret } from '@braedonsaunders/appkit-crypto'
 import { tenantSettings } from '../db/schema'
 import { db } from '../db/client'
+import { extractPdfText } from './file-reading'
 
 /**
  * Web research for agents: search the internet, read a page. The search
@@ -232,7 +233,115 @@ export async function assertPublicHost(url: URL): Promise<void> {
   }
 }
 
-export type PageContent = { url: string; title: string; text: string; truncated: boolean }
+export type PageContent = { url: string; title: string; text: string; truncated: boolean; note?: string }
+
+/** A webpage is reading context, not a general-purpose unbounded downloader. */
+export const MAX_RESEARCH_DOWNLOAD_BYTES = 20 * 1024 * 1024
+
+async function readResponseBytes(response: Response): Promise<Uint8Array> {
+  const declared = Number(response.headers.get('content-length') ?? '0')
+  if (Number.isFinite(declared) && declared > MAX_RESEARCH_DOWNLOAD_BYTES) {
+    throw new Error('That page is larger than the 20 MB reading limit.')
+  }
+
+  if (!response.body) return new Uint8Array()
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!value) continue
+      size += value.byteLength
+      if (size > MAX_RESEARCH_DOWNLOAD_BYTES) {
+        await reader.cancel()
+        throw new Error('That page is larger than the 20 MB reading limit.')
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
+function hasPdfSignature(bytes: Uint8Array): boolean {
+  const prefix = new TextDecoder('latin1').decode(bytes.subarray(0, Math.min(bytes.byteLength, 1024)))
+  return prefix.includes('%PDF-')
+}
+
+function resourceTitle(url: URL): string {
+  const name = url.pathname.split('/').filter(Boolean).at(-1) ?? url.hostname
+  try {
+    return decodeURIComponent(name)
+  } catch {
+    return name
+  }
+}
+
+/**
+ * Turn an already-fetched public response into agent-readable content.
+ * Kept separate from network navigation so every supported media type can be
+ * regression-tested without reaching the internet.
+ */
+export async function readWebResponse(response: Response, url: URL, maxChars = 8000): Promise<PageContent> {
+  const contentType = (response.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
+  const bytes = await readResponseBytes(response)
+  const isHtml = contentType === 'text/html' || contentType === 'application/xhtml+xml'
+
+  if (!isHtml && (contentType === 'application/pdf' || hasPdfSignature(bytes))) {
+    const extracted = await extractPdfText(bytes)
+    const text = extracted.text.slice(0, maxChars)
+    return {
+      url: url.toString(),
+      title: resourceTitle(url),
+      text,
+      truncated: Boolean(extracted.truncated) || extracted.text.length > maxChars,
+      ...(extracted.note ? { note: extracted.note } : {}),
+    }
+  }
+
+  const raw = new TextDecoder().decode(bytes)
+  if (!isHtml) {
+    const text = raw.slice(0, maxChars)
+    return { url: url.toString(), title: url.hostname, text, truncated: raw.length > maxChars }
+  }
+
+  const title = decodeEntities(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(raw)?.[1]?.trim() ?? url.hostname)
+  // Prefer the article/main region when the page marks one.
+  const region =
+    /<article[^>]*>([\s\S]*?)<\/article>/i.exec(raw)?.[1] ??
+    /<main[^>]*>([\s\S]*?)<\/main>/i.exec(raw)?.[1] ??
+    /<body[^>]*>([\s\S]*?)<\/body>/i.exec(raw)?.[1] ??
+    raw
+  const text = decodeEntities(
+    region
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<(nav|header|footer|aside|form|svg)[\s\S]*?<\/\1>/gi, ' ')
+      .replace(/<br\s*\/?>|<\/(p|div|li|h[1-6]|tr)>/gi, '\n')
+      .replace(/<[^>]+>/g, ' '),
+  )
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+  return {
+    url: url.toString(),
+    title,
+    text: text.slice(0, maxChars),
+    truncated: text.length > maxChars,
+  }
+}
 
 /** Fetch a public web page and reduce it to readable text. */
 export async function readWebpage(url: string, maxChars = 8000): Promise<PageContent> {
@@ -255,38 +364,5 @@ export async function readWebpage(url: string, maxChars = 8000): Promise<PageCon
     break
   }
   if (!response || !response.ok) throw new Error(`The page returned ${response?.status ?? 'no response'}.`)
-
-  const type = response.headers.get('content-type') ?? ''
-  const raw = await response.text()
-  if (!type.includes('html')) {
-    const text = raw.slice(0, maxChars)
-    return { url: current.toString(), title: current.hostname, text, truncated: raw.length > maxChars }
-  }
-
-  const title = decodeEntities(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(raw)?.[1]?.trim() ?? current.hostname)
-  // Prefer the article/main region when the page marks one.
-  const region =
-    /<article[^>]*>([\s\S]*?)<\/article>/i.exec(raw)?.[1] ??
-    /<main[^>]*>([\s\S]*?)<\/main>/i.exec(raw)?.[1] ??
-    /<body[^>]*>([\s\S]*?)<\/body>/i.exec(raw)?.[1] ??
-    raw
-  const text = decodeEntities(
-    region
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<(nav|header|footer|aside|form|svg)[\s\S]*?<\/\1>/gi, ' ')
-      .replace(/<br\s*\/?>|<\/(p|div|li|h[1-6]|tr)>/gi, '\n')
-      .replace(/<[^>]+>/g, ' '),
-  )
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n\s+/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-
-  return {
-    url: current.toString(),
-    title,
-    text: text.slice(0, maxChars),
-    truncated: text.length > maxChars,
-  }
+  return readWebResponse(response, current, maxChars)
 }
