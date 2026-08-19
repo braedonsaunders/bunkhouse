@@ -116,8 +116,8 @@ importers:
         specifier: ^0.3.0
         version: 0.3.0
       '@braedonsaunders/appkit-remote-sessions':
-        specifier: ^0.1.0
-        version: 0.1.0(react@19.2.8)
+        specifier: ^0.1.1
+        version: 0.1.1(react@19.2.8)
       '@braedonsaunders/appkit-sandbox':
         specifier: ^0.1.0
         version: 0.1.0
@@ -1007,8 +1007,8 @@ packages:
     resolution: {integrity: sha512-lXzNikNucocZjlbvI7Kn3mabPH4QYtPuMBDfQpCvaOD5sHDdpUtuK0f2dHEPN0hvfCY7fiTYTbIKWvcKAh38EA==}
     engines: {node: '>=22'}
 
-  '@braedonsaunders/appkit-remote-sessions@0.1.0':
-    resolution: {integrity: sha512-twFNUsfSB1X8R/dwWSBq8m3zrcIgtgupC148nCKGwE8Zahwk6CH2Ljlq2wX+EQ43FmVya28VQJGUl/wCUHvRWQ==}
+  '@braedonsaunders/appkit-remote-sessions@0.1.1':
+    resolution: {integrity: sha512-TYbDLpRiPIW6y9+BvY69fGtk38Ttwa/VpmNnduqdnK7IKdM8d3K/GLAMXgJEUAridAsis3JTMDo05ks+4fG1JQ==}
     engines: {node: '>=22'}
     peerDependencies:
       react: '>=18.2.0'
@@ -8701,7 +8701,7 @@ snapshots:
 
   '@braedonsaunders/appkit-process-sandbox@0.3.0': {}
 
-  '@braedonsaunders/appkit-remote-sessions@0.1.0(react@19.2.8)':
+  '@braedonsaunders/appkit-remote-sessions@0.1.1(react@19.2.8)':
     dependencies:
       '@xterm/addon-fit': 0.11.0
       '@xterm/xterm': 6.0.0
