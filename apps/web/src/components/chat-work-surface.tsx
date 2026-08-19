@@ -2,15 +2,17 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { CheckCircle2, ChevronRight, Download, FileText, Globe, History as HistoryIcon, Image as ImageIcon, Loader2, Monitor, MonitorUp, TerminalSquare } from 'lucide-react'
-import { Badge, Button, EmptyState, SubtabNav, cn } from '@braedonsaunders/appkit-ui'
+import { ArrowLeft, CheckCircle2, ChevronRight, Download, ExternalLink, FileCode2, FileSpreadsheet, FileText, Globe, History as HistoryIcon, Image as ImageIcon, Loader2, Monitor, MonitorUp, MoreHorizontal, TerminalSquare } from 'lucide-react'
+import { Badge, Button, ContextMenu, EmptyState, SubtabNav, TabContent, useContextMenu, type ContextMenuEntry } from '@braedonsaunders/appkit-ui'
 import { LiveKitRoom, VideoTrack, useTracks } from '@livekit/components-react'
 import { Track } from 'livekit-client'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { observeRemoteWorkSurfaceAction, observeWorkSurfaceAction, workSurfaceAction } from '../app/chat/actions'
 import type { ChatBrowserWorkSurface, ChatWorkFile, ChatWorkSurface as WorkSurface } from '../lib/chat-work-surface'
 import { RemoteComputerViewer, TerminalSurface } from '@braedonsaunders/appkit-remote-sessions/react'
 import type { RemoteProtocol } from '@braedonsaunders/appkit-remote-sessions'
-import { AGENT_SCREEN_TRACK_NAME } from '../lib/agent-screen'
+import { AGENT_BROWSER_TRACK_NAME } from '../lib/agent-screen'
 import { ChatDesk } from './chat-desk'
 import { WorkSurfaceFullscreenButton } from './work-surface-fullscreen-button'
 
@@ -62,7 +64,7 @@ function useObserverCredential(args: {
 
 function AgentScreenTrack({ fallback }: { fallback: React.ReactNode }) {
   const tracks = useTracks([Track.Source.ScreenShare], { onlySubscribed: true })
-  const screen = tracks.find((track) => track.publication.trackName === AGENT_SCREEN_TRACK_NAME) ?? null
+  const screen = tracks.find((track) => track.publication.trackName === AGENT_BROWSER_TRACK_NAME) ?? null
   return screen ? <VideoTrack trackRef={screen} className="size-full object-contain object-top" /> : fallback
 }
 
@@ -196,14 +198,147 @@ function fileSize(bytes: number): string {
   return `${Math.max(0.1, bytes / 1_048_576).toFixed(1)} MB`
 }
 
-function canPreview(file: ChatWorkFile): boolean {
-  return file.contentType === 'application/pdf' || /^image\/(?:png|jpeg|gif|webp)$/.test(file.contentType)
+type FilePreviewKind = 'image' | 'pdf' | 'office' | 'markdown' | 'text' | 'unsupported'
+
+function fileExtension(filename: string): string {
+  return filename.split('.').at(-1)?.toLowerCase() ?? ''
 }
 
-/** The conversation's real immutable work product, with safe image/PDF viewing. */
+function previewKind(file: ChatWorkFile): FilePreviewKind {
+  const extension = fileExtension(file.filename)
+  const mediaType = file.contentType.split(';')[0]?.trim().toLowerCase()
+  if (/^image\/(?:png|jpeg|gif|webp)$/.test(mediaType)) return 'image'
+  if (mediaType === 'application/pdf' || extension === 'pdf') return 'pdf'
+  if (
+    ['docx', 'xlsx', 'xls'].includes(extension) ||
+    mediaType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    mediaType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    mediaType === 'application/vnd.ms-excel'
+  ) return 'office'
+  if (extension === 'md' || extension === 'markdown' || mediaType === 'text/markdown') return 'markdown'
+  if (
+    mediaType.startsWith('text/') ||
+    ['txt', 'csv', 'tsv', 'json', 'xml', 'yaml', 'yml', 'log'].includes(extension) ||
+    ['application/json', 'application/xml', 'application/ld+json'].includes(mediaType)
+  ) return 'text'
+  return 'unsupported'
+}
+
+function fileUrl(file: ChatWorkFile, intent: 'download' | 'preview'): string {
+  const id = encodeURIComponent(file.id)
+  return intent === 'preview' ? `/api/files/${id}/preview` : `/api/files/${id}?download=1`
+}
+
+function fileIcon(file: ChatWorkFile) {
+  const kind = previewKind(file)
+  if (kind === 'image') return ImageIcon
+  if (kind === 'office' && ['xlsx', 'xls'].includes(fileExtension(file.filename))) return FileSpreadsheet
+  if (kind === 'markdown' || kind === 'text') return FileCode2
+  return FileText
+}
+
+function downloadFile(file: ChatWorkFile): void {
+  const anchor = document.createElement('a')
+  anchor.href = fileUrl(file, 'download')
+  anchor.download = file.filename
+  anchor.rel = 'noopener'
+  document.body.append(anchor)
+  anchor.click()
+  anchor.remove()
+}
+
+function TextFilePreview({ file, markdown }: { file: ChatWorkFile; markdown: boolean }) {
+  const previewUrl = fileUrl(file, 'preview')
+  const fileId = file.id
+  const [result, setResult] = React.useState<{ id: string; text: string | null; error: string | null }>({
+    id: '',
+    text: null,
+    error: null,
+  })
+  React.useEffect(() => {
+    const controller = new AbortController()
+    void fetch(previewUrl, { signal: controller.signal }).then(async (response) => {
+      if (!response.ok) throw new Error(await response.text() || 'The preview could not be opened.')
+      return response.text()
+    }).then(
+      (text) => setResult({ id: fileId, text, error: null }),
+      (error: unknown) => {
+        if (!controller.signal.aborted) {
+          setResult({ id: fileId, text: null, error: error instanceof Error ? error.message : 'The preview could not be opened.' })
+        }
+      },
+    )
+    return () => controller.abort()
+  }, [fileId, previewUrl])
+
+  const current = result.id === fileId ? result : { text: null, error: null }
+  if (current.error) return <div className="grid size-full place-items-center p-6 text-center text-sm text-danger">{current.error}</div>
+  if (current.text === null) return <div className="grid size-full place-items-center"><Loader2 aria-label="Loading file preview" className="size-5 animate-spin text-fg-muted" /></div>
+  if (!markdown) {
+    return <pre className="app-scroll size-full overflow-auto whitespace-pre-wrap break-words p-5 font-mono text-xs leading-5 text-fg">{current.text}</pre>
+  }
+  return (
+    <div className="app-scroll size-full overflow-auto bg-surface px-6 py-5 text-sm leading-6 text-fg">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ children }) => <h1 className="mb-4 mt-1 text-2xl font-semibold tracking-tight">{children}</h1>,
+          h2: ({ children }) => <h2 className="mb-3 mt-6 text-xl font-semibold tracking-tight">{children}</h2>,
+          h3: ({ children }) => <h3 className="mb-2 mt-5 text-base font-semibold">{children}</h3>,
+          p: ({ children }) => <p className="my-3">{children}</p>,
+          ul: ({ children }) => <ul className="my-3 list-disc space-y-1 pl-5">{children}</ul>,
+          ol: ({ children }) => <ol className="my-3 list-decimal space-y-1 pl-5">{children}</ol>,
+          blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-border-strong pl-4 text-fg-muted">{children}</blockquote>,
+          pre: ({ children }) => <pre className="my-4 overflow-auto rounded-lg bg-bg-subtle p-3 font-mono text-xs leading-5">{children}</pre>,
+          table: ({ children }) => <div className="my-4 overflow-auto"><table className="w-full border-collapse text-xs">{children}</table></div>,
+          th: ({ children }) => <th className="border border-border bg-bg-subtle px-2 py-1.5 text-left font-semibold">{children}</th>,
+          td: ({ children }) => <td className="border border-border px-2 py-1.5 align-top">{children}</td>,
+          a: ({ children, href }) => <a className="text-primary underline underline-offset-2" href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
+        }}
+      >
+        {current.text}
+      </ReactMarkdown>
+    </div>
+  )
+}
+
+/** The conversation's immutable work product as a full-height file tree and preview workspace. */
 function FilesWorkStage({ files, personName }: { files: ChatWorkFile[]; personName: string }) {
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
-  const selected = files.find((file) => file.id === selectedId) ?? files[0] ?? null
+  const selected = files.find((file) => file.id === selectedId) ?? null
+  const menu = useContextMenu()
+  const [menuFileId, setMenuFileId] = React.useState<string | null>(null)
+  const menuFile = files.find((file) => file.id === menuFileId) ?? null
+
+  const openMenu = React.useCallback((file: ChatWorkFile, event: React.MouseEvent | HTMLElement) => {
+    setMenuFileId(file.id)
+    if ('clientX' in event) menu.onContextMenu(event)
+    else menu.openBelow(event)
+  }, [menu])
+
+  const menuItems: ContextMenuEntry[] = menuFile ? [
+    {
+      key: 'preview',
+      label: 'Preview',
+      icon: FileText,
+      disabled: previewKind(menuFile) === 'unsupported',
+      onSelect: () => setSelectedId(menuFile.id),
+    },
+    {
+      key: 'open',
+      label: 'Open in new tab',
+      icon: ExternalLink,
+      disabled: previewKind(menuFile) === 'unsupported',
+      onSelect: () => window.open(fileUrl(menuFile, 'preview'), '_blank', 'noopener,noreferrer'),
+    },
+    { key: 'file-actions', separator: true },
+    {
+      key: 'download',
+      label: 'Download original',
+      icon: Download,
+      onSelect: () => downloadFile(menuFile),
+    },
+  ] : []
 
   if (files.length === 0) {
     return (
@@ -218,61 +353,88 @@ function FilesWorkStage({ files, personName }: { files: ChatWorkFile[]; personNa
   }
 
   return (
-    <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] bg-bg-subtle">
-      <div className="app-scroll flex shrink-0 gap-1 overflow-x-auto border-b border-border bg-surface p-2">
-        {files.map((file) => (
-          <button
-            key={file.id}
-            type="button"
-            onClick={() => setSelectedId(file.id)}
-            className={cn(
-              'flex min-w-40 max-w-56 items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors',
-              selected?.id === file.id ? 'bg-primary-subtle text-fg' : 'text-fg-muted hover:bg-surface-hover hover:text-fg',
-            )}
-          >
-            {file.contentType.startsWith('image/') ? <ImageIcon aria-hidden className="size-4 shrink-0" /> : <FileText aria-hidden className="size-4 shrink-0" />}
-            <span className="min-w-0">
-              <span className="block truncate text-xs font-medium">{file.filename}</span>
-              <span className="block text-[11px] text-fg-subtle">{fileSize(file.sizeBytes)}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-      {selected ? (
-        <div className="flex min-h-0 flex-col">
-          <div className="flex min-w-0 items-center gap-2 border-b border-border bg-surface px-3 py-2">
-            <FileText aria-hidden className="size-4 shrink-0 text-fg-muted" />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-fg">{selected.filename}</p>
-              <p className="truncate text-xs text-fg-muted">{selected.contentType} · {fileSize(selected.sizeBytes)}</p>
-            </div>
-            <Button asChild type="button" variant="ghost" size="icon" className="size-7 shrink-0">
-              <a href={`/api/files/${encodeURIComponent(selected.id)}`} aria-label={`Download ${selected.filename}`} title="Download">
-                <Download aria-hidden className="size-4" />
-              </a>
-            </Button>
-          </div>
-          <div className="min-h-0 flex-1 overflow-hidden bg-bg-subtle">
-            {canPreview(selected) ? (
-              selected.contentType.startsWith('image/') ? (
-                // The file route authenticates and tenant-scopes every read.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={`/api/files/${encodeURIComponent(selected.id)}?preview=1`} alt={selected.filename} className="size-full object-contain p-3" />
-              ) : (
-                <iframe src={`/api/files/${encodeURIComponent(selected.id)}?preview=1`} title={selected.filename} className="size-full border-0" />
-              )
-            ) : (
-              <div className="flex size-full items-center justify-center p-6 text-center">
-                <div>
-                  <FileText aria-hidden className="mx-auto mb-3 size-8 text-fg-subtle" />
-                  <p className="text-sm font-medium text-fg">Preview is not available for this file type</p>
-                  <p className="mt-1 text-xs text-fg-muted">Download the original to open it in its native application.</p>
-                </div>
+    <div className="min-h-0 flex-1 overflow-hidden bg-bg-subtle">
+      <TabContent tabKey={selected?.id ?? 'file-tree'} className="size-full min-h-0">
+        {selected ? (
+          <div className="flex size-full min-h-0 flex-col">
+            <div className="flex h-11 min-w-0 shrink-0 items-center gap-2 border-b border-border bg-surface px-2">
+              <Button type="button" variant="ghost" size="icon" className="size-7 shrink-0" onClick={() => setSelectedId(null)} aria-label="Back to files" title="Back to files">
+                <ArrowLeft aria-hidden className="size-4" />
+              </Button>
+              {React.createElement(fileIcon(selected), { 'aria-hidden': true, className: 'size-4 shrink-0 text-fg-muted' })}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-fg">{selected.filename}</p>
+                <p className="truncate text-xs text-fg-muted">{selected.contentType} · {fileSize(selected.sizeBytes)}</p>
               </div>
-            )}
+              <Button type="button" variant="ghost" size="icon" className="size-7 shrink-0" onClick={() => downloadFile(selected)} aria-label={`Download ${selected.filename}`} title="Download original">
+                <Download aria-hidden className="size-4" />
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden bg-bg-subtle">
+              {previewKind(selected) === 'image' ? (
+                // The preview route authenticates and tenant-scopes every read.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={fileUrl(selected, 'preview')} alt={selected.filename} className="size-full object-contain p-3" />
+              ) : previewKind(selected) === 'pdf' || previewKind(selected) === 'office' ? (
+                <iframe key={selected.id} src={fileUrl(selected, 'preview')} title={selected.filename} className="size-full border-0 bg-surface" />
+              ) : previewKind(selected) === 'markdown' ? (
+                <TextFilePreview file={selected} markdown />
+              ) : previewKind(selected) === 'text' ? (
+                <TextFilePreview file={selected} markdown={false} />
+              ) : (
+                <div className="flex size-full items-center justify-center p-6 text-center">
+                  <div>
+                    <FileText aria-hidden className="mx-auto mb-3 size-8 text-fg-subtle" />
+                    <p className="text-sm font-medium text-fg">Preview is not available for this file type</p>
+                    <p className="mt-1 text-xs text-fg-muted">Download the original to open it in its native application.</p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : (
+          <div className="app-scroll size-full min-h-0 overflow-y-auto bg-surface py-1.5" role="tree" aria-label="Files in this conversation">
+            {files.map((file) => {
+              const Icon = fileIcon(file)
+              return (
+                <div
+                  key={file.id}
+                  role="treeitem"
+                  aria-selected={false}
+                  className="group flex min-w-0 items-center border-b border-border-subtle px-2"
+                  onContextMenu={(event) => openMenu(file, event)}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(file.id)}
+                    className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-3 text-left text-fg transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-bg-subtle text-fg-muted">
+                      <Icon aria-hidden className="size-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium" title={file.filename}>{file.filename}</span>
+                      <span className="block truncate text-xs text-fg-subtle">{file.kind} · {fileSize(file.sizeBytes)}</span>
+                    </span>
+                    <ChevronRight aria-hidden className="size-4 shrink-0 text-fg-subtle" />
+                  </button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                    aria-label={`Actions for ${file.filename}`}
+                    onClick={(event) => openMenu(file, event.currentTarget)}
+                  >
+                    <MoreHorizontal aria-hidden className="size-4" />
+                  </Button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </TabContent>
+      <ContextMenu open={menu.open} position={menu.position} items={menuItems} onClose={menu.close} />
     </div>
   )
 }

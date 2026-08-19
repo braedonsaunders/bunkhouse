@@ -42,6 +42,7 @@ export type RouteModule =
   | 'app/api/desk/[personId]/frame/route.ts'
   | 'app/api/desk/[personId]/frames/route.ts'
   | 'app/api/desk/[personId]/video/route.ts'
+  | 'app/api/files/[fileId]/preview/route.ts'
   | 'app/api/files/[fileId]/route.ts'
   | 'app/api/filing-oauth/callback/route.ts'
   | 'app/api/filing-oauth/start/route.ts'
@@ -96,6 +97,7 @@ export const ROUTE_AUTHORIZATION = {
   'app/api/desk/[personId]/frame/route.ts': 'tenant_session',
   'app/api/desk/[personId]/frames/route.ts': 'tenant_session',
   'app/api/desk/[personId]/video/route.ts': 'tenant_session',
+  'app/api/files/[fileId]/preview/route.ts': 'tenant_session',
   'app/api/files/[fileId]/route.ts': 'tenant_session',
   'app/api/filing-oauth/callback/route.ts': 'capability_token',
   'app/api/filing-oauth/start/route.ts': 'tenant_session',

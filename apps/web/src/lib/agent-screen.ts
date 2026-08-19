@@ -36,6 +36,15 @@
 export const AGENT_SCREEN_TRACK_NAME = 'agent-desk'
 
 /**
+ * The graphical browser is captured directly from Chromium rather than from
+ * the desktop compositor. It therefore needs its own track identity: a run can
+ * have both sources alive at once, and treating them as the same publication
+ * lets a subscriber nondeterministically render a stale desktop frame in the
+ * Browser tab.
+ */
+export const AGENT_BROWSER_TRACK_NAME = 'agent-browser'
+
+/**
  * The size the agent's desk runs at, and therefore the size the track is
  * published at: one number for the browser viewport and for the compositor
  * when a desktop screen is opened, so the capture never rescales in the

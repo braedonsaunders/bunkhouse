@@ -321,7 +321,7 @@ function build(runId: string) {
 
   // A call registers its opener for the run, exactly as voice-agent.mts does.
   const published: { width: number; height: number; bytes: number }[] = []
-  let openedAt: { width: number; height: number } | null = null
+  let openedAt: { width: number; height: number; source: 'browser' | 'desktop' } | null = null
   let closed = false
   const stopOffer = registerBrowserCast('run-cast-live', async (size) => {
     openedAt = size
@@ -340,7 +340,7 @@ function build(runId: string) {
   assert.ok(framesCall, 'the frame stream is the desk-v1 SSE endpoint')
   assert.deepEqual(
     openedAt,
-    { width: AGENT_SCREEN_WIDTH, height: AGENT_SCREEN_HEIGHT },
+    { width: AGENT_SCREEN_WIDTH, height: AGENT_SCREEN_HEIGHT, source: 'desktop' },
     'the track opens at the one size the desk, the capture and the stage agree on',
   )
 
@@ -390,7 +390,7 @@ function build(runId: string) {
   const stopChat = register('chat')
   const opener = agentScreenOpenerFor('run-cast-fanout')
   assert.ok(opener)
-  const publisher = await opener!({ width: 2, height: 2 })
+  const publisher = await opener!({ width: 2, height: 2, source: 'browser' })
   const frame = { data: new Uint8Array(16), width: 2, height: 2 }
   publisher.publish(frame)
   assert.deepEqual(received, { chat: 1, call: 0 })

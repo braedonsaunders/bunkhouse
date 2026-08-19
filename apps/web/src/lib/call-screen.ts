@@ -10,7 +10,7 @@ import {
   type LocalTrackPublication,
   type Room,
 } from '@livekit/rtc-node'
-import { AGENT_SCREEN_FPS, AGENT_SCREEN_TRACK_NAME } from './agent-screen'
+import { AGENT_BROWSER_TRACK_NAME, AGENT_SCREEN_FPS, AGENT_SCREEN_TRACK_NAME } from './agent-screen'
 import type { AgentScreenOpener } from './browser-cast'
 
 /**
@@ -48,7 +48,7 @@ export function agentScreenOpener(args: {
 }): AgentScreenOpener {
   const { room, onError } = args
 
-  return async ({ width, height }) => {
+  return async ({ width, height, source: screenSource }) => {
     // Only set once the room is connected. The browser can only open after the
     // agent has answered, so this is present in practice — and saying so
     // plainly beats publishing into nothing if it ever is not.
@@ -56,7 +56,8 @@ export function agentScreenOpener(args: {
     if (!me) throw new Error('The call is not connected, so the agent’s screen cannot be published.')
 
     const source = new VideoSource(width, height)
-    const track = LocalVideoTrack.createVideoTrack(AGENT_SCREEN_TRACK_NAME, source)
+    const trackName = screenSource === 'browser' ? AGENT_BROWSER_TRACK_NAME : AGENT_SCREEN_TRACK_NAME
+    const track = LocalVideoTrack.createVideoTrack(trackName, source)
     let publication: LocalTrackPublication | null = null
     try {
       publication = await me.publishTrack(

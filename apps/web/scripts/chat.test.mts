@@ -518,6 +518,28 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   }
   assert.ok(workSurface.includes('<FilesWorkStage'), 'conversation files have a previewable work surface')
   assert.ok(
+    workSurface.includes('role="tree"') && workSurface.includes('aria-label="Files in this conversation"') &&
+      workSurface.includes("tabKey={selected?.id ?? 'file-tree'}") && workSurface.includes('aria-label="Back to files"'),
+    'conversation files use a full-page tree that transitions to one full-page preview with a back control',
+  )
+  assert.equal(workSurface.includes('Conversation files</span>'), false, 'the file tree has no redundant title/count header')
+  assert.ok(
+    workSurface.includes('<ContextMenu') && workSurface.includes('useContextMenu()') && workSurface.includes('Download original'),
+    'file rows use the native AppKit context menu and expose an actual download action',
+  )
+  assert.ok(
+    workSurface.includes('AGENT_BROWSER_TRACK_NAME') && !workSurface.includes('trackName === AGENT_SCREEN_TRACK_NAME'),
+    'the Browser tab subscribes only to the browser publication and cannot flicker to a desktop track',
+  )
+  const filePreviewRoute = readFileSync(
+    fileURLToPath(new URL('../src/app/api/files/[fileId]/preview/route.ts', import.meta.url)),
+    'utf8',
+  )
+  assert.ok(
+    filePreviewRoute.includes('docxToPdf') && filePreviewRoute.includes('sofficeConvert') && filePreviewRoute.includes("'text/plain; charset=utf-8'"),
+    'DOCX, Excel, Markdown and text previews pass through safe authenticated renderers',
+  )
+  assert.ok(
     workSurface.includes('surface.focus.key') && workSurface.includes('setActiveTab(surface.focus.tab)'),
     'each new observable work event selects its matching work tab, including repeated actions in one run',
   )

@@ -53,7 +53,13 @@ export type AgentScreenPublisher = {
  * at. Called at most once per session, when the browser actually opens — a
  * call where the agent never touches a browser publishes nothing.
  */
-export type AgentScreenOpener = (size: { width: number; height: number }) => Promise<AgentScreenPublisher>
+export type AgentScreenSource = 'browser' | 'desktop'
+
+export type AgentScreenOpener = (size: {
+  width: number
+  height: number
+  source: AgentScreenSource
+}) => Promise<AgentScreenPublisher>
 
 /** A running cast: the CDP screencast, its publisher, and the way to end both. */
 export type BrowserCast = {
@@ -509,7 +515,7 @@ export async function startBrowserCast(args: { page: Page; runId: string }): Pro
 
   let publisher: AgentScreenPublisher
   try {
-    publisher = await opener({ width, height })
+    publisher = await opener({ width, height, source: 'browser' })
   } catch {
     // Publishing is a nicety; a browser session is not failed over it.
     return null

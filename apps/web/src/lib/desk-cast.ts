@@ -115,7 +115,7 @@ export async function startDeskCast(args: DeskCastArgs): Promise<BrowserCast | n
 
   let publisher: AgentScreenPublisher
   try {
-    publisher = await opener({ width, height })
+    publisher = await opener({ width, height, source: 'desktop' })
   } catch {
     // Publishing is a nicety; a desktop session is not failed over it.
     return null
