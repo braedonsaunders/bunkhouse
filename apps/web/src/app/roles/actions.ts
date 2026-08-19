@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm'
 import { CronExpressionParser } from 'cron-parser'
 import { roleDefs, type RoleAutonomyDefaults, type RoleDuty } from '../../db/schema'
 import { db } from '../../db/client'
-import { resolveTenantId as resolveTenant } from '../../lib/tenant'
+import { requireTenantPermission, resolveTenantId as resolveTenant } from '../../lib/tenant'
 const resolveTenantId = () => resolveTenant('roles.manage')
 import { getRole, installRoleProcedures } from '../../lib/roles'
 import { isRoleResourceKind, setRoleLinks } from '../../lib/role-resources'
@@ -84,10 +84,16 @@ export async function setRoleResources(formData: FormData): Promise<void> {
     .map((value) => value.trim())
     .filter(Boolean)
 
-  const tenantId = await resolveTenantId()
-  const role = await getRole(tenantId, roleSlug)
+  const access = await requireTenantPermission('roles.manage')
+  const role = await getRole(access.tenantId, roleSlug)
   if (!role) throw new Error('That role no longer exists.')
-  await setRoleLinks({ tenantId, roleSlug, kind, keys })
+  await setRoleLinks({
+    tenantId: access.tenantId,
+    actorUserId: access.user.id,
+    roleSlug,
+    kind,
+    keys,
+  })
   revalidatePath('/roles')
   revalidatePath('/resources')
 }

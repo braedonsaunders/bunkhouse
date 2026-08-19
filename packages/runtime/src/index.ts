@@ -31,6 +31,16 @@ export {
   type RunAgentProgress,
 } from './loop'
 export { connectMcpServers, type McpConnection, type McpServerConfig } from './mcp'
+export {
+  buildHttpSystemRequest,
+  connectHttpSystem,
+  httpSystemDefinitionSchema,
+  type HttpSystemDefinition,
+  type HttpSystemOperation,
+  type HttpSystemRequest,
+  type HttpSystemResponse,
+  type HttpSystemTransport,
+} from './http-system'
 export { isNetsuiteMcp, shimNetsuiteTools } from './netsuite-shim'
 export { loadSkillAbility, renderSkillIndex, type BoundSkill } from './skills'
 export {

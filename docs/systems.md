@@ -1,7 +1,33 @@
 # Systems: how a connection proves who it is
 
-A system is outside software an agent works in, reached over MCP. Which agents
-carry it is [`roles.md`](roles.md); this is about the credential behind it.
+A system is outside software an agent works in. Most systems are reached over
+MCP; a company can also adopt a private HTTP API definition proposed by one of
+its employees. Which agents carry a system is [`roles.md`](roles.md); this is
+about the governed connection behind it.
+
+## Company-private API systems
+
+An employee may propose an integration after reading a system's official API
+documentation. The proposal appears in the existing Systems library; it does
+not install code, create a public plugin, or make the integration available to
+another tenant. An operator reviews the operations, authentication shape, and
+autonomy category for each ability, then supplies the credential and activates
+the proposal only after its read-only health check succeeds.
+
+The executable definition is deliberately small: an HTTPS base URL, bearer or
+named-header authentication, JSON input schemas, request paths and query/body
+mappings, optional provider idempotency headers, and one harmless `GET` health
+operation. Bunkhouse owns the transport. Requests use AppKit's SSRF-safe fetch,
+remain below the reviewed base path, reject transport-managed headers, and are
+bounded to 30 seconds, two redirects, and 2 MiB responses. Credentials are
+sealed separately and are never part of an employee-authored revision.
+
+Revisions are append-only. A new proposal advances `latest_version`, while
+`active_version` keeps the previously approved definition running until the
+operator tests and activates the update. Activation, disabling, and assignment
+changes write audit events. Active definitions are checked hourly; disabling a
+system preserves its revisions, credential record, health history, and audit
+evidence.
 
 Three methods, all ending in request headers on an MCP dial, all sealed at rest
 with `@braedonsaunders/appkit-crypto`. They are not equivalent, and the difference is not
@@ -134,6 +160,9 @@ NetSuite requires `PS256` and does not accept `RS256` at all.
 | Stored connections and health | `lib/mcp-integrations.ts` |
 | Connect, probe, save | `app/resources/system-actions.ts` |
 | Renewal and health schedule | the `systems` pass in `scripts/worker.mts` |
+| Authored definition validation and request mapping | `packages/runtime/src/http-system.ts` |
+| Authored revisions, sealed access, activation | `lib/authored-systems.ts` |
+| Authored system records and RLS | `db/schema/systems.ts`, `migrations/0065_employee_authored_systems.sql` |
 
 The stored shape is `McpIntegrationEntry` in `db/schema/settings.ts`, under the
 `integrations.mcp` tenant setting. A connection carries exactly one of

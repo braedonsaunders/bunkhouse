@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { PageContainer, PageHeader } from '@braedonsaunders/appkit-ui'
+import { schema as identity } from '@braedonsaunders/appkit-db'
 import { memories, memoryProposals, people, procedureRevisions, procedures } from '../../db/schema'
 import { db } from '../../db/client'
 import { resolveTenantId } from '../../lib/tenant'
@@ -14,6 +15,7 @@ import type { ProcedureRow } from '../../components/procedures-view'
 import type { SkillRowView } from '../../components/skills-view'
 import { listRemoteComputers } from '../../lib/remote-computers'
 import { resolveDeskFeatures } from '../../lib/desk-policy'
+import { listAuthoredSystems } from '../../lib/authored-systems'
 
 export const dynamic = 'force-dynamic'
 
@@ -98,6 +100,19 @@ export default async function ResourcesPage({
       .orderBy(asc(people.name))
     const systems = await listMcpIntegrations(tenantId)
     const systemHealth = await readMcpHealth(tenantId)
+    const authoredSystems = await listAuthoredSystems(tenantId)
+    const authoredSystemAudit = authoredSystems.length === 0
+      ? []
+      : await app.db
+          .select()
+          .from(identity.auditLog)
+          .where(and(
+            eq(identity.auditLog.tenantId, tenantId),
+            eq(identity.auditLog.entityType, 'authored_system'),
+            inArray(identity.auditLog.entityId, authoredSystems.map((record) => record.system.id)),
+          ))
+          .orderBy(desc(identity.auditLog.createdAt))
+          .limit(500)
     const skillHeads = await listSkills(tenantId)
     const skillRevisions = await listCurrentRevisions(tenantId)
     const skillFileRows = await listSkillFiles(tenantId)
@@ -110,6 +125,8 @@ export default async function ResourcesPage({
       agents,
       systems,
       systemHealth,
+      authoredSystems,
+      authoredSystemAudit,
       skillHeads,
       skillRevisions,
       skillFileRows,
@@ -217,7 +234,8 @@ export default async function ResourcesPage({
         procedures={procedureRows}
         skills={skillRows}
         shellAvailable={deskSupported()}
-        systems={data.systems.map((entry) => ({
+        systems={[...data.systems.map((entry) => ({
+          kind: 'mcp' as const,
           slug: entry.slug,
           label: entry.label,
           url: entry.url,
@@ -236,7 +254,60 @@ export default async function ResourcesPage({
           ...(data.systemHealth[entry.slug] ? { health: data.systemHealth[entry.slug]! } : {}),
           appliesTo: appliesTo(entry.assignment),
           assignment: entry.assignment,
-        }))}
+        })), ...data.authoredSystems.map((record) => {
+          const definition = record.revision.definition
+          const authLabel = definition.auth.kind === 'none'
+            ? 'No credential'
+            : definition.auth.kind === 'bearer'
+              ? 'Bearer token'
+              : `${definition.auth.headerName} header`
+          return {
+            kind: 'authored' as const,
+            id: record.system.id,
+            slug: record.system.slug,
+            label: record.system.name,
+            description: record.system.description,
+            url: definition.baseUrl,
+            status: record.system.status,
+            version: record.system.latestVersion,
+            activeVersion: record.system.activeVersion,
+            changeNote: record.revision.changeNote ?? '',
+            authKind: definition.auth.kind,
+            authLabel,
+            hasCredential: Boolean(record.connection?.sealedCredential),
+            ...(record.connection?.healthStatus && record.connection.lastCheckedAt ? {
+              health: {
+                status: record.connection.healthStatus,
+                checkedAt: record.connection.lastCheckedAt.getTime(),
+                ...(record.connection.lastToolCount === null ? {} : { toolCount: record.connection.lastToolCount }),
+                ...(record.connection.lastError ? { error: record.connection.lastError } : {}),
+              },
+            } : {}),
+            appliesTo: appliesTo(record.system.assignment),
+            assignment: record.system.assignment,
+            proposer: record.system.proposedByPersonId
+              ? agentNames.get(record.system.proposedByPersonId) ?? 'Employee'
+              : 'Operator',
+            operations: definition.operations.map((operation) => ({
+              name: operation.name,
+              title: operation.title,
+              description: operation.description,
+              method: operation.method,
+              path: operation.path,
+              category: operation.category,
+            })),
+            healthOperation: definition.healthCheck.operation,
+            validatedAt: stamp(new Date(record.revision.validation.checkedAt)),
+            audit: data.authoredSystemAudit
+              .filter((event) => event.entityId === record.system.id)
+              .map((event) => ({
+                id: event.id,
+                action: event.action,
+                summary: event.summary ?? event.action,
+                at: stamp(event.createdAt),
+              })),
+          }
+        })]}
         computers={computerRows.map((row) => ({
           id: row.id,
           name: row.name,

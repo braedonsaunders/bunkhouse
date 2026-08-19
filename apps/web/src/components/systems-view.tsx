@@ -7,9 +7,12 @@ import {
   Drawer,
   Input,
   Label,
+  PagedTable,
   RecordList,
   Select,
+  SubtabNav,
   Textarea,
+  type PagedColumn,
   type RecordColumn,
 } from '@braedonsaunders/appkit-ui'
 import type { McpSystemHealth, ResourceAssignment } from '../db/schema'
@@ -21,15 +24,17 @@ import {
 } from '../lib/integration-library'
 import {
   beginMcpOauthAction,
+  activateAuthoredSystemAction,
+  disableAuthoredSystemAction,
   listSystemToolsAction,
   removeMcpIntegrationAction,
   saveMcpIntegrationAction,
   saveMcpM2mAction,
   setSystemAssignmentAction,
+  setAuthoredSystemAssignmentAction,
   type SystemTool,
 } from '../app/resources/system-actions'
 import { AssignmentFields, type AssignOption } from './procedures-view'
-import { SectionTabs } from './section-tabs'
 
 /**
  * Systems: the outside software an agent is given access to, connected over
@@ -42,7 +47,8 @@ import { SectionTabs } from './section-tabs'
  * governs everything else.
  */
 
-export type SystemRowView = {
+export type McpSystemRowView = {
+  kind: 'mcp'
   slug: string
   label: string
   url: string
@@ -69,6 +75,41 @@ export type SystemRowView = {
   appliesTo: string
   assignment: ResourceAssignment
 }
+
+export type AuthoredSystemOperationView = {
+  name: string
+  title: string
+  description: string
+  method: string
+  path: string
+  category: string
+}
+
+export type AuthoredSystemRowView = {
+  kind: 'authored'
+  id: string
+  slug: string
+  label: string
+  description: string
+  url: string
+  status: 'proposed' | 'active' | 'disabled'
+  version: number
+  activeVersion: number | null
+  changeNote: string
+  authKind: 'none' | 'bearer' | 'header'
+  authLabel: string
+  hasCredential: boolean
+  health?: McpSystemHealth
+  appliesTo: string
+  assignment: ResourceAssignment
+  proposer: string
+  operations: AuthoredSystemOperationView[]
+  healthOperation: string
+  validatedAt: string
+  audit: Array<{ id: string; action: string; summary: string; at: string }>
+}
+
+export type SystemRowView = McpSystemRowView | AuthoredSystemRowView
 
 /**
  * How long ago, in the coarsest unit that still says something useful. An
@@ -166,14 +207,22 @@ const COLUMNS: RecordColumn<SystemRowView>[] = [
     key: 'category',
     label: 'Governed as',
     sortable: true,
-    render: (row) => <Badge variant="secondary">{categoryLabel(row.category)}</Badge>,
+    render: (row) => (
+      <Badge variant="secondary">{row.kind === 'authored' ? 'Per ability' : categoryLabel(row.category)}</Badge>
+    ),
   },
   {
     key: 'status',
     label: 'Status',
     sortable: true,
     render: (row) =>
-      row.health ? (
+      row.kind === 'authored' && row.status === 'proposed' ? (
+        <Badge variant="outline">needs review</Badge>
+      ) : row.kind === 'authored' && row.status === 'disabled' ? (
+        <Badge variant="outline">disabled</Badge>
+      ) : row.kind === 'authored' && row.activeVersion !== row.version ? (
+        <Badge variant="secondary">update proposed</Badge>
+      ) : row.health ? (
         <span className="min-w-0">
           <Badge variant={row.health.status === 'ok' ? 'default' : 'destructive'}>
             {row.health.status === 'ok' ? 'answering' : 'not answering'}
@@ -189,7 +238,13 @@ const COLUMNS: RecordColumn<SystemRowView>[] = [
     key: 'credentials',
     label: 'Credentials',
     render: (row) =>
-      row.isM2m ? (
+      row.kind === 'authored' ? (
+        row.authKind === 'none' ? <span className="text-fg-muted">none</span> : (
+          <Badge variant={row.hasCredential ? 'outline' : 'secondary'}>
+            {row.hasCredential ? 'sealed' : row.authLabel}
+          </Badge>
+        )
+      ) : row.isM2m ? (
         <Badge variant="secondary">certificate</Badge>
       ) : row.isOauth ? (
         <Badge variant="secondary">signed in</Badge>
@@ -204,7 +259,8 @@ const COLUMNS: RecordColumn<SystemRowView>[] = [
 type SystemsPanel =
   | { kind: 'library' }
   | { kind: 'new'; prefill?: IntegrationLibraryEntry }
-  | { kind: 'edit'; entry: SystemRowView }
+  | { kind: 'edit-mcp'; entry: McpSystemRowView }
+  | { kind: 'edit-authored'; entry: AuthoredSystemRowView }
 
 /** How the last OAuth sign-in ended, as the callback route reported it. */
 export type McpOauthOutcome = { ok: boolean; message: string }
@@ -257,9 +313,8 @@ export function SystemsView({
   return (
     <div className="space-y-3">
       <p className="text-sm text-fg-muted">
-        The outside software your agents work in, connected over MCP — accounting, CRM, ticketing, anything that speaks
-        it. A system&apos;s tools appear in the toolbox of the agents it applies to, on calls and in runs, governed by
-        the autonomy dial under the action category you choose.
+        The outside software your agents work in. Connect an MCP server from the library, or review a private API
+        integration an employee proposed. Every ability is assigned, governed, and recorded like the rest of the job.
       </p>
 
       {outcome ? (
@@ -270,7 +325,7 @@ export function SystemsView({
         columns={COLUMNS}
         rows={rows}
         getRowId={(row) => row.slug}
-        onRowClick={(row) => setPanel({ kind: 'edit', entry: row })}
+        onRowClick={(row) => setPanel(row.kind === 'mcp' ? { kind: 'edit-mcp', entry: row } : { kind: 'edit-authored', entry: row })}
         search={{ value: query, onChange: setQuery, placeholder: 'Search systems…' }}
         toolbarActions={
           <span className="flex items-center gap-2">
@@ -297,12 +352,21 @@ export function SystemsView({
           onClose={() => setPanel(null)}
         />
       ) : null}
-      {panel?.kind === 'new' || panel?.kind === 'edit' ? (
+      {panel?.kind === 'new' || panel?.kind === 'edit-mcp' ? (
         <SystemDrawer
-          key={panel.kind === 'edit' ? panel.entry.slug : (panel.prefill?.slug ?? 'new')}
-          entry={panel.kind === 'edit' ? panel.entry : null}
+          key={panel.kind === 'edit-mcp' ? panel.entry.slug : (panel.prefill?.slug ?? 'new')}
+          entry={panel.kind === 'edit-mcp' ? panel.entry : null}
           prefill={panel.kind === 'new' ? (panel.prefill ?? null) : null}
           oauthRedirectUri={oauthRedirectUri}
+          roleOptions={roleOptions}
+          agentOptions={agentOptions}
+          onClose={() => setPanel(null)}
+        />
+      ) : null}
+      {panel?.kind === 'edit-authored' ? (
+        <AuthoredSystemDrawer
+          key={`${panel.entry.id}:${panel.entry.version}`}
+          entry={panel.entry}
           roleOptions={roleOptions}
           agentOptions={agentOptions}
           onClose={() => setPanel(null)}
@@ -397,7 +461,7 @@ function SystemDrawer({
   agentOptions,
   onClose,
 }: {
-  entry: SystemRowView | null
+  entry: McpSystemRowView | null
   prefill?: IntegrationLibraryEntry | null
   oauthRedirectUri: string
   roleOptions: AssignOption[]
@@ -435,7 +499,7 @@ function SystemDrawer({
         {/* A system that is not saved yet has nothing to inspect, so the
             subtabs appear only once there is a connection behind them. */}
         {entry ? (
-          <SectionTabs
+          <SubtabNav
             ariaLabel="System sections"
             active={tab}
             onSelect={setTab}
@@ -768,6 +832,239 @@ function SystemDrawer({
           {notice ? <p className="text-sm text-fg-muted">{notice}</p> : null}
           {error ? <p className="text-sm text-danger">{error}</p> : null}
         </div>
+      </div>
+    </Drawer>
+  )
+}
+
+const AUTHORED_TOOL_COLUMNS: PagedColumn<AuthoredSystemOperationView>[] = [
+  {
+    key: 'title',
+    header: 'Ability',
+    sortValue: (row) => row.title,
+    search: (row) => `${row.title} ${row.name} ${row.description}`,
+    cell: (row) => (
+      <span className="min-w-0">
+        <span className="block font-medium text-primary">{row.title}</span>
+        <span className="block truncate text-xs text-fg-muted">{row.name}</span>
+      </span>
+    ),
+  },
+  {
+    key: 'request',
+    header: 'Request',
+    cell: (row) => <span className="font-mono text-xs">{row.method} {row.path}</span>,
+  },
+  {
+    key: 'category',
+    header: 'Governed as',
+    sortValue: (row) => row.category,
+    cell: (row) => <Badge variant="secondary">{categoryLabel(row.category)}</Badge>,
+  },
+]
+
+function AuthoredSystemDrawer({
+  entry,
+  roleOptions,
+  agentOptions,
+  onClose,
+}: {
+  entry: AuthoredSystemRowView
+  roleOptions: AssignOption[]
+  agentOptions: AssignOption[]
+  onClose: () => void
+}) {
+  const [tab, setTab] = React.useState('overview')
+  const [notice, setNotice] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [busy, startBusy] = React.useTransition()
+  const pendingUpdate = entry.activeVersion !== null && entry.activeVersion !== entry.version
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={entry.label}
+      description="A company-private API integration proposed by an employee. Its executable definition is versioned; credentials stay tenant-local and sealed."
+      size="lg"
+    >
+      <div className="space-y-5">
+        <SubtabNav
+          tabs={[
+            { key: 'overview', label: 'Overview' },
+            { key: 'abilities', label: 'Abilities', count: entry.operations.length },
+            { key: 'access', label: 'Access' },
+            { key: 'applies', label: 'Applies to' },
+            { key: 'evidence', label: 'Evidence' },
+          ]}
+          active={tab}
+          onSelect={setTab}
+          ariaLabel="Private system sections"
+        />
+
+        {tab === 'overview' ? (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={entry.status === 'active' ? 'default' : 'outline'}>{entry.status}</Badge>
+              <Badge variant="secondary">version {entry.version}</Badge>
+              {pendingUpdate ? <Badge variant="secondary">version {entry.activeVersion} currently active</Badge> : null}
+            </div>
+            <p className="text-sm text-fg">{entry.description}</p>
+            <dl className="grid gap-4 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-xs text-fg-muted">API</dt>
+                <dd className="mt-1 break-all">{entry.url}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-fg-muted">Proposed by</dt>
+                <dd className="mt-1">{entry.proposer}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-fg-muted">Authentication</dt>
+                <dd className="mt-1">{entry.authLabel}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-fg-muted">Connection</dt>
+                <dd className="mt-1">{entry.health?.status === 'ok' ? 'Answering' : entry.health?.status === 'failed' ? 'Not answering' : 'Not tested'}</dd>
+              </div>
+            </dl>
+            {entry.changeNote ? (
+              <div className="rounded-md border border-border bg-bg-subtle p-3">
+                <p className="text-xs font-medium text-fg-muted">What changed</p>
+                <p className="mt-1 text-sm text-fg">{entry.changeNote}</p>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {tab === 'abilities' ? (
+          <PagedTable<AuthoredSystemOperationView>
+            columns={AUTHORED_TOOL_COLUMNS}
+            rows={entry.operations}
+            rowKey={(row) => row.name}
+            searchable
+            labels={{ searchPlaceholder: 'Search abilities…' }}
+            defaultSort={{ key: 'title', dir: 'asc' }}
+            empty={<p className="text-sm text-fg-muted">No abilities were proposed.</p>}
+          />
+        ) : null}
+
+        {tab === 'access' ? (
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              const form = new FormData(event.currentTarget)
+              form.set('systemId', entry.id)
+              setError(null)
+              setNotice(null)
+              startBusy(async () => {
+                const result = await activateAuthoredSystemAction(form)
+                if (!result.ok) {
+                  setError(result.message)
+                  return
+                }
+                onClose()
+              })
+            }}
+          >
+            {entry.authKind === 'none' ? (
+              <p className="text-sm text-fg-muted">This API does not require a credential.</p>
+            ) : (
+              <div className="space-y-1">
+                <Label htmlFor={`authored-credential-${entry.id}`}>{entry.authLabel}</Label>
+                <Input
+                  id={`authored-credential-${entry.id}`}
+                  name="credential"
+                  type="password"
+                  placeholder={entry.hasCredential ? 'Leave blank to keep the sealed credential' : 'Enter the credential'}
+                  {...NO_AUTOFILL}
+                  autoComplete="new-password"
+                />
+                <p className="text-xs text-fg-muted">Stored sealed and never included in the employee-authored definition.</p>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Initial assignment</Label>
+              <AssignmentFields roleOptions={roleOptions} agentOptions={agentOptions} current={entry.assignment} />
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="submit" disabled={busy}>
+                {busy ? 'Testing…' : pendingUpdate ? `Test & activate version ${entry.version}` : 'Test & activate'}
+              </Button>
+              {entry.status === 'active' ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={busy}
+                  onClick={() => startBusy(async () => {
+                    const form = new FormData()
+                    form.set('systemId', entry.id)
+                    await disableAuthoredSystemAction(form)
+                    onClose()
+                  })}
+                >
+                  Disable
+                </Button>
+              ) : null}
+            </div>
+            {notice ? <p className="text-sm text-fg-muted">{notice}</p> : null}
+            {error ? <p className="text-sm text-danger">{error}</p> : null}
+          </form>
+        ) : null}
+
+        {tab === 'applies' ? (
+          entry.activeVersion === null ? (
+            <p className="text-sm text-fg-muted">Choose the initial assignment when you test and activate this proposal.</p>
+          ) : (
+            <form
+              className="space-y-3"
+              action={async (form) => {
+                form.set('systemId', entry.id)
+                setError(null)
+                try {
+                  await setAuthoredSystemAssignmentAction(form)
+                  setNotice('Saved — the assigned employees pick it up on their next run.')
+                } catch (cause) {
+                  setError(cause instanceof Error ? cause.message : String(cause))
+                }
+              }}
+            >
+              <AssignmentFields roleOptions={roleOptions} agentOptions={agentOptions} current={entry.assignment} />
+              <Button type="submit" variant="outline" size="sm">Save assignment</Button>
+              {notice ? <p className="text-sm text-fg-muted">{notice}</p> : null}
+              {error ? <p className="text-sm text-danger">{error}</p> : null}
+            </form>
+          )
+        ) : null}
+
+        {tab === 'evidence' ? (
+          <div className="space-y-4">
+            <dl className="grid gap-4 text-sm sm:grid-cols-2">
+              <div><dt className="text-xs text-fg-muted">Definition validated</dt><dd className="mt-1">{entry.validatedAt}</dd></div>
+              <div><dt className="text-xs text-fg-muted">Health check</dt><dd className="mt-1 font-mono text-xs">{entry.healthOperation}</dd></div>
+              <div><dt className="text-xs text-fg-muted">Last connection test</dt><dd className="mt-1">{entry.health ? sinceLabel(entry.health.checkedAt) : 'Not tested'}</dd></div>
+              <div><dt className="text-xs text-fg-muted">Result</dt><dd className="mt-1">{entry.health?.status ?? 'not tested'}</dd></div>
+            </dl>
+            {entry.health?.error ? <p className="text-sm text-danger">{entry.health.error}</p> : null}
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">Audit trail</p>
+              {entry.audit.length ? (
+                <ol className="space-y-2">
+                  {entry.audit.map((event) => (
+                    <li key={event.id} className="rounded-md border border-border p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Badge variant="outline">{event.action.replaceAll('_', ' ')}</Badge>
+                        <span className="text-xs tabular-nums text-fg-muted">{event.at}</span>
+                      </div>
+                      <p className="mt-2 text-sm text-fg">{event.summary}</p>
+                    </li>
+                  ))}
+                </ol>
+              ) : <p className="text-sm text-fg-muted">No audit events have been recorded.</p>}
+            </div>
+          </div>
+        ) : null}
       </div>
     </Drawer>
   )

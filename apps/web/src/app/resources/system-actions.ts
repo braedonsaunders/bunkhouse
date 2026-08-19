@@ -11,10 +11,15 @@ import {
 } from '../../lib/mcp-integrations'
 import { probeSystem } from '../../lib/mcp-health'
 import { beginMcpOauth, forgetMintedTokens, verifyM2mGrant } from '../../lib/mcp-oauth'
-import { resolveTenantId as resolveTenant } from '../../lib/tenant'
+import { requireTenantPermission, resolveTenantId as resolveTenant } from '../../lib/tenant'
 const resolveTenantId = () => resolveTenant('resources.manage')
 import { parseAssignment } from '../../lib/assignment'
 import { db } from '../../db/client'
+import {
+  activateAuthoredSystem,
+  disableAuthoredSystem,
+  setAuthoredSystemAssignment,
+} from '../../lib/authored-systems'
 
 /**
  * Connecting the outside systems agents work in, over MCP. The stored shape is
@@ -332,5 +337,48 @@ export async function removeMcpIntegrationAction(formData: FormData): Promise<vo
     await forgetMcpHealth(tenantId, slug)
   })
   forgetMintedTokens(tenantId, slug)
+  revalidatePath('/resources')
+}
+
+export async function activateAuthoredSystemAction(
+  formData: FormData,
+): Promise<{ ok: true; toolCount: number } | { ok: false; message: string }> {
+  const systemId = String(formData.get('systemId') ?? '')
+  if (!systemId) return { ok: false, message: 'That proposal is missing its system id.' }
+  const access = await requireTenantPermission('resources.manage')
+  try {
+    const activated = await activateAuthoredSystem({
+      tenantId: access.tenantId,
+      systemId,
+      actorUserId: access.user.id,
+      credential: String(formData.get('credential') ?? ''),
+      assignment: parseAssignment(formData),
+    })
+    revalidatePath('/resources')
+    return { ok: true, toolCount: activated.toolCount }
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+export async function setAuthoredSystemAssignmentAction(formData: FormData): Promise<void> {
+  const systemId = String(formData.get('systemId') ?? '')
+  if (!systemId) throw new Error('systemId is required.')
+  const access = await requireTenantPermission('resources.manage')
+  await setAuthoredSystemAssignment({
+    tenantId: access.tenantId,
+    systemId,
+    actorUserId: access.user.id,
+    assignment: parseAssignment(formData),
+  })
+  revalidatePath('/resources')
+  revalidatePath('/roles')
+}
+
+export async function disableAuthoredSystemAction(formData: FormData): Promise<void> {
+  const systemId = String(formData.get('systemId') ?? '')
+  if (!systemId) throw new Error('systemId is required.')
+  const access = await requireTenantPermission('resources.manage')
+  await disableAuthoredSystem({ tenantId: access.tenantId, systemId, actorUserId: access.user.id })
   revalidatePath('/resources')
 }

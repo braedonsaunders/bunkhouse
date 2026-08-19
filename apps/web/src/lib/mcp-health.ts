@@ -5,6 +5,7 @@ import { db } from '../db/client'
 import { listMcpIntegrations, readMcpHealth, recordMcpHealth } from './mcp-integrations'
 import { refreshGrantIfDue } from './mcp-oauth'
 import { resolveIntegrationHeaders } from './agent-abilities'
+import { listAuthoredSystems, probeAuthoredSystem } from './authored-systems'
 
 /**
  * Whether the outside systems still answer — asked on a schedule rather than
@@ -106,6 +107,17 @@ export async function systemsHousekeeping(
     checked += 1
     const probe = await probeSystem(tenantId, entry)
     if (!probe.ok) failing.push(probe.message)
+  }
+
+  const authored = await listAuthoredSystems(tenantId)
+  for (const record of authored) {
+    if (record.system.status !== 'active' || !record.activeRevision) continue
+    const last = record.connection?.lastCheckedAt?.getTime() ?? 0
+    if (Date.now() - last < HEALTH_INTERVAL_MS) continue
+    checked += 1
+    const activeRecord = { ...record, revision: record.activeRevision }
+    const probe = await probeAuthoredSystem(tenantId, activeRecord)
+    if (!probe.ok) failing.push(`${record.system.name}: ${probe.message}`)
   }
 
   return { renewed, checked, failing }

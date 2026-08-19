@@ -1,9 +1,11 @@
 import 'server-only'
 import { and, asc, eq, isNull } from 'drizzle-orm'
-import { memories, procedures, skills, type ResourceAssignment } from '../db/schema'
+import { schema as identity } from '@braedonsaunders/appkit-db'
+import { authoredSystems, memories, procedures, skills, type ResourceAssignment } from '../db/schema'
 import { db } from '../db/client'
 import { listMcpIntegrations, saveMcpIntegrations } from './mcp-integrations'
 import { bindsToRole, withRole, withoutRole } from './assignment'
+import { listAuthoredSystems } from './authored-systems'
 
 /**
  * A role's resources, read and written from the role's side of the link.
@@ -44,7 +46,7 @@ export type ResourceCatalog = Record<RoleResourceKind, ResourceEntry[]>
 export async function listResourceCatalog(tenantId: string): Promise<ResourceCatalog> {
   const app = db()
   return app.withTenantContext(tenantId, async () => {
-    const [procedureRows, skillRows, noteRows, systems] = await Promise.all([
+    const [procedureRows, skillRows, noteRows, systems, privateSystems] = await Promise.all([
       app.db.select().from(procedures).orderBy(asc(procedures.title)),
       app.db.select().from(skills).orderBy(asc(skills.title)),
       app.db
@@ -53,6 +55,7 @@ export async function listResourceCatalog(tenantId: string): Promise<ResourceCat
         .where(and(eq(memories.scope, 'company'), eq(memories.status, 'active'), isNull(memories.validUntil)))
         .orderBy(asc(memories.title)),
       listMcpIntegrations(tenantId),
+      listAuthoredSystems(tenantId),
     ])
     return {
       procedures: procedureRows.map((row) => ({
@@ -76,13 +79,22 @@ export async function listResourceCatalog(tenantId: string): Promise<ResourceCat
         detail: `${row.kind}${row.pinned ? ' · pinned' : ''}`,
         assignment: row.assignment,
       })),
-      systems: systems.map((entry) => ({
-        key: entry.slug,
-        slug: entry.slug,
-        title: entry.label,
-        detail: entry.url,
-        assignment: entry.assignment,
-      })),
+      systems: [
+        ...systems.map((entry) => ({
+          key: entry.slug,
+          slug: entry.slug,
+          title: entry.label,
+          detail: entry.url,
+          assignment: entry.assignment,
+        })),
+        ...privateSystems.map((record) => ({
+          key: `authored:${record.system.id}`,
+          slug: record.system.slug,
+          title: record.system.name,
+          detail: `${record.revision.definition.baseUrl} · company private`,
+          assignment: record.system.assignment,
+        })),
+      ],
     }
   })
 }
@@ -104,6 +116,7 @@ export function linkedKeys(entries: ResourceEntry[], roleSlug: string): string[]
  */
 export async function setRoleLinks(args: {
   tenantId: string
+  actorUserId: string
   roleSlug: string
   kind: RoleResourceKind
   keys: string[]
@@ -132,6 +145,28 @@ export async function setRoleLinks(args: {
           return assignment ? { ...entry, assignment } : entry
         }),
       )
+      for (const change of changes) {
+        if (!change.key.startsWith('authored:')) continue
+        const systemId = change.key.slice('authored:'.length)
+        const before = catalog.systems.find((entry) => entry.key === change.key)
+        await app.db.transaction(async (tx) => {
+          await tx
+            .update(authoredSystems)
+            .set({ assignment: change.assignment, updatedAt: new Date(), updatedBy: args.actorUserId })
+            .where(eq(authoredSystems.id, systemId))
+          await tx.insert(identity.auditLog).values({
+            tenantId,
+            actorUserId: args.actorUserId,
+            entityType: 'authored_system',
+            entityId: systemId,
+            action: 'assignment_updated',
+            summary: `${before?.title ?? 'Private system'} assignment updated from the role`,
+            before: { assignment: before?.assignment ?? {} },
+            after: { assignment: change.assignment },
+            metadata: { roleSlug },
+          })
+        })
+      }
       return
     }
     const table = kind === 'procedures' ? procedures : kind === 'skills' ? skills : memories

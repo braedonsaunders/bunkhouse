@@ -13,6 +13,7 @@ const tests = [
   'tools',
   'mailbox',
   'netsuite-shim',
+  'http-system',
   'internal-addresses',
   'call-speech-gate',
   'memory-query',

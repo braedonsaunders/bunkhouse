@@ -5,6 +5,7 @@ import { unsealSecret } from '@braedonsaunders/appkit-crypto'
 import {
   connectMcpServers,
   defineAbility,
+  httpSystemDefinitionSchema,
   type Ability,
   type ActionCategory,
   type GovernanceState,
@@ -16,6 +17,7 @@ import { findColleague, postToColleague } from './colleague-post'
 import { loadInternalAddressTest, type InternalAddressTest } from './internal-addresses'
 import { listMcpIntegrations } from './mcp-integrations'
 import { mcpM2mHeaders, mcpOauthHeaders } from './mcp-oauth'
+import { authoredSystemAbilities, listAuthoredSystems, proposeAuthoredSystem } from './authored-systems'
 import { sendNewMail } from './mailbox'
 import { createNote, retrieveNotes, supersedeNote } from './memory'
 import { firstOccurrence, gapMinutes } from './duties'
@@ -848,6 +850,18 @@ export async function connectIntegrationAbilities(
       failures.push(`${entry.label}: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
+  const authored = (await listAuthoredSystems(tenantId)).filter((record) =>
+    bindsToAgent(record.system.assignment, agent),
+  )
+  for (const record of authored) {
+    try {
+      const connected = authoredSystemAbilities(record)
+      abilities.push(...connected.abilities)
+      secrets.push(...connected.secrets)
+    } catch (error) {
+      failures.push(`${record.system.name}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
   return {
     abilities,
     failures,
@@ -856,6 +870,48 @@ export async function connectIntegrationAbilities(
       await Promise.allSettled(closers.map((close) => close()))
     },
   }
+}
+
+/**
+ * Draft a constrained company-private integration after researching a system.
+ * A draft grants no access and executes nothing; an operator still supplies
+ * the credential, reviews the proposed tools, tests the connection, and
+ * activates the immutable version from Resources → Systems.
+ */
+function systemAuthoringAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {
+  return [
+    defineAbility({
+      name: 'propose_system_integration',
+      description:
+        'Propose a company-private system integration after reading the provider’s official API documentation. Define only the operations needed for the work, use an HTTPS base URL, classify every operation under its real autonomy category, and choose a harmless GET operation as the health check. Never put credentials, tokens, customer data, or example secrets in the definition. This creates a proposal only; a human reviews, authenticates, tests, and activates it in Resources → Systems.',
+      category: 'record_write',
+      inputSchema: z.object({
+        name: z.string().min(1).max(120),
+        slug: z.string().min(1).max(64),
+        description: z.string().min(1).max(2_000),
+        definition: httpSystemDefinitionSchema,
+        changeNote: z.string().max(1_000).optional(),
+      }),
+      execute: async ({ name, slug, description, definition, changeNote }) => {
+        const proposed = await proposeAuthoredSystem({
+          tenantId: args.tenantId,
+          personId: args.person.id,
+          runId: args.runId,
+          name,
+          slug,
+          description,
+          definition,
+          ...(changeNote ? { changeNote } : {}),
+        })
+        return {
+          proposed: true,
+          system: proposed.slug,
+          version: proposed.version,
+          note: 'The proposal is visible in Resources → Systems. It cannot run until an operator reviews its abilities, supplies the credential if required, tests it, and activates it.',
+        }
+      },
+    }),
+  ]
 }
 
 /**
@@ -902,6 +958,7 @@ export async function assembleAbilities(args: {
   const abilities: Ability[] = [
     ...memoryAbilities({ tenantId, person, runId }),
     ...researchAbilities({ tenantId }),
+    ...systemAuthoringAbilities({ tenantId, person, runId }),
     ...emailAbilities({ tenantId, person, runId, isInternalAddress, ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}) }),
     ...(args.waitState
       ? askAbilities({ tenantId, person, runId, waitState: args.waitState, ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}) })
