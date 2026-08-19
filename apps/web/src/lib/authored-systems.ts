@@ -2,7 +2,7 @@ import 'server-only'
 
 import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import { sealSecret, unsealSecret } from '@braedonsaunders/appkit-crypto'
-import { secureFetch } from '@braedonsaunders/appkit-sync'
+import { secureFetch } from '@braedonsaunders/appkit-egress-proxy/secure-fetch'
 import {
   buildHttpSystemRequest,
   connectHttpSystem,

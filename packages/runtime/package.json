@@ -13,7 +13,7 @@
   "dependencies": {
     "@bunkhouse/acp": "workspace:*",
     "@ai-sdk/mcp": "^1.0.64",
-    "@braedonsaunders/appkit-ai": "^1.0.1",
+    "@braedonsaunders/appkit-ai": "^1.1.0",
     "@modelcontextprotocol/sdk": "^1.21.0",
     "ai": "^6.0.224",
     "zod": "^4.4.3"
