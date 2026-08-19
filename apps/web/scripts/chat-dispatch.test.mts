@@ -94,7 +94,7 @@ function memoryDispatchStore() {
         .sort((a, b) => a.position - b.position)
         .map(copy)
     },
-    async enqueue({ threadId, userId, body, idempotencyKey }) {
+    async enqueue({ threadId, userId, body, idempotencyKey, attachmentIds = [] }) {
       const key = `${threadId}:${idempotencyKey}`
       const existingId = keys.get(key)
       if (existingId) return { dispatch: copy(required(existingId)), created: false }
@@ -111,6 +111,7 @@ function memoryDispatchStore() {
         queuedAt: new Date().toISOString(),
         claimedAt: null,
         finishedAt: null,
+        attachmentIds,
       }
       rows.push(row)
       keys.set(key, row.id)
@@ -187,8 +188,12 @@ let failedOnce = false
 let concurrent = 0
 let maximumConcurrent = 0
 let runNumber = 0
+let lastRunAttachmentIds: string[] = []
 const run: ChatRunner = async ({ input }) => {
   const body = input.type === 'chat' ? input.message : ''
+  lastRunAttachmentIds = input.type === 'chat'
+    ? (input.attachments ?? []).map((attachment) => attachment.fileId)
+    : []
   concurrent += 1
   maximumConcurrent = Math.max(maximumConcurrent, concurrent)
   try {
@@ -217,7 +222,17 @@ const watcher: ChatRunWatcher = {
 }
 const deps = {
   store: dispatch.store,
-  chat: { store: thread.store, run, watcher },
+  chat: {
+    store: thread.store,
+    run,
+    watcher,
+    resolveAttachments: async ({ fileIds }: { fileIds: string[] }) => fileIds.map((fileId) => ({
+      fileId,
+      filename: 'forecast.xlsx',
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      sizeBytes: 1_024,
+    })),
+  },
 }
 
 const first = await enqueueChatMessage({ tenantId: TENANT, threadId: THREAD, userId: USER, body: 'Do the first task.', idempotencyKey: 'one' }, deps)
@@ -266,6 +281,18 @@ const direct = await dispatchChatMessage({
   idempotencyKey: 'four',
 }, deps)
 assert.ok(direct.messages?.some((message) => message.role === 'agent'))
+
+const attachmentId = '0194b8a2-3b74-7000-8000-0000000000f1'
+await dispatchChatMessage({
+  tenantId: TENANT,
+  threadId: THREAD,
+  userId: USER,
+  body: 'Review the attached forecast.',
+  idempotencyKey: 'five',
+  attachmentIds: [attachmentId],
+}, deps)
+assert.deepEqual(lastRunAttachmentIds, [attachmentId], 'the claimed durable file set reaches the run input')
+assert.deepEqual(dispatch.rows.at(-1)?.attachmentIds, [attachmentId], 'queue recovery retains the exact file set')
 assert.deepEqual(
   dispatch.events.filter((event) => event.dispatchId === second.dispatch.id).map((event) => event.kind),
   ['queued', 'claimed', 'failed', 'retried', 'claimed', 'completed'],
@@ -281,5 +308,17 @@ for (const table of ['chat_dispatches', 'chat_dispatch_events']) {
   assert.match(migration, new RegExp(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY;`))
   assert.match(migration, new RegExp(`CREATE POLICY tenant_isolation ON ${table}`))
 }
+
+const attachmentMigration = readFileSync(fileURLToPath(new URL('../../../migrations/0067_chat_file_attachments.sql', import.meta.url)), 'utf8')
+assert.match(attachmentMigration, /CREATE TRIGGER chat_dispatch_attachments_immutable/)
+assert.match(attachmentMigration, /CREATE TRIGGER chat_file_uploads_state_machine/)
+for (const table of ['chat_file_uploads', 'chat_dispatch_attachments']) {
+  assert.match(attachmentMigration, new RegExp(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;`))
+  assert.match(attachmentMigration, new RegExp(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY;`))
+  assert.match(attachmentMigration, new RegExp(`CREATE POLICY tenant_isolation ON ${table}`))
+}
+const uploadHardeningMigration = readFileSync(fileURLToPath(new URL('../../../migrations/0068_chat_file_upload_hardening.sql', import.meta.url)), 'utf8')
+assert.match(uploadHardeningMigration, /CREATE UNIQUE INDEX "chat_file_uploads_file_key"/)
+assert.match(uploadHardeningMigration, /pending chat upload cannot claim a finalized file/)
 
 console.log('chat dispatch: FIFO, one active run, failure barriers, idempotency, recovery, and immutable evidence')

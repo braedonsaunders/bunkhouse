@@ -44,6 +44,11 @@ import {
 import { chatWorkSurface, type ChatWorkSurface } from '../../lib/chat-work-surface'
 import { runScreenRoomName } from '../../lib/run-screen-room'
 import { observeRemoteWork } from '../../lib/remote-computers'
+import {
+  finalizeChatFileUpload,
+  MAX_CHAT_UPLOAD_BYTES,
+  reserveChatFileUpload,
+} from '../../lib/files'
 
 /**
  * The chat page's server actions.
@@ -97,6 +102,58 @@ export async function getThreadAction(
   const detail = await getThread(access.tenantId, threadId)
   if (!detail) return null
   return { ...detail, dispatches: await listChatDispatches({ tenantId: access.tenantId, threadId }) }
+}
+
+/** Reserve a tenant-private direct upload for the open conversation. */
+export async function requestChatUploadAction(
+  threadId: string,
+  input: { kind: string; filename: string; contentType: string; sizeBytes: number },
+): Promise<
+  | { ok: true; uploadId: string; mode: 'single'; putUrl: string }
+  | { ok: true; uploadId: string; mode: 'multipart'; multipartUploadId: string; partSizeBytes: number; partUrls: string[] }
+  | { ok: false; error: string }
+> {
+  const access = await requireTenantPermission('work.manage')
+  try {
+    if (input.kind !== 'other') throw new Error('That attachment kind is not accepted here.')
+    if (input.sizeBytes > MAX_CHAT_UPLOAD_BYTES) throw new Error('Each attachment must be 20 MB or smaller.')
+    const detail = await getThread(access.tenantId, threadId)
+    if (!detail) throw new Error('That conversation no longer exists.')
+    if (detail.thread.userId !== access.user.id) throw new Error('That conversation belongs to someone else.')
+    if (detail.thread.status !== 'open') throw new Error('That conversation is archived.')
+    return await reserveChatFileUpload({
+      tenantId: access.tenantId,
+      threadId,
+      personId: detail.thread.personId,
+      userId: access.user.id,
+      filename: input.filename,
+      contentType: input.contentType,
+      sizeBytes: input.sizeBytes,
+    })
+  } catch (reason) {
+    return { ok: false, error: reason instanceof Error ? reason.message : 'That file could not be uploaded.' }
+  }
+}
+
+/** Verify the uploaded bytes and promote them into the immutable file ledger. */
+export async function finalizeChatUploadAction(
+  threadId: string,
+  input: { uploadId: string; multipartUploadId?: string },
+): Promise<{ ok: true; attachmentId: string; url: string } | { ok: false; error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  try {
+    const file = await finalizeChatFileUpload({
+      tenantId: access.tenantId,
+      threadId,
+      userId: access.user.id,
+      uploadId: input.uploadId,
+      ...(input.multipartUploadId ? { multipartUploadId: input.multipartUploadId } : {}),
+    })
+    revalidatePath(CHAT_PATH)
+    return { ok: true, attachmentId: file.id, url: `/api/files/${encodeURIComponent(file.id)}` }
+  } catch (reason) {
+    return { ok: false, error: reason instanceof Error ? reason.message : 'That file could not be finalized.' }
+  }
 }
 
 /** The visual stage plus durable step history for the conversation. */
@@ -227,6 +284,7 @@ export async function continueThreadAction(sourceThreadId: string): Promise<{ th
 export async function sendMessageAction(
   threadId: string,
   body: string,
+  attachmentIds: string[] = [],
 ): Promise<{ messages: ChatMessageView[] }> {
   const access = await requireTenantPermission('work.manage')
   const result = await dispatchChatMessage({
@@ -235,6 +293,7 @@ export async function sendMessageAction(
     userId: access.user.id,
     body,
     idempotencyKey: randomUUID(),
+    attachmentIds,
     requester: chatRequesterFor(access),
   })
   revalidatePath(CHAT_PATH)
@@ -245,6 +304,7 @@ export async function enqueueMessageAction(
   threadId: string,
   body: string,
   requestId: string,
+  attachmentIds: string[] = [],
 ): Promise<{ dispatch: ChatDispatchView } | { error: string }> {
   const access = await requireTenantPermission('work.manage')
   try {
@@ -254,6 +314,7 @@ export async function enqueueMessageAction(
       userId: access.user.id,
       body,
       idempotencyKey: requestId,
+      attachmentIds,
     })
     after(() => drainChatDispatchQueue({ tenantId: access.tenantId, threadId }))
     revalidatePath(CHAT_PATH)

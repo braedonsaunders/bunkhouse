@@ -13,6 +13,7 @@ import {
   MessageSquarePlus,
   Monitor,
   MoreHorizontal,
+  Paperclip,
   PanelRightClose,
   Pencil,
   Phone,
@@ -26,12 +27,14 @@ import {
   Card,
   ContextMenu,
   EmptyState,
+  FileUploader,
   Input,
   Popover,
   cn,
   promptDialog,
   useContextMenu,
   type ContextMenuEntry,
+  type UploadedFile,
 } from '@braedonsaunders/appkit-ui'
 import {
   AgentPanel,
@@ -41,12 +44,14 @@ import {
 import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
 import {
   getThreadAction,
+  finalizeChatUploadAction,
   continueThreadAction,
   editQueuedMessageAction,
   enqueueMessageAction,
   listThreadsAction,
   removeQueuedMessageAction,
   renameThreadAction,
+  requestChatUploadAction,
   retryQueuedMessageAction,
   setThreadStatusAction,
   startThreadAction,
@@ -93,6 +98,7 @@ export type ChatMessageRecord = {
   at: string
   runId: string | null
   dispatchId: string | null
+  attachments?: Array<{ fileId: string; filename: string; contentType: string; sizeBytes: number }>
 }
 
 export type ChatDispatchRecord = {
@@ -160,7 +166,15 @@ function toAgentMessage(message: ChatMessageRecord): AgentMessage {
   return {
     id: message.id,
     role: message.role === 'user' ? 'user' : message.role === 'system' ? 'system' : 'assistant',
-    parts: [{ type: 'text', text: message.body }],
+    parts: [
+      { type: 'text', text: message.body },
+      ...(message.attachments ?? []).map((attachment) => ({
+        type: 'file' as const,
+        filename: attachment.filename,
+        mediaType: attachment.contentType,
+        url: `/api/files/${encodeURIComponent(attachment.fileId)}`,
+      })),
+    ],
   }
 }
 
@@ -168,6 +182,103 @@ function stampLabel(value: string): string {
   const at = new Date(value)
   if (Number.isNaN(at.getTime())) return ''
   return at.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function fileSizeLabel(bytes: number): string {
+  if (bytes < 1_024) return `${bytes} B`
+  if (bytes < 1_024 * 1_024) return `${Math.ceil(bytes / 1_024)} KB`
+  return `${(bytes / (1_024 * 1_024)).toFixed(bytes >= 10 * 1_024 * 1_024 ? 0 : 1)} MB`
+}
+
+const DEFAULT_WORK_PANE_WIDTH = 448
+const MIN_WORK_PANE_WIDTH = 320
+const MAX_WORK_PANE_WIDTH = 720
+const WORK_PANE_WIDTH_KEY = 'bunkhouse.chat.workPaneWidth'
+
+function clampWorkPaneWidth(value: number, containerWidth?: number): number {
+  const availableMaximum = containerWidth === undefined
+    ? MAX_WORK_PANE_WIDTH
+    : Math.max(MIN_WORK_PANE_WIDTH, containerWidth - 224 - 288 - 8)
+  return Math.round(Math.min(Math.max(value, MIN_WORK_PANE_WIDTH), Math.min(MAX_WORK_PANE_WIDTH, availableMaximum)))
+}
+
+function WorkPaneResizeHandle({
+  width,
+  onWidthChange,
+}: {
+  width: number
+  onWidthChange: (width: number) => void
+}) {
+  const handleRef = React.useRef<HTMLDivElement | null>(null)
+  const [dragging, setDragging] = React.useState(false)
+
+  const resizeFromPointer = React.useCallback((clientX: number) => {
+    const container = handleRef.current?.parentElement
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    onWidthChange(clampWorkPaneWidth(rect.right - clientX, rect.width))
+  }, [onWidthChange])
+
+  React.useEffect(() => {
+    const fitToContainer = () => {
+      const containerWidth = handleRef.current?.parentElement?.getBoundingClientRect().width
+      if (!containerWidth) return
+      const next = clampWorkPaneWidth(width, containerWidth)
+      if (next !== width) onWidthChange(next)
+    }
+    fitToContainer()
+    window.addEventListener('resize', fitToContainer)
+    return () => window.removeEventListener('resize', fitToContainer)
+  }, [onWidthChange, width])
+
+  return (
+    <div
+      ref={handleRef}
+      role="separator"
+      aria-label="Resize work pane"
+      aria-orientation="vertical"
+      aria-valuemin={MIN_WORK_PANE_WIDTH}
+      aria-valuemax={MAX_WORK_PANE_WIDTH}
+      aria-valuenow={width}
+      tabIndex={0}
+      className={cn(
+        'group relative hidden min-h-0 cursor-col-resize touch-none items-stretch justify-center bg-surface outline-none lg:flex',
+        'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        dragging && 'bg-primary-subtle',
+      )}
+      onPointerDown={(event) => {
+        event.preventDefault()
+        event.currentTarget.setPointerCapture(event.pointerId)
+        setDragging(true)
+        resizeFromPointer(event.clientX)
+      }}
+      onPointerMove={(event) => {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) resizeFromPointer(event.clientX)
+      }}
+      onPointerUp={(event) => {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+        setDragging(false)
+      }}
+      onPointerCancel={() => setDragging(false)}
+      onKeyDown={(event) => {
+        const step = event.shiftKey ? 64 : 24
+        const next = event.key === 'ArrowLeft'
+          ? width + step
+          : event.key === 'ArrowRight'
+            ? width - step
+            : event.key === 'Home'
+              ? MIN_WORK_PANE_WIDTH
+              : event.key === 'End'
+                ? MAX_WORK_PANE_WIDTH
+                : null
+        if (next === null) return
+        event.preventDefault()
+        onWidthChange(clampWorkPaneWidth(next, event.currentTarget.parentElement?.getBoundingClientRect().width))
+      }}
+    >
+      <span className="my-3 w-0.5 rounded-full bg-border-strong transition-colors group-hover:bg-primary group-focus-visible:bg-primary" />
+    </div>
+  )
 }
 
 /**
@@ -530,6 +641,9 @@ export function AgentChatWorkspace({
   const [callThreadId, setCallThreadId] = React.useState<string | null>(null)
   const [callStarting, setCallStarting] = React.useState(false)
   const [panelGeneration, setPanelGeneration] = React.useState(0)
+  const [uploadOpen, setUploadOpen] = React.useState(false)
+  const [draftUploads, setDraftUploads] = React.useState<Record<string, UploadedFile[]>>({})
+  const [workPaneWidth, setWorkPaneWidth] = React.useState(DEFAULT_WORK_PANE_WIDTH)
   const directStreamRef = React.useRef(false)
   const autoCallStartedRef = React.useRef(false)
   // Archived conversations are out of the list by default. The one exception
@@ -545,8 +659,41 @@ export function AgentChatWorkspace({
   // there is not. Once someone has said which they want, that stands.
   const deskOpen = deskChoice ?? wide
 
+  React.useEffect(() => {
+    const stored = Number(window.localStorage.getItem(WORK_PANE_WIDTH_KEY))
+    if (!Number.isFinite(stored) || stored <= 0) return
+    const frame = window.requestAnimationFrame(() => setWorkPaneWidth(clampWorkPaneWidth(stored)))
+    return () => window.cancelAnimationFrame(frame)
+  }, [])
+
+  const resizeWorkPane = React.useCallback((width: number) => {
+    const next = clampWorkPaneWidth(width)
+    setWorkPaneWidth(next)
+    window.localStorage.setItem(WORK_PANE_WIDTH_KEY, String(next))
+  }, [])
+
   const activeId = detail?.thread.id ?? null
+  const attachedFiles = React.useMemo(
+    () => activeId ? (draftUploads[activeId] ?? []) : [],
+    [activeId, draftUploads],
+  )
   const queueUi = React.useMemo(() => chatQueueUiProjection(detail?.dispatches ?? []), [detail?.dispatches])
+
+  const clearAttachedFiles = React.useCallback((threadId: string, fileIds: string[]) => {
+    const sent = new Set(fileIds)
+    setDraftUploads((current) => ({
+      ...current,
+      [threadId]: (current[threadId] ?? []).filter((file) => !sent.has(file.attachmentId)),
+    }))
+  }, [])
+
+  const addAttachedFile = React.useCallback((threadId: string, file: UploadedFile) => {
+    setDraftUploads((current) => {
+      const list = current[threadId] ?? []
+      if (list.some((entry) => entry.attachmentId === file.attachmentId)) return current
+      return { ...current, [threadId]: [...list, file] }
+    })
+  }, [])
 
   const load = React.useCallback(async (threadId: string) => {
     setLoading(true)
@@ -621,18 +768,23 @@ export function AgentChatWorkspace({
     async (prompt: string, signal: AbortSignal): Promise<Response> => {
       const threadId = activeId
       if (threadId === null) throw new Error('No conversation is open.')
+      const attachmentIds = attachedFiles.map((file) => file.attachmentId)
       directStreamRef.current = true
       let response: Response
       try {
         response = await fetch(`/api/chat/${encodeURIComponent(threadId)}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ prompt, requestId: crypto.randomUUID() }),
+          body: JSON.stringify({ prompt, requestId: crypto.randomUUID(), attachmentIds }),
           signal,
         })
       } catch (reason) {
         directStreamRef.current = false
         throw reason
+      }
+      if (response.ok && attachmentIds.length > 0) {
+        clearAttachedFiles(threadId, attachmentIds)
+        setUploadOpen(false)
       }
       // The panel owns the stream; reading a clone alongside it is how this
       // pane learns the turn is over — without it the run link and the list's
@@ -655,16 +807,19 @@ export function AgentChatWorkspace({
         })
       return response
     },
-    [activeId, refreshThread, router],
+    [activeId, attachedFiles, clearAttachedFiles, refreshThread, router],
   )
 
   const enqueue = React.useCallback(async (prompt: string): Promise<void> => {
     const threadId = activeId
     if (!threadId) throw new Error('No conversation is open.')
-    const result = await enqueueMessageAction(threadId, prompt, crypto.randomUUID())
+    const attachmentIds = attachedFiles.map((file) => file.attachmentId)
+    const result = await enqueueMessageAction(threadId, prompt, crypto.randomUUID(), attachmentIds)
     if ('error' in result) throw new Error(result.error)
+    if (attachmentIds.length > 0) clearAttachedFiles(threadId, attachmentIds)
+    setUploadOpen(false)
     await refreshThread(threadId)
-  }, [activeId, refreshThread])
+  }, [activeId, attachedFiles, clearAttachedFiles, refreshThread])
 
   const editQueued = React.useCallback(async (message: AgentQueuedMessage) => {
     const next = await promptDialog({
@@ -950,6 +1105,76 @@ export function AgentChatWorkspace({
             enabled={detail.thread.status === 'open'}
             initialMessages={detail.messages.map(toAgentMessage)}
             send={send}
+            composerActions={
+              <Popover
+                open={uploadOpen}
+                onOpenChange={setUploadOpen}
+                side="top"
+                align="start"
+                className="w-[22rem] max-w-[calc(100vw-2rem)] p-3"
+                trigger={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0"
+                    aria-label="Attach files"
+                    title="Attach files"
+                    aria-expanded={uploadOpen}
+                    aria-haspopup="dialog"
+                    disabled={attachedFiles.length >= 8}
+                    onClick={() => setUploadOpen((current) => !current)}
+                  >
+                    <Paperclip aria-hidden className="size-4" />
+                  </Button>
+                }
+              >
+                <FileUploader
+                  kind="other"
+                  multiple
+                  compact
+                  maxSize={20 * 1024 * 1024}
+                  label="Attach files"
+                  hint="PDF, Word, Excel, images, text, or any working file · up to 8 files · 20 MB each"
+                  requestUploadAction={(input) => requestChatUploadAction(detail.thread.id, input)}
+                  finalizeUploadAction={(input) => finalizeChatUploadAction(detail.thread.id, input)}
+                  onUploaded={(file) => addAttachedFile(detail.thread.id, file)}
+                />
+              </Popover>
+            }
+            composerContent={attachedFiles.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5" aria-label="Attached files">
+                {attachedFiles.map((file) => (
+                  <span
+                    key={file.attachmentId}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-bg-subtle px-2 py-1 text-xs text-fg"
+                  >
+                    <Paperclip aria-hidden className="size-3 shrink-0 text-fg-muted" />
+                    <span className="max-w-48 truncate font-medium">{file.filename}</span>
+                    <span className="shrink-0 text-fg-muted">{fileSizeLabel(file.sizeBytes)}</span>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${file.filename}`}
+                      className="rounded p-0.5 text-fg-muted hover:bg-surface-hover hover:text-fg"
+                      onClick={() => clearAttachedFiles(detail.thread.id, [file.attachmentId])}
+                    >
+                      <X aria-hidden className="size-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            composerDraft={attachedFiles.length > 0 ? {
+              fallbackPrompt: attachedFiles.length === 1
+                ? 'Please review and work with the attached file.'
+                : 'Please review and work with the attached files.',
+              parts: attachedFiles.map((file) => ({
+                type: 'file' as const,
+                filename: file.filename,
+                mediaType: file.contentType,
+                url: file.url,
+              })),
+            } : undefined}
             dispatchState={queueUi.state}
             queuedMessages={queueUi.messages}
             enqueue={enqueue}
@@ -1012,10 +1237,11 @@ export function AgentChatWorkspace({
           column is the only elastic one, so a wider window goes to the
           conversation and the desk keeps its shape. */}
       <Card
+        style={deskVisible ? { '--work-pane-width': `${workPaneWidth}px` } as React.CSSProperties : undefined}
         className={cn(
           'grid divide-y divide-border overflow-hidden lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)] lg:divide-x lg:divide-y-0',
           deskVisible
-            ? 'lg:grid-cols-[14rem_minmax(0,1fr)_minmax(0,22rem)] xl:grid-cols-[15rem_minmax(0,1fr)_minmax(0,28rem)]'
+            ? 'lg:grid-cols-[14rem_minmax(18rem,1fr)_0.5rem_minmax(20rem,var(--work-pane-width))] xl:grid-cols-[15rem_minmax(18rem,1fr)_0.5rem_minmax(20rem,var(--work-pane-width))]'
             : 'lg:grid-cols-[15rem_minmax(0,1fr)]',
         )}
       >
@@ -1038,6 +1264,7 @@ export function AgentChatWorkspace({
           onQueryChange={setSearchQuery}
         />
         {conversation}
+        {deskVisible ? <WorkPaneResizeHandle width={workPaneWidth} onWidthChange={resizeWorkPane} /> : null}
         {/* Unmounted rather than hidden when it is folded away: a pane that
             is not on screen must not be holding a frame stream open. */}
         {deskVisible ? (

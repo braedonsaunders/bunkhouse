@@ -39,6 +39,7 @@ export type RouteModule =
   | 'app/api/chat/[threadId]/route.ts'
   | 'app/api/chat/slack/route.ts'
   | 'app/api/chat/teams/route.ts'
+  | 'app/api/chat/uploads/[uploadId]/route.ts'
   | 'app/api/desk/[personId]/frame/route.ts'
   | 'app/api/desk/[personId]/frames/route.ts'
   | 'app/api/desk/[personId]/video/route.ts'
@@ -94,6 +95,7 @@ export const ROUTE_AUTHORIZATION = {
   'app/api/chat/[threadId]/route.ts': 'tenant_session',
   'app/api/chat/slack/route.ts': 'signed_webhook',
   'app/api/chat/teams/route.ts': 'signed_webhook',
+  'app/api/chat/uploads/[uploadId]/route.ts': 'tenant_session',
   'app/api/desk/[personId]/frame/route.ts': 'tenant_session',
   'app/api/desk/[personId]/frames/route.ts': 'tenant_session',
   'app/api/desk/[personId]/video/route.ts': 'tenant_session',

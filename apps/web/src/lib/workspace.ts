@@ -46,9 +46,9 @@ export const SKILLS_FOLDER = 'skills'
  * can refer to them. Rewritten from the database on every load, so a file an
  * agent altered on a previous run never becomes what the skill "is".
  *
- * NOTE: with the desk cutover this writes to the web tier's homes root, not
- * the guest disk — syncing bundles into the guest home is a follow-up on the
- * desk workstream. A skill with scripts is inert until that lands.
+ * The desk cutover makes this the guest disk itself. Skills and chat inputs
+ * therefore share the same persistent `/home/agent` that shell and desktop
+ * work use; there is no second web-tier workspace to drift out of sync.
  */
 export async function materializeSkillBundle(args: {
   tenantId: string

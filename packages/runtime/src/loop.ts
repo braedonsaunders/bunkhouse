@@ -222,7 +222,17 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
   })
   // Image attachments ride the opening turn so multimodal models genuinely
   // see what was sent — a photo of a receipt is content, not a filename.
-  const images = args.input.type === 'email' ? (args.input.images ?? []) : []
+  const images = args.input.type === 'email'
+    ? (args.input.images ?? [])
+    : args.input.type === 'chat'
+      ? (args.input.attachments ?? [])
+          .filter((attachment) => attachment.mediaType.startsWith('image/') && attachment.dataBase64)
+          .map((attachment) => ({
+            filename: attachment.filename,
+            mediaType: attachment.mediaType,
+            dataBase64: attachment.dataBase64!,
+          }))
+      : []
   const instruction = buildRunInstruction(args.input)
   const messages: ModelMessage[] = [
     ...redactSecretValue(args.priorMessages ?? [], runSecrets),

@@ -217,6 +217,90 @@ await asApp(T1, async (c) => {
     )
   })
 }
+
+// A chat upload can become one immutable file exactly once, and the dispatch
+// keeps that exact input even if application code later tries to rewrite it.
+{
+  const threadId = crypto.randomUUID()
+  const personId = crypto.randomUUID()
+  const userId = crypto.randomUUID()
+  const uploadId = crypto.randomUUID()
+  const pendingId = crypto.randomUUID()
+  const dispatchId = crypto.randomUUID()
+  await asApp(T1, async (c) => {
+    await c.query(
+      `insert into chat_threads (id, tenant_id, person_id, user_id, title)
+       values ($1, $2, $3, $4, 'Attachment claims')`,
+      [threadId, T1, personId, userId],
+    )
+    await c.query(
+      `insert into chat_file_uploads
+         (id, tenant_id, thread_id, person_id, user_id, filename, content_type, size_bytes,
+          pending_storage_key, final_storage_key, expires_at)
+       values ($1, $2, $3, $4, $5, 'forecast.xlsx', 'application/octet-stream', 4,
+         't/11111111-1111-1111-1111-111111111111/_pending/source',
+         't/11111111-1111-1111-1111-111111111111/other/final', now() + interval '1 hour')`,
+      [uploadId, T1, threadId, personId, userId],
+    )
+    await c.query(
+      `insert into chat_file_uploads
+         (id, tenant_id, thread_id, person_id, user_id, filename, content_type, size_bytes,
+          pending_storage_key, final_storage_key, expires_at)
+       values ($1, $2, $3, $4, $5, 'pending.txt', 'text/plain', 4,
+         't/11111111-1111-1111-1111-111111111111/_pending/pending',
+         't/11111111-1111-1111-1111-111111111111/other/pending', now() + interval '1 hour')`,
+      [pendingId, T1, threadId, personId, userId],
+    )
+    await assert.rejects(
+      c.query(`update chat_file_uploads set file_id = $1 where id = $1`, [pendingId]),
+      (error: { code?: string }) => error.code === 'P0001',
+      'a pending reservation cannot claim a file without finalizing',
+    )
+    await c.query(
+      `insert into files (id, tenant_id, person_id, kind, filename, content_type, size_bytes, storage_key, sha256)
+       values ($1, $2, $3, 'upload', 'forecast.xlsx', 'application/octet-stream', 4,
+         't/11111111-1111-1111-1111-111111111111/other/final', repeat('a', 64))`,
+      [uploadId, T1, personId],
+    )
+    await c.query(
+      `update chat_file_uploads set status = 'finalized', file_id = $1, finalized_at = now() where id = $1`,
+      [uploadId],
+    )
+    await assert.rejects(
+      c.query(`update chat_file_uploads set filename = 'swapped.xlsx' where id = $1`, [uploadId]),
+      (error: { code?: string }) => error.code === 'P0001',
+      'finalization cannot rewrite the reserved file identity',
+    )
+    await c.query(
+      `insert into chat_dispatches
+         (id, tenant_id, thread_id, user_id, position, idempotency_key, body)
+       values ($1, $2, $3, $4, 0, 'attachment-claim', 'Review this')`,
+      [dispatchId, T1, threadId, userId],
+    )
+    await c.query(
+      `insert into chat_dispatch_attachments (tenant_id, dispatch_id, file_id, ordinal, created_by)
+       values ($1, $2, $3, 0, $4)`,
+      [T1, dispatchId, uploadId, userId],
+    )
+    await assert.rejects(
+      c.query(`update chat_dispatch_attachments set ordinal = 1 where dispatch_id = $1`, [dispatchId]),
+      (error: { code?: string }) => error.code === '55000',
+      'a queued turn cannot swap or reorder its attached files',
+    )
+  })
+  await asApp(T2, async (c) => {
+    assert.equal(
+      await count(c, `select count(*) from chat_file_uploads where id = '${uploadId}'`),
+      0,
+      'another tenant cannot see the upload reservation',
+    )
+    assert.equal(
+      await count(c, `select count(*) from chat_dispatch_attachments where dispatch_id = '${dispatchId}'`),
+      0,
+      'another tenant cannot see the attached-file ledger',
+    )
+  })
+}
 await asApp(T2, async (c) => {
   assert.equal(await count(c, `select count(*) from people`), 1, 'T2 sees one person')
   const { rows } = await c.query(`select name from people`)

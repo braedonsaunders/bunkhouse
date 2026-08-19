@@ -53,6 +53,7 @@ import {
 } from '../db/schema'
 import { db } from '../db/client'
 import { loadInternalAddressTest } from './internal-addresses'
+import { ingestChatRunAttachments } from './chat-attachments'
 import { matchesInternalDomain } from './internal-domains'
 import { takeInbox } from './colleague-inbox'
 import { hopsOf } from './colleague-post'
@@ -798,12 +799,24 @@ export async function executeAgentRun(args: {
         })
       })
 
+    let runInput = args.input
     const attempt: { lease: ExecutionLease | null; outcome: RunOutcome | null } = { lease: null, outcome: null }
     // From here the run has a row, and a failure has to leave it saying so.
     // Nothing rolls back any more: a crash used to erase the run and its whole
     // ledger, which is the opposite of an append-only history and left the
     // abandoned-work sweep looking for rows that no longer existed.
     try {
+      if (runInput.type === 'chat' && runInput.attachments?.length) {
+        runInput = {
+          ...runInput,
+          attachments: await ingestChatRunAttachments({
+            tenantId: args.tenantId,
+            personId: person.id,
+            runId,
+            attachments: runInput.attachments,
+          }),
+        }
+      }
       const built = await assembleRunFoundation({ tenantId: args.tenantId, person, runId })
       if (!built.ok) {
         await recordEvent({ kind: 'error', message: built.reason })
@@ -828,21 +841,21 @@ export async function executeAgentRun(args: {
 
       // What this task is about — what the Logbook is recalled against.
       const retrievalQuery =
-        args.input.type === 'email'
-          ? `${args.input.threadSubject} ${args.input.conversation.slice(-400)}`
-          : args.input.type === 'duty'
-            ? `${args.input.dutyTitle} ${args.input.instruction}`
-            : args.input.type === 'chat'
-              ? args.input.message
-              : args.input.type === 'delegation'
-                ? args.input.instruction
-                : args.input.type === 'assignment'
-                  ? `${args.input.title} ${args.input.spec.slice(0, 400)}`
-                  : args.input.type === 'approval_decision'
-                    ? args.input.description
-                    : args.input.type === 'reply_received'
-                      ? args.input.question
-                      : args.input.instruction
+        runInput.type === 'email'
+          ? `${runInput.threadSubject} ${runInput.conversation.slice(-400)}`
+          : runInput.type === 'duty'
+            ? `${runInput.dutyTitle} ${runInput.instruction}`
+            : runInput.type === 'chat'
+              ? `${runInput.message} ${(runInput.attachments ?? []).map((file) => file.filename).join(' ')}`
+              : runInput.type === 'delegation'
+                ? runInput.instruction
+                : runInput.type === 'assignment'
+                  ? `${runInput.title} ${runInput.spec.slice(0, 400)}`
+                  : runInput.type === 'approval_decision'
+                    ? runInput.description
+                    : runInput.type === 'reply_received'
+                      ? runInput.question
+                      : runInput.instruction
       const memories = await runMemories(
         { tenantId: args.tenantId, agent: agentBinding(person), query: retrievalQuery },
         {
@@ -997,9 +1010,9 @@ export async function executeAgentRun(args: {
         abilities,
         input:
           inbox.length === 0
-            ? args.input
+            ? runInput
             : withInbox(
-                args.input,
+                runInput,
                 inbox
                   .map(
                     (message) =>

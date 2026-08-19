@@ -38,6 +38,7 @@ export const chatDispatchEventKind = pgEnum('chat_dispatch_event_kind', [
   'edited',
   'cancelled',
 ])
+export const chatFileUploadStatus = pgEnum('chat_file_upload_status', ['pending', 'finalized', 'failed'])
 
 /**
  * A conversation between one signed-in human and one agent. Mutable by
@@ -167,9 +168,63 @@ export const chatDispatchEvents = pgTable(
   ],
 )
 
+/**
+ * A short-lived reservation for an authenticated browser upload. The
+ * finalized `files` row is the immutable company record; this projection
+ * exists so the server can authenticate and verify the presigned PUT before
+ * accepting its id into a conversation.
+ */
+export const chatFileUploads = pgTable(
+  'chat_file_uploads',
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    threadId: uuid('thread_id').notNull(),
+    personId: uuid('person_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    filename: text('filename').notNull(),
+    contentType: text('content_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    pendingStorageKey: text('pending_storage_key').notNull(),
+    finalStorageKey: text('final_storage_key').notNull(),
+    multipartUploadId: text('multipart_upload_id'),
+    status: chatFileUploadStatus('status').notNull().default('pending'),
+    fileId: uuid('file_id'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    finalizedAt: timestamp('finalized_at', { withTimezone: true }),
+    ...auditColumns,
+  },
+  (t) => [
+    index('chat_file_uploads_owner_idx').on(t.tenantId, t.userId, t.threadId, t.createdAt),
+    index('chat_file_uploads_expiry_idx').on(t.status, t.expiresAt),
+    uniqueIndex('chat_file_uploads_file_key').on(t.fileId),
+  ],
+)
+
+/** Exact, immutable files carried by one queued turn, in presentation order. */
+export const chatDispatchAttachments = pgTable(
+  'chat_dispatch_attachments',
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    dispatchId: uuid('dispatch_id').notNull(),
+    fileId: uuid('file_id').notNull(),
+    ordinal: integer('ordinal').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid('created_by'),
+  },
+  (t) => [
+    uniqueIndex('chat_dispatch_attachments_file_key').on(t.dispatchId, t.fileId),
+    uniqueIndex('chat_dispatch_attachments_ordinal_key').on(t.dispatchId, t.ordinal),
+    index('chat_dispatch_attachments_tenant_idx').on(t.tenantId, t.dispatchId, t.ordinal),
+  ],
+)
+
 export const CHAT_THREAD_TENANT_TABLES = [
   'chat_threads',
   'chat_messages',
   'chat_dispatches',
   'chat_dispatch_events',
+  'chat_file_uploads',
+  'chat_dispatch_attachments',
 ] as const

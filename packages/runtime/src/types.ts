@@ -96,6 +96,22 @@ export type MemoryNote = {
 /** An image the agent should actually look at, inlined into the run's opening turn. */
 export type RunInputImage = { filename: string; mediaType: string; dataBase64: string }
 
+/** A company-ledger file attached to an authenticated in-app request. */
+export type RunInputAttachment = {
+  fileId: string
+  filename: string
+  mediaType: string
+  sizeBytes: number
+  /** Bounded readable content extracted by the host application. */
+  extractedText?: string
+  extractionNote?: string
+  /** Persistent path on the employee's own machine, when Desk is enabled. */
+  workspacePath?: string
+  stagingError?: string
+  /** Small images can additionally ride the multimodal opening turn. */
+  dataBase64?: string
+}
+
 /** What triggered this run, rendered into the opening instruction. */
 export type RunInput =
   | {
@@ -107,7 +123,7 @@ export type RunInput =
       images?: RunInputImage[]
     }
   | { type: 'duty'; dutyTitle: string; instruction: string }
-  | { type: 'chat'; message: string; requester?: ChatRequester }
+  | { type: 'chat'; message: string; requester?: ChatRequester; attachments?: RunInputAttachment[] }
   | { type: 'delegation'; fromName: string; instruction: string }
   | { type: 'manual'; instruction: string }
   | {

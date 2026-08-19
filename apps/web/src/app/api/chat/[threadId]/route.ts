@@ -63,6 +63,7 @@ export async function POST(
   }
   const prompt = (payload as { prompt?: unknown }).prompt
   const suppliedRequestId = (payload as { requestId?: unknown }).requestId
+  const suppliedAttachmentIds = (payload as { attachmentIds?: unknown }).attachmentIds
   if (typeof prompt !== 'string') return badRequest('A message is required.')
   if (prompt.length > MAX_PROMPT_CHARS) return badRequest('That message is too long to send.')
   const body = prompt.trim()
@@ -70,6 +71,12 @@ export async function POST(
   if (suppliedRequestId !== undefined && (typeof suppliedRequestId !== 'string' || suppliedRequestId.length > 128)) {
     return badRequest('That message request identity is not valid.')
   }
+  if (suppliedAttachmentIds !== undefined && (
+    !Array.isArray(suppliedAttachmentIds)
+    || suppliedAttachmentIds.length > 8
+    || suppliedAttachmentIds.some((id) => typeof id !== 'string')
+  )) return badRequest('The attached file list is not valid.')
+  const attachmentIds = (suppliedAttachmentIds as string[] | undefined) ?? []
   // Older clients remain compatible, but current clients send their own stable
   // identity so a retried HTTP request returns the first dispatch.
   const requestId = typeof suppliedRequestId === 'string' && suppliedRequestId.trim()
@@ -141,6 +148,7 @@ export async function POST(
           userId: access.user.id,
           body,
           idempotencyKey: requestId,
+          attachmentIds,
           requester,
           progress: createAcpRunProgress({ client, sessionId: threadId }),
         })

@@ -1,14 +1,15 @@
 import 'server-only'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
-import { newAttachmentKey } from '@braedonsaunders/appkit-storage'
+import { newAttachmentKey, newPendingUploadKey } from '@braedonsaunders/appkit-storage'
 import { createStorageFromEnv } from '@braedonsaunders/appkit-storage/env'
-import { files, type fileKind } from '../db/schema'
+import { chatFileUploads, files, type fileKind } from '../db/schema'
 import { db } from '../db/client'
 import { createReadyStorageAccessor } from './storage-readiness'
 
 export type FileKind = (typeof fileKind.enumValues)[number]
 export type FileRecord = typeof files.$inferSelect
+export const MAX_CHAT_UPLOAD_BYTES = 20 * 1024 * 1024
 
 /**
  * Object storage for the files ledger. The S3 endpoint is deployment
@@ -36,6 +37,7 @@ export async function saveFile(args: {
   filename: string
   contentType: string
   bytes: Uint8Array
+  createdBy?: string | null
 }): Promise<FileRecord> {
   const { storage: s, ready } = storage()
   await ready
@@ -57,6 +59,7 @@ export async function saveFile(args: {
         sizeBytes: args.bytes.byteLength,
         storageKey: key,
         sha256,
+        createdBy: args.createdBy ?? null,
       })
       .returning()
     if (!row) throw new Error('File record could not be created.')
@@ -97,6 +100,8 @@ export async function ledgerExistingObject(args: {
   filename: string
   contentType: string
   storageKey: string
+  fileId?: string
+  createdBy?: string | null
 }): Promise<FileRecord> {
   const { storage: s, ready } = storage()
   await ready
@@ -106,6 +111,7 @@ export async function ledgerExistingObject(args: {
     const [row] = await app.db
       .insert(files)
       .values({
+        ...(args.fileId ? { id: args.fileId } : {}),
         tenantId: args.tenantId,
         personId: args.personId ?? null,
         runId: args.runId ?? null,
@@ -115,11 +121,184 @@ export async function ledgerExistingObject(args: {
         sizeBytes: bytes.byteLength,
         storageKey: args.storageKey,
         sha256: createHash('sha256').update(bytes).digest('hex'),
+        createdBy: args.createdBy ?? null,
       })
+      .onConflictDoNothing()
       .returning()
-    if (!row) throw new Error('File record could not be created.')
-    return row
+    if (row) return row
+    if (!args.fileId) throw new Error('File record could not be created.')
+    const [existing] = await app.db.select().from(files).where(eq(files.id, args.fileId)).limit(1)
+    if (!existing || existing.storageKey !== args.storageKey) throw new Error('File record could not be reconciled.')
+    return existing
   })
+}
+
+export type ChatUploadReservation =
+  | { ok: true; uploadId: string; mode: 'single'; putUrl: string }
+  | {
+      ok: true
+      uploadId: string
+      mode: 'multipart'
+      multipartUploadId: string
+      partSizeBytes: number
+      partUrls: string[]
+    }
+
+/**
+ * Reserve a same-origin browser upload. The app writes the pending object so
+ * installations do not need a second, bucket-specific CORS configuration;
+ * only finalization promotes it into the immutable files ledger.
+ */
+export async function reserveChatFileUpload(args: {
+  tenantId: string
+  threadId: string
+  personId: string
+  userId: string
+  filename: string
+  contentType: string
+  sizeBytes: number
+}): Promise<ChatUploadReservation> {
+  const filename = args.filename.trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 180)
+  const contentType = args.contentType.trim().toLowerCase().slice(0, 160) || 'application/octet-stream'
+  if (!filename) throw new Error('Choose a named file to attach.')
+  if (!Number.isInteger(args.sizeBytes) || args.sizeBytes <= 0 || args.sizeBytes > MAX_CHAT_UPLOAD_BYTES) {
+    throw new Error('Each attachment must be between 1 byte and 20 MB.')
+  }
+  const uploadId = randomUUID()
+  const pendingStorageKey = newPendingUploadKey({ tenantId: args.tenantId, uploadId })
+  const finalStorageKey = newAttachmentKey({ tenantId: args.tenantId, kind: 'other', filename })
+  const reservation: ChatUploadReservation = {
+    ok: true,
+    uploadId,
+    mode: 'single',
+    putUrl: `/api/chat/uploads/${encodeURIComponent(uploadId)}`,
+  }
+
+  const app = db()
+  await app.withTenant(args.tenantId, () =>
+    app.db.insert(chatFileUploads).values({
+      id: uploadId,
+      tenantId: args.tenantId,
+      threadId: args.threadId,
+      personId: args.personId,
+      userId: args.userId,
+      filename,
+      contentType,
+      sizeBytes: args.sizeBytes,
+      pendingStorageKey,
+      finalStorageKey,
+      multipartUploadId: null,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1_000),
+      createdBy: args.userId,
+      updatedBy: args.userId,
+    }),
+  )
+  return reservation
+}
+
+/** Receive the reserved bytes through the authenticated application origin. */
+export async function receiveChatFileUpload(args: {
+  tenantId: string
+  userId: string
+  uploadId: string
+  contentType: string
+  bytes: Uint8Array
+}): Promise<void> {
+  const app = db()
+  const [upload] = await app.withTenantContext(args.tenantId, () =>
+    app.db
+      .select()
+      .from(chatFileUploads)
+      .where(and(eq(chatFileUploads.id, args.uploadId), eq(chatFileUploads.userId, args.userId)))
+      .limit(1),
+  )
+  if (!upload || upload.status !== 'pending') throw new Error('That upload reservation is not available.')
+  if (upload.expiresAt.getTime() <= Date.now()) throw new Error('That upload expired. Choose the file again.')
+  if (args.bytes.byteLength !== upload.sizeBytes) throw new Error('The uploaded file did not match its reservation.')
+  const contentType = args.contentType.trim().toLowerCase().split(';', 1)[0] ?? ''
+  if (contentType !== upload.contentType) throw new Error('The uploaded file type did not match its reservation.')
+  const { storage: s, ready } = storage()
+  await ready
+  await s.put({
+    key: upload.pendingStorageKey,
+    body: args.bytes,
+    contentType: upload.contentType,
+    contentDisposition: 'attachment',
+    tagging: 'appkit-state=pending',
+  })
+}
+
+/** Verify and promote one reserved upload; safe to repeat after a lost reply. */
+export async function finalizeChatFileUpload(args: {
+  tenantId: string
+  threadId: string
+  userId: string
+  uploadId: string
+  multipartUploadId?: string
+}): Promise<FileRecord> {
+  const app = db()
+  const [upload] = await app.withTenantContext(args.tenantId, () =>
+    app.db
+      .select()
+      .from(chatFileUploads)
+      .where(and(
+        eq(chatFileUploads.id, args.uploadId),
+        eq(chatFileUploads.threadId, args.threadId),
+        eq(chatFileUploads.userId, args.userId),
+      ))
+      .limit(1),
+  )
+  if (!upload) throw new Error('That upload reservation is not available.')
+  if (upload.status === 'failed') throw new Error('That upload did not complete.')
+  if (upload.status === 'finalized' && upload.fileId) {
+    const existing = await getFileRecord(args.tenantId, upload.fileId)
+    if (existing) return existing
+  }
+  if (upload.expiresAt.getTime() <= Date.now()) throw new Error('That upload expired. Choose the file again.')
+  if ((upload.multipartUploadId ?? undefined) !== args.multipartUploadId) {
+    throw new Error('That multipart upload identity is not valid.')
+  }
+
+  const { storage: s, ready } = storage()
+  await ready
+  if (upload.multipartUploadId) {
+    await s.completeMultipartUpload(upload.pendingStorageKey, upload.multipartUploadId)
+  }
+  const pending = await s.headObject(upload.pendingStorageKey)
+  if (!pending || pending.contentLength !== upload.sizeBytes || !pending.etag) {
+    throw new Error('The uploaded file did not match its reservation.')
+  }
+  const existingFinal = await s.headObject(upload.finalStorageKey)
+  if (!existingFinal) {
+    await s.promote({
+      sourceKey: upload.pendingStorageKey,
+      sourceEtag: pending.etag,
+      destinationKey: upload.finalStorageKey,
+      contentType: upload.contentType,
+      contentDisposition: 'attachment',
+    })
+  } else if (existingFinal.contentLength !== upload.sizeBytes) {
+    throw new Error('The finalized file does not match its reservation.')
+  }
+
+  const file = await ledgerExistingObject({
+    tenantId: args.tenantId,
+    personId: upload.personId,
+    kind: 'upload',
+    filename: upload.filename,
+    contentType: upload.contentType,
+    storageKey: upload.finalStorageKey,
+    fileId: upload.id,
+    createdBy: upload.userId,
+  })
+  await app.withTenant(args.tenantId, () =>
+    app.db
+      .update(chatFileUploads)
+      .set({ status: 'finalized', fileId: file.id, finalizedAt: new Date(), updatedAt: new Date(), updatedBy: args.userId })
+      .where(and(eq(chatFileUploads.id, upload.id), eq(chatFileUploads.status, 'pending'))),
+  )
+  await s.delete(upload.pendingStorageKey).catch(() => undefined)
+  return file
 }
 
 /**

@@ -16,6 +16,7 @@ export type ChatExportMessage = {
   at: string
   runId: string | null
   dispatchId: string | null
+  attachments?: Array<{ fileId: string; filename: string; contentType: string; sizeBytes: number }>
 }
 
 export type ChatExportRecord = {
@@ -61,6 +62,14 @@ export function chatExportMarkdown(record: ChatExportRecord): string {
         ? record.thread.personName
         : 'System note'
     lines.push(`## ${speaker} · ${message.at}`, '', markdownValue(message.body), '')
+    if (message.attachments?.length) {
+      lines.push(
+        ...message.attachments.map((file) =>
+          `- Attached: ${markdownValue(file.filename)} (${file.contentType}, file ${file.fileId})`,
+        ),
+        '',
+      )
+    }
     const evidence = [
       `Message ${message.seq}`,
       ...(message.runId ? [`Run ${message.runId}`] : []),

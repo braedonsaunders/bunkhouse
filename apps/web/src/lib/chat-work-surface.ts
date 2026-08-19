@@ -1,8 +1,10 @@
 import 'server-only'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import {
   callSessions,
   chatThreads,
+  chatDispatchAttachments,
+  chatDispatches,
   deskEvents,
   deskSessions,
   files,
@@ -160,7 +162,15 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
       .from(files)
       .where(
         and(
-          inArray(files.runId, threadRuns.map((candidate) => candidate.id)),
+          or(
+            inArray(files.runId, threadRuns.map((candidate) => candidate.id)),
+            sql`exists (
+              select 1 from ${chatDispatchAttachments}
+              inner join ${chatDispatches} on ${chatDispatches.id} = ${chatDispatchAttachments.dispatchId}
+              where ${chatDispatchAttachments.fileId} = ${files.id}
+                and ${chatDispatches.threadId} = ${threadId}
+            )`,
+          ),
           // Screen and call recordings are evidence presented on History and
           // the visual surfaces. Files is the employee's actual work product.
           inArray(files.kind, ['document', 'spreadsheet', 'attachment', 'upload']),
@@ -168,11 +178,11 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
       )
       .orderBy(desc(files.createdAt))
       .limit(100)
-    const workFiles: ChatWorkFile[] = conversationFiles.flatMap((file) =>
-      file.runId
-        ? [{ ...file, runId: file.runId, createdAt: file.createdAt.toISOString() }]
-        : [],
-    )
+    const workFiles: ChatWorkFile[] = conversationFiles.map((file) => ({
+      ...file,
+      runId: file.runId ?? run.id,
+      createdAt: file.createdAt.toISOString(),
+    }))
 
     // A chat thread is one durable conversation even though each user turn is
     // executed as its own run. Reading only the newest run made the old Live

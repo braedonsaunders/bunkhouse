@@ -69,6 +69,7 @@ export type {
   MemoryNote,
   RunEvent,
   RunInput,
+  RunInputAttachment,
   RunInputImage,
   ReportedCost,
   RunOutcome,

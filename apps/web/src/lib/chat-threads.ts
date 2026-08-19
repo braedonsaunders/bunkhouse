@@ -1,7 +1,7 @@
 import 'server-only'
 import { and, asc, desc, eq, gte, or, sql } from 'drizzle-orm'
 import { followDurableCursor } from '@braedonsaunders/appkit-events'
-import type { ChatRequester, RunInput, RunOutcome } from '@bunkhouse/runtime'
+import type { ChatRequester, RunInput, RunInputAttachment, RunOutcome } from '@bunkhouse/runtime'
 import { chatMessages, chatThreads, people, runEvents, runs, type RunTrigger } from '../db/schema'
 import { db } from '../db/client'
 import { replyTextForOutcome } from './chat-reply'
@@ -44,6 +44,14 @@ export type ChatMessageView = {
   at: string
   runId: string | null
   dispatchId: string | null
+  attachments?: ChatAttachmentView[]
+}
+
+export type ChatAttachmentView = {
+  fileId: string
+  filename: string
+  contentType: string
+  sizeBytes: number
 }
 
 export type ChatThreadView = {
@@ -417,6 +425,10 @@ export type ChatThreadDeps = {
     personId: string
     fallback?: ChatRequester
   }) => Promise<ChatRequester | undefined>
+  resolveAttachments?: (args: {
+    tenantId: string
+    fileIds: string[]
+  }) => Promise<ChatAttachmentView[]>
 }
 
 function storeOf(deps: ChatThreadDeps): ChatThreadStore {
@@ -509,7 +521,20 @@ export async function getThread(
   const store = storeOf(deps)
   const thread = await store.readThread({ tenantId, threadId })
   if (!thread) return null
-  return { thread, messages: await store.readMessages({ tenantId, threadId }) }
+  const messages = await store.readMessages({ tenantId, threadId })
+  const dispatchIds = [...new Set(messages.flatMap((message) => message.dispatchId ? [message.dispatchId] : []))]
+  if (dispatchIds.length === 0 || deps.store) return { thread, messages }
+  const { chatAttachmentsByDispatch } = await import('./chat-attachments')
+  const grouped = await chatAttachmentsByDispatch(tenantId, dispatchIds)
+  return {
+    thread,
+    messages: messages.map((message) => ({
+      ...message,
+      ...(message.role === 'user' && message.dispatchId && grouped.has(message.dispatchId)
+        ? { attachments: grouped.get(message.dispatchId) }
+        : {}),
+    })),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -775,6 +800,23 @@ export type ChatTurnProgress = {
   onToolResult?: (result: { toolCallId: string; output: unknown }) => void
 }
 
+async function resolveChatAttachments(
+  args: { tenantId: string; fileIds: string[] },
+  deps: ChatThreadDeps,
+): Promise<ChatAttachmentView[]> {
+  if (args.fileIds.length === 0) return []
+  if (deps.resolveAttachments) return deps.resolveAttachments(args)
+  if (deps.store) throw new Error('Attachment resolution is not configured for this conversation store.')
+  const { chatAttachmentRecords } = await import('./chat-attachments')
+  const records = await chatAttachmentRecords(args.tenantId, args.fileIds)
+  return records.map((record) => ({
+    fileId: record.id,
+    filename: record.filename,
+    contentType: record.contentType,
+    sizeBytes: record.sizeBytes,
+  }))
+}
+
 /** How much of the conversation rides into the run's instruction. */
 const HISTORY_TURNS = 10
 const HISTORY_CHARS = 6_000
@@ -814,6 +856,7 @@ export async function sendMessage(
     threadId: string
     userId: string
     body: string
+    attachmentIds?: string[]
     /** Signed-in operator identity; hierarchy is re-derived from the database. */
     requester?: ChatRequester
     /** Durable queue identity. A retry reuses its already-recorded user turn. */
@@ -839,6 +882,13 @@ export async function sendMessage(
 
     const history = await store.readMessages({ tenantId: args.tenantId, threadId: args.threadId })
     const inherited = await inheritedHistory({ tenantId: args.tenantId, thread }, store)
+    const attachments = await resolveChatAttachments(
+      { tenantId: args.tenantId, fileIds: args.attachmentIds ?? [] },
+      deps,
+    )
+    if (attachments.length !== (args.attachmentIds ?? []).length) {
+      throw new Error('One or more attached files are no longer available.')
+    }
     const requester = await requesterOf(
       {
         tenantId: args.tenantId,
@@ -860,13 +910,14 @@ export async function sendMessage(
       if (duplicate) return { messages: duplicate }
     }
 
-    const asked = recorded ?? await store.appendMessage({
+    const askedRecord = recorded ?? await store.appendMessage({
       tenantId: args.tenantId,
       threadId: args.threadId,
       role: 'user',
       body,
       ...(args.dispatchId ? { dispatchId: args.dispatchId } : {}),
     })
+    const asked = attachments.length > 0 ? { ...askedRecord, attachments } : askedRecord
     if (!recorded) {
       await store.touchThread({
         tenantId: args.tenantId,
@@ -908,6 +959,16 @@ export async function sendMessage(
             ],
             body,
           ),
+          ...(attachments.length > 0
+            ? {
+                attachments: attachments.map((attachment): RunInputAttachment => ({
+                  fileId: attachment.fileId,
+                  filename: attachment.filename,
+                  mediaType: attachment.contentType,
+                  sizeBytes: attachment.sizeBytes,
+                })),
+              }
+            : {}),
           ...(requester ? { requester } : {}),
         },
         ...(args.progress

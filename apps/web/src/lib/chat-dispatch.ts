@@ -1,8 +1,10 @@
 import 'server-only'
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import {
+  chatDispatchAttachments,
   chatDispatchEvents,
   chatDispatches,
+  chatFileUploads,
   chatMessages,
   runs,
 } from '../db/schema'
@@ -30,6 +32,7 @@ export type ChatDispatchEventKind =
 
 export const MAX_CHAT_MESSAGE_CHARS = 32_000
 const MAX_IDEMPOTENCY_KEY_CHARS = 128
+export const MAX_CHAT_ATTACHMENTS = 8
 
 export type ChatDispatchView = {
   id: string
@@ -44,6 +47,8 @@ export type ChatDispatchView = {
   queuedAt: string
   claimedAt: string | null
   finishedAt: string | null
+  /** Exact immutable files carried by this turn. Present on a claimed row. */
+  attachmentIds?: string[]
 }
 
 type TenantDatabase = BunkhouseDb['db']
@@ -131,6 +136,7 @@ export type ChatDispatchStore = {
     userId: string
     body: string
     idempotencyKey: string
+    attachmentIds?: string[]
   }): Promise<{ dispatch: ChatDispatchView; created: boolean }>
   claimNext(args: { tenantId: string; threadId: string }): Promise<ChatDispatchView | null>
   linkRun(args: { tenantId: string; dispatchId: string; runId: string }): Promise<void>
@@ -146,6 +152,15 @@ export type ChatDispatchStore = {
   cancel(args: { tenantId: string; dispatchId: string; actorId: string }): Promise<ChatDispatchView>
   pendingThreadIds(args: { tenantId: string }): Promise<string[]>
   running(args: { tenantId: string }): Promise<ChatDispatchView[]>
+}
+
+async function attachmentIdsFor(database: TenantDatabase, dispatchId: string): Promise<string[]> {
+  const rows = await database
+    .select({ fileId: chatDispatchAttachments.fileId })
+    .from(chatDispatchAttachments)
+    .where(eq(chatDispatchAttachments.dispatchId, dispatchId))
+    .orderBy(asc(chatDispatchAttachments.ordinal))
+  return rows.map((row) => row.fileId)
 }
 
 /** PostgreSQL claim authority for the per-conversation FIFO queue. */
@@ -168,7 +183,7 @@ export function dbChatDispatchStore(): ChatDispatchStore {
       )
       return rows.map(dispatchView)
     },
-    async enqueue({ tenantId, threadId, userId, body, idempotencyKey }) {
+    async enqueue({ tenantId, threadId, userId, body, idempotencyKey, attachmentIds = [] }) {
       return app.withTenant(tenantId, () =>
         app.db.transaction(async (rawTx) => {
           const tx = rawTx as unknown as TenantDatabase
@@ -180,7 +195,28 @@ export function dbChatDispatchStore(): ChatDispatchStore {
             .from(chatDispatches)
             .where(and(eq(chatDispatches.threadId, threadId), eq(chatDispatches.idempotencyKey, idempotencyKey)))
             .limit(1)
-          if (existing) return { dispatch: dispatchView(existing), created: false }
+          if (existing) {
+            const persistedIds = await attachmentIdsFor(tx, existing.id)
+            if (persistedIds.join('\n') !== attachmentIds.join('\n')) {
+              throw new Error('That message request identity was already used with different files.')
+            }
+            return { dispatch: { ...dispatchView(existing), attachmentIds: persistedIds }, created: false }
+          }
+          if (attachmentIds.length > 0) {
+            const uploaded = await tx
+              .select({ id: chatFileUploads.id, fileId: chatFileUploads.fileId })
+              .from(chatFileUploads)
+              .where(and(
+                inArray(chatFileUploads.id, attachmentIds),
+                eq(chatFileUploads.threadId, threadId),
+                eq(chatFileUploads.userId, userId),
+                eq(chatFileUploads.status, 'finalized'),
+              ))
+            const accepted = new Set(uploaded.filter((row) => row.fileId === row.id).map((row) => row.id))
+            if (accepted.size !== attachmentIds.length || attachmentIds.some((id) => !accepted.has(id))) {
+              throw new Error('One or more attached files are not available in this conversation.')
+            }
+          }
           const [{ next } = { next: 0 }] = await tx
             .select({ next: sql<number>`coalesce(max(${chatDispatches.position}), -1) + 1`.mapWith(Number) })
             .from(chatDispatches)
@@ -199,14 +235,25 @@ export function dbChatDispatchStore(): ChatDispatchStore {
             })
             .returning(dispatchSelection)
           if (!created) throw new Error('The message could not be queued.')
+          if (attachmentIds.length > 0) {
+            await tx.insert(chatDispatchAttachments).values(
+              attachmentIds.map((fileId, ordinal) => ({
+                tenantId,
+                dispatchId: created.id,
+                fileId,
+                ordinal,
+                createdBy: userId,
+              })),
+            )
+          }
           await appendEvent(tx, {
             tenantId,
             dispatchId: created.id,
             kind: 'queued',
-            detail: { position: created.position },
+            detail: { position: created.position, attachmentIds },
             actorId: userId,
           })
-          return { dispatch: dispatchView(created), created: true }
+          return { dispatch: { ...dispatchView(created), attachmentIds }, created: true }
         }),
       )
     },
@@ -252,7 +299,7 @@ export function dbChatDispatchStore(): ChatDispatchStore {
             kind: 'claimed',
             detail: { attempt: claimed.attempts },
           })
-          return dispatchView(claimed)
+          return { ...dispatchView(claimed), attachmentIds: await attachmentIdsFor(tx, claimed.id) }
         }),
       )
     },
@@ -432,6 +479,7 @@ export async function enqueueChatMessage(
     userId: string
     body: string
     idempotencyKey: string
+    attachmentIds?: string[]
   },
   deps: ChatDispatchDeps = {},
 ): Promise<{ dispatch: ChatDispatchView; created: boolean }> {
@@ -441,8 +489,14 @@ export async function enqueueChatMessage(
   const idempotencyKey = args.idempotencyKey.trim()
   if (!idempotencyKey) throw new Error('That message needs a request identity.')
   if (idempotencyKey.length > MAX_IDEMPOTENCY_KEY_CHARS) throw new Error('That message request identity is not valid.')
+  const attachmentIds = [...new Set(args.attachmentIds ?? [])]
+  if (attachmentIds.length !== (args.attachmentIds ?? []).length) throw new Error('The same file cannot be attached twice.')
+  if (attachmentIds.length > MAX_CHAT_ATTACHMENTS) throw new Error(`Attach no more than ${MAX_CHAT_ATTACHMENTS} files to one message.`)
+  if (attachmentIds.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))) {
+    throw new Error('One or more attachment identities are not valid.')
+  }
   await ownedOpenThread(args, deps)
-  return dispatchStoreOf(deps).enqueue({ ...args, body, idempotencyKey })
+  return dispatchStoreOf(deps).enqueue({ ...args, body, idempotencyKey, attachmentIds })
 }
 
 export async function drainChatDispatchQueue(
@@ -469,6 +523,7 @@ export async function drainChatDispatchQueue(
           threadId: args.threadId,
           userId: claimed.userId,
           body: claimed.body,
+          attachmentIds: claimed.attachmentIds ?? [],
           dispatchId: claimed.id,
           ...(args.requester ? { requester: args.requester } : {}),
           progress: {
@@ -513,6 +568,7 @@ export async function dispatchChatMessage(
     userId: string
     body: string
     idempotencyKey: string
+    attachmentIds?: string[]
     requester?: ChatRequester
     progress?: ChatTurnProgress
   },

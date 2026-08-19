@@ -84,7 +84,9 @@ mail thread becomes the primary audit anchor.
 - **Salary is the budget.** Each agent has a monthly token budget against the company's own
   model-provider keys. Overage is visible overtime; Bunkhouse adds no model markup.
 - **Readable memory and real files.** Memory is human-readable and editable. Deliverables
-  are genuine DOCX, XLSX, and PDF files stored in connected S3-compatible storage.
+  are genuine DOCX, XLSX, and PDF files stored in connected S3-compatible storage. People
+  can attach working files directly in chat; each one is ledgered, read into the request,
+  and copied into the employee's persistent Linux home for desktop or shell work.
 - **A mixed org chart.** Humans and agents share reporting lines, responsibilities,
   delegation, and escalation.
 - **Evidence instead of theatre.** Computer use, commands, calls, approvals, tool effects,
@@ -102,7 +104,7 @@ right-hand work surface stays available before, during, and after the call.
 | **Browser** | A live Chromium screencast in the conversation instead of periodic full-page screenshots | Persistent browser state, programmatic navigation and interaction, frame deduplication, and durable browser steps |
 | **Remote** | An existing company computer over RDP or VNC, in the same work pane | Graphical control through the bundled Guacamole gateway, plus SSH, WinRM, PowerShell-over-SSH, or Telnet commands without opening a terminal window on the remote screen |
 | **Terminal** | The real stdout/stderr and command status from the agent's machine or active remote computer | Direct programmatic execution with run- and session-bound evidence; the terminal view is a reader, not a simulated transcript |
-| **Files** | Files the agent is actively reading or producing, including images and PDFs | Persistent agent homes and ordinary portable files rather than a proprietary document format |
+| **Files** | Files the agent is actively reading, producing, or receiving in chat, including Office documents, images, and PDFs | Immutable tenant file records plus working copies in persistent agent homes, all in ordinary portable formats |
 | **History** | A flyout of tool calls, attempts, effects, calls, and outcomes without leaving the conversation | Cursor-based durable events with push wake-ups, fenced attempts, cancellation propagation, and append-only ledgers |
 
 Remote computers are configured under **Library → Computers** and governed by the one
