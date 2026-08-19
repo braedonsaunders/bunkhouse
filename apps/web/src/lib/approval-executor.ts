@@ -10,6 +10,7 @@ import { finalizeAssignmentRun } from './assignments'
 import { planApprovalExecution, settlementAfterFailure } from './approval-execution'
 import { appendRunEvent } from './run-events'
 import { externalEffectStore } from './run-execution'
+import { appendApprovalOutcomeToChat } from './chat-threads'
 
 /**
  * The generic approval executor. Every decided approval is acted on exactly
@@ -313,6 +314,14 @@ async function carryOutDecision(tenantId: string, claimed: ClaimedApproval): Pro
   if (run.trigger.type === 'assignment') {
     await finalizeAssignmentRun(tenantId, run.trigger.assignmentId, continuedRunId, outcome)
   }
+
+  await appendApprovalOutcomeToChat({
+    tenantId,
+    trigger: run.trigger,
+    approvalId: claimed.id,
+    continuedRunId,
+    outcome,
+  })
 
   await settleTerminal(tenantId, claimed.id, null)
 }

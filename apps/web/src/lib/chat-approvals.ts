@@ -12,6 +12,8 @@ export type ChatApprovalView = {
   details: Array<{ label: string; value: string }>
   status: 'pending' | 'approved' | 'rejected' | 'expired'
   decisionNote: string | null
+  /** The decision is final, but its parked run has not finished resuming yet. */
+  continuationPending: boolean
   createdAt: string
 }
 
@@ -31,6 +33,7 @@ export async function listThreadApprovals(tenantId: string, threadId: string): P
       payload: approvals.payload,
       status: approvals.status,
       decisionNote: approvals.decisionNote,
+      executedAt: approvals.executedAt,
       createdAt: approvals.createdAt,
     })
     .from(approvals)
@@ -50,6 +53,8 @@ export async function listThreadApprovals(tenantId: string, threadId: string): P
       ],
       status: row.status,
       decisionNote: row.decisionNote,
+      continuationPending:
+        (row.status === 'approved' || row.status === 'rejected') && row.executedAt === null,
       createdAt: row.createdAt.toISOString(),
     }
   })

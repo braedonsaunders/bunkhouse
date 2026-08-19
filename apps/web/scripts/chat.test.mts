@@ -31,6 +31,7 @@ const {
   startThread,
   continueThread,
   titleFromMessage,
+  appendApprovalOutcomeToChat,
 } = await import('../src/lib/chat-threads')
 
 const { chatExportFilename, chatExportJson, chatExportMarkdown, chatExportRecord } = await import('../src/lib/chat-export')
@@ -87,6 +88,7 @@ type StoredMessage = {
 function memoryChatStore(clock: () => Date) {
   const threads: StoredThread[] = []
   const messages: StoredMessage[] = []
+  const approvalContinuations = new Map<string, Awaited<ReturnType<ChatThreadStore['appendMessage']>>>()
   const store: ChatThreadStore = {
     async listThreads({ tenantId, userId, includeArchived, personId, query }): Promise<ChatThreadSummary[]> {
       const search = query?.toLocaleLowerCase()
@@ -186,6 +188,13 @@ function memoryChatStore(clock: () => Date) {
         runId: row.runId,
         dispatchId: row.dispatchId,
       }
+    },
+    async appendApprovalContinuation({ tenantId, threadId, body, runId, approvalId }) {
+      const existing = approvalContinuations.get(approvalId)
+      if (existing) return { message: existing, appended: false }
+      const message = await store.appendMessage({ tenantId, threadId, role: 'agent', body, runId })
+      approvalContinuations.set(approvalId, message)
+      return { message, appended: true }
     },
     async touchThread({ threadId, title, at }) {
       const thread = threads.find((row) => row.id === threadId)
@@ -473,6 +482,46 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     assert.match(migration, new RegExp(`CREATE POLICY tenant_isolation ON ${table}`))
   }
   console.log('chat: the transcript is append-only in the runtime and at the database boundary')
+}
+
+// --- (b1) an approved run speaks its resumed outcome back into chat --------
+{
+  let tick = 0
+  const clock = () => new Date(Date.parse('2026-08-19T20:00:00.000Z') + (tick += 1_000))
+  const { store, messages, threads } = memoryChatStore(clock)
+  const threadId = await store.createThread({ tenantId: TENANT, userId: USER, personId: AGENT, title: 'Connector' })
+  const outcome = {
+    status: 'completed' as const,
+    summary: 'The connector is ready. Add the API key in the secure request below.',
+    usage: { inputTokens: 10, outputTokens: 20 },
+    messages: [],
+  }
+  const args = {
+    tenantId: TENANT,
+    trigger: { type: 'chat' as const, conversationId: `web:${threadId}` },
+    approvalId: 'approval-twitter',
+    continuedRunId: 'run-twitter',
+    outcome,
+  }
+
+  const first = await appendApprovalOutcomeToChat(args, { store })
+  const recovered = await appendApprovalOutcomeToChat(args, { store })
+  assert.equal(first?.body, outcome.summary, 'the resumed result is visible in the conversation')
+  assert.equal(recovered?.id, first?.id, 'recovery resolves to the original durable message')
+  assert.equal(
+    messages.filter((message) => message.runId === 'run-twitter').length,
+    1,
+    'one approval produces exactly one chat continuation across retries',
+  )
+  assert.equal(threads[0]?.lastMessageAt.toISOString(), first?.at, 'the new answer advances the conversation')
+
+  const migration = readFileSync(
+    fileURLToPath(new URL('../../../migrations/0070_chat_approval_continuations.sql', import.meta.url)),
+    'utf8',
+  )
+  assert.match(migration, /ADD COLUMN "approval_id" uuid/)
+  assert.match(migration, /CREATE UNIQUE INDEX "chat_messages_approval_agent_key"/)
+  console.log('chat: approval continuation is visible, append-only, and idempotent')
 }
 
 // --- (b2) a completed streamed turn survives a profile-section switch ------

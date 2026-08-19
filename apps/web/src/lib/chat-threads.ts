@@ -117,6 +117,14 @@ export type ChatThreadStore = {
     runId?: string | null
     dispatchId?: string | null
   }): Promise<ChatMessageView>
+  /** Append the resumed answer for one approval exactly once. */
+  appendApprovalContinuation(args: {
+    tenantId: string
+    threadId: string
+    body: string
+    runId: string
+    approvalId: string
+  }): Promise<{ message: ChatMessageView; appended: boolean }>
   touchThread(args: { tenantId: string; threadId: string; title?: string | null; at: Date }): Promise<void>
   /**
    * A deliberate change to the conversation record itself — its name, or
@@ -316,6 +324,47 @@ export function dbChatThreadStore(): ChatThreadStore {
         return messageView(row)
       })
     },
+    async appendApprovalContinuation({ tenantId, threadId, body, runId, approvalId }) {
+      const app = db()
+      return app.withTenant(tenantId, async () => {
+        await app.db.execute(
+          sql`select pg_advisory_xact_lock(hashtext('bunkhouse.chat_messages'), hashtext(${threadId}))`,
+        )
+        const [existing] = await app.db
+          .select({
+            id: chatMessages.id,
+            seq: chatMessages.seq,
+            role: chatMessages.role,
+            body: chatMessages.body,
+            at: chatMessages.at,
+            runId: chatMessages.runId,
+            dispatchId: chatMessages.dispatchId,
+          })
+          .from(chatMessages)
+          .where(and(eq(chatMessages.approvalId, approvalId), eq(chatMessages.role, 'agent')))
+          .limit(1)
+        if (existing) return { message: messageView(existing), appended: false }
+
+        const [{ next } = { next: 0 }] = await app.db
+          .select({ next: sql<number>`coalesce(max(${chatMessages.seq}), -1) + 1`.mapWith(Number) })
+          .from(chatMessages)
+          .where(eq(chatMessages.threadId, threadId))
+        const [row] = await app.db
+          .insert(chatMessages)
+          .values({ tenantId, threadId, seq: next, role: 'agent', body, runId, approvalId })
+          .returning({
+            id: chatMessages.id,
+            seq: chatMessages.seq,
+            role: chatMessages.role,
+            body: chatMessages.body,
+            at: chatMessages.at,
+            runId: chatMessages.runId,
+            dispatchId: chatMessages.dispatchId,
+          })
+        if (!row) throw new Error('The approval continuation could not be recorded.')
+        return { message: messageView(row), appended: true }
+      })
+    },
     async touchThread({ tenantId, threadId, title, at }) {
       const app = db()
       await app.withTenant(tenantId, async () => {
@@ -433,6 +482,38 @@ export type ChatThreadDeps = {
 
 function storeOf(deps: ChatThreadDeps): ChatThreadStore {
   return deps.store ?? dbChatThreadStore()
+}
+
+/**
+ * Deliver a governed approval's resumed outcome back to the web conversation.
+ * The run ledger is authoritative for the work; this is the readable handoff
+ * the person was promised when they approved it. `approvalId` makes recovery
+ * append exactly once without editing earlier transcript rows.
+ */
+export async function appendApprovalOutcomeToChat(
+  args: {
+    tenantId: string
+    trigger: RunTrigger
+    approvalId: string
+    continuedRunId: string
+    outcome: RunOutcome
+  },
+  deps: Pick<ChatThreadDeps, 'store'> = {},
+): Promise<ChatMessageView | null> {
+  if (args.trigger.type !== 'chat' || !args.trigger.conversationId.startsWith('web:')) return null
+  const threadId = args.trigger.conversationId.slice('web:'.length)
+  const store = storeOf(deps)
+  const recorded = await store.appendApprovalContinuation({
+    tenantId: args.tenantId,
+    threadId,
+    body: replyTextForOutcome(args.outcome),
+    runId: args.continuedRunId,
+    approvalId: args.approvalId,
+  })
+  if (recorded.appended) {
+    await store.touchThread({ tenantId: args.tenantId, threadId, at: new Date(recorded.message.at) })
+  }
+  return recorded.message
 }
 
 async function runnerOf(deps: ChatThreadDeps): Promise<ChatRunner> {

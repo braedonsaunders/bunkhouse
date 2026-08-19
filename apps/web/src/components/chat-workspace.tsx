@@ -148,6 +148,7 @@ export type ChatApprovalRecord = {
   details: Array<{ label: string; value: string }>
   status: 'pending' | 'approved' | 'rejected' | 'expired'
   decisionNote: string | null
+  continuationPending: boolean
   createdAt: string
 }
 
@@ -275,7 +276,9 @@ function credentialRequestSignature(requests: ChatCredentialRequestRecord[]): st
 }
 
 function approvalRequestSignature(requests: ChatApprovalRecord[]): string {
-  return requests.map((request) => `${request.id}:${request.status}:${request.decisionNote ?? ''}`).join('|')
+  return requests
+    .map((request) => `${request.id}:${request.status}:${request.continuationPending}:${request.decisionNote ?? ''}`)
+    .join('|')
 }
 
 const DEFAULT_WORK_PANE_WIDTH = 448
@@ -997,9 +1000,10 @@ export function AgentChatWorkspace({
   // has returned. Follow the durable projection while there is pending work;
   // when a new persisted answer lands outside the direct stream, remount the
   // panel from the authoritative transcript.
+  const approvalContinuationPending = detail?.approvals.some((approval) => approval.continuationPending) === true
   React.useEffect(() => {
     const threadId = detail?.thread.id
-    if (!threadId || detail.dispatches.length === 0) return
+    if (!threadId || (detail.dispatches.length === 0 && !approvalContinuationPending)) return
     const timer = window.setInterval(() => {
       void getThreadAction(threadId).then((loaded) => {
         if (!loaded) return
@@ -1019,7 +1023,7 @@ export function AgentChatWorkspace({
       }).catch(() => undefined)
     }, 1_500)
     return () => window.clearInterval(timer)
-  }, [detail?.dispatches.length, detail?.thread.id])
+  }, [approvalContinuationPending, detail?.dispatches.length, detail?.thread.id])
 
   /**
    * A conversation starts empty and its first turn streams like every other
