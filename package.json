@@ -24,6 +24,7 @@
       "unrs-resolver"
     ],
     "overrides": {
+      "@braedonsaunders/appkit-ai": "file:./vendor/appkit/braedonsaunders-appkit-ai-1.1.0-05f281b688b5.tgz",
       "@braedonsaunders/appkit-sync": "file:./vendor/appkit/braedonsaunders-appkit-sync-1.1.0-05f281b688b5.tgz",
       "adm-zip@<0.6.0": "0.6.0",
       "brace-expansion@<1.1.18": "1.1.18",
