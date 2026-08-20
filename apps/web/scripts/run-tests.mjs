@@ -28,6 +28,7 @@ const tests = [
   'desk-marks',
   'chat-replay',
   'duty-delivery',
+  'subagents',
   'chat',
   'chat-dispatch',
   'lifecycle',

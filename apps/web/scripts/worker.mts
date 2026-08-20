@@ -11,6 +11,7 @@ import { sendNewMail, sendReplyInThread, syncPersonMailbox } from '../src/lib/ma
 import { dueDuties, executeAgentRun, pendingInboundMessageIds, startRunsForNewInbound } from '../src/lib/agent-runs'
 import { finalizeAssignmentRun } from '../src/lib/assignments'
 import { executeDueDuty } from '../src/lib/duty-execution'
+import { runLaunchedChild, unstartedChildRunIds } from '../src/lib/subagents'
 import { gardenerPass as gardenTenant, journalPass as journalTenant, reflectionPass as reflectTenant } from '../src/lib/consolidation'
 import { pendingAssignmentIds, runAssignment } from '../src/lib/assignments'
 import { decidedApprovalIds, executeDecidedApproval } from '../src/lib/approval-executor'
@@ -162,6 +163,23 @@ async function approvalsPass(): Promise<void> {
     }
     for (const requestId of await pendingStoredCredentialContinuationIds(tenantId)) {
       await deepWork.add('credential', { kind: 'credential', tenantId, id: requestId })
+    }
+  }
+}
+
+/**
+ * Runs another run launched and has not started yet.
+ *
+ * Swept from the database rather than enqueued by the ability that created
+ * them, exactly as approvals and assignments are: the app writes a durable row
+ * and the worker finds it. That also makes recovery free — a child whose job
+ * was lost is simply an unclaimed row on the next tick — and the jobId keeps a
+ * second tick from starting the same child twice.
+ */
+async function launchedChildrenPass(): Promise<void> {
+  for (const tenantId of await activeTenantIds()) {
+    for (const runId of await unstartedChildRunIds(tenantId)) {
+      await deepWork.add('child', { kind: 'child', tenantId, id: runId }, { jobId: `child-${runId}` })
     }
   }
 }
@@ -665,9 +683,12 @@ type HeartbeatPass =
   | 'tools'
   | 'systems'
   | 'conversations'
+  | 'children'
 type DeepWorkJob =
   | { kind: 'assignment' | 'approval' | 'credential' | 'inbound' | 'conversation'; tenantId: string; id: string }
   | { kind: 'duty'; tenantId: string; id: string; scheduledAt: string | null }
+  /** A run another run launched and is waiting on. `id` is the child's run id. */
+  | { kind: 'child'; tenantId: string; id: string }
 
 // Deep work — assignment runs and approval continuations — gets its own queue
 // and worker so a multi-minute deliverable never blocks the heartbeat.
@@ -678,6 +699,9 @@ await heartbeat.upsertJobScheduler('mailbox', { every: 120_000 }, { name: 'tick'
 await heartbeat.upsertJobScheduler('duties', { every: 60_000 }, { name: 'tick', data: { pass: 'duties' } })
 await heartbeat.upsertJobScheduler('approvals', { every: 30_000 }, { name: 'tick', data: { pass: 'approvals' } })
 await heartbeat.upsertJobScheduler('assignments', { every: 30_000 }, { name: 'tick', data: { pass: 'assignments' } })
+// Ten seconds, not thirty: a parent is sitting in await_launched_work while
+// this decides how soon its children start.
+await heartbeat.upsertJobScheduler('children', { every: 10_000 }, { name: 'tick', data: { pass: 'children' } })
 await heartbeat.upsertJobScheduler('conversations', { every: 30_000 }, { name: 'tick', data: { pass: 'conversations' } })
 await heartbeat.upsertJobScheduler('calls', { every: 300_000 }, { name: 'tick', data: { pass: 'calls' } })
 await heartbeat.upsertJobScheduler('waits', { every: 3_600_000 }, { name: 'tick', data: { pass: 'waits' } })
@@ -703,6 +727,7 @@ const worker = jobs.createWorker<{ pass: HeartbeatPass }>(
     if (job.data.pass === 'mailbox') await mailboxPass()
     else if (job.data.pass === 'duties') await dutiesPass()
     else if (job.data.pass === 'assignments') await assignmentsPass()
+    else if (job.data.pass === 'children') await launchedChildrenPass()
     else if (job.data.pass === 'conversations') await conversationsPass()
     else if (job.data.pass === 'calls') {
       await callSweepPass()
@@ -742,6 +767,8 @@ const deepWorker = jobs.createWorker<DeepWorkJob>(
       await drainChatDispatchQueue({ tenantId: job.data.tenantId, threadId: job.data.id })
     } else if (job.data.kind === 'duty') {
       await executeDueDuty(job.data.tenantId, job.data.id, job.data.scheduledAt)
+    } else if (job.data.kind === 'child') {
+      await runLaunchedChild(job.data.tenantId, job.data.id)
     }
   },
   { concurrency: 2 },
@@ -751,6 +778,7 @@ await heartbeat.add('tick', { pass: 'mailbox' })
 await heartbeat.add('tick', { pass: 'duties' })
 await heartbeat.add('tick', { pass: 'approvals' })
 await heartbeat.add('tick', { pass: 'assignments' })
+await heartbeat.add('tick', { pass: 'children' })
 await heartbeat.add('tick', { pass: 'conversations' })
 // Queued at boot as well as daily: this is the pass that retires a belief the
 // ledger has disproved and caps a runaway repeat, and both of those are worth

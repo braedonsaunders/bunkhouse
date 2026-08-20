@@ -65,6 +65,22 @@ export type RunTrigger =
   | { type: 'assignment'; assignmentId: string }
   | { type: 'approval_followup'; approvalId: string; originRunId: string }
   | { type: 'credential_followup'; requestId: string; originRunId: string }
+  /**
+   * Work a run started and intends to collect itself, rather than hand away.
+   *
+   * `subagent` runs as the SAME person on a narrower brief — it inherits that
+   * agent's dials, abilities and budget, and is a way of doing several things
+   * at once rather than a second actor. `invocation` runs as a DIFFERENT
+   * person, one below the caller in the reporting tree, under their own
+   * governance.
+   *
+   * The brief lives here rather than in the queue message on purpose: the run
+   * row is created before the job is enqueued so the parent can list what it
+   * launched immediately, and a brief that only existed in Redis would leave
+   * that row running forever if the queue lost it.
+   */
+  | { type: 'subagent'; parentRunId: string; label: string; brief: string }
+  | { type: 'invocation'; parentRunId: string; label: string; brief: string; byPersonId: string }
 
 export const runs = pgTable(
   'runs',

@@ -563,6 +563,164 @@ export function delegationAbilities(args: {
   const rootRunId = args.rootRunId
   return [
     defineAbility({
+      name: 'start_subagent',
+      description:
+        'Launch a piece of your own work to run beside you, and keep going. Use it when a task splits into parts that do not depend on each other — read nine filings while you read the tenth, check six tickers at once. Launch them all first, then call await_launched_work; launching one and waiting for it is slower than just doing it yourself. Each one runs as you, with your tools and your budget, and knows only the brief you write here.',
+      // Doing your own work in parallel is not a new actor and grants nothing
+      // the agent did not already have — the child inherits this person's dials
+      // and this person's budget, and every governed action inside it is gated
+      // exactly as it would be inline.
+      category: null,
+      inputSchema: z.object({
+        label: z.string().min(1).max(80).describe('A short name, so you can tell them apart when you collect them.'),
+        brief: z
+          .string()
+          .min(1)
+          .max(20_000)
+          .describe('The complete self-contained instruction. It sees none of your context except this.'),
+      }),
+      execute: async ({ label, brief }) => {
+        const { createChildRun, childrenOf, childDepth, MAX_CHILDREN_PER_RUN, MAX_CHILD_DEPTH } =
+          await import('./subagents')
+        const depth = await childDepth(tenantId, runId)
+        if (depth >= MAX_CHILD_DEPTH) {
+          return { started: false, reason: `This work is already ${depth} levels deep. Do this part yourself.` }
+        }
+        const existing = await childrenOf(tenantId, runId)
+        if (existing.length >= MAX_CHILDREN_PER_RUN) {
+          return {
+            started: false,
+            reason: `You have already launched ${existing.length}. Collect them before launching more.`,
+          }
+        }
+        const id = await createChildRun({
+          tenantId,
+          personId: person.id,
+          parentRunId: runId,
+          rootRunId: rootRunId ?? runId,
+          label,
+          brief,
+          kind: 'subagent',
+          byPersonId: person.id,
+        })
+        return {
+          started: true,
+          subagentId: id,
+          label,
+          note: 'Running beside you. Launch the rest now; collect them all with await_launched_work.',
+        }
+      },
+    }),
+    defineAbility({
+      name: 'invoke_report',
+      description:
+        'Put a named AI employee who reports to you — directly or further down — straight onto a piece of work, and collect their answer yourself. Unlike delegate_to_colleague, which hands work away as an assignment and gets an email back later, this runs now and returns to you. They work under their own permissions and their own budget, with their own tools, so use this when the work genuinely needs who they are rather than just another pair of hands. Peers and managers cannot be invoked: email a peer, escalate to a manager.',
+      // The invoked person's OWN dials govern everything inside their run, so
+      // this grants the caller nothing it could not already ask for by email.
+      // What it does spend is the report's budget, which is why it is bounded
+      // to people beneath the caller in the tree.
+      category: null,
+      inputSchema: z.object({
+        toEmail: z.string().min(1).max(200).describe('The directory email of the employee who reports to you.'),
+        label: z.string().min(1).max(80).describe('A short name for the piece of work.'),
+        brief: z
+          .string()
+          .min(1)
+          .max(20_000)
+          .describe('The complete self-contained brief. They know nothing of your task except this.'),
+      }),
+      execute: async ({ toEmail, label, brief }) => {
+        const { canInvoke, createChildRun, childrenOf, childDepth, orgRoster, MAX_CHILDREN_PER_RUN, MAX_CHILD_DEPTH } =
+          await import('./subagents')
+        const roster = await orgRoster(tenantId)
+        const wanted = toEmail.trim().toLowerCase()
+        const target = roster.find((candidate) => (candidate.email ?? '').toLowerCase() === wanted)
+        if (!target) return { started: false, reason: `No employee in the directory has the address ${toEmail}.` }
+        if (target.kind !== 'agent') {
+          return { started: false, reason: `${target.name} is a person, not an AI employee. Email them instead.` }
+        }
+        if (!canInvoke(roster, person.id, target.id)) {
+          return {
+            started: false,
+            reason:
+              `${target.name} does not report to you, so you cannot put them straight onto work. `
+              + 'Use delegate_to_colleague to ask, or email them.',
+          }
+        }
+        const depth = await childDepth(tenantId, runId)
+        if (depth >= MAX_CHILD_DEPTH) {
+          return { started: false, reason: `This work is already ${depth} levels deep. Do this part yourself.` }
+        }
+        const existing = await childrenOf(tenantId, runId)
+        if (existing.length >= MAX_CHILDREN_PER_RUN) {
+          return { started: false, reason: `You have already launched ${existing.length}. Collect them first.` }
+        }
+        const id = await createChildRun({
+          tenantId,
+          personId: target.id,
+          parentRunId: runId,
+          rootRunId: rootRunId ?? runId,
+          label,
+          brief,
+          kind: 'invocation',
+          byPersonId: person.id,
+        })
+        return {
+          started: true,
+          subagentId: id,
+          label,
+          who: target.name,
+          note: `${target.name} is on it. Collect with await_launched_work.`,
+        }
+      },
+    }),
+    defineAbility({
+      name: 'await_launched_work',
+      description:
+        'Collect everything you launched with start_subagent or invoke_report. Waits until they finish, then hands you their answers. Call it ONCE after launching everything — it returns whatever is done when the wait runs out, and you can call it again for the rest.',
+      category: null,
+      inputSchema: z.object({
+        waitSeconds: z
+          .number()
+          .int()
+          .min(0)
+          .max(600)
+          .default(240)
+          .describe('How long to wait for the outstanding ones. Use 0 to look without waiting.'),
+      }),
+      execute: async ({ waitSeconds }) => {
+        const { childrenOf, childIsFinished } = await import('./subagents')
+        const deadline = Date.now() + waitSeconds * 1_000
+        let children = await childrenOf(tenantId, runId)
+        if (children.length === 0) return { launched: 0, note: 'You have not launched anything on this run.' }
+        // Poll rather than subscribe: a child is a whole run in another
+        // process, and the thing being waited on is minutes long, so a few
+        // seconds of latency costs nothing and needs no notification channel.
+        while (Date.now() < deadline && children.some((child) => !childIsFinished(child.status))) {
+          await new Promise((resolve) => setTimeout(resolve, 3_000))
+          children = await childrenOf(tenantId, runId)
+        }
+        const finished = children.filter((child) => childIsFinished(child.status))
+        const pending = children.filter((child) => !childIsFinished(child.status))
+        return {
+          results: finished.map((child) => ({
+            label: child.label,
+            who: child.personName,
+            status: child.status,
+            // A failed child's summary is its error; either way it is what
+            // came back, and the parent decides what that is worth.
+            answer: child.summary ?? (child.status === 'completed' ? '(no answer recorded)' : '(did not finish)'),
+          })),
+          ...(pending.length > 0
+            ? {
+                stillRunning: pending.map((child) => child.label),
+                note: `${pending.length} still working. Call await_launched_work again for those.`,
+              }
+            : {}),
+        }
+      },
+    }),
+    defineAbility({
       name: 'delegate_to_colleague',
       description:
         'Hand a piece of work to an AI colleague from the directory (delegate down or sideways — humans you simply email). They work it as their own assignment and email you the outcome, which you should review before passing it on. Give a complete brief; they know nothing about your current task except what you write here.',
@@ -579,6 +737,24 @@ export function delegationAbilities(args: {
       execute: async ({ toEmail, title, brief, formats, dueAt }) => {
         const due = dueAt ? new Date(dueAt) : null
         if (due && Number.isNaN(due.getTime())) return { delegated: false, reason: 'dueAt is not a valid date.' }
+        // "Down or sideways" was, until now, only a sentence in the description
+        // — nothing stopped an agent assigning work to its own manager, which
+        // inverts the reporting line every other surface reads as authority.
+        // Enforced here rather than in the prompt, because a rule a model is
+        // merely asked to follow is a rule that holds until it is inconvenient.
+        const { orgRoster } = await import('./subagents')
+        const { managerChain } = await import('./org')
+        const roster = await orgRoster(tenantId)
+        const wanted = toEmail.trim().toLowerCase()
+        const target = roster.find((candidate) => (candidate.email ?? '').toLowerCase() === wanted)
+        if (target && managerChain(roster, person.id).some((manager) => manager.id === target.id)) {
+          return {
+            delegated: false,
+            reason:
+              `${target.name} is above you in the reporting line — you cannot assign work upward. `
+              + 'Escalate by emailing them instead.',
+          }
+        }
         // One path for every internal handoff, so the loop guard is one thing
         // and cannot be walked around by picking the other tool.
         const posted = await postToColleague({

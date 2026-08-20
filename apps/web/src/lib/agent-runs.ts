@@ -648,6 +648,9 @@ async function resolveRootRun(trigger: RunTrigger): Promise<string | null> {
   if (trigger.type === 'approval_followup') return rootOf(trigger.originRunId)
   if (trigger.type === 'credential_followup') return rootOf(trigger.originRunId)
   if (trigger.type === 'delegation') return rootOf(trigger.runId)
+  // A child the parent collects itself still descends from the same ask, so
+  // what one request cost totals correctly however wide it fanned out.
+  if (trigger.type === 'subagent' || trigger.type === 'invocation') return rootOf(trigger.parentRunId)
   if (trigger.type === 'assignment') {
     const [row] = await app.db
       .select({ source: assignments.source })

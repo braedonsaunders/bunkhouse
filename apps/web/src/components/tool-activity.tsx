@@ -23,6 +23,7 @@ import {
   Search,
   Table2,
   TerminalSquare,
+  Users,
   Video,
   type LucideIcon,
 } from 'lucide-react'
@@ -42,6 +43,9 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   send_email: Mail,
   email_colleague: Mail,
   post_to_conversation: MessageSquare,
+  start_subagent: Users,
+  invoke_report: Users,
+  await_launched_work: Users,
   save_memory: NotebookPen,
   search_memory: NotebookPen,
   schedule_task: CalendarClock,
