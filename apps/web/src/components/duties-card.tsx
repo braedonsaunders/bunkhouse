@@ -215,7 +215,6 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
                   disabled={saving}
                   onClick={() =>
                     startSaving(async () => {
