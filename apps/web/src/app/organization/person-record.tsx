@@ -188,6 +188,14 @@ export async function personDrawer({
         .from(departments)
         .orderBy(asc(departments.position), asc(departments.name)),
       personDuties,
+      // The people a duty's work product can be sent to. Active only: a
+      // recipient list offering somebody who has left is an invitation to
+      // build a delivery that silently goes nowhere.
+      recipientDirectory: await app.db
+        .select({ id: people.id, name: people.name, kind: people.kind, email: people.email, phone: people.phone })
+        .from(people)
+        .where(eq(people.status, 'active'))
+        .orderBy(asc(people.name)),
       dial,
       notes,
       monthSpend: Number(spend?.cost ?? 0),
@@ -299,6 +307,7 @@ export async function personDrawer({
             content: (
               <DutiesCard
                 personId={selected.id}
+                directory={detail.recipientDirectory}
                 duties={detail.personDuties.map((duty) => {
                   // `interval` predates the flexible-schedule work and is not
                   // written by any authoring path; treat it as cron for display.
@@ -314,6 +323,7 @@ export async function personDrawer({
                     maxRuns: duty.maxRuns,
                     enabled: duty.enabled,
                     lastRunAt: duty.lastRunAt ? duty.lastRunAt.toISOString().slice(0, 16).replace('T', ' ') : '',
+                    deliverTo: duty.deliverTo ?? [],
                   }
                 })}
               />
@@ -575,6 +585,7 @@ export async function personDrawer({
         content: (
           <DutiesCard
             personId={selected.id}
+            directory={detail.recipientDirectory}
             duties={detail.personDuties.map((duty) => {
               const kind = duty.scheduleKind === 'once' ? ('once' as const) : ('cron' as const)
               return {
@@ -588,6 +599,7 @@ export async function personDrawer({
                 maxRuns: duty.maxRuns,
                 enabled: duty.enabled,
                 lastRunAt: duty.lastRunAt ? duty.lastRunAt.toISOString().slice(0, 16).replace('T', ' ') : '',
+                deliverTo: duty.deliverTo ?? [],
               }
             })}
           />

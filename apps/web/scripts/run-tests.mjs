@@ -29,6 +29,7 @@ const tests = [
   'chat-replay',
   'duty-delivery',
   'subagents',
+  'delivery-targets',
   'chat',
   'chat-dispatch',
   'lifecycle',

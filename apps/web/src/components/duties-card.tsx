@@ -17,6 +17,7 @@ import {
 } from '@braedonsaunders/appkit-ui'
 import { addDuty, deleteDuty, updateDuty } from '../app/organization/actions'
 import { toLocalInput, type DutySchedule } from '../lib/schedule'
+import { DeliveryTargetsField, type DeliveryTargetValue, type DirectoryEntry } from './delivery-targets-field'
 import { MarkdownEditor } from './markdown-editor'
 import { ScheduleBuilder } from './schedule-builder'
 
@@ -33,6 +34,7 @@ export type DutyRow = {
   maxRuns: number | null
   enabled: 'on' | 'off'
   lastRunAt: string
+  deliverTo: DeliveryTargetValue[]
 }
 
 const NEW_SCHEDULE: DutySchedule = { kind: 'cron', schedule: '0 8 * * 1-5' }
@@ -64,7 +66,7 @@ const COLUMNS: RecordColumn<DutyRow>[] = [
   { key: 'lastRunAt', label: 'Last run' },
 ]
 
-export function DutiesCard({ personId, duties }: { personId: string; duties: DutyRow[] }) {
+export function DutiesCard({ personId, duties, directory = [] }: { personId: string; duties: DutyRow[]; directory?: DirectoryEntry[] }) {
   const [selected, setSelected] = React.useState<DutyRow | null>(null)
   const [creating, setCreating] = React.useState(false)
   const [newSchedule, setNewSchedule] = React.useState<DutySchedule>(NEW_SCHEDULE)
@@ -72,6 +74,7 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
   const [schedule, setSchedule] = React.useState<DutySchedule>(NEW_SCHEDULE)
   const [bounds, setBounds] = React.useState<DutyBounds>(NO_BOUNDS)
   const [enabled, setEnabled] = React.useState(true)
+  const [deliverTo, setDeliverTo] = React.useState<DeliveryTargetValue[]>([])
   const [error, setError] = React.useState<string | null>(null)
   const [saving, startSaving] = React.useTransition()
 
@@ -83,6 +86,7 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
       maxRuns: duty.maxRuns === null ? '' : String(duty.maxRuns),
     })
     setEnabled(duty.enabled === 'on')
+    setDeliverTo(duty.deliverTo ?? [])
     setError(null)
   }
 
@@ -93,6 +97,7 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
       form.set('dutyId', selected!.id)
       applySchedule(form, schedule, bounds)
       form.set('enabled', enabled ? 'on' : 'off')
+      form.set('deliverTo', JSON.stringify(deliverTo))
       try {
         await updateDuty(form)
         setSelected(null)
@@ -185,6 +190,9 @@ export function DutiesCard({ personId, duties }: { personId: string; duties: Dut
               <div className="space-y-2">
                 <Label htmlFor="duty-instruction">Instruction</Label>
                 <MarkdownEditor name="instruction" defaultValue={selected.instruction} />
+              </div>
+              <div className="space-y-2">
+                <DeliveryTargetsField value={deliverTo} onChange={setDeliverTo} directory={directory} />
               </div>
               <div className="space-y-2">
                 <Label>Schedule</Label>

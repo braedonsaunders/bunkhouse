@@ -1,12 +1,32 @@
 import 'server-only'
 
 import { and, eq, isNull } from 'drizzle-orm'
-import { duties } from '../db/schema'
+import { duties, type DeliveryTarget } from '../db/schema'
 import { db } from '../db/client'
 import { executeAgentRun } from './agent-runs'
+import { deliveryInstruction, resolveDeliveryTargets } from './delivery-targets'
 import { nextOccurrence } from './duties'
 import { isPersonNotWorking } from './person-work'
 import { dutyIsSelfDirected, selfDirectedBudget } from './work-budget'
+
+/**
+ * The duty's own words, plus the recipients it declares.
+ *
+ * Resolved here — at the moment the occurrence runs — rather than stored
+ * alongside the duty, so a recipient whose address changed still receives
+ * tomorrow's report. A duty that declares nothing gets its instruction back
+ * untouched, which is every duty written before delivery targets existed.
+ */
+async function instructionWithDelivery(
+  tenantId: string,
+  duty: { instruction: string; deliverTo: DeliveryTarget[] },
+): Promise<string> {
+  const targets = duty.deliverTo ?? []
+  if (targets.length === 0) return duty.instruction
+  const resolved = await resolveDeliveryTargets(tenantId, targets)
+  const addendum = deliveryInstruction(resolved)
+  return addendum ? `${duty.instruction}\n${addendum}` : duty.instruction
+}
 
 /**
  * Claim one scheduled occurrence by comparing the exact due timestamp the
@@ -72,7 +92,7 @@ export async function executeDueDuty(
       tenantId,
       personId: claimed.personId,
       trigger: { type: 'duty', dutyId: claimed.id },
-      input: { type: 'duty', dutyTitle: claimed.title, instruction: claimed.instruction },
+      input: { type: 'duty', dutyTitle: claimed.title, instruction: await instructionWithDelivery(tenantId, claimed) },
     })
     console.log(`[duty] ${claimed.title}: ${outcome.status}${claimed.nextDueAt ? '' : ' (final run — duty retired)'}`)
   } catch (error) {

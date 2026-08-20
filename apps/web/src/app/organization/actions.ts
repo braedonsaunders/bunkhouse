@@ -19,6 +19,7 @@ import {
   people,
   runs,
   type BunkhouseVoiceConfig,
+  type DeliveryTarget,
 } from '../../db/schema'
 import { db } from '../../db/client'
 import { requireTenantPermission, resolveTenantId as resolveTenant } from '../../lib/tenant'
@@ -637,6 +638,51 @@ async function readSchedule(formData: FormData, tenantId: string, personId: stri
   return { ...spec, maxRuns, nextDueAt }
 }
 
+/**
+ * Recipients as the drawer sends them: one `deliverTo` field holding JSON.
+ *
+ * Parsed defensively and refused loudly rather than silently dropped. A
+ * recipient list that quietly loses an entry is worse than one that fails to
+ * save — the operator would believe the report goes somewhere it does not, and
+ * would have no reason to look again.
+ */
+function readDeliveryTargets(formData: FormData): DeliveryTarget[] {
+  const raw = String(formData.get('deliverTo') ?? '').trim()
+  if (!raw) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error('The recipient list could not be read. Nothing was saved.')
+  }
+  if (!Array.isArray(parsed)) throw new Error('The recipient list could not be read. Nothing was saved.')
+  return parsed.map((entry): DeliveryTarget => {
+    const record = (entry ?? {}) as Record<string, unknown>
+    const via = record.via
+    if (via !== 'email' && via !== 'chat' && via !== 'call') {
+      throw new Error(`"${String(via)}" is not a delivery channel.`)
+    }
+    if (typeof record.personId === 'string' && record.personId) {
+      return { via, personId: record.personId } as DeliveryTarget
+    }
+    if (via === 'email') {
+      const address = typeof record.address === 'string' ? record.address.trim() : ''
+      // Deliberately shallow: the mail server is the real authority on whether
+      // an address exists, and a clever regex here only ever rejects somebody's
+      // legitimately odd address.
+      if (!address.includes('@')) throw new Error(`"${address}" is not an email address.`)
+      const name = typeof record.name === 'string' ? record.name.trim() : ''
+      return { via, address, ...(name ? { name } : {}) }
+    }
+    if (via === 'call') {
+      const number = typeof record.number === 'string' ? record.number.trim() : ''
+      if (!number) throw new Error('A phone recipient needs a number.')
+      return { via, number }
+    }
+    throw new Error('A chat recipient must be somebody in the directory.')
+  })
+}
+
 /** Update a duty from its drawer: instruction, schedule, bounds, on/off. */
 export async function updateDuty(formData: FormData): Promise<void> {
   const personId = String(formData.get('personId') ?? '')
@@ -646,13 +692,14 @@ export async function updateDuty(formData: FormData): Promise<void> {
   const enabled = String(formData.get('enabled') ?? 'on') === 'on' ? ('on' as const) : ('off' as const)
   if (!dutyId || !title || !instruction) throw new Error('Title and instruction are required.')
 
+  const deliverTo = readDeliveryTargets(formData)
   const tenantId = await resolveTenantId()
   const { nextDueAt, ...schedule } = await readSchedule(formData, tenantId, personId)
   const app = db()
   await app.withTenant(tenantId, async () => {
     await app.db
       .update(duties)
-      .set({ title, instruction, ...schedule, enabled, nextDueAt, updatedAt: new Date() })
+      .set({ title, instruction, ...schedule, enabled, deliverTo, nextDueAt, updatedAt: new Date() })
       .where(eq(duties.id, dutyId))
   })
   revalidatePath('/organization')

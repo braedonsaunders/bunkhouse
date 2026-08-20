@@ -8,6 +8,26 @@ import { auditColumns, id, money, tenantRef } from '@braedonsaunders/appkit-db'
  */
 export const dutySchedule = pgEnum('duty_schedule_kind', ['cron', 'interval', 'once'])
 
+/**
+ * Where a standing deliverable ends up.
+ *
+ * Two axes, deliberately separate: the channel (`via`) and the identity. An
+ * internal recipient is stored as a `personId` and resolved at send time, so a
+ * colleague whose address changes keeps receiving their reports; a typed
+ * address is stored verbatim because there is nothing behind it to resolve and
+ * pretending otherwise would lose what the operator actually wrote.
+ *
+ * The alternative — recipients living in the instruction prose — is what this
+ * replaces. "Email the report to the Owner" reads fine and is a guess the
+ * model re-makes on every run.
+ */
+export type DeliveryTarget =
+  | { via: 'email'; personId: string }
+  | { via: 'email'; address: string; name?: string }
+  | { via: 'chat'; personId: string }
+  | { via: 'call'; personId: string }
+  | { via: 'call'; number: string }
+
 export const duties = pgTable(
   'duties',
   {
@@ -31,6 +51,12 @@ export const duties = pgTable(
     endsAt: timestamp('ends_at', { withTimezone: true }),
     maxRuns: integer('max_runs'),
     runCount: integer('run_count').notNull().default(0),
+    /**
+     * Who the work product goes to, and how. Empty means nothing is declared
+     * and the instruction's own words stand — which is every duty written
+     * before this existed, so adding the column changed no recipients.
+     */
+    deliverTo: jsonb('deliver_to').$type<DeliveryTarget[]>().notNull().default([]),
     /** Slug of the role's duty this was instantiated from, if any. */
     fromRolePackDuty: text('from_role_pack_duty'),
     /** Run in which an employee created this duty, preserving human-request provenance. */
