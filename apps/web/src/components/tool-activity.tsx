@@ -75,6 +75,7 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   desktop_key: AppWindow,
   desktop_scroll: AppWindow,
   desktop_drag: AppWindow,
+  desktop_invoke: AppWindow,
   desktop_windows: AppWindow,
   desktop_focus: AppWindow,
   desktop_open_app: AppWindow,

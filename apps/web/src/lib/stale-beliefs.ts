@@ -131,6 +131,7 @@ const KNOWN_TOOLS: ReadonlySet<string> = new Set([
   'desktop_key',
   'desktop_scroll',
   'desktop_drag',
+  'desktop_invoke',
   'desktop_windows',
   'desktop_focus',
   'desktop_open_app',

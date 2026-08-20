@@ -49,6 +49,7 @@ import {
  *   GET  /desks/:id/screen/observe              — png (base64) + windows + a11y
  *   POST /desks/:id/screen/input                — click/type/key/scroll/drag/move
  *   POST /desks/:id/screen/focus                — activate a window via AT-SPI
+ *   POST /desks/:id/screen/a11y-invoke          — a named AT-SPI action on a node
  *   POST /desks/:id/screen/launch               — launch an app
  *   POST /desks/:id/screen/clipboard            — read/write
  *   POST /desks/:id/screen/frames/start|stop    — the still-picture capture pump
@@ -1977,6 +1978,18 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
     if (request.method === 'POST' && rest === '/screen/focus') {
       const body = await readBody(request)
       await screen.a11y.invoke(String(body.windowId ?? ''), 'activate')
+      reply(response, 200, { done: true })
+      return
+    }
+
+    // The general form of the call /screen/focus makes with "activate". Node
+    // ids are only meaningful against the observation that produced them, so
+    // the caller is responsible for observing immediately beforehand; the
+    // guest re-walks the tree from the last-observed application and fails
+    // loudly if the path no longer resolves.
+    if (request.method === 'POST' && rest === '/screen/a11y-invoke') {
+      const body = await readBody(request)
+      await screen.a11y.invoke(String(body.nodeId ?? ''), String(body.action ?? ''))
       reply(response, 200, { done: true })
       return
     }

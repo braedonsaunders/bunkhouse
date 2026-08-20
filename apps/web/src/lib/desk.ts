@@ -23,6 +23,7 @@ import { AGENT_SCREEN_HEIGHT, AGENT_SCREEN_WATCHING_FPS, AGENT_SCREEN_WIDTH } fr
 import { startDeskCast, stopDeskCast } from './desk-cast'
 import { getDeskPolicy, type DeskFeatures, type DeskPolicy } from './desk-policy'
 import { deskIdentity } from './desk-security'
+import { collectMarks, drawMarks, markLegend, type DeskMark } from './desk-marks'
 
 /**
  * The desk: each agent's own Debian machine — a terminal, a filesystem,
@@ -1017,6 +1018,13 @@ type LiveDesk = {
   screenOpen: boolean
   frameDeduplicator: DeskFrameDeduplicator
   lastScreenshotFileId: string | null
+  /**
+   * The marks drawn on the LAST observation, by number. Replaced wholesale on
+   * every observe: a mark, like the node id behind it, means nothing against
+   * any other picture, so a stale map must never be consulted — it is
+   * overwritten rather than merged.
+   */
+  lastMarks: Map<number, DeskMark>
   /** Runner-event cursor already drained into the ledger. */
   drainCursor: number
   /** Serializes ledger writes so two concurrent tool calls never race a seq. */
@@ -1047,6 +1055,7 @@ async function getLiveDesk(ctx: DeskContext): Promise<LiveDesk> {
       screenOpen: false,
       frameDeduplicator: createDeskFrameDeduplicator(),
       lastScreenshotFileId: null,
+      lastMarks: new Map(),
       drainCursor: 0,
       chain: Promise.resolve(),
     }
@@ -1315,7 +1324,8 @@ function shownFrame(frame: { mediaType: string; data: string } | null): Record<s
     [ABILITY_FRAME_KEY]: {
       ...frame,
       label:
-        'This is your desktop screen right now. Read the picture before you decide what happened — it, not your expectation, is what the screen actually shows.',
+        'This is your desktop screen right now. Read the picture before you decide what happened — it, not your expectation, is what the screen actually shows. ' +
+        'Any numbered badges on it are marks: aim at a control by its number rather than by estimating a coordinate, and check the marks legend for what each one accepts.',
     },
   }
 }
@@ -1361,13 +1371,33 @@ async function observeRecordShow(
   }
   await appendSerialized(ctx, live, kind, recorded, fileId)
   await drainRunnerEvents(ctx, live).catch(() => undefined)
-  const frame = bytes && identity?.changed ? await frameForModel(bytes) : null
+
+  // Marks are derived from THIS observation and replace the previous set
+  // outright, including when the tree came back empty — a mark that outlived
+  // the picture it was drawn on is the one way this mechanism can point an
+  // agent confidently at the wrong control.
+  const marks = observation ? collectMarks(observation.a11y, observation) : []
+  live.lastMarks = new Map(marks.map((entry) => [entry.mark, entry]))
+
+  // The badge goes on the model's copy and nowhere else: `bytes` is already
+  // hashed and filed above, so the ledger keeps the screen as it was.
+  const frame =
+    bytes && identity?.changed
+      ? await frameForModel(observation ? await drawMarks(bytes, marks, observation) : bytes)
+      : null
   const policy = await ctx.policy()
   return {
     ...(observation
       ? {
           windows: observation.windows,
           focused: observation.focused,
+          ...(marks.length > 0
+            ? {
+                marks: markLegend(marks),
+                marksNote:
+                  'The numbered badges on the picture are these marks. Aim with them — desktop_invoke({mark}) presses a control, desktop_click({mark}) clicks one — instead of estimating coordinates. They are only valid for THIS picture.',
+              }
+            : {}),
           ...(observation.a11y ? { accessibilityTree: observation.a11y } : {}),
         }
       : { error: `The screen could not be observed: ${observeError ?? 'no observation'}` }),
@@ -1390,6 +1420,41 @@ async function screenBudgetSpent(ctx: DeskContext, live: LiveDesk): Promise<Reco
 }
 
 const NO_SCREEN = { error: 'No screen is open — call open_desktop (with a reason) first.' } as const
+
+/**
+ * Resolve a mark number against the LAST observation.
+ *
+ * The failure worth spending words on is the stale one. A mark from an earlier
+ * picture either resolves to nothing or — worse — resolves to a different
+ * control that happens to occupy that slot in the new tree, so the answer is
+ * never "close enough, use it anyway": look again, or say what went wrong.
+ */
+function resolveMark(live: LiveDesk, mark: number): DeskMark | { error: string } {
+  const found = live.lastMarks.get(mark)
+  if (found) return found
+  if (live.lastMarks.size === 0) {
+    return {
+      error:
+        `There are no marks to aim at — the last picture had no accessibility tree, ` +
+        'so nothing on it could be numbered. Take a desktop_screenshot and work from the picture itself.',
+    }
+  }
+  return {
+    error:
+      `Mark ${mark} is not on the last picture (it had ${live.lastMarks.size}). ` +
+      'Marks are only valid for the picture they were drawn on — take a fresh desktop_screenshot and read the numbers off that one.',
+  }
+}
+
+/** The point to aim at for a mark: its centre, kept inside the screen. */
+function markCentre(mark: DeskMark): { x: number; y: number } {
+  const clamp = (value: number, limit: number): number =>
+    Math.max(0, Math.min(Math.round(value), limit - 1))
+  return {
+    x: clamp(mark.bounds.x + mark.bounds.width / 2, AGENT_SCREEN_WIDTH),
+    y: clamp(mark.bounds.y + mark.bounds.height / 2, AGENT_SCREEN_HEIGHT),
+  }
+}
 
 async function runnerScreenPost(
   ctx: DeskContext,
@@ -1711,26 +1776,51 @@ export function deskAbilities(args: {
     defineAbility({
       name: 'desktop_click',
       description:
-        'Click at a point on the desktop screen. Coordinates are in the pixel space of the last screenshot, one to one. You get a fresh picture back — read it before deciding what happened.',
+        'Click something on the desktop screen. Give a "mark" — the number on a badge in the last picture — whenever the thing you want has one: it lands on the control itself rather than where you judged it to be. Otherwise give x/y, in the pixel space of the last screenshot, one to one. You get a fresh picture back — read it before deciding what happened.',
       category: 'desktop',
       approval: 'continues',
-      inputSchema: z.object({
-        x: z.number().int().min(0),
-        y: z.number().int().min(0),
-        button: z.enum(['left', 'middle', 'right']).default('left'),
-      }),
-      execute: async ({ x, y, button }) => {
+      inputSchema: z
+        .object({
+          mark: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe('A badge number from the last picture. Preferred over x/y when one fits.'),
+          x: z.number().int().min(0).optional(),
+          y: z.number().int().min(0).optional(),
+          button: z.enum(['left', 'middle', 'right']).default('left'),
+        })
+        .refine(
+          (value) => value.mark !== undefined || (value.x !== undefined && value.y !== undefined),
+          { message: 'Give either a mark from the last picture, or both x and y.' },
+        ),
+      execute: async ({ mark, x: askedX, y: askedY, button }) => {
         const live = await getLiveDesk(ctx)
         if (!live.screenOpen) return NO_SCREEN
         const spent = await screenBudgetSpent(ctx, live)
         if (spent) return spent
+        let x = askedX
+        let y = askedY
+        let aimed: string | undefined
+        if (mark !== undefined) {
+          const resolved = resolveMark(live, mark)
+          if ('error' in resolved) return resolved
+          ;({ x, y } = markCentre(resolved))
+          aimed = resolved.name ?? resolved.role
+        }
+        if (x === undefined || y === undefined) {
+          return { error: 'Give either a mark from the last picture, or both x and y.' }
+        }
         live.screenSteps += 1
         try {
           await runnerScreenPost(ctx, live, '/screen/input', { action: 'click', x, y, button })
         } catch (error) {
           return { error: `The click did not land: ${describeError(error)}` }
         }
-        return observeRecordShow(ctx, live, 'click', { x, y, button })
+        // `target` carries what was aimed at when a mark named it, so the
+        // ledger line reads "Clicked Save" rather than a bare coordinate.
+        return observeRecordShow(ctx, live, 'click', { x, y, button, ...(aimed ? { target: aimed } : {}) })
       },
     }),
     defineAbility({
@@ -1823,6 +1913,89 @@ export function deskAbilities(args: {
           return { error: `The drag did not land: ${describeError(error)}` }
         }
         return observeRecordShow(ctx, live, 'drag', { from, to })
+      },
+    }),
+    defineAbility({
+      name: 'desktop_invoke',
+      description:
+        'Press a control on the desktop by its mark — the number on a badge in your LAST picture. This presses the control itself rather than a point on top of it, so it does not care where the window moved, what theme is loaded, or how the layout reflowed; prefer it over desktop_click whenever the thing you want carries a badge. The legend beside the picture lists what each mark accepts. Marks are only valid for the picture they were drawn on, so take a screenshot immediately before. Not every application publishes controls this way — with no marks, click the picture instead.',
+      category: 'desktop',
+      approval: 'continues',
+      inputSchema: z
+        .object({
+          mark: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe('A badge number from the last picture — the ordinary way to name a control.'),
+          nodeId: z
+            .string()
+            .regex(/^\d+(\/\d+)*$/, 'nodeId must be a path like "0/3/1" from the last accessibilityTree')
+            .optional()
+            .describe('An accessibilityTree path, for a control that carries no badge. Prefer "mark".'),
+          action: z
+            .string()
+            .regex(/^[A-Za-z0-9 _.:-]+$/, 'action must be an AT-SPI action name')
+            .default('click')
+            .describe('The action to invoke — one of the ones the legend lists for that mark.'),
+        })
+        .refine((value) => value.mark !== undefined || value.nodeId !== undefined, {
+          message: 'Give either a mark from the last picture or a nodeId from its accessibilityTree.',
+        }),
+      execute: async ({ mark, nodeId: askedNodeId, action }) => {
+        const live = await getLiveDesk(ctx)
+        if (!live.screenOpen) return NO_SCREEN
+        const spent = await screenBudgetSpent(ctx, live)
+        if (spent) return spent
+        let nodeId = askedNodeId
+        let aimed: string | undefined
+        if (mark !== undefined) {
+          const resolved = resolveMark(live, mark)
+          if ('error' in resolved) return resolved
+          // Said plainly rather than left to the guest's error: the legend
+          // already lists what the control accepts, so an action it does not
+          // have is a misread of the legend, not a broken desk.
+          if (resolved.actions.length > 0 && !resolved.actions.some((name) => name.toLowerCase() === action.toLowerCase())) {
+            return {
+              error:
+                `Mark ${mark} (${resolved.name ?? resolved.role}) does not accept "${action}". ` +
+                `It accepts: ${resolved.actions.join(', ')}. Use one of those, or desktop_click({mark: ${mark}}).`,
+            }
+          }
+          if (resolved.actions.length === 0) {
+            return {
+              error:
+                `Mark ${mark} (${resolved.name ?? resolved.role}) is not a control that can be pressed — ` +
+                `it exposes no actions. Use desktop_click({mark: ${mark}}) instead.`,
+            }
+          }
+          nodeId = resolved.nodeId
+          aimed = resolved.name ?? resolved.role
+        }
+        if (!nodeId) {
+          return { error: 'Give either a mark from the last picture or a nodeId from its accessibilityTree.' }
+        }
+        live.screenSteps += 1
+        try {
+          await runnerScreenPost(ctx, live, '/screen/a11y-invoke', { nodeId, action })
+        } catch (error) {
+          // The overwhelmingly common cause is a stale node id — the tree is
+          // re-walked per invoke, so a path from an older observation may now
+          // address something else or nothing. Say so, because the model
+          // cannot tell that apart from "the control refused" on its own.
+          return {
+            error:
+              `The action did not go through: ${describeError(error)}. ` +
+              'Take a fresh desktop_screenshot and aim with a mark off that picture, ' +
+              'or click the control instead.',
+          }
+        }
+        return observeRecordShow(ctx, live, 'a11y_invoke', {
+          nodeId,
+          action,
+          ...(aimed ? { target: aimed } : {}),
+        })
       },
     }),
     defineAbility({

@@ -59,6 +59,8 @@ export type DeskLedgerEventKind =
   | 'key'
   | 'scroll'
   | 'drag'
+  /** A named AT-SPI action on a node — the agent acted on a control, not a pixel. */
+  | 'a11y_invoke'
   | 'window_focus'
   | 'screen_open'
   | 'screen_close'
@@ -112,6 +114,14 @@ export type DeskLedgerEventDetail = {
   dy?: number
   from?: { x: number; y: number }
   to?: { x: number; y: number }
+  /**
+   * The structural path of the AT-SPI node an a11y_invoke addressed ("0/3/1").
+   * Recorded verbatim because it is only meaningful against the observation
+   * that produced it — the frame on this same row.
+   */
+  nodeId?: string
+  /** The AT-SPI action name invoked on that node, e.g. "click" or "activate". */
+  action?: string
   appId?: string
   args?: string[]
   window?: { id: string; title: string; appId: string | null }

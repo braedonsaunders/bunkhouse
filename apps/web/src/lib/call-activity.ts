@@ -235,6 +235,8 @@ export type DeskEventWords = BrowserStepWords & {
   combo?: string
   from?: { x: number; y: number }
   to?: { x: number; y: number }
+  nodeId?: string
+  action?: string
   appId?: string
   args?: string[]
   window?: { id: string; title: string; appId: string | null }
@@ -298,6 +300,14 @@ export function describeDeskEvent(kind: string, detail: DeskEventWords): string 
       return detail.from && detail.to
         ? `Dragged from (${detail.from.x}, ${detail.from.y}) to (${detail.to.x}, ${detail.to.y})${failure}`
         : `Dragged${failure}`
+    case 'a11y_invoke':
+      // Named when the control had a name, and falling back to the node path
+      // when it did not. The path is opaque on its own and deliberately shown
+      // anyway: the frame is on this same row, so an operator reads it against
+      // the picture it was taken from rather than against nothing.
+      return place
+        ? `Pressed ${place}${detail.action && detail.action !== 'click' ? ` — "${detail.action}"` : ''}${failure}`
+        : `Invoked "${detail.action ?? 'an action'}" on the control at ${detail.nodeId ?? 'an unrecorded node'}${failure}`
     case 'window_focus':
       return `Focused ${detail.window?.title ?? place ?? 'a window'}${failure}`
     case 'screen_open':

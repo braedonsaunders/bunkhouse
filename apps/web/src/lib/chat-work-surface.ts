@@ -20,7 +20,7 @@ import type { TerminalSurfaceEntry } from '@braedonsaunders/appkit-remote-sessio
 
 const DISTINCT_BROWSER_DESK_EVENTS = new Set(['navigate', 'read', 'browser_close'])
 const SHARED_BROWSER_DESK_EVENTS = new Set(['click', 'type', 'key', 'scroll'])
-const DESKTOP_DESK_EVENTS = new Set(['screen_open', 'app_launch', 'move', 'click', 'type', 'key', 'scroll', 'drag', 'window_focus', 'screenshot'])
+const DESKTOP_DESK_EVENTS = new Set(['screen_open', 'app_launch', 'move', 'click', 'type', 'key', 'scroll', 'drag', 'a11y_invoke', 'window_focus', 'screenshot'])
 
 function isBrowserDeskEvent(kind: string, detail: Record<string, unknown>): boolean {
   if (DISTINCT_BROWSER_DESK_EVENTS.has(kind)) return true

@@ -254,6 +254,7 @@ const SCREEN_STEP_KINDS: ReadonlySet<string> = new Set([
   'key',
   'scroll',
   'drag',
+  'a11y_invoke',
   'window_focus',
   'app_launch',
 ])

@@ -25,6 +25,7 @@ const tests = [
   'backdrop',
   'page-reading',
   'desk',
+  'desk-marks',
   'chat',
   'chat-dispatch',
   'lifecycle',
