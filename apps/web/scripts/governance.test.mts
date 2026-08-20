@@ -37,15 +37,15 @@ function harness(args: {
   effects?: ExternalEffectGate
 }) {
   const events: SinkEvent[] = []
-  const requests: { category: ActionCategory; description: string }[] = []
-  const state: GovernanceState = { pendingApprovalId: null, pendingWait: null }
+  const requests: { category: ActionCategory; description: string; action: Record<string, unknown> }[] = []
+  const state: GovernanceState = { pendingApprovalId: null, pendingCredentialRequestId: null, pendingWait: null }
   const tools = governedToolSet({
     abilities: args.abilities,
     // Missing categories default to 'approval' — the documented safe posture.
     autonomy: (category) => args.levels[category] ?? 'approval',
     approvals: {
-      request: async ({ category, description }) => {
-        requests.push({ category, description })
+      request: async ({ category, description, action }) => {
+        requests.push({ category, description, action })
         return { approvalId: `appr-${requests.length}` }
       },
     },
@@ -61,6 +61,37 @@ function harness(args: {
     ...(args.effects ? { effects: args.effects } : {}),
   })
   return { tools, events, requests, state }
+}
+
+// --- one model step cannot create approvals that race the same run ---------
+{
+  const first = defineAbility({
+    name: 'metered_search',
+    description: 'first read',
+    category: 'money_adjacent',
+    inputSchema: z.object({ query: z.string() }),
+    execute: async () => ({ shouldNotRun: true }),
+  })
+  const second = defineAbility({
+    name: 'metered_profile',
+    description: 'second read',
+    category: 'money_adjacent',
+    inputSchema: z.object({ handle: z.string() }),
+    execute: async () => ({ shouldNotRun: true }),
+  })
+  const { tools, requests, state } = harness({
+    levels: { money_adjacent: 'approval' },
+    abilities: [first, second],
+  })
+  const results = await Promise.all([
+    tools.metered_search!.execute!({ query: '$RKLB' }, { toolCallId: 'call-search', messages: [] }),
+    tools.metered_profile!.execute!({ handle: 'elonmusk' }, { toolCallId: 'call-profile', messages: [] }),
+  ]) as Array<{ status: string; approvalId: string }>
+  assert.equal(requests.length, 1, 'parallel siblings open one resumable approval, never two competing cards')
+  assert.equal(requests[0]?.action.toolCallId, 'call-search', 'the SDK invocation identity is durable approval provenance')
+  assert.equal(results.filter((result) => result.status === 'pending_approval').length, 1)
+  assert.equal(results.filter((result) => result.status === 'approval_deferred').length, 1)
+  assert.equal(state.pendingApprovalId, 'appr-1')
 }
 
 // --- governed effects are intended before the adapter executes -------------

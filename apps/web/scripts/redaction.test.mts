@@ -55,7 +55,7 @@ const tools = governedToolSet({
   autonomy: () => 'trusted',
   approvals: { request: async () => ({ approvalId: 'approval-1' }) },
   sink,
-  state: { pendingApprovalId: null, pendingWait: null },
+  state: { pendingApprovalId: null, pendingCredentialRequestId: null, pendingWait: null },
   secrets: [SECRET],
 })
 

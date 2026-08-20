@@ -191,7 +191,11 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
     }
   }
 
-  const state: GovernanceState = args.state ?? { pendingApprovalId: null, pendingWait: null }
+  const state: GovernanceState = args.state ?? {
+    pendingApprovalId: null,
+    pendingCredentialRequestId: null,
+    pendingWait: null,
+  }
   const skills = args.skills ?? []
   const abilities = [
     ...args.abilities,
@@ -323,7 +327,10 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
       ...(providerOptions ? { providerOptions } : {}),
       stopWhen: [
         stepCountIs(args.maxSteps ?? DEFAULT_MAX_STEPS),
-        () => state.pendingApprovalId !== null || state.pendingWait !== null,
+        () =>
+          state.pendingApprovalId !== null ||
+          state.pendingCredentialRequestId !== null ||
+          state.pendingWait !== null,
         // The two governors that let a run go long safely.
         () => budgetExhausted || cancelled || stuck || bloated,
       ],
@@ -501,6 +508,14 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
     if (cancelled) return { status: 'cancelled', usage, messages: transcript }
     if (state.pendingApprovalId) {
       return { status: 'waiting_approval', approvalId: state.pendingApprovalId, usage, messages: transcript }
+    }
+    if (state.pendingCredentialRequestId) {
+      return {
+        status: 'waiting_credential',
+        requestId: state.pendingCredentialRequestId,
+        usage,
+        messages: transcript,
+      }
     }
     if (state.pendingWait) {
       return { status: 'waiting_reply', wait: state.pendingWait, usage, messages: transcript }

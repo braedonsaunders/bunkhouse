@@ -78,6 +78,7 @@ export function sceneStatus(args: {
 }): SceneStatus {
   if (args.runStatus === 'waiting_approval') return { label: 'needs you', tone: 'waiting', activity: 'waiting' }
   if (args.runStatus === 'waiting_reply') return { label: 'waiting', tone: 'waiting', activity: 'waiting' }
+  if (args.runStatus === 'waiting_credential') return { label: 'needs you', tone: 'waiting', activity: 'waiting' }
 
   const tool = (args.toolName ?? '').toLowerCase()
   if (tool.startsWith('browser_')) return { label: 'browsing', tone: 'busy', activity: 'reading' }

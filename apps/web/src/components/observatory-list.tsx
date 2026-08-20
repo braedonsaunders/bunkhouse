@@ -10,7 +10,7 @@ export type ObservatoryRunRow = {
   /** The agent's figure, cropped to its head viewport by the caller. */
   avatar: React.ReactNode
   trigger: string
-  status: 'running' | 'waiting_approval' | 'waiting_reply' | 'completed' | 'failed' | 'cancelled'
+  status: 'running' | 'waiting_approval' | 'waiting_reply' | 'waiting_credential' | 'completed' | 'failed' | 'cancelled'
   statusLabel: string
   summary: string
   started: string

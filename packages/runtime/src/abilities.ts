@@ -214,6 +214,8 @@ export type PendingWait = {
 export type GovernanceState = {
   /** Set when a gated call filed an approval; the loop stops and suspends on it. */
   pendingApprovalId: string | null
+  /** Set when an inline sealed handoff was opened; the loop parks until it is supplied. */
+  pendingCredentialRequestId: string | null
   /** Set when the agent asked someone and chose to wait; the loop suspends on it. */
   pendingWait: PendingWait | null
 }
@@ -386,6 +388,12 @@ export function governedToolSet(args: {
   // the ledger read like a stutter. The notice is a fact about the category
   // being exercised; once per distinct description is the whole of it.
   const notified = new Set<string>()
+  // AI SDK may execute sibling tool calls from one model step concurrently.
+  // Only one may open an approval: a run has one resumable transcript and one
+  // decision can own that continuation. Later siblings are explicitly
+  // deferred so the model can retry them after the first decision, rather
+  // than creating indistinguishable cards that race to resume the same run.
+  let approvalInFlight: Promise<{ approvalId: string }> | null = null
   const set: ToolSet = {}
   for (const ability of args.abilities) {
     const base = ability.tool
@@ -424,14 +432,35 @@ export function governedToolSet(args: {
           }
         }
         if (category !== null && level === 'approval' && ability.approval !== 'continues') {
+          const optionRecord =
+            typeof options === 'object' && options !== null ? (options as Record<string, unknown>) : {}
+          const toolCallId =
+            typeof optionRecord.toolCallId === 'string' && optionRecord.toolCallId
+              ? optionRecord.toolCallId
+              : undefined
+          const alreadyPending = args.state.pendingApprovalId
+          if (alreadyPending || approvalInFlight) {
+            const approvalId = alreadyPending ?? (await approvalInFlight!).approvalId
+            return {
+              status: 'approval_deferred',
+              approvalId,
+              note: 'Another action from this step is already awaiting approval. This action was not authorized or executed. After that decision is completed, call this tool again if it is still needed.',
+            }
+          }
           const description =
             args.describeAction?.(ability.name, input) ?? `${ability.name} with ${JSON.stringify(input)}`
-          const { approvalId } = await args.approvals.request({
+          approvalInFlight = args.approvals.request({
             category,
             description,
-            action: { toolName: ability.name, input: input as Record<string, unknown> },
+            action: {
+              toolName: ability.name,
+              input: input as Record<string, unknown>,
+              ...(toolCallId ? { toolCallId } : {}),
+            },
           })
+          const { approvalId } = await approvalInFlight
           args.state.pendingApprovalId = approvalId
+          approvalInFlight = null
           await args.sink.event({ kind: 'approval_request', approvalId, category, description })
           const pending: PendingApprovalResult = {
             status: 'pending_approval',

@@ -138,6 +138,7 @@ export type ChatCredentialRequestRecord = {
   createdAt: string
   expiresAt: string
   resolvedAt: string | null
+  continuationPending: boolean
 }
 
 export type ChatApprovalRecord = {
@@ -272,7 +273,9 @@ function fileSizeLabel(bytes: number): string {
 }
 
 function credentialRequestSignature(requests: ChatCredentialRequestRecord[]): string {
-  return requests.map((request) => `${request.id}:${request.status}:${request.attempts}:${request.lastError ?? ''}`).join('|')
+  return requests
+    .map((request) => `${request.id}:${request.status}:${request.attempts}:${request.continuationPending}:${request.lastError ?? ''}`)
+    .join('|')
 }
 
 function approvalRequestSignature(requests: ChatApprovalRecord[]): string {
@@ -1001,9 +1004,14 @@ export function AgentChatWorkspace({
   // when a new persisted answer lands outside the direct stream, remount the
   // panel from the authoritative transcript.
   const approvalContinuationPending = detail?.approvals.some((approval) => approval.continuationPending) === true
+  const credentialContinuationPending =
+    detail?.credentialRequests.some((request) => request.continuationPending) === true
   React.useEffect(() => {
     const threadId = detail?.thread.id
-    if (!threadId || (detail.dispatches.length === 0 && !approvalContinuationPending)) return
+    if (
+      !threadId ||
+      (detail.dispatches.length === 0 && !approvalContinuationPending && !credentialContinuationPending)
+    ) return
     const timer = window.setInterval(() => {
       void getThreadAction(threadId).then((loaded) => {
         if (!loaded) return
@@ -1023,7 +1031,7 @@ export function AgentChatWorkspace({
       }).catch(() => undefined)
     }, 1_500)
     return () => window.clearInterval(timer)
-  }, [approvalContinuationPending, detail?.dispatches.length, detail?.thread.id])
+  }, [approvalContinuationPending, credentialContinuationPending, detail?.dispatches.length, detail?.thread.id])
 
   /**
    * A conversation starts empty and its first turn streams like every other
@@ -1254,6 +1262,7 @@ export function AgentChatWorkspace({
             onSubmitSecretRequest={submitCredentialRequest}
             onCancelSecretRequest={cancelCredentialRequest}
             onDecideApprovalRequest={detail.canDecideApprovals ? decideApprovalRequest : undefined}
+            assistantAvatar={avatar}
             composerActions={
               <Popover
                 open={uploadOpen}

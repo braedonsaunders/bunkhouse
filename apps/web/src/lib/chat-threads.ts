@@ -125,6 +125,14 @@ export type ChatThreadStore = {
     runId: string
     approvalId: string
   }): Promise<{ message: ChatMessageView; appended: boolean }>
+  /** Append the sealed-credential continuation exactly once. */
+  appendCredentialContinuation(args: {
+    tenantId: string
+    threadId: string
+    body: string
+    runId: string
+    requestId: string
+  }): Promise<{ message: ChatMessageView; appended: boolean }>
   touchThread(args: { tenantId: string; threadId: string; title?: string | null; at: Date }): Promise<void>
   /**
    * A deliberate change to the conversation record itself — its name, or
@@ -365,6 +373,47 @@ export function dbChatThreadStore(): ChatThreadStore {
         return { message: messageView(row), appended: true }
       })
     },
+    async appendCredentialContinuation({ tenantId, threadId, body, runId, requestId }) {
+      const app = db()
+      return app.withTenant(tenantId, async () => {
+        await app.db.execute(
+          sql`select pg_advisory_xact_lock(hashtext('bunkhouse.chat_messages'), hashtext(${threadId}))`,
+        )
+        const [existing] = await app.db
+          .select({
+            id: chatMessages.id,
+            seq: chatMessages.seq,
+            role: chatMessages.role,
+            body: chatMessages.body,
+            at: chatMessages.at,
+            runId: chatMessages.runId,
+            dispatchId: chatMessages.dispatchId,
+          })
+          .from(chatMessages)
+          .where(and(eq(chatMessages.credentialRequestId, requestId), eq(chatMessages.role, 'agent')))
+          .limit(1)
+        if (existing) return { message: messageView(existing), appended: false }
+
+        const [{ next } = { next: 0 }] = await app.db
+          .select({ next: sql<number>`coalesce(max(${chatMessages.seq}), -1) + 1`.mapWith(Number) })
+          .from(chatMessages)
+          .where(eq(chatMessages.threadId, threadId))
+        const [row] = await app.db
+          .insert(chatMessages)
+          .values({ tenantId, threadId, seq: next, role: 'agent', body, runId, credentialRequestId: requestId })
+          .returning({
+            id: chatMessages.id,
+            seq: chatMessages.seq,
+            role: chatMessages.role,
+            body: chatMessages.body,
+            at: chatMessages.at,
+            runId: chatMessages.runId,
+            dispatchId: chatMessages.dispatchId,
+          })
+        if (!row) throw new Error('The credential continuation could not be recorded.')
+        return { message: messageView(row), appended: true }
+      })
+    },
     async touchThread({ tenantId, threadId, title, at }) {
       const app = db()
       await app.withTenant(tenantId, async () => {
@@ -512,6 +561,31 @@ export async function appendApprovalOutcomeToChat(
   })
   if (recorded.appended) {
     await store.touchThread({ tenantId: args.tenantId, threadId, at: new Date(recorded.message.at) })
+  }
+  return recorded.message
+}
+
+/** Deliver a stored credential's continued work to its originating conversation once. */
+export async function appendCredentialOutcomeToChat(
+  args: {
+    tenantId: string
+    threadId: string
+    requestId: string
+    continuedRunId: string
+    outcome: RunOutcome
+  },
+  deps: Pick<ChatThreadDeps, 'store'> = {},
+): Promise<ChatMessageView> {
+  const store = storeOf(deps)
+  const recorded = await store.appendCredentialContinuation({
+    tenantId: args.tenantId,
+    threadId: args.threadId,
+    body: replyTextForOutcome(args.outcome),
+    runId: args.continuedRunId,
+    requestId: args.requestId,
+  })
+  if (recorded.appended) {
+    await store.touchThread({ tenantId: args.tenantId, threadId: args.threadId, at: new Date(recorded.message.at) })
   }
   return recorded.message
 }

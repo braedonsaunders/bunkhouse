@@ -71,9 +71,9 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
   assert.equal(activity[0]!.detail, null)
 }
 
-// Machine-facing integration names never leak into speech or the operator's
-// live activity list.
-assert.equal(describeToolCall('netsuite_ns_runCustomSuiteQL', {}), 'Checking NetSuite')
+// The integration namespace stays human-readable, while the operation remains
+// visible so two parallel calls do not collapse into identical approval cards.
+assert.equal(describeToolCall('netsuite_ns_runCustomSuiteQL', {}), 'Checking NetSuite — ns runCustomSuiteQL')
 
 // A long written report becomes its final spoken conclusion, not a markdown
 // table read cell-by-cell or an unbounded monologue.

@@ -929,6 +929,7 @@ function systemAuthoringAbilities(args: {
   person: PersonRow
   runId: string
   chatThreadId?: string
+  waitState?: GovernanceState
 }): Ability[] {
   return [
     defineAbility({
@@ -988,6 +989,7 @@ function systemAuthoringAbilities(args: {
           purpose,
           ...(helpUrl ? { helpUrl } : {}),
         })
+        if (args.waitState) args.waitState.pendingCredentialRequestId = requested.id
         return {
           requestId: requested.id,
           status: requested.status,
@@ -1052,6 +1054,7 @@ export async function assembleAbilities(args: {
       person,
       runId,
       ...(args.chatThreadId ? { chatThreadId: args.chatThreadId } : {}),
+      ...(args.waitState ? { waitState: args.waitState } : {}),
     }),
     ...emailAbilities({ tenantId, person, runId, isInternalAddress, ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}) }),
     ...(args.waitState

@@ -1,12 +1,14 @@
 import 'server-only'
 
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import {
   authoredSystemCredentialRequestEvents,
   authoredSystemCredentialRequests,
   authoredSystemRevisions,
   authoredSystems,
+  chatMessages,
   chatThreads,
+  runs,
 } from '../db/schema'
 import { db } from '../db/client'
 import { activateAuthoredSystem, listAuthoredSystems } from './authored-systems'
@@ -14,6 +16,8 @@ import { redactCredentialText } from './credential-redaction'
 
 const REQUEST_LIFETIME_MS = 7 * 24 * 60 * 60 * 1_000
 const VERIFYING_LEASE_MS = 2 * 60 * 1_000
+const CONTINUATION_LEASE_MS = 10 * 60 * 1_000
+const CONTINUATION_MAX_ATTEMPTS = 5
 
 type RequestRow = typeof authoredSystemCredentialRequests.$inferSelect
 type RequestEventKind = typeof authoredSystemCredentialRequestEvents.$inferInsert.kind
@@ -37,6 +41,7 @@ export type SystemCredentialRequestView = {
   createdAt: string
   expiresAt: string
   resolvedAt: string | null
+  continuationPending: boolean
 }
 
 function cleanText(value: string, label: string, max: number): string {
@@ -242,6 +247,7 @@ export async function listThreadSystemCredentialRequests(
         createdAt: request.createdAt.toISOString(),
         expiresAt: request.expiresAt.toISOString(),
         resolvedAt: request.resolvedAt?.toISOString() ?? null,
+        continuationPending: request.status === 'stored' && request.continuedAt === null,
       }]
     })
   })
@@ -432,6 +438,170 @@ export async function submitSystemCredentialRequest(args: {
       result: { kind: 'failed', message },
     })
     return { ok: false, message }
+  }
+}
+
+/** Stored handoffs that still owe their conversation a continued answer. */
+export async function pendingStoredCredentialContinuationIds(tenantId: string): Promise<string[]> {
+  const app = db()
+  const now = new Date()
+  return app.withTenantContext(tenantId, async () => {
+    const rows = await app.db
+      .select({ id: authoredSystemCredentialRequests.id })
+      .from(authoredSystemCredentialRequests)
+      .where(and(
+        eq(authoredSystemCredentialRequests.status, 'stored'),
+        isNull(authoredSystemCredentialRequests.continuedAt),
+        lt(authoredSystemCredentialRequests.continuationAttempts, CONTINUATION_MAX_ATTEMPTS),
+        or(
+          eq(authoredSystemCredentialRequests.continuationStatus, 'pending'),
+          eq(authoredSystemCredentialRequests.continuationStatus, 'failed'),
+          and(
+            eq(authoredSystemCredentialRequests.continuationStatus, 'leased'),
+            lt(authoredSystemCredentialRequests.continuationLeaseUntil, now),
+          ),
+        ),
+      ))
+    return rows.map((row) => row.id)
+  })
+}
+
+async function claimStoredCredentialContinuation(tenantId: string, requestId: string): Promise<RequestRow | null> {
+  const app = db()
+  const now = new Date()
+  const leaseUntil = new Date(now.getTime() + CONTINUATION_LEASE_MS)
+  return app.withTenant(tenantId, async () => {
+    const [row] = await app.db
+      .update(authoredSystemCredentialRequests)
+      .set({
+        continuationStatus: 'leased',
+        continuationLeaseUntil: leaseUntil,
+        continuationAttempts: sql`${authoredSystemCredentialRequests.continuationAttempts} + 1`,
+        continuationError: null,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(authoredSystemCredentialRequests.id, requestId),
+        eq(authoredSystemCredentialRequests.status, 'stored'),
+        isNull(authoredSystemCredentialRequests.continuedAt),
+        lt(authoredSystemCredentialRequests.continuationAttempts, CONTINUATION_MAX_ATTEMPTS),
+        or(
+          eq(authoredSystemCredentialRequests.continuationStatus, 'pending'),
+          eq(authoredSystemCredentialRequests.continuationStatus, 'failed'),
+          and(
+            eq(authoredSystemCredentialRequests.continuationStatus, 'leased'),
+            lt(authoredSystemCredentialRequests.continuationLeaseUntil, now),
+          ),
+        ),
+      ))
+      .returning()
+    return row ?? null
+  })
+}
+
+async function settleStoredCredentialContinuation(args: {
+  tenantId: string
+  requestId: string
+  runId?: string
+  error?: string
+}): Promise<void> {
+  const app = db()
+  await app.withTenant(args.tenantId, async () => {
+    const [request] = await app.db
+      .select({ attempts: authoredSystemCredentialRequests.continuationAttempts })
+      .from(authoredSystemCredentialRequests)
+      .where(eq(authoredSystemCredentialRequests.id, args.requestId))
+      .limit(1)
+    const terminal = Boolean(args.runId) || (request?.attempts ?? CONTINUATION_MAX_ATTEMPTS) >= CONTINUATION_MAX_ATTEMPTS
+    await app.db
+      .update(authoredSystemCredentialRequests)
+      .set({
+        continuationStatus: args.runId ? 'succeeded' : 'failed',
+        continuationLeaseUntil: null,
+        continuationError: args.error?.slice(0, 2_000) ?? null,
+        ...(args.runId ? { continuedRunId: args.runId } : {}),
+        ...(terminal ? { continuedAt: new Date() } : {}),
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(authoredSystemCredentialRequests.id, args.requestId),
+        eq(authoredSystemCredentialRequests.continuationStatus, 'leased'),
+      ))
+  })
+}
+
+/**
+ * Wake the exact work that opened a sealed handoff. New runs are genuinely
+ * parked and resume their transcript; requests created before that lifecycle
+ * existed receive one provenance-linked follow-up run with bounded chat
+ * context. The request row is a recoverable lease, so a web process dying
+ * after storage cannot turn “continue automatically” into an empty promise.
+ */
+export async function executeStoredCredentialContinuation(tenantId: string, requestId: string): Promise<void> {
+  const request = await claimStoredCredentialContinuation(tenantId, requestId)
+  if (!request) return
+  try {
+    const app = db()
+    const context = await app.withTenantContext(tenantId, async () => {
+      const [[origin], [system], [revision], messages] = await Promise.all([
+        app.db.select().from(runs).where(eq(runs.id, request.runId)).limit(1),
+        app.db.select().from(authoredSystems).where(eq(authoredSystems.id, request.systemId)).limit(1),
+        app.db
+          .select()
+          .from(authoredSystemRevisions)
+          .where(and(
+            eq(authoredSystemRevisions.systemId, request.systemId),
+            eq(authoredSystemRevisions.version, request.revisionVersion),
+          ))
+          .limit(1),
+        app.db
+          .select({ role: chatMessages.role, body: chatMessages.body })
+          .from(chatMessages)
+          .where(eq(chatMessages.threadId, request.threadId))
+          .orderBy(asc(chatMessages.seq)),
+      ])
+      return { origin: origin ?? null, system: system ?? null, revision: revision ?? null, messages }
+    })
+    if (!context.origin || !context.system || !context.revision) {
+      throw new Error('The credential handoff lost its originating work.')
+    }
+
+    const recentConversation = context.messages
+      .slice(-12)
+      .map((message) => `${message.role === 'agent' ? 'Employee' : message.role === 'user' ? 'Operator' : 'System'}: ${message.body}`)
+      .join('\n\n')
+      .slice(-10_000)
+    const resume = context.origin.status === 'waiting_credential' && Boolean(context.origin.transcript)
+    const { executeAgentRun } = await import('./agent-runs')
+    const continued = await executeAgentRun({
+      tenantId,
+      personId: request.personId,
+      trigger: resume
+        ? context.origin.trigger
+        : { type: 'credential_followup', requestId: request.id, originRunId: context.origin.id },
+      input: {
+        type: 'credential_stored',
+        requestId: request.id,
+        systemName: context.system.name,
+        purpose: request.purpose,
+        toolCount: context.revision.definition.operations.length,
+        ...(resume ? {} : { conversation: recentConversation }),
+      },
+      ...(resume ? { resumeRunId: context.origin.id } : {}),
+    })
+    const { appendCredentialOutcomeToChat } = await import('./chat-threads')
+    await appendCredentialOutcomeToChat({
+      tenantId,
+      threadId: request.threadId,
+      requestId: request.id,
+      continuedRunId: continued.runId,
+      outcome: continued.outcome,
+    })
+    await settleStoredCredentialContinuation({ tenantId, requestId: request.id, runId: continued.runId })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    await settleStoredCredentialContinuation({ tenantId, requestId: request.id, error: message })
+    throw error
   }
 }
 

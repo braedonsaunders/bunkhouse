@@ -687,7 +687,8 @@ export async function recoverChatDispatches(
     } else if (
       state.runStatus !== 'running' &&
       state.runStatus !== 'waiting_approval' &&
-      state.runStatus !== 'waiting_reply'
+      state.runStatus !== 'waiting_reply' &&
+      state.runStatus !== 'waiting_credential'
     ) {
       await store.settle({
         tenantId,

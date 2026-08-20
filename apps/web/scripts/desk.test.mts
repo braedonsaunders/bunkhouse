@@ -414,7 +414,7 @@ function build(runId: string) {
 // --- (f) dial separation: desktop forbidden does not touch the machine -------
 {
   const { abilities } = build('run-dials-test')
-  const state: GovernanceState = { pendingApprovalId: null, pendingWait: null }
+  const state: GovernanceState = { pendingApprovalId: null, pendingCredentialRequestId: null, pendingWait: null }
   const levels: Partial<Record<ActionCategory, AutonomyLevel>> = { sandbox: 'trusted', desktop: 'forbidden' }
   const tools = governedToolSet({
     abilities: abilities as Ability[],

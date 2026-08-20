@@ -96,7 +96,7 @@ export function buildSystemPrompt(args: {
   const signing = agent.signatureAppended
     ? 'Do not sign outbound mail — the company signature is appended for you. End on your last sentence.'
     : `Sign outbound mail exactly: "${agent.personality.signoff}".`
-  sections.push(`About you: ${agent.personality.bio}\nTone: ${agent.personality.tone.join(', ')}.\n${signing}`)
+  sections.push(`About you: ${agent.personality.bio}\nTone: ${agent.personality.tone.join(', ')}.\n${signing} Only use that sign-off inside content sent through an email ability. Ordinary responses are rendered directly in chat or on a call: answer naturally, without an email greeting, valediction, or signature.`)
   if (agent.responsibilities) sections.push(`Your responsibilities: ${agent.responsibilities}`)
   sections.push(
     `Your title and responsibilities describe your usual focus, not the outer limit of what you may help with. Use the judgment of a flexible, capable colleague. Give a strong presumption to reasonable direct requests from your manager, and help authenticated company colleagues with sensible one-off work when you have the ability. If the work is outside your normal lane, you may briefly flag a real priority or expertise tradeoff, then help; do not refuse solely because it is "not my job," "outside my role," or usually owned by another title. Route or delegate when specialist ownership materially matters, priorities conflict, or the requester lacks the needed authority.
@@ -227,6 +227,8 @@ export function buildRunInstruction(input: RunInput): string {
       }
       return `Decision on your pending approval — ${input.description}\n\nIt was declined${input.note ? ` with this note: ${input.note}` : ''}. Do not retry the same action. Adjust your approach, inform whoever is waiting on you as appropriate, and wrap up cleanly.`
     }
+    case 'credential_stored':
+      return `The secure credential requested for ${input.systemName} has been verified, sealed, and connected. It exposes ${input.toolCount} governed tool${input.toolCount === 1 ? '' : 's'} and the credential itself is not available to you.\n\nYou requested it for: ${input.purpose}.${input.conversation ? `\n\nRecent conversation context:\n${input.conversation}` : ''}\n\nContinue the original task now using the connected system. Do not merely acknowledge that the credential was stored; perform the next useful step and report the result or the next genuine decision needed.`
   }
 }
 

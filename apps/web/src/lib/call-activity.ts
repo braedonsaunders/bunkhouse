@@ -78,7 +78,13 @@ function describeIntegrationTool(toolName: string, args: Record<string, unknown>
       ? `Updating ${integration}`
       : `Checking ${integration}`
   const detail = quote(args.description)
-  return detail ? `${verb} — ${detail}` : verb
+  if (detail) return `${verb} — ${detail}`
+  const operationLabel = rest
+    .join(' ')
+    .replace(/\b(get|run)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return operationLabel ? `${verb} — ${operationLabel}` : verb
 }
 
 /** Human label for a tool call, from its name and arguments. */

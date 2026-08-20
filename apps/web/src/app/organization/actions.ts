@@ -123,7 +123,7 @@ async function windDownOffboarded(tx: Tx, person: PersonRow, actorUserId: string
       summary: 'Stopped when the agent was offboarded.',
     })
     .where(
-      and(eq(runs.personId, person.id), inArray(runs.status, ['running', 'waiting_approval', 'waiting_reply'])),
+      and(eq(runs.personId, person.id), inArray(runs.status, ['running', 'waiting_approval', 'waiting_reply', 'waiting_credential'])),
     )
 }
 

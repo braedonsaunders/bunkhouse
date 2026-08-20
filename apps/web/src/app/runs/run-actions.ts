@@ -21,7 +21,7 @@ import { reconcileExternalEffect } from '../../lib/run-execution'
  * Either way the run keeps everything it did. Stopping is not undoing.
  */
 /** The states a run can still be stopped from; anything else has finished. */
-const STOPPABLE = ['running', 'waiting_approval', 'waiting_reply'] as const
+const STOPPABLE = ['running', 'waiting_approval', 'waiting_reply', 'waiting_credential'] as const
 
 export async function stopRunAction(
   runId: string,

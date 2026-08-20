@@ -97,6 +97,8 @@ export const chatMessages = pgTable(
     /** The decision whose resumed outcome this message delivers. One decision
      *  may produce exactly one conversational handoff, even after recovery. */
     approvalId: uuid('approval_id'),
+    /** The sealed credential handoff whose automatic continuation produced this reply. */
+    credentialRequestId: uuid('credential_request_id'),
     at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -106,12 +108,16 @@ export const chatMessages = pgTable(
     index('chat_messages_run_idx').on(t.tenantId, t.runId),
     index('chat_messages_dispatch_idx').on(t.tenantId, t.dispatchId),
     index('chat_messages_approval_idx').on(t.tenantId, t.approvalId),
+    index('chat_messages_credential_request_idx').on(t.tenantId, t.credentialRequestId),
     uniqueIndex('chat_messages_dispatch_user_key')
       .on(t.dispatchId)
       .where(sql`${t.role} = 'user' and ${t.dispatchId} is not null`),
     uniqueIndex('chat_messages_approval_agent_key')
       .on(t.approvalId)
       .where(sql`${t.role} = 'agent' and ${t.approvalId} is not null`),
+    uniqueIndex('chat_messages_credential_request_agent_key')
+      .on(t.credentialRequestId)
+      .where(sql`${t.role} = 'agent' and ${t.credentialRequestId} is not null`),
   ],
 )
 

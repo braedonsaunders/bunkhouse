@@ -65,11 +65,12 @@ const STATUS_BADGES: Record<string, 'default' | 'secondary' | 'outline' | 'destr
   running: 'secondary',
   waiting_approval: 'outline',
   waiting_reply: 'outline',
+  waiting_credential: 'outline',
   failed: 'destructive',
   cancelled: 'outline',
 }
 
-const OPEN_STATUSES = new Set(['running', 'waiting_approval', 'waiting_reply'])
+const OPEN_STATUSES = new Set(['running', 'waiting_approval', 'waiting_reply', 'waiting_credential'])
 
 export function describeTrigger(trigger: Record<string, unknown>): string {
   switch (trigger.type) {
@@ -85,6 +86,8 @@ export function describeTrigger(trigger: Record<string, unknown>): string {
       return 'Assignment'
     case 'approval_followup':
       return 'Approval follow-up'
+    case 'credential_followup':
+      return 'Credential handoff follow-up'
     default:
       return 'Manual'
   }

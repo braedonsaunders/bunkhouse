@@ -29,6 +29,7 @@ const TRIGGER_LABELS: Record<string, string> = {
   delegation: 'Delegated task',
   assignment: 'Assignment',
   approval_followup: 'After an approval',
+  credential_followup: 'After a credential handoff',
   manual: 'Started by hand',
 }
 
@@ -36,12 +37,13 @@ const STATUS_LABELS: Record<string, string> = {
   running: 'running',
   waiting_approval: 'waiting approval',
   waiting_reply: 'waiting reply',
+  waiting_credential: 'waiting credential',
   completed: 'completed',
   failed: 'failed',
   cancelled: 'cancelled',
 }
 
-const ACTIVE_STATUSES = ['running', 'waiting_approval', 'waiting_reply'] as const
+const ACTIVE_STATUSES = ['running', 'waiting_approval', 'waiting_reply', 'waiting_credential'] as const
 const FINISHED_STATUSES = ['completed', 'failed', 'cancelled'] as const
 
 

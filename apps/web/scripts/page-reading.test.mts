@@ -355,7 +355,7 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
     },
     approvals: { request: async () => ({ approvalId: 'ap-1' }) },
     sink: { event: async () => {}, spend: async () => {} },
-    state: { pendingApprovalId: null, pendingWait: null },
+    state: { pendingApprovalId: null, pendingCredentialRequestId: null, pendingWait: null },
   })
   const run = (to: string) => tools.send_email!.execute!({ to }, { toolCallId: 't', messages: [] })
 

@@ -63,14 +63,12 @@ const queue = chatQueueUiProjection([
 ])
 assert.equal(queue.state, 'running', 'active work takes visual precedence over recovery')
 assert.deepEqual(queue.messages.map(({ id, position, status }) => ({ id, position, status })), [
-  { id: 'running', position: 1, status: 'dispatching' },
-  { id: 'waiting', position: 2, status: 'queued' },
-  { id: 'failed', position: 3, status: 'failed' },
+  { id: 'waiting', position: 1, status: 'queued' },
+  { id: 'failed', position: 2, status: 'failed' },
 ])
-assert.equal(queue.messages[0]?.editable, false)
-assert.equal(queue.messages[1]?.editable, true)
-assert.equal(queue.messages[2]?.retryable, true)
-assert.equal(queue.messages[2]?.statusLabel, 'The provider timed out.')
+assert.equal(queue.messages[0]?.editable, true)
+assert.equal(queue.messages[1]?.retryable, true)
+assert.equal(queue.messages[1]?.statusLabel, 'The provider timed out.')
 assert.equal(chatQueueUiProjection([{ id: 'failed', body: 'Retry', status: 'failed', lastError: null }]).state, 'recovering')
 assert.deepEqual(chatQueueUiProjection([]), { state: 'idle', messages: [] })
 

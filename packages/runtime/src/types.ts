@@ -155,6 +155,16 @@ export type RunInput =
       result?: unknown
       note?: string
     }
+  | {
+      /** Continuation after a human supplied a credential through the sealed handoff. */
+      type: 'credential_stored'
+      requestId: string
+      systemName: string
+      purpose: string
+      toolCount: number
+      /** Bounded readable context for legacy requests whose originating run already closed. */
+      conversation?: string
+    }
 
 export type RunEvent =
   | { kind: 'message'; text: string }
@@ -233,6 +243,7 @@ export type BudgetMeter = {
 export type RunOutcome =
   | { status: 'completed'; summary: string; usage: TokenUsage; messages: ModelMessage[] }
   | { status: 'waiting_approval'; approvalId: string; usage: TokenUsage; messages: ModelMessage[] }
+  | { status: 'waiting_credential'; requestId: string; usage: TokenUsage; messages: ModelMessage[] }
   | {
       status: 'waiting_reply'
       wait: { threadId: string; to: string; question: string; nudgeAfterDays: number }

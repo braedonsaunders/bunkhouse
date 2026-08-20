@@ -51,6 +51,7 @@ import {
 } from '../../lib/files'
 import {
   cancelSystemCredentialRequest,
+  executeStoredCredentialContinuation,
   listThreadSystemCredentialRequests,
   submitSystemCredentialRequest,
   type SystemCredentialRequestView,
@@ -153,6 +154,7 @@ export async function submitSystemCredentialRequestAction(input: {
       userId: access.user.id,
       credential: input.credential,
     })
+    after(() => executeStoredCredentialContinuation(access.tenantId, input.requestId))
     revalidatePath(CHAT_PATH)
     revalidatePath('/resources')
     return result

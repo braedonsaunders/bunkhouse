@@ -13,7 +13,7 @@ export type ActiveRunCardRow = {
   /** The agent's figure, cropped to its head viewport by the caller. */
   avatar: React.ReactNode
   trigger: string
-  status: 'running' | 'waiting_approval' | 'waiting_reply'
+  status: 'running' | 'waiting_approval' | 'waiting_reply' | 'waiting_credential'
   statusLabel: string
   summary: string
   /** What the ledger says the agent is doing right now, human-phrased. */
@@ -27,12 +27,14 @@ const STATUS_VARIANT: Record<ActiveRunCardRow['status'], 'secondary' | 'outline'
   running: 'secondary',
   waiting_approval: 'outline',
   waiting_reply: 'outline',
+  waiting_credential: 'outline',
 }
 
 const PULSE_TONE: Record<ActiveRunCardRow['status'], string> = {
   running: 'bg-success',
   waiting_approval: 'bg-warning',
   waiting_reply: 'bg-info',
+  waiting_credential: 'bg-info',
 }
 
 /**

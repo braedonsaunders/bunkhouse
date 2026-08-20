@@ -32,6 +32,7 @@ const {
   continueThread,
   titleFromMessage,
   appendApprovalOutcomeToChat,
+  appendCredentialOutcomeToChat,
 } = await import('../src/lib/chat-threads')
 
 const { chatExportFilename, chatExportJson, chatExportMarkdown, chatExportRecord } = await import('../src/lib/chat-export')
@@ -89,6 +90,7 @@ function memoryChatStore(clock: () => Date) {
   const threads: StoredThread[] = []
   const messages: StoredMessage[] = []
   const approvalContinuations = new Map<string, Awaited<ReturnType<ChatThreadStore['appendMessage']>>>()
+  const credentialContinuations = new Map<string, Awaited<ReturnType<ChatThreadStore['appendMessage']>>>()
   const store: ChatThreadStore = {
     async listThreads({ tenantId, userId, includeArchived, personId, query }): Promise<ChatThreadSummary[]> {
       const search = query?.toLocaleLowerCase()
@@ -194,6 +196,13 @@ function memoryChatStore(clock: () => Date) {
       if (existing) return { message: existing, appended: false }
       const message = await store.appendMessage({ tenantId, threadId, role: 'agent', body, runId })
       approvalContinuations.set(approvalId, message)
+      return { message, appended: true }
+    },
+    async appendCredentialContinuation({ tenantId, threadId, body, runId, requestId }) {
+      const existing = credentialContinuations.get(requestId)
+      if (existing) return { message: existing, appended: false }
+      const message = await store.appendMessage({ tenantId, threadId, role: 'agent', body, runId })
+      credentialContinuations.set(requestId, message)
       return { message, appended: true }
     },
     async touchThread({ threadId, title, at }) {
@@ -348,6 +357,7 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   assert.match(system, /responsibilities describe your usual focus, not the outer limit/)
   assert.match(system, /reasonable direct requests carry managerial priority/)
   assert.match(system, /Never guess that autonomy, budget, review, cost, or a feature gate forbids an action/)
+  assert.match(system, /without an email greeting, valediction, or signature/)
   assert.doesNotMatch(system, /when something exceeds your role/)
 
   assert.equal(sent.messages.length, 2, 'the turn is what was said and what came back')
@@ -524,7 +534,42 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   console.log('chat: approval continuation is visible, append-only, and idempotent')
 }
 
-// --- (b2) a completed streamed turn survives a profile-section switch ------
+// --- (b2) a stored credential speaks exactly once into the same chat -------
+{
+  let tick = 0
+  const clock = () => new Date(Date.parse('2026-08-19T21:00:00.000Z') + (tick += 1_000))
+  const { store, messages, threads } = memoryChatStore(clock)
+  const threadId = await store.createThread({ tenantId: TENANT, userId: USER, personId: AGENT, title: 'Credential' })
+  const outcome = {
+    status: 'completed' as const,
+    summary: 'The connected reader works. I found the requested public posts.',
+    usage: { inputTokens: 12, outputTokens: 24 },
+    messages: [],
+  }
+  const args = {
+    tenantId: TENANT,
+    threadId,
+    requestId: 'credential-twitter',
+    continuedRunId: 'run-credential-twitter',
+    outcome,
+  }
+  const first = await appendCredentialOutcomeToChat(args, { store })
+  const recovered = await appendCredentialOutcomeToChat(args, { store })
+  assert.equal(first.body, outcome.summary)
+  assert.equal(recovered.id, first.id)
+  assert.equal(messages.filter((message) => message.runId === args.continuedRunId).length, 1)
+  assert.equal(threads[0]?.lastMessageAt.toISOString(), first.at)
+
+  const migration = readFileSync(
+    fileURLToPath(new URL('../../../migrations/0071_credential_continuations.sql', import.meta.url)),
+    'utf8',
+  )
+  assert.match(migration, /continuation_lease_until/)
+  assert.match(migration, /chat_messages_credential_request_agent_key/)
+  assert.match(migration, /approvals_pending_tool_call_key/)
+}
+
+// --- (b3) a completed streamed turn survives a profile-section switch ------
 //
 // AgentPanel keeps the rich live parts while it is mounted. The server tree
 // behind it must still be refreshed after persistence catches up, otherwise

@@ -238,6 +238,7 @@ export async function requestApproval(args: {
   action: Record<string, unknown>
 }): Promise<{ approvalId: string; alreadyRequested: boolean }> {
   const app = db()
+  const toolCallId = typeof args.action.toolCallId === 'string' ? args.action.toolCallId : null
   const [existing] = await app.db
     .select({ id: approvals.id })
     .from(approvals)
@@ -245,7 +246,9 @@ export async function requestApproval(args: {
       and(
         eq(approvals.runId, args.runId),
         eq(approvals.status, 'pending'),
-        sql`${approvals.payload}->>'description' = ${args.description}`,
+        toolCallId
+          ? sql`${approvals.payload}->'action'->>'toolCallId' = ${toolCallId}`
+          : sql`${approvals.payload}->'action' = ${JSON.stringify(args.action)}::jsonb`,
       ),
     )
     .limit(1)
@@ -259,8 +262,22 @@ export async function requestApproval(args: {
       category: args.category,
       payload: { description: args.description, action: args.action },
     })
+    .onConflictDoNothing()
     .returning({ id: approvals.id })
-  return { approvalId: row!.id, alreadyRequested: false }
+  if (row) return { approvalId: row.id, alreadyRequested: false }
+  const [raced] = await app.db
+    .select({ id: approvals.id })
+    .from(approvals)
+    .where(and(
+      eq(approvals.runId, args.runId),
+      eq(approvals.status, 'pending'),
+      toolCallId
+        ? sql`${approvals.payload}->'action'->>'toolCallId' = ${toolCallId}`
+        : sql`${approvals.payload}->'action' = ${JSON.stringify(args.action)}::jsonb`,
+    ))
+    .limit(1)
+  if (!raced) throw new Error('The approval request could not be recorded.')
+  return { approvalId: raced.id, alreadyRequested: true }
 }
 
 /**
@@ -628,6 +645,7 @@ async function resolveRootRun(trigger: RunTrigger): Promise<string | null> {
     return row?.root ?? runId
   }
   if (trigger.type === 'approval_followup') return rootOf(trigger.originRunId)
+  if (trigger.type === 'credential_followup') return rootOf(trigger.originRunId)
   if (trigger.type === 'delegation') return rootOf(trigger.runId)
   if (trigger.type === 'assignment') {
     const [row] = await app.db
@@ -853,8 +871,10 @@ export async function executeAgentRun(args: {
                   ? `${runInput.title} ${runInput.spec.slice(0, 400)}`
                   : runInput.type === 'approval_decision'
                     ? runInput.description
-                    : runInput.type === 'reply_received'
-                      ? runInput.question
+                  : runInput.type === 'reply_received'
+                    ? runInput.question
+                    : runInput.type === 'credential_stored'
+                      ? `${runInput.systemName} ${runInput.purpose}`
                       : runInput.instruction
       const memories = await runMemories(
         { tenantId: args.tenantId, agent: agentBinding(person), query: retrievalQuery },
@@ -890,7 +910,11 @@ export async function executeAgentRun(args: {
       // The shared capability set. A live run is handed the one its call already
       // assembled; everything else assembles its own, plus ask_and_wait — an
       // async run can genuinely pause on a person's answer, a live one cannot.
-      const waitState: GovernanceState = { pendingApprovalId: null, pendingWait: null }
+      const waitState: GovernanceState = {
+        pendingApprovalId: null,
+        pendingCredentialRequestId: null,
+        pendingWait: null,
+      }
       const allowStandingSchedules =
         args.trigger.type === 'chat' ||
         (args.trigger.type === 'manual' && Boolean(args.trigger.requestedBy)) ||
@@ -1100,6 +1124,8 @@ export async function executeAgentRun(args: {
                 : ('completed' as const)
               : result.status === 'waiting_approval'
                 ? ('waiting_approval' as const)
+                : result.status === 'waiting_credential'
+                  ? ('waiting_credential' as const)
                 : result.status === 'waiting_reply'
                   ? ('waiting_reply' as const)
                   : result.status === 'cancelled'
@@ -1170,7 +1196,8 @@ export async function executeAgentRun(args: {
             return finishRunAttempt(args.tenantId, lease, attemptKind, { outcome: result.status })
           }
 
-          const parked = status === 'waiting_approval' || status === 'waiting_reply'
+          const parked =
+            status === 'waiting_approval' || status === 'waiting_reply' || status === 'waiting_credential'
           return finalizeRunAttempt(
             args.tenantId,
             lease,
@@ -1191,6 +1218,8 @@ export async function executeAgentRun(args: {
                     : result.summary.slice(0, 500)
                   : result.status === 'waiting_approval'
                     ? 'Waiting on an approval.'
+                    : result.status === 'waiting_credential'
+                      ? 'Waiting for a securely supplied credential.'
                     : result.status === 'waiting_reply'
                       ? `Waiting to hear back from ${result.wait.to}.`
                       : result.status === 'budget_paused'

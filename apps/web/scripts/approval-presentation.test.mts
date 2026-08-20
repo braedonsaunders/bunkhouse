@@ -39,6 +39,16 @@ assert.match(approvalReply, /ready for your approval/i)
 assert.match(approvalReply, /continue automatically/i)
 assert.doesNotMatch(approvalReply, /colleague/i)
 
+const credentialReply = replyTextForOutcome({
+  status: 'waiting_credential',
+  requestId: 'credential-1',
+  usage: { inputTokens: 0, outputTokens: 0 },
+  messages: [],
+})
+assert.match(credentialReply, /secure credential form/i)
+assert.match(credentialReply, /continue automatically/i)
+assert.match(credentialReply, /without putting the credential in this conversation/i)
+
 assert.equal(
   shouldAppendPersistedAnswer('I have the provider mapped. Creating the proposal now.', approvalReply),
   true,

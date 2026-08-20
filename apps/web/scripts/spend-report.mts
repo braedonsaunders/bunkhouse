@@ -188,7 +188,7 @@ table(
            (select count(*) from run_events e where e.run_id = r.id) as events,
            to_char((select max(created_at) from run_events e where e.run_id = r.id), 'HH24:MI:SS') as last_event
     from runs r join people p on p.id = r.person_id
-    where r.status in ('running', 'waiting_approval', 'waiting_reply')
+    where r.status in ('running', 'waiting_approval', 'waiting_reply', 'waiting_credential')
     order by r.started_at limit 40
   `),
   ['agent', 'trigger', 'status', 'started', 'minutes', 'events', 'last_event'],

@@ -25,12 +25,16 @@ export type ChatQueueUiProjection = {
 
 /** One tested projection from durable dispatch state to the AppKit queue surface. */
 export function chatQueueUiProjection(dispatches: readonly ChatDispatchUiRecord[]): ChatQueueUiProjection {
+  const running = dispatches.some((dispatch) => dispatch.status === 'running')
   const visible = dispatches.filter(
-    (dispatch): dispatch is ChatDispatchUiRecord & { status: 'queued' | 'running' | 'failed' } =>
-      dispatch.status === 'queued' || dispatch.status === 'running' || dispatch.status === 'failed',
+    (dispatch): dispatch is ChatDispatchUiRecord & { status: 'queued' | 'failed' } =>
+      dispatch.status === 'queued' || dispatch.status === 'failed',
   )
   return {
-    state: visible.some((dispatch) => dispatch.status === 'running')
+    // A claimed dispatch has already appended its user turn to the immutable
+    // transcript. Keep the running signal for typing/progress, but do not show
+    // the same words again under “Up next.”
+    state: running
       ? 'running'
       : visible.some((dispatch) => dispatch.status === 'failed')
         ? 'recovering'
@@ -39,7 +43,7 @@ export function chatQueueUiProjection(dispatches: readonly ChatDispatchUiRecord[
       id: dispatch.id,
       text: dispatch.body,
       position: index + 1,
-      status: dispatch.status === 'running' ? 'dispatching' : dispatch.status,
+      status: dispatch.status,
       ...(dispatch.status === 'failed' && dispatch.lastError ? { statusLabel: dispatch.lastError } : {}),
       editable: dispatch.status === 'queued' || dispatch.status === 'failed',
       removable: dispatch.status === 'queued' || dispatch.status === 'failed',

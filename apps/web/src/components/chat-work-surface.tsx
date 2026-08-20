@@ -90,6 +90,7 @@ function statusLabel(status: string): string {
   if (status === 'running' || status === 'active') return 'Live'
   if (status === 'waiting_approval') return 'Waiting for approval'
   if (status === 'waiting_reply') return 'Waiting for reply'
+  if (status === 'waiting_credential') return 'Waiting for credential'
   return status.replaceAll('_', ' ')
 }
 

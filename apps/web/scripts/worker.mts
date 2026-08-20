@@ -14,6 +14,10 @@ import { executeDueDuty } from '../src/lib/duty-execution'
 import { gardenerPass as gardenTenant, journalPass as journalTenant, reflectionPass as reflectTenant } from '../src/lib/consolidation'
 import { pendingAssignmentIds, runAssignment } from '../src/lib/assignments'
 import { decidedApprovalIds, executeDecidedApproval } from '../src/lib/approval-executor'
+import {
+  executeStoredCredentialContinuation,
+  pendingStoredCredentialContinuationIds,
+} from '../src/lib/system-credential-requests'
 import { tidyWorkspaces } from '../src/lib/workspace'
 import { syncToolCatalogue, toolHousekeeping, toolsSupported } from '../src/lib/tools'
 import { systemsHousekeeping } from '../src/lib/mcp-health'
@@ -155,6 +159,9 @@ async function approvalsPass(): Promise<void> {
     await applyEmailedDecisions(tenantId)
     for (const approvalId of await decidedApprovalIds(tenantId)) {
       await deepWork.add('approval', { kind: 'approval', tenantId, id: approvalId })
+    }
+    for (const requestId of await pendingStoredCredentialContinuationIds(tenantId)) {
+      await deepWork.add('credential', { kind: 'credential', tenantId, id: requestId })
     }
   }
 }
@@ -659,7 +666,7 @@ type HeartbeatPass =
   | 'systems'
   | 'conversations'
 type DeepWorkJob =
-  | { kind: 'assignment' | 'approval' | 'inbound' | 'conversation'; tenantId: string; id: string }
+  | { kind: 'assignment' | 'approval' | 'credential' | 'inbound' | 'conversation'; tenantId: string; id: string }
   | { kind: 'duty'; tenantId: string; id: string; scheduledAt: string | null }
 
 // Deep work — assignment runs and approval continuations — gets its own queue
@@ -727,6 +734,8 @@ const deepWorker = jobs.createWorker<DeepWorkJob>(
       await runAssignment(job.data.tenantId, job.data.id)
     } else if (job.data.kind === 'approval') {
       await executeDecidedApproval(job.data.tenantId, job.data.id)
+    } else if (job.data.kind === 'credential') {
+      await executeStoredCredentialContinuation(job.data.tenantId, job.data.id)
     } else if (job.data.kind === 'inbound') {
       await startRunsForNewInbound(job.data.tenantId, job.data.id)
     } else if (job.data.kind === 'conversation') {

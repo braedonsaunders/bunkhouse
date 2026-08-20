@@ -27,7 +27,7 @@ const tools = governedToolSet({
     },
     spend: async () => {},
   },
-  state: { pendingApprovalId: null, pendingWait: null },
+  state: { pendingApprovalId: null, pendingCredentialRequestId: null, pendingWait: null },
 })
 
 const call = async (title: string) =>
@@ -67,7 +67,7 @@ const websocketTools = governedToolSet({
   autonomy: async () => 'trusted',
   approvals: { request: async () => ({ approvalId: 'never' }) },
   sink: { event: async () => {}, spend: async () => {} },
-  state: { pendingApprovalId: null, pendingWait: null },
+  state: { pendingApprovalId: null, pendingCredentialRequestId: null, pendingWait: null },
 })
 const websocketResult = (await websocketTools.open_browser!.execute!(
   {},

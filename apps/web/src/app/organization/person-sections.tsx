@@ -59,7 +59,7 @@ type RecentRun = Pick<typeof runs.$inferSelect, 'id' | 'status' | 'summary' | 's
 function runStatusVariant(status: string): 'default' | 'destructive' | 'outline' | 'secondary' {
   if (status === 'completed') return 'default'
   if (status === 'failed' || status === 'cancelled') return 'destructive'
-  if (status === 'waiting_approval' || status === 'waiting_reply') return 'secondary'
+  if (status === 'waiting_approval' || status === 'waiting_reply' || status === 'waiting_credential') return 'secondary'
   return 'outline'
 }
 

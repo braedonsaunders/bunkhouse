@@ -278,6 +278,69 @@ await asApp(T1, async (c) => {
       (error: { code?: string }) => error.code === 'P0001',
       'a stored request must record when it resolved',
     )
+    await c.query(
+      `update authored_system_credential_requests set status = 'stored', resolved_at = now() where id = $1`,
+      [requestId],
+    )
+    await assert.rejects(
+      c.query(
+        `update authored_system_credential_requests set continuation_status = 'leased' where id = $1`,
+        [requestId],
+      ),
+      (error: { code?: string }) => error.code === 'P0001',
+      'a credential continuation claim must carry an expiring lease',
+    )
+    await c.query(
+      `update authored_system_credential_requests
+       set continuation_status = 'leased', continuation_attempts = 1,
+           continuation_lease_until = now() + interval '10 minutes'
+       where id = $1`,
+      [requestId],
+    )
+    await c.query(
+      `update authored_system_credential_requests
+       set continuation_status = 'failed', continuation_lease_until = null,
+           continuation_error = 'worker stopped'
+       where id = $1`,
+      [requestId],
+    )
+    await c.query(
+      `update authored_system_credential_requests
+       set continuation_status = 'leased', continuation_attempts = 2,
+           continuation_lease_until = now() + interval '10 minutes'
+       where id = $1`,
+      [requestId],
+    )
+    await assert.rejects(
+      c.query(
+        `update authored_system_credential_requests
+         set continuation_status = 'succeeded', continuation_lease_until = null where id = $1`,
+        [requestId],
+      ),
+      (error: { code?: string }) => error.code === 'P0001',
+      'success must name the one continued run and completion time',
+    )
+    const continuedRunId = crypto.randomUUID()
+    await c.query(
+      `insert into runs (id, tenant_id, person_id, trigger, status, finished_at)
+       values ($1, $2, $3, $4::jsonb, 'completed', now())`,
+      [continuedRunId, T1, personId, JSON.stringify({ type: 'credential_followup', requestId, originRunId: runId })],
+    )
+    await c.query(
+      `update authored_system_credential_requests
+       set continuation_status = 'succeeded', continuation_lease_until = null,
+           continued_run_id = $2, continued_at = now()
+       where id = $1`,
+      [requestId, continuedRunId],
+    )
+    await assert.rejects(
+      c.query(
+        `update authored_system_credential_requests set continued_run_id = $2 where id = $1`,
+        [requestId, crypto.randomUUID()],
+      ),
+      (error: { code?: string }) => error.code === 'P0001',
+      'recovery cannot replace the continuation run that already won',
+    )
     await assert.rejects(
       c.query(
         `update authored_system_credential_request_events set detail = '{"changed":true}' where request_id = $1`,

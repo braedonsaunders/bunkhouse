@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import { index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { auditColumns, id, tenantRef } from '@braedonsaunders/appkit-db'
 
@@ -83,6 +84,9 @@ export const approvals = pgTable(
   (t) => [
     index('approvals_pending_idx').on(t.tenantId, t.status, t.createdAt),
     index('approvals_execution_idx').on(t.tenantId, t.executionStatus, t.executionLeaseUntil),
+    uniqueIndex('approvals_pending_tool_call_key')
+      .on(t.runId, sql`((${t.payload}->'action'->>'toolCallId'))`)
+      .where(sql`${t.status} = 'pending' and (${t.payload}->'action'->>'toolCallId') is not null`),
   ],
 )
 

@@ -19,6 +19,8 @@ export function replyTextForOutcome(outcome: RunOutcome): string {
       return outcome.summary
     case 'waiting_approval':
       return "It's ready for your approval. Review the request below; once you approve it, I'll continue automatically."
+    case 'waiting_credential':
+      return "The secure credential form is ready below. Once you submit it, I'll continue automatically without putting the credential in this conversation."
     case 'waiting_reply':
       return `I'm waiting to hear back from ${outcome.wait.to} before I can finish this — I'll follow up here.`
     case 'budget_paused':

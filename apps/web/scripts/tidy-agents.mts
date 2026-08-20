@@ -100,7 +100,7 @@ if (PURGE) {
   const stuck = await rows(sql`
     update runs set status = 'cancelled', finished_at = now(),
         summary = coalesce(nullif(summary, ''), 'Cancelled during a development reset.')
-    where status in ('running', 'waiting_approval', 'waiting_reply')
+    where status in ('running', 'waiting_approval', 'waiting_reply', 'waiting_credential')
     returning id
   `)
   console.log(`\nPURGED: ${work.length} assignment(s) and ${approvals.length} pending approval(s) DELETED`)

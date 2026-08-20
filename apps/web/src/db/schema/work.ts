@@ -50,6 +50,7 @@ export const runStatus = pgEnum('run_status', [
   'running',
   'waiting_approval',
   'waiting_reply',
+  'waiting_credential',
   'completed',
   'failed',
   'cancelled',
@@ -63,6 +64,7 @@ export type RunTrigger =
   | { type: 'manual'; requestedBy: string }
   | { type: 'assignment'; assignmentId: string }
   | { type: 'approval_followup'; approvalId: string; originRunId: string }
+  | { type: 'credential_followup'; requestId: string; originRunId: string }
 
 export const runs = pgTable(
   'runs',

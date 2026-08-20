@@ -137,6 +137,16 @@ export const authoredSystemCredentialRequests = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     resolvedAt: timestamp('resolved_at', { withTimezone: true }),
     resolvedBy: uuid('resolved_by'),
+    /** Recoverable delivery of the stored result back into the originating work. */
+    continuationStatus: text('continuation_status')
+      .$type<'pending' | 'leased' | 'succeeded' | 'failed'>()
+      .notNull()
+      .default('pending'),
+    continuationAttempts: integer('continuation_attempts').notNull().default(0),
+    continuationLeaseUntil: timestamp('continuation_lease_until', { withTimezone: true }),
+    continuationError: text('continuation_error'),
+    continuedRunId: uuid('continued_run_id'),
+    continuedAt: timestamp('continued_at', { withTimezone: true }),
     ...auditColumns,
   },
   (table) => [
@@ -146,6 +156,8 @@ export const authoredSystemCredentialRequests = pgTable(
       .where(sql`${table.status} in ('pending', 'verifying')`),
     index('authored_system_credential_requests_thread_idx').on(table.tenantId, table.threadId, table.createdAt),
     index('authored_system_credential_requests_system_idx').on(table.tenantId, table.systemId, table.status),
+    index('authored_system_credential_requests_continuation_idx')
+      .on(table.tenantId, table.continuationStatus, table.continuationLeaseUntil),
     foreignKey({
       name: 'authored_system_credential_requests_tenant_system_fk',
       columns: [table.tenantId, table.systemId],
