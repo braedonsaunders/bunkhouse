@@ -10,8 +10,15 @@ export type ChatApprovalView = {
   categoryLabel: string
   description: string
   details: Array<{ label: string; value: string }>
-  status: 'pending' | 'approved' | 'rejected' | 'expired'
+  /**
+   * `failed` is not a decision — it is what became of one. The row still says
+   * approved or rejected; this view resolves the two together so the
+   * conversation can distinguish "waiting to continue" from "never will".
+   */
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'failed'
   decisionNote: string | null
+  /** Why carrying the decision out was given up on, when it was. */
+  failureReason: string | null
   /** The decision is final, but its parked run has not finished resuming yet. */
   continuationPending: boolean
   createdAt: string
@@ -34,6 +41,7 @@ export async function listThreadApprovals(tenantId: string, threadId: string): P
       status: approvals.status,
       decisionNote: approvals.decisionNote,
       executedAt: approvals.executedAt,
+      executionError: approvals.executionError,
       createdAt: approvals.createdAt,
     })
     .from(approvals)
@@ -51,8 +59,13 @@ export async function listThreadApprovals(tenantId: string, threadId: string): P
         ...presentation.fields,
         ...(presentation.text ? [{ label: 'Details', value: presentation.text }] : []),
       ],
-      status: row.status,
+      // Terminal is the STAMP, not the status column: `execution_status =
+      // 'failed'` comes straight back round on the next sweep and is therefore
+      // still in flight, not over. Only `executed_at` with an error recorded
+      // beside it means nothing further will be tried.
+      status: row.executedAt !== null && row.executionError !== null ? 'failed' : row.status,
       decisionNote: row.decisionNote,
+      failureReason: row.executedAt !== null ? row.executionError : null,
       continuationPending:
         (row.status === 'approved' || row.status === 'rejected') && row.executedAt === null,
       createdAt: row.createdAt.toISOString(),

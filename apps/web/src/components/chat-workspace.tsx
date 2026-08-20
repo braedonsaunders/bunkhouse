@@ -151,8 +151,9 @@ export type ChatApprovalRecord = {
   categoryLabel: string
   description: string
   details: Array<{ label: string; value: string }>
-  status: 'pending' | 'approved' | 'rejected' | 'expired'
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'failed'
   decisionNote: string | null
+  failureReason: string | null
   continuationPending: boolean
   createdAt: string
 }
@@ -279,6 +280,7 @@ function toAgentMessage(
         details: approval.details,
         status: approval.status,
         ...(approval.decisionNote ? { decisionNote: approval.decisionNote } : {}),
+        ...(approval.failureReason ? { failureReason: approval.failureReason } : {}),
       })),
     ],
   }
