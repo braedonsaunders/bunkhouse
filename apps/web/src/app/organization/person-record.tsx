@@ -322,7 +322,7 @@ export async function personDrawer({
                     endsAt: duty.endsAt ? duty.endsAt.toISOString() : null,
                     maxRuns: duty.maxRuns,
                     enabled: duty.enabled,
-                    lastRunAt: duty.lastRunAt ? duty.lastRunAt.toISOString().slice(0, 16).replace('T', ' ') : '',
+                    lastRunAt: duty.lastRunAt ? duty.lastRunAt.toISOString() : '',
                     deliverTo: duty.deliverTo ?? [],
                   }
                 })}
@@ -598,7 +598,7 @@ export async function personDrawer({
                 endsAt: duty.endsAt ? duty.endsAt.toISOString() : null,
                 maxRuns: duty.maxRuns,
                 enabled: duty.enabled,
-                lastRunAt: duty.lastRunAt ? duty.lastRunAt.toISOString().slice(0, 16).replace('T', ' ') : '',
+                lastRunAt: duty.lastRunAt ? duty.lastRunAt.toISOString() : '',
                 deliverTo: duty.deliverTo ?? [],
               }
             })}

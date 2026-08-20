@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { LocalTime } from '../../components/local-time'
 import {
   ArrowUpRight,
   CalendarClock,
@@ -63,14 +64,7 @@ function runStatusVariant(status: string): 'default' | 'destructive' | 'outline'
   return 'outline'
 }
 
-function runStamp(value: Date): string {
-  return value.toLocaleString('en-CA', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-}
+
 
 function RunList({ runs: recentRuns, embedded = false }: { runs: RecentRun[]; embedded?: boolean }) {
   if (recentRuns.length === 0) {
@@ -95,7 +89,7 @@ function RunList({ runs: recentRuns, embedded = false }: { runs: RecentRun[]; em
               </Link>
             </TableCell>
             <TableCell className="hidden whitespace-nowrap text-xs text-fg-muted sm:table-cell">
-              {runStamp(run.startedAt)}
+              <LocalTime at={run.startedAt.toISOString()} />
             </TableCell>
             <TableCell>
               <Badge variant={runStatusVariant(run.status)}>{run.status.replaceAll('_', ' ')}</Badge>

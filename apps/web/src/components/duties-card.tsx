@@ -17,6 +17,7 @@ import {
 } from '@braedonsaunders/appkit-ui'
 import { addDuty, deleteDuty, updateDuty } from '../app/organization/actions'
 import { toLocalInput, type DutySchedule } from '../lib/schedule'
+import { LocalTime } from './local-time'
 import { DeliveryTargetsField, type DeliveryTargetValue, type DirectoryEntry } from './delivery-targets-field'
 import { MarkdownEditor } from './markdown-editor'
 import { ScheduleBuilder } from './schedule-builder'
@@ -63,7 +64,7 @@ const COLUMNS: RecordColumn<DutyRow>[] = [
     sortable: true,
     statusVariant: (value) => (value === 'on' ? 'default' : 'outline'),
   },
-  { key: 'lastRunAt', label: 'Last run' },
+  { key: 'lastRunAt', label: 'Last run', render: (row: DutyRow) => <LocalTime at={row.lastRunAt} fallback="never" /> },
 ]
 
 export function DutiesCard({ personId, duties, directory = [] }: { personId: string; duties: DutyRow[]; directory?: DirectoryEntry[] }) {
@@ -241,7 +242,7 @@ export function DutiesCard({ personId, duties, directory = [] }: { personId: str
                   Delete duty
                 </Button>
                 {selected.lastRunAt ? (
-                  <Badge variant="outline">last ran {selected.lastRunAt}</Badge>
+                  <Badge variant="outline">last ran <LocalTime at={selected.lastRunAt} /></Badge>
                 ) : (
                   <Badge variant="outline">never run</Badge>
                 )}
