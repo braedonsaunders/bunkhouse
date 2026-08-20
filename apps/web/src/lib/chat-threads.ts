@@ -5,7 +5,7 @@ import type { ChatRequester, RunInput, RunInputAttachment, RunOutcome } from '@b
 import { chatMessages, chatThreads, people, runEvents, runs, type RunTrigger } from '../db/schema'
 import { db } from '../db/client'
 import type { ChatMessageActivity } from './chat-activity'
-import { replyTextForOutcome } from './chat-reply'
+import { replyBodyForOutcome } from './chat-reply'
 import { proposeThreadTitle } from './chat-title'
 import { isPersonNotWorking } from './person-work'
 import { waitForRunEventWake } from './run-event-notifications'
@@ -564,7 +564,7 @@ export async function appendApprovalOutcomeToChat(
   const recorded = await store.appendApprovalContinuation({
     tenantId: args.tenantId,
     threadId,
-    body: replyTextForOutcome(args.outcome),
+    body: replyBodyForOutcome(args.outcome),
     runId: args.continuedRunId,
     approvalId: args.approvalId,
   })
@@ -589,7 +589,7 @@ export async function appendCredentialOutcomeToChat(
   const recorded = await store.appendCredentialContinuation({
     tenantId: args.tenantId,
     threadId: args.threadId,
-    body: replyTextForOutcome(args.outcome),
+    body: replyBodyForOutcome(args.outcome),
     runId: args.continuedRunId,
     requestId: args.requestId,
   })
@@ -1199,7 +1199,7 @@ export async function sendMessage(
       tenantId: args.tenantId,
       threadId: args.threadId,
       role: 'agent',
-      body: replyTextForOutcome(outcome),
+      body: replyBodyForOutcome(outcome),
       runId,
       ...(args.dispatchId ? { dispatchId: args.dispatchId } : {}),
     })

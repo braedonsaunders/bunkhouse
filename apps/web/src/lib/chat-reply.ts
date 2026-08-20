@@ -32,6 +32,55 @@ export function replyTextForOutcome(outcome: RunOutcome): string {
   }
 }
 
+/**
+ * What the agent said in its own words before it stopped.
+ *
+ * A parked run's persisted reply used to be nothing but the canned line above,
+ * which reads as a form letter arriving out of nowhere: the reader is shown an
+ * approval card for a phone call without the sentence explaining why a call is
+ * being made at all. The model almost always said that — it is the text of the
+ * assistant turn that carries the tool call — and the outcome has been handing
+ * the whole transcript over the whole time.
+ *
+ * Only the LAST assistant turn, because earlier ones are steps the agent has
+ * already narrated; and only its text parts, because the tool call itself is
+ * the card underneath, not prose.
+ */
+export function preambleForOutcome(outcome: RunOutcome): string {
+  const messages = outcome.messages ?? []
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (!message || message.role !== 'assistant') continue
+    const { content } = message
+    const text = typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content
+            .filter((part): part is { type: 'text'; text: string } =>
+              typeof part === 'object' && part !== null && (part as { type?: unknown }).type === 'text'
+              && typeof (part as { text?: unknown }).text === 'string')
+            .map((part) => part.text)
+            .join('\n')
+        : ''
+    return text.trim()
+  }
+  return ''
+}
+
+/**
+ * The reply as the reader should see it: the agent's own sentence, then what
+ * the surface needs to say about the state the run is in. Deduplicated,
+ * because a model that already said "I'll continue once you approve" should
+ * not have it said back to it.
+ */
+export function replyBodyForOutcome(outcome: RunOutcome): string {
+  const stated = replyTextForOutcome(outcome)
+  if (outcome.status === 'completed' || outcome.status === 'failed') return stated
+  const preamble = preambleForOutcome(outcome)
+  if (!preamble) return stated
+  return shouldAppendPersistedAnswer(preamble, stated) ? `${preamble}\n\n${stated}` : preamble
+}
+
 const comparable = (value: string): string => value.replace(/\s+/g, ' ').trim()
 
 /**

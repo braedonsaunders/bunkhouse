@@ -8,7 +8,7 @@ import { people, tenantSettings, CHAT_INTEGRATIONS_KEY, type ChatIntegrationSett
 import { chatChannelRoutes, chatInboundEvents } from '../db/schema/chat'
 import { db } from '../db/client'
 import { executeAgentRun } from './agent-runs'
-import { replyTextForOutcome } from './chat-reply'
+import { replyBodyForOutcome } from './chat-reply'
 import { isPersonNotWorking } from './person-work'
 import { assertPublicHost } from './research'
 import { appOrigin } from './app-origin'
@@ -572,7 +572,7 @@ export async function handleSlackEvent(tenantId: string, envelope: SlackEventEnv
       await postSlackMessage({ tenantId, channel: event.channel, threadTs, text: error.message })
       return
     }
-    await postSlackMessage({ tenantId, channel: event.channel, threadTs, text: replyTextForOutcome(outcome) })
+    await postSlackMessage({ tenantId, channel: event.channel, threadTs, text: replyBodyForOutcome(outcome) })
   } catch (error) {
     console.error('[chat-bridge] slack event handling failed', error)
   }
@@ -625,7 +625,7 @@ export async function handleTeamsActivity(tenantId: string, activity: TeamsActiv
       if (!isPersonNotWorking(error)) throw error
       return { type: 'message', text: error.message }
     }
-    return { type: 'message', text: replyTextForOutcome(outcome) }
+    return { type: 'message', text: replyBodyForOutcome(outcome) }
   } catch (error) {
     console.error('[chat-bridge] teams activity handling failed', error)
     return { type: 'message', text: 'Something went wrong handling that message — please try again.' }
