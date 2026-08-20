@@ -436,6 +436,12 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
             output: rest,
           })
         }
+        // Before the utterance, because that is the order it happened in: the
+        // reader of a replayed run should meet the reasoning on the way to the
+        // answer rather than after it. Providers that return no reasoning
+        // simply contribute nothing here.
+        const reasoning = step.reasoningText?.trim()
+        if (reasoning) await sink.event({ kind: 'thought', text: reasoning })
         if (step.text) await sink.event({ kind: 'message', text: step.text })
         // What the provider says the step cost, where it says anything. Null
         // means it did not, and the sink prices the tokens itself.

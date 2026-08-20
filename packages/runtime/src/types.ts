@@ -168,6 +168,15 @@ export type RunInput =
 
 export type RunEvent =
   | { kind: 'message'; text: string }
+  /**
+   * The model's own reasoning for a step, where the provider returned any.
+   *
+   * Recorded for the same reason the tool calls are: without it a reloaded
+   * conversation loses everything except the final prose, and the reader is
+   * left with a conclusion and no visible path to it. It is the agent's
+   * thinking, not its speech — `message` stays the utterance.
+   */
+  | { kind: 'thought'; text: string }
   | { kind: 'tool_call'; toolCallId?: string; toolName: string; category: ActionCategory | null; input: unknown }
   | { kind: 'tool_result'; toolCallId?: string; toolName: string; output: unknown }
   | { kind: 'procedure_citation'; slug: string; version: number }

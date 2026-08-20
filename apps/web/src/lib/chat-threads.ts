@@ -4,7 +4,9 @@ import { followDurableCursor } from '@braedonsaunders/appkit-events'
 import type { ChatRequester, RunInput, RunInputAttachment, RunOutcome } from '@bunkhouse/runtime'
 import { chatMessages, chatThreads, people, runEvents, runs, type RunTrigger } from '../db/schema'
 import { db } from '../db/client'
+import type { ChatMessageActivity } from './chat-activity'
 import { replyTextForOutcome } from './chat-reply'
+import { proposeThreadTitle } from './chat-title'
 import { isPersonNotWorking } from './person-work'
 import { waitForRunEventWake } from './run-event-notifications'
 
@@ -45,6 +47,13 @@ export type ChatMessageView = {
   runId: string | null
   dispatchId: string | null
   attachments?: ChatAttachmentView[]
+  /**
+   * What the agent thought and did to produce this turn, read back out of the
+   * run ledger. Present only on the first agent message of a run — several
+   * messages can share a `runId`, and repeating the work under each of them
+   * would read as the agent having done it more than once.
+   */
+  activity?: ChatMessageActivity[]
 }
 
 export type ChatAttachmentView = {
@@ -677,16 +686,43 @@ export async function getThread(
   const thread = await store.readThread({ tenantId, threadId })
   if (!thread) return null
   const messages = await store.readMessages({ tenantId, threadId })
+  // An injected store is a hermetic test: it has no database behind it, so
+  // neither of the enrichments below can run and neither is essential to what
+  // a thread IS.
+  if (deps.store) return { thread, messages }
+
   const dispatchIds = [...new Set(messages.flatMap((message) => message.dispatchId ? [message.dispatchId] : []))]
-  if (dispatchIds.length === 0 || deps.store) return { thread, messages }
-  const { chatAttachmentsByDispatch } = await import('./chat-attachments')
-  const grouped = await chatAttachmentsByDispatch(tenantId, dispatchIds)
+  // The run a turn came from, claimed by the FIRST agent message carrying it,
+  // so shared runs attribute their work once.
+  const activityHost = new Map<string, string>()
+  for (const message of messages) {
+    if (message.role !== 'agent' || !message.runId) continue
+    if (!activityHost.has(message.runId)) activityHost.set(message.runId, message.id)
+  }
+
+  const [grouped, activity] = await Promise.all([
+    dispatchIds.length > 0
+      ? import('./chat-attachments').then(({ chatAttachmentsByDispatch }) =>
+          chatAttachmentsByDispatch(tenantId, dispatchIds))
+      : Promise.resolve(new Map<string, ChatAttachmentView[]>()),
+    activityHost.size > 0
+      ? import('./chat-activity').then(({ chatActivityByRun }) =>
+          chatActivityByRun(tenantId, [...activityHost.keys()]))
+      : Promise.resolve(new Map<string, ChatMessageActivity[]>()),
+  ])
+
   return {
     thread,
     messages: messages.map((message) => ({
       ...message,
       ...(message.role === 'user' && message.dispatchId && grouped.has(message.dispatchId)
         ? { attachments: grouped.get(message.dispatchId) }
+        : {}),
+      ...(message.role === 'agent'
+        && message.runId
+        && activityHost.get(message.runId) === message.id
+        && activity.has(message.runId)
+        ? { activity: activity.get(message.runId) }
         : {}),
     })),
   }
@@ -1168,6 +1204,39 @@ export async function sendMessage(
       ...(args.dispatchId ? { dispatchId: args.dispatchId } : {}),
     })
     await store.touchThread({ tenantId: args.tenantId, threadId: args.threadId, at: new Date(answered.at) })
+
+    // Now that there is an answer, the exchange can say what the conversation
+    // is about — an opening line usually cannot. Upgraded only while the title
+    // is still EXACTLY the one derived from that opening line: if it differs,
+    // a person named this thread, and a name someone chose is never overwritten
+    // by a guess. Failure here is silent and total; the derived title stands.
+    // `!deps.store`: an injected store is a hermetic test with no database and
+    // no provider key behind it, and naming is not part of what a thread is.
+    if (!deps.store && !recorded && history.every((message) => message.role !== 'agent')) {
+      const derived = titleFromMessage(body)
+      if (derived && thread.title === derived) {
+        const proposed = await proposeThreadTitle({
+          tenantId: args.tenantId,
+          personId: thread.personId,
+          asked: body,
+          answered: answered.body,
+        })
+        // Re-read rather than trusting the snapshot: the model call is seconds
+        // long, and a reader who renamed the thread while it ran must win.
+        if (proposed && proposed !== derived) {
+          const current = await store.readThread({ tenantId: args.tenantId, threadId: args.threadId })
+          if (current?.title === derived) {
+            await store.touchThread({
+              tenantId: args.tenantId,
+              threadId: args.threadId,
+              at: new Date(answered.at),
+              title: proposed,
+            })
+          }
+        }
+      }
+    }
+
     return { messages: [asked, answered] }
   })
 }

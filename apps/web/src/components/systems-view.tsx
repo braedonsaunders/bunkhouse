@@ -900,6 +900,10 @@ function AuthoredSystemDrawer({
           active={tab}
           onSelect={setTab}
           ariaLabel="Private system sections"
+          // SubtabNav defaults to `-mb-px` so its underline sits flush on a
+          // container's border. This drawer has no such border, so that pull
+          // just crowds the panel underneath; twMerge lets mb-2 replace it.
+          className="mb-2"
         />
 
         {tab === 'overview' ? (

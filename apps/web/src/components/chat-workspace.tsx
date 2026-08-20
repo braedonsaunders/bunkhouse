@@ -102,6 +102,10 @@ export type ChatMessageRecord = {
   runId: string | null
   dispatchId: string | null
   attachments?: Array<{ fileId: string; filename: string; contentType: string; sizeBytes: number }>
+  activity?: Array<
+    | { kind: 'thought'; text: string }
+    | { kind: 'tool'; toolName: string; input: unknown; output: unknown | null; ok: boolean }
+  >
 }
 
 export type ChatDispatchRecord = {
@@ -197,10 +201,14 @@ function useWideViewport(): boolean {
 }
 
 /**
- * A persisted turn as the panel wants it. The panel's own renderer reads a
- * `text` part for both sides, so a stored body becomes exactly one of those;
- * a streamed turn arrives with the richer parts (tool cards, steps) already
- * shaped by the SDK and is left alone.
+ * A persisted turn as the panel wants it.
+ *
+ * A streamed turn arrives with the rich parts already shaped by the SDK and is
+ * left alone. A stored one has to be rebuilt, and for a long time was rebuilt
+ * as nothing but its final prose — so reloading a conversation silently
+ * replaced a worked-through answer with a bare conclusion. The reasoning and
+ * the tool calls come back out of the run ledger (`activity`) and are put back
+ * in front of the text, which is the order they happened in.
  */
 function toAgentMessage(
   message: ChatMessageRecord,
@@ -227,6 +235,22 @@ function toAgentMessage(
     id: message.id,
     role: message.role === 'user' ? 'user' : message.role === 'system' ? 'system' : 'assistant',
     parts: [
+      // Ahead of the text: the work came before the answer, and a reader
+      // scrolling a reloaded thread should meet it in that order.
+      ...(message.activity ?? []).map((entry) => entry.kind === 'thought'
+        ? { type: 'reasoning' as const, text: entry.text }
+        : {
+            type: 'dynamic-tool' as const,
+            toolName: entry.toolName,
+            toolCallId: `${message.id}:${entry.toolName}`,
+            // A call with no result never returned — the run died inside it.
+            // Saying so is better than a card that looks like it succeeded.
+            state: entry.output === null ? ('output-error' as const) : ('output-available' as const),
+            input: entry.input,
+            ...(entry.output === null
+              ? { errorText: 'This step did not return — the run ended before it finished.' }
+              : { output: entry.output }),
+          }),
       { type: 'text', text: message.body },
       ...(message.attachments ?? []).map((attachment) => ({
         type: 'file' as const,
@@ -290,9 +314,12 @@ const MAX_WORK_PANE_WIDTH = 720
 const WORK_PANE_WIDTH_KEY = 'bunkhouse.chat.workPaneWidth'
 
 function clampWorkPaneWidth(value: number, containerWidth?: number): number {
+  // The list and the conversation's minimum are the only columns the work pane
+  // has to leave room for; the resize handle floats over the seam rather than
+  // occupying a track of its own, so it costs no width here.
   const availableMaximum = containerWidth === undefined
     ? MAX_WORK_PANE_WIDTH
-    : Math.max(MIN_WORK_PANE_WIDTH, containerWidth - 224 - 288 - 8)
+    : Math.max(MIN_WORK_PANE_WIDTH, containerWidth - 224 - 288)
   return Math.round(Math.min(Math.max(value, MIN_WORK_PANE_WIDTH), Math.min(MAX_WORK_PANE_WIDTH, availableMaximum)))
 }
 
@@ -335,10 +362,18 @@ function WorkPaneResizeHandle({
       aria-valuemax={MAX_WORK_PANE_WIDTH}
       aria-valuenow={width}
       tabIndex={0}
+      // Positioned over the seam rather than given a grid track of its own.
+      // A track would be a fourth pane, and `divide-x` would then draw a rule
+      // down BOTH of its edges — the seam the user sees has to be the one the
+      // grid already draws, so the handle contributes grab area and nothing
+      // visual until it is actually being touched.
+      style={{ right: 'var(--work-pane-width)' }}
       className={cn(
-        'group relative hidden min-h-0 cursor-col-resize touch-none items-stretch justify-center bg-surface outline-none lg:flex',
-        'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-        dragging && 'bg-primary-subtle',
+        // `border-e-0` because the handle is still a DOM child of the grid, so
+        // `divide-x` — which in Tailwind v4 rules the end edge of every
+        // non-last child — would otherwise put a stray hairline down it.
+        // v4 wraps that in `:where()`, so a plain utility is enough to win.
+        'group absolute inset-y-0 z-10 hidden w-2 translate-x-1/2 cursor-col-resize touch-none items-stretch justify-center border-e-0 outline-none lg:flex',
       )}
       onPointerDown={(event) => {
         event.preventDefault()
@@ -370,7 +405,15 @@ function WorkPaneResizeHandle({
         onWidthChange(clampWorkPaneWidth(next, event.currentTarget.parentElement?.getBoundingClientRect().width))
       }}
     >
-      <span className="my-3 w-0.5 rounded-full bg-border-strong transition-colors group-hover:bg-primary group-focus-visible:bg-primary" />
+      {/* Exactly as wide as the rule it covers, and transparent until this
+          thing is grabbed: at rest the divider is the grid's own hairline, so
+          there is one line here and never three. */}
+      <span
+        className={cn(
+          'w-px bg-transparent transition-colors group-hover:bg-primary group-focus-visible:bg-primary',
+          dragging && 'bg-primary',
+        )}
+      />
     </div>
   )
 }
@@ -1397,9 +1440,9 @@ export function AgentChatWorkspace({
       <Card
         style={deskVisible ? { '--work-pane-width': `${workPaneWidth}px` } as React.CSSProperties : undefined}
         className={cn(
-          'grid divide-y divide-border overflow-hidden lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)] lg:divide-x lg:divide-y-0',
+          'relative grid divide-y divide-border overflow-hidden lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)] lg:divide-x lg:divide-y-0',
           deskVisible
-            ? 'lg:grid-cols-[14rem_minmax(18rem,1fr)_0.5rem_minmax(20rem,var(--work-pane-width))] xl:grid-cols-[15rem_minmax(18rem,1fr)_0.5rem_minmax(20rem,var(--work-pane-width))]'
+            ? 'lg:grid-cols-[14rem_minmax(18rem,1fr)_minmax(20rem,var(--work-pane-width))] xl:grid-cols-[15rem_minmax(18rem,1fr)_minmax(20rem,var(--work-pane-width))]'
             : 'lg:grid-cols-[15rem_minmax(0,1fr)]',
         )}
       >

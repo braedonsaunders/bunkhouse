@@ -26,6 +26,7 @@ const tests = [
   'page-reading',
   'desk',
   'desk-marks',
+  'chat-replay',
   'chat',
   'chat-dispatch',
   'lifecycle',
