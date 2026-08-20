@@ -41,6 +41,7 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   read_webpage: Globe,
   send_email: Mail,
   email_colleague: Mail,
+  post_to_conversation: MessageSquare,
   save_memory: NotebookPen,
   search_memory: NotebookPen,
   schedule_task: CalendarClock,

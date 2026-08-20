@@ -677,6 +677,52 @@ export async function listThreads(
   })
 }
 
+/**
+ * An agent speaking into a conversation of its own accord.
+ *
+ * Every other agent message in a thread answers something: a turn the reader
+ * typed, an approval they decided, a credential they submitted. This one has
+ * no prompt behind it, which is exactly the point — scheduled work finishes
+ * while nobody is there, and until now it had no way to say so. It is an
+ * ordinary append under the same per-thread seq allocator, so it interleaves
+ * correctly with a conversation that is live at the same moment.
+ *
+ * `lastMessageAt` moves so the thread rises in the list; the title never does.
+ * A standing deliverable arriving is not the conversation changing subject,
+ * and renaming somebody's thread from a scheduled post would be the list
+ * rearranging itself overnight for reasons the reader cannot see.
+ *
+ * Returns null rather than throwing when the thread is gone or belongs to
+ * another agent: a delivery address that no longer works is worth reporting to
+ * the model as a fact it can act on, not an exception that fails the run whose
+ * actual work already succeeded.
+ */
+export async function postAgentMessage(
+  args: { tenantId: string; threadId: string; personId: string; runId: string; body: string },
+  deps: ChatThreadDeps = {},
+): Promise<ChatMessageView | null> {
+  const store = storeOf(deps)
+  const thread = await store.readThread({ tenantId: args.tenantId, threadId: args.threadId })
+  // The agent may only speak in a conversation that is its own. Threads are
+  // between one person and one agent, and a run holding a stale or borrowed
+  // thread id must not be able to post into somebody else's.
+  if (!thread || thread.personId !== args.personId) return null
+
+  const posted = await store.appendMessage({
+    tenantId: args.tenantId,
+    threadId: args.threadId,
+    role: 'agent',
+    body: args.body,
+    runId: args.runId,
+  })
+  await store.touchThread({
+    tenantId: args.tenantId,
+    threadId: args.threadId,
+    at: new Date(posted.at),
+  })
+  return posted
+}
+
 export async function getThread(
   tenantId: string,
   threadId: string,

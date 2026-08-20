@@ -61,6 +61,7 @@ import { resolveAgentAiConfig } from './ai'
 import { companyPromptProfile, getCompanyIdentity } from './company-identity'
 import { getMailSignature } from './mail-signature'
 import { assembleAbilities } from './agent-abilities'
+import { dutyConversationThreadId } from './duty-conversation'
 import { priceSpend } from './pricing'
 import { sendNewMail, sendReplyInThread } from './mailbox'
 import { pinnedNotes, retrieveNotes } from './memory'
@@ -919,6 +920,17 @@ export async function executeAgentRun(args: {
         args.trigger.type === 'chat' ||
         (args.trigger.type === 'manual' && Boolean(args.trigger.requestedBy)) ||
         (args.trigger.type === 'email' && (await threadIsInternal(args.tenantId, args.trigger.threadId)))
+
+      // The conversation this run can speak into. A chat turn names its own; a
+      // duty is triggered by the clock and has to be told, which is what its
+      // provenance is for. Without this second case, work somebody scheduled
+      // inside a conversation completes on time and delivers into nothing.
+      const chatThreadId =
+        args.trigger.type === 'chat' && args.trigger.conversationId.startsWith('web:')
+          ? args.trigger.conversationId.slice('web:'.length)
+          : args.trigger.type === 'duty'
+            ? await dutyConversationThreadId(args.tenantId, args.trigger.dutyId)
+            : null
       const assembled = live
         ? null
         : await assembleAbilities({
@@ -935,9 +947,7 @@ export async function executeAgentRun(args: {
             // only ever saw "1" and never stopped anything.
             handoffDepth,
             allowStandingSchedules,
-            ...(args.trigger.type === 'chat' && args.trigger.conversationId.startsWith('web:')
-              ? { chatThreadId: args.trigger.conversationId.slice('web:'.length) }
-              : {}),
+            ...(chatThreadId ? { chatThreadId } : {}),
             ...(args.counterparty ? { counterparty: args.counterparty } : {}),
             waitState,
           })

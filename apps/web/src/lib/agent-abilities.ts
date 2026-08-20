@@ -966,6 +966,47 @@ function systemAuthoringAbilities(args: {
       },
     }),
     ...(args.chatThreadId ? [defineAbility({
+      name: 'post_to_conversation',
+      description:
+        'Say something in the conversation this work belongs to, without being asked first. This is how scheduled and background work gets delivered: when you finish a standing deliverable, POST THE DELIVERABLE ITSELF here — the actual brief, the actual numbers — not a note saying it is ready somewhere. Nobody is watching a run summary at half past eight in the morning. Use it when you have something the person genuinely needs; a conversation is not a log, and narrating your progress into it is noise.',
+      // Deliberately ungoverned. Writing into the reader's own conversation is
+      // not an outward-facing act — it reaches nobody but the person who asked
+      // for the work — and dialling it would let a scheduled delivery park on
+      // an approval at 08:30 that nobody is awake to give, which recreates the
+      // exact silence this ability exists to end.
+      category: null,
+      inputSchema: z.object({
+        message: z
+          .string()
+          .min(1)
+          .max(20_000)
+          .describe('What to say, in full. Markdown renders. Put the deliverable here rather than describing it.'),
+      }),
+      execute: async ({ message }) => {
+        const body = message.trim()
+        if (!body) return { error: 'There is nothing to post — give the message some content.' }
+        const { postAgentMessage } = await import('./chat-threads')
+        const posted = await postAgentMessage({
+          tenantId: args.tenantId,
+          threadId: args.chatThreadId!,
+          personId: args.person.id,
+          runId: args.runId,
+          body,
+        })
+        if (!posted) {
+          return {
+            error:
+              'That conversation could not be posted into — it may have been deleted. '
+              + 'The work stands; deliver it another way if it matters.',
+          }
+        }
+        return {
+          posted: true,
+          note: 'It is in the conversation now. Do not repeat it in your final summary.',
+        }
+      },
+    })] : []),
+    ...(args.chatThreadId ? [defineAbility({
       name: 'request_system_credential',
       description:
         'Show the human a secure inline credential form for a system you proposed in this same run. Use this immediately after propose_system_integration when its auth kind requires a key or token. Explain exactly what the credential enables and link to the provider’s official credential page when known. The submitted value bypasses chat and model context, is tested server-side, and is stored encrypted. Never ask the human to paste a secret into a message or include a secret in any tool input.',

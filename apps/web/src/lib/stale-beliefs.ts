@@ -97,6 +97,7 @@ const KNOWN_TOOLS: ReadonlySet<string> = new Set([
   'ask_and_wait',
   'reply_to_thread',
   'delegate_to_colleague',
+  'post_to_conversation',
   'take_assignment',
   'run_shell',
   'run_script',
