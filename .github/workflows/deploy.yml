@@ -394,6 +394,7 @@ jobs:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
           DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
           DESK_COMPOSE_ID: ${{ secrets.DOKPLOY_DESK_COMPOSE_ID }}
+          DESK_URL: ${{ vars.BUNKHOUSE_DESK_URL }}
           NEW_TAG: ${{ inputs.imageTag || needs.build.outputs.tag }}
         run: |
           set -euo pipefail
@@ -401,7 +402,24 @@ jobs:
           # available to step conditions, and using it there does not warn, it
           # makes the whole workflow invalid so no job runs at all.
           if [ -z "${DESK_COMPOSE_ID:-}" ]; then
-            echo "No desk runner configured (DOKPLOY_DESK_COMPOSE_ID unset) — nothing to update."
+            # Two different situations, and only one of them is fine.
+            #
+            # No desk at all: the app fails closed, agents simply have no
+            # machine, and there is nothing to update. Say so and move on.
+            #
+            # A desk the APP is pointed at but this pipeline cannot deploy: the
+            # runner is pinned to whatever tag it was built with and drifts a
+            # version further behind on every deploy. It did exactly that for
+            # three weeks — the app moved, the runner did not, and the only
+            # notice anybody got was this line scrolling past in a green job.
+            # A fix to scripts/desk-runner.mts merged in that window was live
+            # nowhere. Drift this consequential must not be silent, so it is a
+            # warning annotation now rather than a log line.
+            if [ -n "${DESK_URL:-}" ]; then
+              echo "::warning title=Desk runner is drifting::The app is configured with BUNKHOUSE_DESK_URL=${DESK_URL} but DOKPLOY_DESK_COMPOSE_ID is unset, so the desk runner was NOT moved to ${NEW_TAG}. Changes to apps/web/scripts/desk-runner.mts are not live. Update the desk host by hand, or set DOKPLOY_DESK_COMPOSE_ID so this step can do it."
+            else
+              echo "No desk runner configured (DOKPLOY_DESK_COMPOSE_ID unset, no BUNKHOUSE_DESK_URL) — nothing to update."
+            fi
             exit 0
           fi
           base="${DOKPLOY_URL%/}"
