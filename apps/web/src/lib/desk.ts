@@ -207,12 +207,27 @@ export const GUEST_DOWNLOADS_DIR = `${GUEST_HOME}/downloads`
 export const GUEST_BROWSER_PROFILE_DIR = `${GUEST_HOME}/.config/bunkhouse-browser`
 
 /**
- * Resolve a workspace-relative path to its absolute guest path, refusing
- * anything that escapes the home. Pure, and the one gate every file-shaped
- * input passes through before it reaches the guest.
+ * Resolve a workspace path to its absolute guest path, refusing anything that
+ * escapes the home. Pure, and the one gate every file-shaped input passes
+ * through before it reaches the guest.
+ *
+ * An ALREADY-absolute path inside the home is taken as it is. Joining it onto
+ * the home instead produced `/home/agent/home/agent/…` — a directory that does
+ * not exist but still passes the escape check, so it was handed to the guest as
+ * a working directory and `execFile` failed on it. Node names the *binary* in
+ * that error, so `run_shell` reported `spawn /bin/sh ENOENT` and read as a
+ * broken shell: the agent spent a run concluding its machine had lost /bin/sh,
+ * while commands that happened to pass `.` kept working in between. A path the
+ * model writes the obvious way must not become a different path.
+ *
+ * `~` is accepted for the same reason — it is what anyone types for their home.
  */
 export function guestWorkspacePath(relative: string): string {
-  const target = posix.normalize(posix.join(GUEST_HOME, relative))
+  const raw = relative.trim()
+  const expanded = raw === '~' || raw === '~/' ? '.' : raw.startsWith('~/') ? raw.slice(2) : raw
+  const target = posix.normalize(
+    posix.isAbsolute(expanded) ? expanded : posix.join(GUEST_HOME, expanded || '.'),
+  )
   if (target !== GUEST_HOME && !target.startsWith(`${GUEST_HOME}/`)) {
     throw new Error('Path escapes the workspace.')
   }
@@ -1494,6 +1509,9 @@ async function beginDeskCast(ctx: DeskContext, live: LiveDesk): Promise<void> {
 // run_shell and the workspace file abilities — the headless tier
 // ---------------------------------------------------------------------------
 
+/** Node's spawn-failure shape, which names the program even when `cwd` is the fault. */
+const SPAWN_ENOENT = /spawn .* ENOENT/
+
 const LIST_CAP = 200
 const READ_CAP_BYTES = 32 * 1024
 /** Publishing moves real bytes; cap the base64 leg at ~6 MB of transport. */
@@ -1517,7 +1535,14 @@ async function runShellOnDesk(
     ctx.deps,
   )
   const cap = shell.outputLimitKb * 1_024
-  const output = outcome.output.length > cap ? outcome.output.slice(0, cap) : outcome.output
+  const capped = outcome.output.length > cap ? outcome.output.slice(0, cap) : outcome.output
+  // `execFile` reports a working directory that does not exist as ENOENT
+  // against the PROGRAM, so a bad `cwd` arrives here as "spawn /bin/sh ENOENT"
+  // and reads as a missing shell. Name the thing that was actually missing, so
+  // the agent fixes the path instead of concluding its machine is broken.
+  const output = SPAWN_ENOENT.test(capped)
+    ? `${capped}\n(The working folder ${cwd} does not exist on your machine. Create it first, or pass a folder that does — "." is your home.)`
+    : capped
   await appendSerialized(ctx, live, 'shell_command', {
     command: args.command,
     cwd: args.cwd,
@@ -1583,7 +1608,10 @@ export function deskAbilities(args: {
       category: 'sandbox',
       inputSchema: z.object({
         command: z.string().describe('The command line, run with /bin/sh -lc'),
-        cwd: z.string().default('.').describe('Working folder inside your home'),
+        cwd: z
+          .string()
+          .default('.')
+          .describe('Working folder that must already exist: "." for your home, or a path under it (relative or absolute)'),
       }),
       execute: async ({ command, cwd }) => runShellOnDesk(ctx, { command, cwd }),
     }),

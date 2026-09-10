@@ -652,6 +652,77 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     assert.ok(workSurface.includes(`key: '${tab}'`), `${tab} remains a stable tab even before it has content`)
   }
   assert.ok(workSurface.includes('<FilesWorkStage'), 'conversation files have a previewable work surface')
+
+  // Following the agent is an offer, not a claim on the stage. `focus.key`
+  // changes on every observable action, so an agent in a shell loop re-selected
+  // the tab about once a second: somebody who opened the desktop to take
+  // control was hauled back to Terminal mid-gesture and the desktop they were
+  // driving was unmounted under them, tearing down its video stream.
+  assert.ok(
+    workSurface.includes('if (!followingAgent) return') &&
+      workSurface.includes('setFollowingAgent(false)'),
+    'a person choosing a surface stops the automatic following',
+  )
+  assert.ok(
+    workSurface.includes('onSelect={(tab) => selectTab(tab as typeof activeTab)}'),
+    'every tab choice goes through the one handler that takes the stage',
+  )
+  assert.ok(
+    workSurface.includes('Follow along') && workSurface.includes('agentElsewhere'),
+    'the reader is told where the work moved and can opt back into following it',
+  )
+
+  // Both of these are server actions, and server actions share one queue per
+  // client. On a fixed interval a slow read put another in line, and the queue
+  // sat in front of the reader's own Take control and file opens — tens of
+  // seconds of waiting on polls nobody was reading.
+  const surfacePoll = workSurface.slice(workSurface.indexOf('const tick = async ()'), workSurface.indexOf('void tick()'))
+  assert.ok(surfacePoll.includes('window.setTimeout(tick, 1_000)'), 'the work-surface poll chains instead of overlapping')
+  assert.equal(workSurface.includes('setInterval(refresh, 1_000)'), false, 'no fixed-interval work-surface poll remains')
+  const desk = readFileSync(fileURLToPath(new URL('../src/components/chat-desk.tsx', import.meta.url)), 'utf8')
+  assert.equal(
+    desk.includes('setInterval(() => void tick(), STATUS_POLL_MS)'),
+    false,
+    'the desk status poll chains too, so it cannot queue ahead of desktop input',
+  )
+
+  // Pointer input and the status poll are routes, not server actions. Actions
+  // share one queue per client, so taking control used to put every click
+  // behind whatever polls were in flight.
+  assert.ok(
+    desk.includes("fetch(`/api/desk/${encodeURIComponent(personId)}/input`") &&
+      desk.includes("method: 'POST'"),
+    'desktop input goes over a plain POST, off the server-action queue',
+  )
+  assert.ok(
+    desk.includes("fetch(`/api/desk/${encodeURIComponent(personId)}/status`"),
+    'the desk status read is a route too',
+  )
+  assert.equal(
+    desk.includes('sendDesktopInputAction') || desk.includes('deskStatusAction'),
+    false,
+    'the superseded actions are not also reachable from the console',
+  )
+  const chatActions = readFileSync(fileURLToPath(new URL('../src/app/chat/actions.ts', import.meta.url)), 'utf8')
+  for (const gone of ['sendDesktopInputAction', 'deskStatusAction']) {
+    assert.equal(
+      chatActions.includes(`export async function ${gone}`),
+      false,
+      `${gone} is removed rather than left as a second door to the same desk call`,
+    )
+  }
+  // Same gate, same place: the routes must go through lib/chat-desk.ts, never
+  // reach the runner themselves.
+  for (const [file, expected] of [
+    ['../src/app/api/desk/[personId]/input/route.ts', ['sendDesktopInput', 'parseDeskInput', "requireTenantPermission('work.manage')"]],
+    ['../src/app/api/desk/[personId]/status/route.ts', ['deskStatus', "requireTenantPermission('work.read')"]],
+  ] as const) {
+    const route = readFileSync(fileURLToPath(new URL(file, import.meta.url)), 'utf8')
+    for (const needle of expected) {
+      assert.ok(route.includes(needle), `${file} keeps ${needle}`)
+    }
+    assert.ok(route.includes("from '../../../../../lib/chat-desk'"), `${file} goes through the one gated tier`)
+  }
   assert.ok(
     workSurface.includes('role="tree"') && workSurface.includes('aria-label="Files in this conversation"') &&
       workSurface.includes("tabKey={selected?.id ?? 'file-tree'}") && workSurface.includes('aria-label="Back to files"'),
@@ -759,6 +830,57 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   )
   assert.ok(workspace.includes('<ConversationCall'), 'a call occupies the same center pane as text chat')
   console.log('chat: streamed turns survive section switches and one workspace holds chat, calls, and stable work tabs')
+}
+
+// --- (b4) a turn that loses its reader is still a turn being followed -------
+//
+// A governed run outlives its reader: aborting detaches a stream, and so does a
+// dropped connection or a reload. Measured against the live tenant, a turn
+// whose socket died at 19:52 was still working at 19:56 with 66 recorded
+// events — while the pane had told the reader it "did not finish", invited them
+// to ask again (a SECOND run, against the same mailbox and the same files), and
+// stopped looking at the durable dispatch that was tracking the real one.
+{
+  const workspace = readFileSync(
+    fileURLToPath(new URL('../src/components/chat-workspace.tsx', import.meta.url)),
+    'utf8',
+  )
+  const completion = workspace.slice(workspace.indexOf('void response'), workspace.indexOf('return response'))
+  assert.ok(
+    completion.indexOf('.catch(() => undefined)') < completion.indexOf('await refreshThread(threadId)'),
+    'a clone that rejects still reaches the durable refresh, so a dropped stream keeps following its turn',
+  )
+  const fetchFailure = workspace.slice(
+    workspace.indexOf('const send = React.useCallback'),
+    workspace.indexOf('if (response.ok && attachmentIds.length > 0)'),
+  )
+  assert.ok(
+    fetchFailure.includes('void refreshThread(threadId)'),
+    'a request that died in flight may still have opened a run, so the projection is read rather than assumed empty',
+  )
+
+  // The reader of a reloaded conversation must be told the work continues.
+  assert.ok(workspace.includes('<RunningTurnNotice'), 'a running turn this pane is not streaming is still visible')
+  assert.ok(
+    workspace.includes("queueUi.state === 'running' && !streamingTurn"),
+    'the notice is driven by the durable dispatch, and stands down while the panel streams its own turn',
+  )
+  assert.ok(
+    workspace.includes('const [streamingTurn, setStreamingTurn]'),
+    'whether this pane owns a live stream is rendered state, not only a ref',
+  )
+
+  // The copy must never send somebody into a duplicate governed run.
+  const labels = workspace.slice(workspace.indexOf('labels={{'), workspace.indexOf('queueFailed:'))
+  const failedCopy = labels.slice(labels.indexOf('failed:'))
+  assert.equal(failedCopy.includes('ask again'), false, 'a lost reader is never told to ask again — that starts a second run')
+  assert.equal(
+    failedCopy.includes('did not finish'),
+    false,
+    'the pane does not claim a turn ended when the run is still working',
+  )
+  assert.ok(failedCopy.includes('carries on working'), 'the failure copy says what is actually true of the run')
+  console.log('chat: a turn that loses its reader keeps being followed, and says so instead of claiming it died')
 }
 
 // --- (b3) every Call action enters the unified conversation workspace -------

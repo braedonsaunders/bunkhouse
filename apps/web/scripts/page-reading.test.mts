@@ -325,6 +325,28 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
   assert.throws(() => guestWorkspacePath('..'), /escapes the workspace/)
   assert.throws(() => guestWorkspacePath('../../etc/shadow'), /escapes the workspace/, 'dot-dot does not escape')
   assert.throws(() => guestWorkspacePath('projects/../../other-agent'), /escapes the workspace/)
+
+  // An absolute path inside the home is that path — not that path joined onto
+  // the home again. Re-rooting it produced `/home/agent/home/agent/…`, which
+  // passes the escape check, does not exist, and reached the guest as a working
+  // directory; `execFile` then blamed the program, so a run spent its length
+  // believing /bin/sh had vanished while `.` kept working in between.
+  assert.equal(guestWorkspacePath(GUEST_HOME), GUEST_HOME, 'the home stated absolutely is the home')
+  assert.equal(
+    guestWorkspacePath(`${GUEST_HOME}/advisor/meme`),
+    `${GUEST_HOME}/advisor/meme`,
+    'an absolute path inside the home is never doubled',
+  )
+  assert.equal(guestWorkspacePath('~'), GUEST_HOME, 'the shell shorthand for home resolves to it')
+  assert.equal(guestWorkspacePath('~/advisor'), `${GUEST_HOME}/advisor`)
+  assert.equal(guestWorkspacePath(''), GUEST_HOME, 'an empty path is the home, not a mystery')
+  assert.equal(guestWorkspacePath('  projects  '), `${GUEST_HOME}/projects`, 'surrounding space is not part of a name')
+
+  // The boundary still holds, and now refuses outright instead of silently
+  // aiming somewhere else inside the home.
+  assert.throws(() => guestWorkspacePath('/etc/shadow'), /escapes the workspace/, 'an absolute path outside the home is refused')
+  assert.throws(() => guestWorkspacePath('/home/agent-two'), /escapes the workspace/, 'a sibling home is not this home')
+  assert.throws(() => guestWorkspacePath('/'), /escapes the workspace/)
   console.log('desk: workspace paths resolve inside the guest home and nowhere else')
 }
 

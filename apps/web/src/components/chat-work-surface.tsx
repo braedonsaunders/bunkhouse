@@ -16,6 +16,15 @@ import { AGENT_BROWSER_TRACK_NAME } from '../lib/agent-screen'
 import { ChatDesk } from './chat-desk'
 import { WorkSurfaceFullscreenButton } from './work-surface-fullscreen-button'
 
+/** How each work surface is named to a reader, for "working in …" copy. */
+const TAB_LABELS: Record<NonNullable<WorkSurface['focus']>['tab'], string> = {
+  desktop: 'Desktop',
+  browser: 'Browser',
+  terminal: 'Terminal',
+  files: 'Files',
+  remote: 'the remote computer',
+}
+
 type ObserverCredential = { serverUrl: string; token: string }
 
 function useObserverCredential(args: {
@@ -452,6 +461,7 @@ export function ChatWorkSurface({
   const [activeTab, setActiveTab] = React.useState<'desktop' | 'browser' | 'terminal' | 'files' | 'remote' | 'history'>('desktop')
   const [surface, setSurface] = React.useState<WorkSurface>({ kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], focus: null })
   const followedSurfaceRef = React.useRef('idle')
+  const [followingAgent, setFollowingAgent] = React.useState(true)
 
   React.useEffect(() => {
     // No conversation means History renders its own empty state below. Keep
@@ -459,27 +469,66 @@ export function ChatWorkSurface({
     // second render or flash an idle header before another thread is chosen.
     if (threadId === null) return
     let stopped = false
-    const refresh = async () => {
+    let timer: number | undefined
+    /**
+     * Chained, so a tick can never overlap the one before it.
+     *
+     * On a fixed interval this fired every second whether or not the previous
+     * read had come back, and the read is not cheap — up to a hundred runs, two
+     * hundred run events with their full payloads, and the conversation's files.
+     * Once a tick took longer than a second the calls queued up, and because
+     * server actions execute one at a time per client, the queue was in front of
+     * everything the READER asked for: Take control and opening a file sat
+     * behind polls nobody was waiting on, for tens of seconds.
+     *
+     * Waiting for each read before scheduling the next keeps the stage as live
+     * as the server can actually answer, and never spends a person's click on a
+     * backlog.
+     */
+    const tick = async () => {
       try {
         const next = await workSurfaceAction(threadId)
         if (!stopped) setSurface(next)
       } catch {
         // The next tick re-reads durable state; a transient request does not blank the stage.
       }
+      if (!stopped) timer = window.setTimeout(tick, 1_000)
     }
-    void refresh()
-    const timer = setInterval(refresh, 1_000)
+    void tick()
     return () => {
       stopped = true
-      clearInterval(timer)
+      if (timer !== undefined) window.clearTimeout(timer)
     }
   }, [threadId])
 
+  /**
+   * Following the agent is a convenience, not a claim on the stage.
+   *
+   * `focus.key` changes on every observable action, so an agent in a shell loop
+   * re-selected the tab roughly once a second. Somebody who had opened the
+   * desktop to take control was hauled back to Terminal mid-gesture, and the
+   * desktop they were driving was unmounted underneath them — tearing down its
+   * video stream, which is then slow to re-establish on the way back.
+   *
+   * So: the agent's activity offers a surface while nobody has chosen one, and
+   * a person's choice ends the offer. Following resumes only when they ask.
+   */
   React.useEffect(() => {
+    if (!followingAgent) return
     if (!surface.focus || surface.focus.key === followedSurfaceRef.current) return
     followedSurfaceRef.current = surface.focus.key
     setActiveTab(surface.focus.tab)
-  }, [surface.focus])
+  }, [followingAgent, surface.focus])
+
+  // Taking a surface is what stops the following; the stale `followedSurfaceRef`
+  // is deliberate, so resuming jumps straight to whatever is happening then.
+  const selectTab = React.useCallback((tab: typeof activeTab) => {
+    setActiveTab(tab)
+    setFollowingAgent(false)
+  }, [])
+
+  const agentElsewhere =
+    !followingAgent && surface.focus !== null && surface.focus.tab !== activeTab ? surface.focus.tab : null
 
   return (
     <section className="flex size-full min-h-0 flex-col bg-surface" aria-label={`${personName}'s work surfaces`}>
@@ -487,7 +536,7 @@ export function ChatWorkSurface({
         <SubtabNav
           ariaLabel={`${personName}'s work surfaces`}
           active={activeTab}
-          onSelect={(tab) => setActiveTab(tab as typeof activeTab)}
+          onSelect={(tab) => selectTab(tab as typeof activeTab)}
           className="h-12 gap-0 overflow-x-hidden [&>button]:!h-12 [&>button]:!min-w-0 [&>button]:!flex-1 [&>button]:!shrink [&>button]:!justify-center [&>button]:!gap-1 [&>button]:!px-1.5 [&>button]:!py-0 [&>button]:!text-xs"
           tabs={[
             {
@@ -527,6 +576,24 @@ export function ChatWorkSurface({
           ]}
         />
       </div>
+
+      {/* The offer, once it is no longer taken automatically: say where the work
+          moved and let the reader go back to following it, rather than deciding
+          for them. */}
+      {agentElsewhere !== null ? (
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-surface-hover px-4 py-2 text-xs text-fg-muted">
+          <span className="min-w-0 truncate">
+            {personName} is working in {TAB_LABELS[agentElsewhere]}. You are driving this surface, so nothing has moved.
+          </span>
+          <button
+            type="button"
+            className="shrink-0 font-medium text-primary hover:underline"
+            onClick={() => setFollowingAgent(true)}
+          >
+            Follow along
+          </button>
+        </div>
+      ) : null}
 
       {activeTab === 'browser' && threadId !== null && (surface.kind === 'browser' || surface.recentBrowser) ? (
         <BrowserWorkStage threadId={threadId} surface={surface.kind === 'browser' ? surface : surface.recentBrowser!} personName={personName} />

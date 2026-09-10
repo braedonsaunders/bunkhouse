@@ -489,6 +489,36 @@ function ThreadNoticeBar({ messages }: { messages: ChatMessageRecord[] }) {
   )
 }
 
+/**
+ * A turn this pane is not streaming, but which is still running.
+ *
+ * A governed run is real work and outlives its reader: Stop detaches a stream,
+ * it never cancels the run, and neither does a dropped connection or a reload.
+ * The panel draws a thinking indicator only while IT owns the stream, so
+ * without this the reader of a reloaded — or cut-off — conversation sees their
+ * own question, no answer, and nothing at all to say the agent is still on it.
+ * The durable dispatch is the authority for "still working", and the answer
+ * appears here by itself when the run records it.
+ */
+function RunningTurnNotice({ personName, onShowWork }: { personName: string; onShowWork: () => void }) {
+  return (
+    <div
+      role="status"
+      className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-surface-hover px-4 py-2 text-xs text-fg-muted"
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <Loader2 aria-hidden className="size-3.5 shrink-0 animate-spin" />
+        <span className="truncate">
+          {personName} is still working on this. The answer appears here when it lands — nothing has been lost.
+        </span>
+      </span>
+      <button type="button" className="shrink-0 font-medium text-primary hover:underline" onClick={onShowWork}>
+        Show work
+      </button>
+    </div>
+  )
+}
+
 function ContinuationNotice({ originThreadId, onOpen }: { originThreadId: string | null; onOpen: (id: string) => void }) {
   if (!originThreadId) return null
   return (
@@ -784,6 +814,11 @@ export function AgentChatWorkspace({
   const [draftUploads, setDraftUploads] = React.useState<Record<string, UploadedFile[]>>({})
   const [workPaneWidth, setWorkPaneWidth] = React.useState(DEFAULT_WORK_PANE_WIDTH)
   const directStreamRef = React.useRef(false)
+  // The same fact the ref holds, in state, because it has to be rendered: the
+  // panel draws its own thinking indicator only while IT owns the stream, so a
+  // turn this pane is no longer streaming — reloaded, or cut off mid-answer —
+  // needs the pane to say the work is still running.
+  const [streamingTurn, setStreamingTurn] = React.useState(false)
   const autoCallStartedRef = React.useRef(false)
   // Archived conversations are out of the list by default. The one exception
   // is arriving on a link to one: it would otherwise open in a pane with no row
@@ -918,6 +953,7 @@ export function AgentChatWorkspace({
       if (threadId === null) throw new Error('No conversation is open.')
       const attachmentIds = attachedFiles.map((file) => file.attachmentId)
       directStreamRef.current = true
+      setStreamingTurn(true)
       let response: Response
       try {
         response = await fetch(`/api/chat/${encodeURIComponent(threadId)}`, {
@@ -928,6 +964,11 @@ export function AgentChatWorkspace({
         })
       } catch (reason) {
         directStreamRef.current = false
+        setStreamingTurn(false)
+        // The request may well have reached the server and opened a run before
+        // the connection died. Read the durable projection rather than assuming
+        // nothing happened: a dispatch that is running is a turn to follow.
+        void refreshThread(threadId)
         throw reason
       }
       if (response.ok && attachmentIds.length > 0) {
@@ -937,9 +978,17 @@ export function AgentChatWorkspace({
       // The panel owns the stream; reading a clone alongside it is how this
       // pane learns the turn is over — without it the run link and the list's
       // ordering would sit stale until the next navigation.
+      //
+      // A clone that REJECTS matters just as much as one that resolves. The
+      // connection dropping does not stop the work — abort detaches a reader,
+      // it never cancels a governed run — so the pane has to pick the turn up
+      // from the durable dispatch instead of treating a dead socket as a dead
+      // turn. Without this the run kept working, the answer landed in the
+      // transcript, and the pane never looked again.
       void response
         .clone()
         .text()
+        .catch(() => undefined)
         .then(async () => {
           await refreshThread(threadId)
           // Keep the server-owned snapshot behind this mounted workspace in
@@ -952,6 +1001,7 @@ export function AgentChatWorkspace({
         .catch(() => undefined)
         .finally(() => {
           directStreamRef.current = false
+          setStreamingTurn(false)
         })
       return response
     },
@@ -1294,6 +1344,9 @@ export function AgentChatWorkspace({
         <>
           <ContinuationNotice originThreadId={detail.thread.originThreadId} onOpen={(id) => void load(id)} />
           <ThreadNoticeBar messages={detail.messages} />
+          {queueUi.state === 'running' && !streamingTurn ? (
+            <RunningTurnNotice personName={detail.thread.personName} onShowWork={() => setDeskChoice(true)} />
+          ) : null}
           <AgentPanel
             // Keyed by the thread: the panel seeds its transcript once, so a
             // different conversation has to be a different panel.
@@ -1408,8 +1461,13 @@ export function AgentChatWorkspace({
               disabledDescription:
                 'Everything said in it is still here, and so are its run records. Unarchive it from the list to carry on.',
               placeholder: `Message ${detail.thread.personName}…`,
+              // Never "ask again": every send mints a fresh request identity, so
+              // asking again starts a SECOND governed run — one that may send
+              // the same email or write the same file twice — while the first is
+              // still working. A reader who loses the stream has lost the view,
+              // not the work, and this says exactly that.
               failed:
-                'That turn did not finish. Nothing has been lost — ask again, or open the run record to see how far it got.',
+                'The connection to that turn dropped. The agent carries on working — its answer appears here when it lands, and “Show work” follows the run.',
               queueFailed: 'That queued turn needs attention before the conversation can continue.',
             }}
           />

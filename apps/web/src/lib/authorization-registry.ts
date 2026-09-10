@@ -42,6 +42,8 @@ export type RouteModule =
   | 'app/api/chat/uploads/[uploadId]/route.ts'
   | 'app/api/desk/[personId]/frame/route.ts'
   | 'app/api/desk/[personId]/frames/route.ts'
+  | 'app/api/desk/[personId]/input/route.ts'
+  | 'app/api/desk/[personId]/status/route.ts'
   | 'app/api/desk/[personId]/video/route.ts'
   | 'app/api/files/[fileId]/preview/route.ts'
   | 'app/api/files/[fileId]/route.ts'
@@ -98,6 +100,8 @@ export const ROUTE_AUTHORIZATION = {
   'app/api/chat/uploads/[uploadId]/route.ts': 'tenant_session',
   'app/api/desk/[personId]/frame/route.ts': 'tenant_session',
   'app/api/desk/[personId]/frames/route.ts': 'tenant_session',
+  'app/api/desk/[personId]/input/route.ts': 'tenant_session',
+  'app/api/desk/[personId]/status/route.ts': 'tenant_session',
   'app/api/desk/[personId]/video/route.ts': 'tenant_session',
   'app/api/files/[fileId]/preview/route.ts': 'tenant_session',
   'app/api/files/[fileId]/route.ts': 'tenant_session',

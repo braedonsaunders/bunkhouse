@@ -5,11 +5,12 @@ import Link from 'next/link'
 import { EyeOff, Loader2, Maximize2, Minimize2, Monitor, MonitorOff, MousePointer2, ShieldAlert } from 'lucide-react'
 import { Badge, Button, EmptyState, cn } from '@braedonsaunders/appkit-ui'
 import { AGENT_SCREEN_HEIGHT, AGENT_SCREEN_WIDTH } from '../lib/agent-screen'
+// Status and input are NOT here: they are routes (`/api/desk/[personId]/…`),
+// because a poll and a pointer must not queue behind one another. See
+// `readDeskStatus` and `postDesktopInput` below.
 import {
   closeDesktopAction,
-  deskStatusAction,
   openDesktopAction,
-  sendDesktopInputAction,
   setDeskFrameRateAction,
   takeoverAction,
 } from '../app/chat/actions'
@@ -285,13 +286,41 @@ const FOCUSABLE =
  */
 async function readDeskStatus(personId: string): Promise<{ status: DeskStatus } | { error: string }> {
   try {
-    return { status: await deskStatusAction(personId) }
+    const response = await fetch(`/api/desk/${encodeURIComponent(personId)}/status`, { cache: 'no-store' })
+    if (!response.ok) return { error: 'The desk could not be reached.' }
+    return { status: (await response.json()) as DeskStatus }
   } catch (error) {
     return { error: error instanceof Error ? error.message : 'The desk could not be reached.' }
   }
 }
 
-/** The action shapes the desk accepts, as `sendDesktopInputAction` takes them. */
+/**
+ * One input on the screen, over a plain POST.
+ *
+ * Not a server action, deliberately. Server actions share one queue per client,
+ * so taking control used to put every click and keystroke behind whatever polls
+ * were in flight — the work surface's and this pane's own status read — and a
+ * poll that outlasted its interval grew that queue. Clicks took tens of seconds
+ * to land. The gates are unchanged; they live in lib/chat-desk.ts and the route
+ * calls the same `sendDesktopInput`.
+ */
+async function postDesktopInput(
+  personId: string,
+  action: DesktopInput,
+): Promise<{ ok: true } | { error: string }> {
+  const response = await fetch(`/api/desk/${encodeURIComponent(personId)}/input`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action }),
+  })
+  const answer: unknown = await response.json().catch(() => null)
+  if (answer && typeof answer === 'object' && ('ok' in answer || 'error' in answer)) {
+    return answer as { ok: true } | { error: string }
+  }
+  return { error: 'That input did not reach the desk.' }
+}
+
+/** The action shapes the desk accepts, as `postDesktopInput` sends them. */
 type DesktopInput =
   | { action: 'click'; x: number; y: number; button: 'left' | 'middle' | 'right'; clicks?: 1 | 2 }
   | { action: 'type'; text: string }
@@ -1006,25 +1035,31 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   // mid-turn, so the answer has to be re-asked rather than waited for.
   React.useEffect(() => {
     let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    // Chained rather than on an interval, for the same reason as the work
+    // surface's own poll: this is a server action, desktop input is a server
+    // action, and they share one queue per client. A status read that outlasts
+    // its interval put another in line ahead of the next thing the person
+    // driving the screen did.
     const tick = async () => {
       const answer = await readDeskStatus(personId)
       if (cancelled) return
       if ('error' in answer) {
         setStatusError(answer.error)
-        return
+      } else {
+        setStatus(answer.status)
+        setStatusError(null)
+        if (!answer.status.screenRunning) {
+          setDriving(false)
+          setExpanded(false)
+        }
       }
-      setStatus(answer.status)
-      setStatusError(null)
-      if (!answer.status.screenRunning) {
-        setDriving(false)
-        setExpanded(false)
-      }
+      if (!cancelled) timer = setTimeout(() => void tick(), STATUS_POLL_MS)
     }
     void tick()
-    const interval = setInterval(() => void tick(), STATUS_POLL_MS)
     return () => {
       cancelled = true
-      clearInterval(interval)
+      if (timer !== null) clearTimeout(timer)
     }
   }, [personId])
 
@@ -1065,7 +1100,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     (action: DesktopInput) => {
       queueRef.current = queueRef.current.then(async () => {
         try {
-          const result = await sendDesktopInputAction(personId, action)
+          const result = await postDesktopInput(personId, action)
           setControlError('error' in result ? result.error : null)
         } catch (error) {
           setControlError(error instanceof Error ? error.message : 'That input did not reach the desk.')

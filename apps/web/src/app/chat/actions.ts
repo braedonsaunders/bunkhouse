@@ -33,13 +33,9 @@ import {
 } from '../../lib/chat-dispatch'
 import {
   closeDesktop,
-  deskStatus,
   openDesktop,
-  parseDeskInput,
-  sendDesktopInput,
   setDeskFrameRate,
   setTakeover,
-  type ChatDeskStatus,
 } from '../../lib/chat-desk'
 import { chatWorkSurface, type ChatWorkSurface } from '../../lib/chat-work-surface'
 import { runScreenRoomName } from '../../lib/run-screen-room'
@@ -515,13 +511,11 @@ function actorFor(access: TenantAccess): { name: string } {
   return { name: access.user.name.trim() || access.user.email }
 }
 
-export async function deskStatusAction(personId: string): Promise<ChatDeskStatus> {
-  const access = await requireTenantPermission('work.read')
-  if (!personId) {
-    return { supported: false, desk: false, desktop: false, screenRunning: false, reason: 'No agent selected.' }
-  }
-  return deskStatus({ tenantId: access.tenantId, personId })
-}
+// The desk's status read and its pointer input are routes, not actions —
+// `app/api/desk/[personId]/status` and `.../input`. Both are hot paths that
+// must not share the server-action queue with each other or with the work
+// surface's poll; the gates are identical because both routes call the same
+// functions in lib/chat-desk.ts.
 
 /**
  * Open the agent's screen for the operator. The reason is optional and stays a
@@ -583,19 +577,3 @@ export async function setDeskFrameRateAction(
   return setDeskFrameRate({ tenantId: access.tenantId, personId, driving })
 }
 
-/** One input on the agent's screen, in the desk-v1 shape. */
-export async function sendDesktopInputAction(
-  personId: string,
-  action: unknown,
-): Promise<{ ok: true } | { error: string }> {
-  const access = await requireTenantPermission('work.manage')
-  if (!personId) return { error: 'No agent selected.' }
-  const parsed = parseDeskInput(action)
-  if (!parsed) return { error: 'That is not something the screen can be asked to do.' }
-  return sendDesktopInput({
-    tenantId: access.tenantId,
-    personId,
-    actor: actorFor(access),
-    action: parsed,
-  })
-}
