@@ -91,6 +91,44 @@ assert.throws(
 )
 assert.equal(scheduledRunLimit({ kind: 'once', standing: false, standingAllowed: false }), null)
 
+// --- the closest an agent may book itself is the platform's real resolution ---
+//
+// The floor was fifteen minutes, which was never a property of the platform: the
+// duty pass ticks every sixty seconds, so a one-minute schedule is serviced on the
+// next tick like any other. Fifteen was a guess standing in for runaway protection
+// and the agent reported it to people as though it were physics — work that wants
+// watching every minute could not be booked at all.
+{
+  const { readFileSync } = await import('node:fs')
+  const { fileURLToPath } = await import('node:url')
+  const abilities = readFileSync(
+    fileURLToPath(new URL('../src/lib/agent-abilities.ts', import.meta.url)),
+    'utf8',
+  )
+  const floor = Number(/const MIN_SELF_SCHEDULE_GAP_MINUTES = (\d+)/.exec(abilities)?.[1])
+  assert.equal(floor, 1, 'an agent may book a repeat as close together as the platform can service')
+
+  // And the floor must stay honest about what the platform can service: slowing
+  // the duty pass without raising this would make the refusal message a lie.
+  const worker = readFileSync(fileURLToPath(new URL('./worker.mts', import.meta.url)), 'utf8')
+  const tickMs = Number(
+    /upsertJobScheduler\('duties', \{ every: ([\d_]+) \}/.exec(worker)?.[1]?.replaceAll('_', ''),
+  )
+  assert.ok(Number.isFinite(tickMs), 'the duty pass states its cadence')
+  assert.ok(
+    floor * 60_000 >= tickMs,
+    `a ${floor}-minute floor cannot be serviced by a pass that ticks every ${tickMs}ms`,
+  )
+
+  // The refusal has to read as a sentence at a floor of one, not "every 1".
+  assert.match(abilities, /once a minute/, 'the refusal reads properly at the floor')
+  assert.equal(
+    /the closest you can schedule yourself is every \$\{MIN_SELF_SCHEDULE_GAP_MINUTES\}/.test(abilities),
+    false,
+    'the old wording is gone',
+  )
+}
+
 // --- a duty run the worker lost is closed, not left claiming to work --------
 //
 // The abandoned-work sweep only ever matched `trigger->>'type' = 'assignment'`,

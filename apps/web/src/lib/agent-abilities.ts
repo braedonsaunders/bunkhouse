@@ -49,7 +49,31 @@ type PersonRow = typeof people.$inferSelect
 
 /** Ceilings on what an agent may book for itself — see `schedule_task`. */
 const MAX_SELF_SCHEDULED_DUTIES = 25
-const MIN_SELF_SCHEDULE_GAP_MINUTES = 15
+/**
+ * The closest repeat an agent may book for itself: the platform's actual
+ * resolution, and nothing tighter.
+ *
+ * This was fifteen minutes, which was never a property of the platform — the
+ * duty pass ticks every sixty seconds (scripts/worker.mts), so a one-minute
+ * schedule is serviced on the next tick like any other. Fifteen was a guess
+ * standing in for runaway protection, and it read to the agent as a platform
+ * floor it had to explain to the person asking: work that genuinely wants
+ * watching every minute, like a market an agent is trading, could not be booked
+ * at all.
+ *
+ * Runaway is governed by the things that actually measure it, each consulted
+ * every step rather than once at the door: the salary budget, no-progress
+ * detection, the step ceiling, and `MAX_SELF_SCHEDULED_REPEATS` bounding how
+ * many times an unattended self-booking may fire. A spacing rule was the weakest
+ * of those and the only one a person could not see.
+ *
+ * Worth knowing, because it is now reachable: an occurrence is not suppressed
+ * while the previous one is still working — `executeDueDuty` advances
+ * `next_due_at` when it claims, so a duty that repeats every minute and takes ten
+ * will overlap itself. That is the operator's call to make, and a duty that tight
+ * is usually a cheap check rather than a long run.
+ */
+const MIN_SELF_SCHEDULE_GAP_MINUTES = 1
 
 function remoteComputerAbilities(args: { tenantId: string; person: PersonRow; runId: string }): Ability[] {
   const { tenantId, person, runId } = args
@@ -862,9 +886,14 @@ export function schedulingAbilities(args: {
         }
         const gap = gapMinutes(spec)
         if (gap < MIN_SELF_SCHEDULE_GAP_MINUTES) {
+          // Plain minutes, and a floor that reads as a sentence rather than
+          // "every 1" — the agent repeats this to the person who asked.
+          const closest = MIN_SELF_SCHEDULE_GAP_MINUTES === 1
+            ? 'once a minute'
+            : `every ${MIN_SELF_SCHEDULE_GAP_MINUTES} minutes`
           return {
             scheduled: false,
-            reason: `That repeats every ${Math.round(gap)} minutes; the closest you can schedule yourself is every ${MIN_SELF_SCHEDULE_GAP_MINUTES}.`,
+            reason: `That repeats more often than ${closest}, which is as close together as anything can be scheduled here.`,
           }
         }
 
