@@ -34,6 +34,22 @@ networks:
 services:
   web:
     image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
+    # A chat turn runs INSIDE the request, and the route allows it 300 seconds
+    # (`maxDuration` in app/api/chat/[threadId]/route.ts). Unset, Swarm allows the
+    # container ten, so every deploy SIGKILLed whatever turn was mid-step.
+    #
+    # Observed: a turn asking the agent to set up something new was cut off
+    # between a recorded thought and its next step and then had no process left to
+    # close it out, so it sat claiming to be `running` while the person's next two
+    # messages queued behind it and the conversation looked dead. The
+    # abandoned-work sweep is the backstop, and it deliberately waits thirty
+    # minutes before calling a quiet run dead.
+    #
+    # 330s: the route's own ceiling plus a little, so a turn that is allowed to
+    # run is allowed to finish. Longer than the worker's 180s on purpose — the
+    # worker can refuse new work and drain, while a request already in flight here
+    # has no such option.
+    stop_grace_period: 330s
     environment:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0

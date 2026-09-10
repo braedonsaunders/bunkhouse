@@ -170,6 +170,23 @@ assert.equal(scheduledRunLimit({ kind: 'once', standing: false, standingAllowed:
     budgetMs < graceSeconds * 1_000,
     `the drain budget (${budgetMs}ms) must finish inside the grace period (${graceSeconds}s)`,
   )
+
+  // The web container runs chat turns INSIDE the request, so it needs its own
+  // window. Without one a deploy SIGKILLed a turn mid-step and left it claiming
+  // to be `running`, with the person's next messages queued behind it and the
+  // conversation looking dead until the thirty-minute sweep noticed.
+  const webGrace = Number(/web:[\s\S]*?stop_grace_period:\s*(\d+)s/.exec(compose)?.[1])
+  assert.ok(Number.isFinite(webGrace), 'the web service has a stop_grace_period')
+  const route = readFileSync(
+    fileURLToPath(new URL('../src/app/api/chat/[threadId]/route.ts', import.meta.url)),
+    'utf8',
+  )
+  const maxDuration = Number(/export const maxDuration = (\d+)/.exec(route)?.[1])
+  assert.ok(Number.isFinite(maxDuration), 'the chat route states how long a turn may run')
+  assert.ok(
+    webGrace >= maxDuration,
+    `a turn the route allows ${maxDuration}s must not be killed after ${webGrace}s`,
+  )
 }
 
 console.log('duties scheduling: all assertions passed')
