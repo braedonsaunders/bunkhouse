@@ -246,6 +246,33 @@ await check('an unavailable integration is recorded, not spoken', () => {
   assert.match(emit, /Integration unavailable — \$\{failure\}/)
 })
 
+// --- a failure has to say what failed ---------------------------------------
+//
+// `String(error)` on anything that is not an Error gives "[object Object]", and
+// that is exactly what one run recorded as its entire summary on the live
+// tenant: a chat turn asking the agent to set something up failed, the
+// conversation said nothing useful, and the ledger held no clue either.
+// Providers and SDKs throw plain objects routinely.
+await check('a non-Error failure still produces something readable', async () => {
+  const { readableFailure } = await import('../src/lib/agent-runs')
+  assert.equal(readableFailure(new Error('provider refused the request')), 'provider refused the request')
+  assert.equal(readableFailure('plain string'), 'plain string')
+  assert.equal(readableFailure({ message: 'rate limited' }), 'rate limited')
+  assert.equal(readableFailure({ error: 'invalid_grant' }), 'invalid_grant')
+
+  // The case that produced "[object Object]": an object with no message at all.
+  const serialized = readableFailure({ status: 429, detail: { retryAfter: 30 } })
+  assert.equal(serialized.includes('[object Object]'), false, 'never the useless default')
+  assert.match(serialized, /429/, 'the body is carried through rather than discarded')
+
+  // Unserializable input must still not degrade to "[object Object]".
+  const circular: Record<string, unknown> = { name: 'WeirdError' }
+  circular.self = circular
+  const cyclic = readableFailure(circular)
+  assert.equal(cyclic.includes('[object Object]'), false)
+  assert.match(cyclic, /WeirdError/)
+})
+
 if (failures > 0) {
   console.log(`\n${failures} check(s) failed`)
   process.exit(1)

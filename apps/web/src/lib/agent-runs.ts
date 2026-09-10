@@ -715,6 +715,40 @@ async function refuseRun(args: {
 }
 
 /**
+ * A failure a person can actually read.
+ *
+ * `String(error)` on anything that is not an Error produces "[object Object]",
+ * and that is what a failed run recorded as its ENTIRE summary: the agent
+ * stopped, the conversation said nothing useful, and the ledger held no clue
+ * either. Observed on the live tenant — a chat turn asking the agent to set up
+ * something new failed with `summary = "[object Object]"` and there was nothing
+ * anywhere to say why.
+ *
+ * Providers and SDKs throw plain objects routinely, so the non-Error path is
+ * ordinary rather than exotic. Anything with a message is used as-is; anything
+ * else is serialized, because a JSON body is a poor error message but an
+ * infinitely better one than nothing at all.
+ */
+export function readableFailure(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === 'string' && error) return error
+  if (error !== null && typeof error === 'object') {
+    const shape = error as { message?: unknown; error?: unknown; name?: unknown }
+    if (typeof shape.message === 'string' && shape.message) return shape.message
+    if (typeof shape.error === 'string' && shape.error) return shape.error
+    try {
+      const json = JSON.stringify(error)
+      if (json && json !== '{}' && json !== 'null') return json
+    } catch {
+      // Circular or otherwise unserializable; the type name is all there is.
+    }
+    const name = typeof shape.name === 'string' && shape.name ? shape.name : 'object'
+    return `The run failed with a non-Error ${name} carrying no message.`
+  }
+  return String(error)
+}
+
+/**
  * The runs this process has in the agent loop right now.
  *
  * Kept so a worker being replaced can close its own work out honestly and
@@ -1309,7 +1343,7 @@ export async function executeAgentRun(args: {
       // A live run does not own its record — the call opened it and the call
       // closes it — so this marks only what it is responsible for.
       if (!live) {
-        const reason = error instanceof Error ? error.message : String(error)
+        const reason = readableFailure(error)
         await recordEvent({ kind: 'error', message: reason }).catch(() => undefined)
         const activeLease = attempt.lease
         if (activeLease && !(error instanceof ExecutionLeaseLostError)) {
@@ -1336,7 +1370,7 @@ export async function executeAgentRun(args: {
       }
       const activeLease = attempt.lease
       if (activeLease) {
-        const detail = { error: error instanceof Error ? error.message : String(error) }
+        const detail = { error: readableFailure(error) }
         if (error instanceof ExecutionLeaseLostError) {
           await recordRunAttemptEvent({
             tenantId: args.tenantId,
