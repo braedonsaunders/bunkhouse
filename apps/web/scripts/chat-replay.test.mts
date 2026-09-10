@@ -192,6 +192,60 @@ await check('the live turn is read from the ledger and never duplicates recorded
   )
 })
 
+// --- a thread's work includes the work it scheduled -------------------------
+//
+// The conversation pane matched runs on `trigger->>'conversationId'`, and a duty
+// run is triggered by the clock so it has none. Scheduled work was therefore
+// invisible in the very thread that created it: Avery's half-hourly scan ran on
+// time, used the shell and wrote its result while the pane showed the last CHAT
+// run's terminal instead. After an outage that read as "the desk could not be
+// reached" hours after the desk was fixed — stale output presented as current.
+await check('duty runs are resolved into their thread by provenance', () => {
+  const duty = readFileSync(fileURLToPath(new URL('../src/lib/duty-conversation.ts', import.meta.url)), 'utf8')
+  assert.match(duty, /export async function threadDutyIds/, 'the inverse of dutyConversationThreadId exists')
+  assert.match(
+    duty,
+    /innerJoin\(runs, eq\(runs\.id, duties\.sourceRunId\)\)/,
+    'it walks the same source_run_id provenance post_to_conversation uses',
+  )
+  assert.match(duty, /web:\$\{threadId\}/, 'and matches the in-app conversation prefix, not a Slack/Teams id')
+
+  // Both surfaces have to agree with where a duty may SPEAK, or the conversation
+  // claims one thing and its own work surface another.
+  for (const file of ['../src/lib/chat-work-surface.ts', '../src/lib/chat-detail.ts']) {
+    const source = readFileSync(fileURLToPath(new URL(file, import.meta.url)), 'utf8')
+    assert.match(source, /threadDutyIds\(/, `${file} resolves the thread's duties`)
+  }
+  const surface = readFileSync(fileURLToPath(new URL('../src/lib/chat-work-surface.ts', import.meta.url)), 'utf8')
+  assert.match(
+    surface,
+    /inArray\(sql`\$\{runs\.trigger\}->>'dutyId'`, dutyIds\)/,
+    'the work surface matches duty runs by trigger dutyId',
+  )
+  // With no duties the query must stay exactly what it was — one predicate, no
+  // empty IN list.
+  assert.match(surface, /dutyIds\.length > 0\s*\?/, 'no duties means the original single-predicate query')
+})
+
+// --- a broken connector is not the employee talking -------------------------
+//
+// `RunEvent` documents `message` as "the utterance", so emitting integration
+// failures there made every run open by speaking every unrelated failure into
+// whatever conversation it belonged to. An expired NetSuite refresh token
+// introduced itself, hostname and all, at the top of a conversation about
+// launching a memecoin — one second after the run began, before the agent had
+// done anything. Unactionable, unrelated, and it reads as the agent being
+// confused about its own job.
+await check('an unavailable integration is recorded, not spoken', () => {
+  const runs = readFileSync(fileURLToPath(new URL('../src/lib/agent-runs.ts', import.meta.url)), 'utf8')
+  const block = runs.slice(runs.indexOf('integrationFailures ?? []'))
+  const emit = block.slice(0, block.indexOf('}') + 1)
+  assert.match(emit, /kind: 'error'/, 'it lands on the ledger as a failure')
+  assert.equal(emit.includes("kind: 'message'"), false, 'it is never emitted as the agent speaking')
+  // Still recorded verbatim — the point is where it shows, not hiding it.
+  assert.match(emit, /Integration unavailable — \$\{failure\}/)
+})
+
 if (failures > 0) {
   console.log(`\n${failures} check(s) failed`)
   process.exit(1)

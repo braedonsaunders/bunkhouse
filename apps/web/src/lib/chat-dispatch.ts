@@ -412,8 +412,23 @@ export function dbChatDispatchStore(): ChatDispatchStore {
           if (blocked) {
             throw new Error('An earlier message in this conversation needs attention before anything else can be sent.')
           }
-          const [{ lowest } = { lowest: current.position }] = await tx
-            .select({ lowest: sql<number>`coalesce(min(${chatDispatches.position}), ${current.position})`.mapWith(Number) })
+          // TWO different minima, and conflating them is a unique-violation.
+          //
+          // "Already next" is a question about PENDING order — is anything
+          // waiting or running ahead of this one. Where to MOVE it is a question
+          // about every row in the thread, because `chat_dispatches_position_key`
+          // is unique on (thread_id, position) across all statuses, completed
+          // ones included. Taking one below the lowest pending position landed on
+          // a completed turn's slot and the update failed: Send now returned "could
+          // not be sent yet" every time, on a queue with nothing wrong with it.
+          //
+          // Positions are only ever assigned as max + 1, so one below the global
+          // minimum is always free. Going negative is fine — the queue is read in
+          // position order, never by absolute value.
+          const [{ nextPending } = { nextPending: current.position }] = await tx
+            .select({
+              nextPending: sql<number>`coalesce(min(${chatDispatches.position}), ${current.position})`.mapWith(Number),
+            })
             .from(chatDispatches)
             .where(
               and(
@@ -423,10 +438,16 @@ export function dbChatDispatchStore(): ChatDispatchStore {
             )
           // Already next: nothing to reorder, and recording a move that did not
           // happen would put a lie in the ledger.
-          if (current.position <= lowest) return dispatchView(current)
+          if (current.position <= nextPending) return dispatchView(current)
+          const [{ lowestEver } = { lowestEver: current.position }] = await tx
+            .select({
+              lowestEver: sql<number>`coalesce(min(${chatDispatches.position}), ${current.position})`.mapWith(Number),
+            })
+            .from(chatDispatches)
+            .where(eq(chatDispatches.threadId, current.threadId))
           const [updated] = await tx
             .update(chatDispatches)
-            .set({ position: lowest - 1, updatedAt: new Date(), updatedBy: actorId })
+            .set({ position: lowestEver - 1, updatedAt: new Date(), updatedBy: actorId })
             .where(and(eq(chatDispatches.id, dispatchId), eq(chatDispatches.status, 'queued')))
             .returning(dispatchSelection)
           if (!updated) throw new Error('That queued message could not be moved.')

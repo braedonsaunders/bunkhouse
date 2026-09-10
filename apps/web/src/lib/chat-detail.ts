@@ -1,5 +1,6 @@
 import 'server-only'
 import { chatLiveTurn, type ChatLiveTurn } from './chat-activity'
+import { threadDutyIds } from './duty-conversation'
 import { listThreadApprovals, type ChatApprovalView } from './chat-approvals'
 import { listChatDispatches, type ChatDispatchView } from './chat-dispatch'
 import { conversationIdFor, getThread, type ChatMessageView, type ChatThreadView } from './chat-threads'
@@ -39,11 +40,15 @@ export async function chatThreadDetail(args: {
       detail.messages.flatMap((message) => (message.role === 'agent' && message.runId ? [message.runId] : [])),
     ),
   ]
+  // Scheduled work the thread asked for counts as this thread's work in
+  // progress: a duty run carries no conversation in its trigger, so without its
+  // provenance a ten-minute duty looks like nothing happening.
+  const dutyIds = await threadDutyIds(args.tenantId, args.threadId)
   const [dispatches, credentialRequests, approvals, liveTurn] = await Promise.all([
     listChatDispatches({ tenantId: args.tenantId, threadId: args.threadId }),
     listThreadSystemCredentialRequests(args.tenantId, args.threadId),
     listThreadApprovals(args.tenantId, args.threadId),
-    chatLiveTurn(args.tenantId, conversationIdFor(args.threadId), attributed),
+    chatLiveTurn(args.tenantId, conversationIdFor(args.threadId), attributed, dutyIds),
   ])
   return {
     ...detail,

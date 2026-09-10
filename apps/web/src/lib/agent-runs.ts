@@ -970,8 +970,26 @@ export async function executeAgentRun(args: {
             ...(args.counterparty ? { counterparty: args.counterparty } : {}),
             waitState,
           })
+      // An integration that would not assemble is a fact about the RUN, not
+      // something the employee said.
+      //
+      // As `message` — which RunEvent documents as "the utterance" — every run
+      // opened by speaking every unrelated failure into whatever conversation it
+      // belonged to. An expired NetSuite refresh token therefore introduced
+      // itself, verbatim and with its hostname, at the top of a conversation
+      // about launching a memecoin: "Integration unavailable — NetSuite:
+      // …suitetalk.api.netsuite.com refused the request: invalid_grant", one
+      // second after the run began and before the agent had done anything. The
+      // reader cannot act on it, it has nothing to do with the work, and it reads
+      // as the agent being confused about its own job.
+      //
+      // `error` keeps every word of it on the append-only ledger, where the run
+      // record and the conversation's History surface both show it, and where a
+      // broken connector belongs. The agent's own awareness is unchanged: it
+      // learns an integration is missing by not being handed its tools, not by
+      // reading this line.
       for (const failure of assembled?.integrationFailures ?? []) {
-        await sink.event({ kind: 'message', text: `Integration unavailable — ${failure}` })
+        await sink.event({ kind: 'error', message: `Integration unavailable — ${failure}` })
       }
       const abilities: Ability[] = [...(assembled?.abilities ?? live!.abilities)]
       if (args.trigger.type === 'email') {

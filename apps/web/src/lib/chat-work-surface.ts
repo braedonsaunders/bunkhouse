@@ -15,6 +15,7 @@ import {
   remoteSessions,
 } from '../db/schema'
 import { db } from '../db/client'
+import { threadDutyIds } from './duty-conversation'
 import { conversationIdFor } from './chat-threads'
 import type { TerminalSurfaceEntry } from '@braedonsaunders/appkit-remote-sessions/react'
 
@@ -140,10 +141,30 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
   return app.withTenantContext(tenantId, async () => {
     const [thread] = await app.db.select({ id: chatThreads.id }).from(chatThreads).where(eq(chatThreads.id, threadId)).limit(1)
     if (!thread) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], focus: null }
+    // A thread's work is its chat turns AND the scheduled work it asked for.
+    //
+    // A duty run is triggered by the clock, so its trigger names no
+    // conversation — and matching on that alone made scheduled work invisible in
+    // the very thread that created it. Avery's half-hourly scan ran on time,
+    // used the shell and wrote its result while this pane showed the last CHAT
+    // run's terminal instead. After an outage that read as "the desk could not
+    // be reached" hours after the desk was fixed: stale output presented as the
+    // current state, with the runs that actually worked nowhere in sight.
+    //
+    // `post_to_conversation` already uses this provenance to decide where a duty
+    // may speak; the surface showing what the work DID has to agree with it.
+    const dutyIds = await threadDutyIds(tenantId, threadId)
     const threadRuns = await app.db
       .select({ id: runs.id, status: runs.status })
       .from(runs)
-      .where(sql`${runs.trigger}->>'conversationId' = ${conversationIdFor(threadId)}`)
+      .where(
+        dutyIds.length > 0
+          ? or(
+              sql`${runs.trigger}->>'conversationId' = ${conversationIdFor(threadId)}`,
+              inArray(sql`${runs.trigger}->>'dutyId'`, dutyIds),
+            )
+          : sql`${runs.trigger}->>'conversationId' = ${conversationIdFor(threadId)}`,
+      )
       .orderBy(desc(runs.startedAt))
       .limit(100)
     const run = threadRuns[0]

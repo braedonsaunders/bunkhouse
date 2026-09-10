@@ -103,10 +103,23 @@ assert.match(chatWorkspace, /chatQueueUiProjection/)
 // queue can change between the render and the click.
 assert.match(chatDispatch, /Only a message that is still waiting can be sent now\./)
 assert.match(chatDispatch, /An earlier message in this conversation needs attention/)
+// Two minima, deliberately. "Already next" is about PENDING order; the slot to
+// move into must clear EVERY row, because the unique index on
+// (thread_id, position) covers completed turns too. Conflating them picked a
+// completed turn's position and every Send now failed on a unique violation.
 assert.match(
   chatDispatch,
-  /position: lowest - 1/,
-  'promotion takes the slot below the lowest rather than swapping, because position is unique per thread',
+  /position: lowestEver - 1/,
+  'promotion moves below the lowest position EVER used in the thread, so the slot is free',
+)
+assert.match(
+  chatDispatch,
+  /if \(current\.position <= nextPending\) return dispatchView\(current\)/,
+  '"already next" is judged against pending work, not against completed history',
+)
+assert.ok(
+  chatDispatch.includes("inArray(chatDispatches.status, ['queued', 'running'])"),
+  'the pending minimum is scoped to queued/running',
 )
 assert.match(
   chatDispatch,

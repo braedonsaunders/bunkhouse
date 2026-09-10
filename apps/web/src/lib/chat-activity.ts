@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, asc, desc, inArray, notInArray, sql } from 'drizzle-orm'
+import { and, asc, desc, inArray, notInArray, or, sql } from 'drizzle-orm'
 import { runEvents, runs } from '../db/schema'
 import { db } from '../db/client'
 
@@ -164,15 +164,27 @@ export async function chatLiveTurn(
   tenantId: string,
   conversationId: string,
   excludeRunIds: string[],
+  /**
+   * Duties belonging to this thread. A duty run is triggered by the clock, so
+   * its trigger names no conversation — without these, scheduled work the thread
+   * asked for runs for ten minutes and the thread shows nothing happening.
+   */
+  dutyIds: string[] = [],
 ): Promise<ChatLiveTurn | null> {
   const app = db()
   return app.withTenantContext(tenantId, async () => {
+    const belongsToThread = dutyIds.length > 0
+      ? or(
+          sql`${runs.trigger}->>'conversationId' = ${conversationId}`,
+          inArray(sql`${runs.trigger}->>'dutyId'`, dutyIds),
+        )
+      : sql`${runs.trigger}->>'conversationId' = ${conversationId}`
     const [live] = await app.db
       .select({ id: runs.id, status: runs.status })
       .from(runs)
       .where(
         and(
-          sql`${runs.trigger}->>'conversationId' = ${conversationId}`,
+          belongsToThread,
           inArray(runs.status, [...LIVE_RUN_STATUSES]),
           ...(excludeRunIds.length > 0 ? [notInArray(runs.id, excludeRunIds)] : []),
         ),

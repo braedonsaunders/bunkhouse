@@ -1,5 +1,5 @@
 import 'server-only'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { duties, runs } from '../db/schema'
 import { db } from '../db/client'
 
@@ -49,5 +49,37 @@ export async function dutyConversationThreadId(
     if (!trigger.conversationId.startsWith('web:')) return null
     const threadId = trigger.conversationId.slice('web:'.length)
     return threadId.length > 0 ? threadId : null
+  })
+}
+
+/**
+ * The same relationship read the other way: which duties belong to one thread.
+ *
+ * The conversation pane finds a thread's work by matching
+ * `trigger->>'conversationId'`, and a duty run has none — so scheduled work was
+ * invisible in the very conversation that asked for it. Avery's half-hourly scan
+ * ran on time, used the shell, wrote its result, and the thread showed the last
+ * CHAT run's terminal instead. During an outage that meant a reader saw "the
+ * desk could not be reached" hours after the desk was fixed, with the working
+ * runs nowhere in sight: stale output presented as the current state.
+ *
+ * `post_to_conversation` already uses this provenance to decide where a duty may
+ * SPEAK ({@link dutyConversationThreadId}). The surfaces that show what the work
+ * did have to agree with it, or the conversation claims one thing and its own
+ * work surface another.
+ *
+ * One query, not one per run: resolve the thread's duties up front, then match
+ * run triggers against that set.
+ */
+export async function threadDutyIds(tenantId: string, threadId: string): Promise<string[]> {
+  if (!threadId) return []
+  const app = db()
+  return app.withTenantContext(tenantId, async () => {
+    const rows = await app.db
+      .select({ id: duties.id })
+      .from(duties)
+      .innerJoin(runs, eq(runs.id, duties.sourceRunId))
+      .where(sql`${runs.trigger}->>'conversationId' = ${`web:${threadId}`}`)
+    return rows.map((row) => row.id)
   })
 }
