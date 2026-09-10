@@ -126,6 +126,50 @@ assert.equal(scheduledRunLimit({ kind: 'once', standing: false, standingAllowed:
     false,
     'the sweep never re-arms a duty — a correction is a new record, not a replayed run',
   )
+
+  // --- and the deploy that killed them gets a drain -------------------------
+  //
+  // The SIGTERM handler always called BullMQ's non-forced close(), which does
+  // wait for an active job — it just never got the chance, because no
+  // stop_grace_period was configured and Swarm's default is ten seconds.
+  const shutdown = worker.slice(worker.indexOf('async function shutdown'))
+  assert.ok(
+    shutdown.indexOf('worker.pause(true)') < shutdown.indexOf('worker.close()'),
+    'claiming stops before the drain waits, so the grace period goes to work already in flight',
+  )
+  assert.ok(
+    shutdown.includes('deepWorker.pause(true)'),
+    'the deep-work queue stops claiming too — that is where runs execute',
+  )
+  assert.ok(
+    shutdown.includes('inFlightRunIds()') && shutdown.includes("status = 'failed'"),
+    'whatever the drain could not finish is recorded immediately, not left to the sweep',
+  )
+  assert.ok(
+    shutdown.includes('if (draining) return'),
+    'a second signal during a drain does not tear the drain down',
+  )
+
+  // The drain budget must stay INSIDE the container's grace period: past it the
+  // container is SIGKILLed and none of the recording above happens. These two
+  // numbers live in different files and have to be changed together.
+  const budgetMs = Number(/const DRAIN_BUDGET_MS = ([\d_]+)/.exec(worker)?.[1]?.replaceAll('_', ''))
+  assert.ok(Number.isFinite(budgetMs) && budgetMs > 0, 'the drain budget is a readable number')
+  const compose = readFileSync(
+    fileURLToPath(new URL('../../../deploy/dokploy.compose.yaml', import.meta.url)),
+    'utf8',
+  )
+  const graceSeconds = Number(
+    /worker:[\s\S]*?stop_grace_period:\s*(\d+)s/.exec(compose)?.[1],
+  )
+  assert.ok(
+    Number.isFinite(graceSeconds) && graceSeconds > 10,
+    'the worker has a stop_grace_period longer than Swarm’s ten-second default',
+  )
+  assert.ok(
+    budgetMs < graceSeconds * 1_000,
+    `the drain budget (${budgetMs}ms) must finish inside the grace period (${graceSeconds}s)`,
+  )
 }
 
 console.log('duties scheduling: all assertions passed')

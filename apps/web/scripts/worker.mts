@@ -8,7 +8,13 @@ import { consolidateMemories } from '../src/lib/memory-consolidation'
 import { MAX_SELF_SCHEDULED_REPEATS } from '../src/lib/duties'
 import { approvals, assignments, mailboxAccounts, mailMessages, people, runs, tokenSpend } from '../src/db/schema'
 import { sendNewMail, sendReplyInThread, syncPersonMailbox } from '../src/lib/mailbox'
-import { dueDuties, executeAgentRun, pendingInboundMessageIds, startRunsForNewInbound } from '../src/lib/agent-runs'
+import {
+  dueDuties,
+  executeAgentRun,
+  inFlightRunIds,
+  pendingInboundMessageIds,
+  startRunsForNewInbound,
+} from '../src/lib/agent-runs'
 import { finalizeAssignmentRun } from '../src/lib/assignments'
 import { executeDueDuty } from '../src/lib/duty-execution'
 import { runLaunchedChild, unstartedChildRunIds } from '../src/lib/subagents'
@@ -841,12 +847,83 @@ console.log(
   'bunkhouse worker up — mailbox 2m, duties 1m, approvals 30s, assignments 30s, call sweep 5m, systems 10m, journal 6h, reflection 12h, money 24h; deep-work queue ×2 (initial passes queued)',
 )
 
+/**
+ * How long a drain may spend letting work finish.
+ *
+ * Must stay comfortably inside the worker's `stop_grace_period` in
+ * deploy/dokploy.compose.yaml: that is the real deadline, after which the
+ * container is SIGKILLed and nothing below gets to run. The gap is the budget
+ * for recording what could not finish.
+ */
+const DRAIN_BUDGET_MS = 150_000
+
+/**
+ * Put the worker down without lying about what it was doing.
+ *
+ * The old shutdown did call BullMQ's non-forced `close()`, which does wait for
+ * an active job — but it never got the chance. No `stop_grace_period` was
+ * configured, so Swarm used its default ten seconds and killed the process
+ * mid-step. A duty run takes minutes. Two of Avery's fired exactly on schedule
+ * and died that way, at 21:03:03 and 21:41:28, matching two deployments to the
+ * minute.
+ *
+ * Three things now happen in order, and the order is the point.
+ *
+ * Claiming stops FIRST, on both queues, without waiting — `pause(true)`. Every
+ * second of the grace period should go to work already in flight rather than to
+ * a heartbeat pass that the next worker will queue again anyway. The old code
+ * closed the heartbeat worker first and spent its budget there.
+ *
+ * Then the active work is given until the drain budget to finish on its own.
+ *
+ * Then whatever is STILL running is recorded as interrupted, now, rather than
+ * left to the abandoned-work sweep to notice in half an hour. Not retried: a run
+ * that died mid-step may already have sent mail or moved money, the idempotency
+ * ledger guards a replayed effect rather than a whole re-run, and a recurring
+ * duty gets its next occurrence on schedule.
+ */
+let draining = false
 async function shutdown(): Promise<void> {
-  await worker.close()
-  await deepWorker.close()
-  await jobs.closeJobConnections()
-  await app.pool.end()
-  await app.superPool.end()
+  // A second signal during a drain must not tear the drain down.
+  if (draining) return
+  draining = true
+  // Nothing below may outlive the container's grace period.
+  const hardExit = setTimeout(() => process.exit(1), DRAIN_BUDGET_MS + 20_000)
+  hardExit.unref()
+
+  console.log('bunkhouse worker draining — no new work claimed')
+  await Promise.all([worker.pause(true), deepWorker.pause(true)]).catch(() => undefined)
+
+  const finished = await Promise.race([
+    Promise.all([worker.close(), deepWorker.close()]).then(() => true),
+    new Promise<false>((resolve) => {
+      const timer = setTimeout(() => resolve(false), DRAIN_BUDGET_MS)
+      timer.unref()
+    }),
+  ]).catch(() => false)
+
+  const stranded = inFlightRunIds()
+  if (stranded.length > 0) {
+    try {
+      await app.withSuperAdmin((superDb) =>
+        superDb.execute(sql`
+          update runs set status = 'failed', finished_at = now(),
+            summary = 'A deployment replaced the worker while this run was working; it was not retried.'
+          where id = any(${stranded}::uuid[]) and status = 'running'
+        `),
+      )
+      console.log(`[shutdown] closed ${stranded.length} run(s) the drain could not finish`)
+    } catch (error) {
+      // The sweep is the backstop; never block shutdown on this record.
+      console.log(`[shutdown] could not close stranded runs: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  } else if (finished) {
+    console.log('bunkhouse worker drained cleanly')
+  }
+
+  await jobs.closeJobConnections().catch(() => undefined)
+  await app.pool.end().catch(() => undefined)
+  await app.superPool.end().catch(() => undefined)
   process.exit(0)
 }
 process.on('SIGINT', shutdown)

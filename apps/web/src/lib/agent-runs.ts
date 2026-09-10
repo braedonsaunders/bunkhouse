@@ -715,6 +715,22 @@ async function refuseRun(args: {
 }
 
 /**
+ * The runs this process has in the agent loop right now.
+ *
+ * Kept so a worker being replaced can close its own work out honestly and
+ * immediately. A deploy SIGKILLs whatever is still executing, and before this
+ * those rows went on claiming `running` until the abandoned-work sweep noticed
+ * half an hour later — which is how a duty that fired exactly on time looked,
+ * from the outside, like a duty that never fired at all.
+ */
+const inFlightRuns = new Set<string>()
+
+/** Snapshot for shutdown; the caller decides what to record. */
+export function inFlightRunIds(): string[] {
+  return [...inFlightRuns]
+}
+
+/**
  * Execute one unit of work for an agent, end to end: run row, governed loop,
  * event/spend ledger, approval suspension, outcome. Runs inside the caller's
  * process (web action, background worker, or the voice agent) — all state is
@@ -1102,9 +1118,16 @@ export async function executeAgentRun(args: {
           signal: runSignal,
           execute: async ({ lease, signal }) => {
             attempt.lease = lease
-            const result = await runLoop(lease, signal)
-            attempt.outcome = result
-            return result
+            // Brackets exactly the window in which this process is the one
+            // doing the work, so a shutdown can say what it was holding.
+            inFlightRuns.add(runId)
+            try {
+              const result = await runLoop(lease, signal)
+              attempt.outcome = result
+              return result
+            } finally {
+              inFlightRuns.delete(runId)
+            }
           },
         // Keep the lease heartbeat alive through every completion check and
         // through the terminal database transition. Returning true is the

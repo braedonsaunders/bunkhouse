@@ -98,6 +98,21 @@ services:
   worker:
     image: ghcr.io/braedonsaunders/bunkhouse:${BUNKHOUSE_TAG:-latest}
     command: ["sh", "-c", "NODE_OPTIONS=--conditions=react-server exec apps/web/node_modules/.bin/tsx apps/web/scripts/worker.mts"]
+    # The time a deployment gives this container to put agent work down.
+    #
+    # Unset, Swarm allows ten seconds. The worker's SIGTERM handler already
+    # waited for its active job — BullMQ's close() does that — but a duty run
+    # takes minutes, so it was SIGKILLed mid-step every single deploy. Two of
+    # Avery's half-hourly runs died exactly that way, at 21:03 and 21:41,
+    # matching two deployments to the minute: the duty fired on time and the
+    # schedule still appeared to produce nothing.
+    #
+    # Three minutes covers the overwhelming majority of runs without holding a
+    # deployment hostage to one pathological one. `DRAIN_BUDGET_MS` in
+    # scripts/worker.mts is set inside this window on purpose — the remainder is
+    # what the worker spends recording whatever it could not finish, so nothing
+    # is left claiming to be running. Change the two together.
+    stop_grace_period: 180s
     environment:
       NODE_ENV: production
       BUNKHOUSE_DB_URL: ${BUNKHOUSE_DB_URL}
