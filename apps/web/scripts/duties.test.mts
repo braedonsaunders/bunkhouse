@@ -91,4 +91,41 @@ assert.throws(
 )
 assert.equal(scheduledRunLimit({ kind: 'once', standing: false, standingAllowed: false }), null)
 
+// --- a duty run the worker lost is closed, not left claiming to work --------
+//
+// The abandoned-work sweep only ever matched `trigger->>'type' = 'assignment'`,
+// so a duty run killed mid-step stayed `running` for good. A rolling deploy does
+// exactly that: a half-hourly duty fired on time twice and both runs went silent
+// the moment a container was replaced, while the duty had already advanced its
+// own next_due_at — so the schedule appeared to produce nothing, twice, behind
+// two runs that still said they were working. It compounds for a chat turn,
+// because recoverChatDispatches only settles a dispatch once its linked run has
+// stopped, pinning that thread in queue-only mode.
+{
+  const { readFileSync } = await import('node:fs')
+  const { fileURLToPath } = await import('node:url')
+  const worker = readFileSync(fileURLToPath(new URL('./worker.mts', import.meta.url)), 'utf8')
+  const sweep = worker.slice(worker.indexOf('async function abandonedWorkPass'))
+  assert.ok(
+    sweep.includes("coalesce(r.trigger->>'type', '') <> 'assignment'"),
+    'the sweep closes abandoned runs of every other trigger kind, not only assignments',
+  )
+  assert.ok(
+    sweep.includes("set status = 'failed'") && sweep.includes('finished_at = now()'),
+    'an abandoned run is finished on the record rather than left running',
+  )
+  assert.ok(
+    sweep.includes("r.status = 'running'"),
+    'only a run still claiming to work is swept — a waiting run is not abandoned',
+  )
+  // Deliberately not retried: a run that died mid-step may already have sent
+  // mail or moved money, and the idempotency ledger guards a replayed effect,
+  // not a whole re-run. The duty's next occurrence is the retry.
+  assert.equal(
+    /update\s+duties/i.test(sweep),
+    false,
+    'the sweep never re-arms a duty — a correction is a new record, not a replayed run',
+  )
+}
+
 console.log('duties scheduling: all assertions passed')

@@ -616,6 +616,55 @@ async function abandonedWorkPass(): Promise<void> {
       `[work] reclaimed ${reclaimed.rows.length - failed} abandoned assignment(s), gave up on ${failed}`,
     )
   }
+
+  /**
+   * Every OTHER kind of abandoned run — a duty, a chat turn, an inbound mail.
+   *
+   * The sweep above only ever looked at assignment runs, so a run killed by
+   * anything else stayed `running` for good. A rolling deploy does exactly that:
+   * Avery's half-hourly duty fired on time at 21:00:50 and again at 21:30:50, and
+   * both runs went silent mid-step the moment a container was replaced — 21:03
+   * and 21:41, matching the two deployments to the minute. The duty had already
+   * advanced its own `next_due_at`, so from the outside the schedule simply
+   * produced nothing, twice, with two runs that still claimed to be working.
+   *
+   * It compounds for a chat turn: `recoverChatDispatches` only settles a
+   * dispatch once its linked run has stopped, so a run stuck at `running` pins
+   * its dispatch at `running` too, and that thread's composer stays in
+   * queue-only mode — never streaming again — until somebody intervenes.
+   *
+   * Marked failed, deliberately NOT retried. A run that died mid-step may
+   * already have sent mail, moved money, or written a file; the idempotency
+   * ledger guards a replayed EFFECT, not a whole re-run, and a duty gets its
+   * next occurrence on schedule anyway. An honest failed record is the
+   * correction here.
+   *
+   * Thirty minutes of total silence, as above: the model inactivity deadline is
+   * ten minutes and a shell command's ceiling is lower still, so nothing healthy
+   * is quiet for that long.
+   */
+  const orphaned = await app.withSuperAdmin((superDb) =>
+    superDb.execute(sql`
+      update runs r set status = 'failed', finished_at = now(),
+        summary = 'The worker stopped while this run was working; it was not retried.'
+      where r.status = 'running'
+        and coalesce(r.trigger->>'type', '') <> 'assignment'
+        and coalesce(
+              (select max(e.created_at) from run_events e where e.run_id = r.id),
+              r.started_at
+            ) < now() - interval '30 minutes'
+      returning r.id, r.trigger->>'type' as trigger
+    `),
+  )
+  if (orphaned.rows.length > 0) {
+    const byTrigger = new Map<string, number>()
+    for (const row of orphaned.rows as { trigger?: unknown }[]) {
+      const key = typeof row.trigger === 'string' ? row.trigger : 'unknown'
+      byTrigger.set(key, (byTrigger.get(key) ?? 0) + 1)
+    }
+    const detail = [...byTrigger].map(([trigger, count]) => `${count} ${trigger}`).join(', ')
+    console.log(`[work] closed ${orphaned.rows.length} abandoned run(s) as failed: ${detail}`)
+  }
 }
 
 /**
