@@ -256,8 +256,16 @@ export const TOOL_FAILURE_LIMIT = 3
  * `errors[]`, and wrapped failures hide theirs under `cause`. An empty string
  * reaches the agent as "that did not work" with no reason, which is how an
  * unreachable file store turns into eight blind retries of the same tool.
+ *
+ * `fallback` exists because this is not only about tools: the run loop's own
+ * catch used `String(error)` and recorded a failed run whose error event and
+ * entire summary were the words "[object Object]" — the one output this function
+ * was written to prevent, in the one place that had not been given it.
  */
-export function describeThrown(error: unknown): string {
+export function describeThrown(
+  error: unknown,
+  fallback = 'The tool failed without reporting a reason.',
+): string {
   const seen = new Set<unknown>()
   const walk = (value: unknown): string => {
     if (value === null || value === undefined || seen.has(value)) return ''
@@ -296,7 +304,7 @@ export function describeThrown(error: unknown): string {
     // Nameless and messageless still beats silence — say at least what it was.
     return detail || value.name || ''
   }
-  return walk(error) || 'The tool failed without reporting a reason.'
+  return walk(error) || fallback
 }
 
 /** Reject and propagate cancellation if the work has not settled by the deadline. */

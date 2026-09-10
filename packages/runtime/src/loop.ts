@@ -2,6 +2,7 @@ import { stepCountIs, streamText, type ModelMessage } from 'ai'
 import { getModel } from '@braedonsaunders/appkit-ai'
 import {
   citeProcedureAbility,
+  describeThrown,
   governedToolSet,
   takeAbilityFrame,
   type Ability,
@@ -581,7 +582,15 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
         messages: redactSecretValue(messages, runSecrets),
       }
     }
-    const message = redactSecrets(error instanceof Error ? error.message : String(error), runSecrets)
+    // `String(error)` here is how a failed run came to record "[object Object]"
+    // as its error event AND its whole summary: providers and SDKs throw plain
+    // objects routinely, and an object's own stringification says nothing. The
+    // tool path has read thrown values properly for a while; this is the same
+    // reader, so the run's own failure is no less legible than a tool's.
+    const message = redactSecrets(
+      describeThrown(error, 'The run failed without reporting a reason.'),
+      runSecrets,
+    )
     await sink.event({ kind: 'error', message })
     return {
       status: 'failed',
