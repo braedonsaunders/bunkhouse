@@ -53,6 +53,7 @@ import {
   renameThreadAction,
   requestChatUploadAction,
   retryQueuedMessageAction,
+  sendQueuedMessageNowAction,
   setThreadStatusAction,
   startThreadAction,
   submitSystemCredentialRequestAction,
@@ -173,6 +174,13 @@ export type ChatThreadDetail = {
   credentialRequests: ChatCredentialRequestRecord[]
   approvals: ChatApprovalRecord[]
   canDecideApprovals: boolean
+  /** Work in progress, read from the run ledger. Never a transcript entry. */
+  liveTurn: {
+    runId: string
+    status: string
+    activity: NonNullable<ChatMessageRecord['activity']>
+    text: string
+  } | null
 }
 
 /** An agent that can be talked to — one that has a brain assigned to think with. */
@@ -282,6 +290,39 @@ function toAgentMessage(
         ...(approval.decisionNote ? { decisionNote: approval.decisionNote } : {}),
         ...(approval.failureReason ? { failureReason: approval.failureReason } : {}),
       })),
+    ],
+  }
+}
+
+/**
+ * The turn in progress, as a provisional assistant message.
+ *
+ * Built from the run ledger rather than the transcript, because the transcript
+ * does not have it yet — the agent's message is appended when the turn ends. A
+ * reader who reloaded mid-turn previously saw only their own prompt, with every
+ * call already made and every finished sentence invisible.
+ *
+ * The one difference from a recovered finished turn: a call with no result is
+ * `input-available`, not `output-error`. On a finished run an unreturned call
+ * means the run died inside it; on a LIVE one it means the tool is still
+ * working, and the panel renders that state as running.
+ */
+function liveTurnMessage(live: NonNullable<ChatThreadDetail['liveTurn']>): AgentMessage {
+  return {
+    id: `live:${live.runId}`,
+    role: 'assistant',
+    parts: [
+      ...live.activity.map((entry) => entry.kind === 'thought'
+        ? { type: 'reasoning' as const, text: entry.text }
+        : {
+            type: 'dynamic-tool' as const,
+            toolName: entry.toolName,
+            toolCallId: `live:${live.runId}:${entry.toolName}`,
+            state: entry.output === null ? ('input-available' as const) : ('output-available' as const),
+            input: entry.input,
+            ...(entry.output === null ? {} : { output: entry.output }),
+          }),
+      ...(live.text ? [{ type: 'text' as const, text: live.text }] : []),
     ],
   }
 }
@@ -1053,6 +1094,20 @@ export function AgentChatWorkspace({
     await refreshThread(result.dispatch.threadId)
   }, [refreshThread])
 
+  /**
+   * Jump a waiting message to the front and start it. Where a turn is already
+   * running it goes the moment that turn ends — the running one is real work and
+   * is never torn down to make room.
+   */
+  const sendQueuedNow = React.useCallback(async (message: AgentQueuedMessage) => {
+    const result = await sendQueuedMessageNowAction(message.id)
+    if ('error' in result) {
+      setError(result.error)
+      return
+    }
+    await refreshThread(result.dispatch.threadId)
+  }, [refreshThread])
+
   const submitCredentialRequest = React.useCallback(async (requestId: string, secret: string) => {
     const threadId = activeId
     if (!threadId) throw new Error('No conversation is open.')
@@ -1397,7 +1452,14 @@ export function AgentChatWorkspace({
             // the composer is closed here too rather than offering a Send that
             // is only going to be refused.
             enabled={detail.thread.status === 'open'}
-            initialMessages={detail.messages.map((message) => toAgentMessage(message, detail.messages, detail.credentialRequests, detail.approvals))}
+            // The durable transcript, and — only when this pane is not itself
+            // streaming the turn — the work in progress read back from the
+            // ledger, so arriving mid-turn shows the same calls a streaming
+            // reader is watching instead of an empty conversation.
+            initialMessages={[
+              ...detail.messages.map((message) => toAgentMessage(message, detail.messages, detail.credentialRequests, detail.approvals)),
+              ...(detail.liveTurn && !streamingTurn ? [liveTurnMessage(detail.liveTurn)] : []),
+            ]}
             send={send}
             onSubmitSecretRequest={submitCredentialRequest}
             onCancelSecretRequest={cancelCredentialRequest}
@@ -1479,6 +1541,7 @@ export function AgentChatWorkspace({
             onEditQueuedMessage={(message) => void editQueued(message)}
             onRemoveQueuedMessage={(message) => void removeQueued(message)}
             onRetryQueuedMessage={(message) => void retryQueued(message)}
+            onSendQueuedMessageNow={(message) => void sendQueuedNow(message)}
             emptyContent={<ConversationWelcome agent={agent} avatar={callAvatar} />}
             headerActions={
               <Button

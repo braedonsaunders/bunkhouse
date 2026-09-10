@@ -19,16 +19,16 @@ import {
   type ChatMessageView,
   type ChatThreadStatus,
   type ChatThreadSummary,
-  type ChatThreadView,
 } from '../../lib/chat-threads'
+import { chatThreadDetail, type ChatThreadDetailView } from '../../lib/chat-detail'
 import {
   cancelChatDispatch,
   dispatchChatMessage,
   drainChatDispatchQueue,
   editChatDispatch,
   enqueueChatMessage,
-  listChatDispatches,
   retryChatDispatch,
+  sendChatDispatchNow,
   type ChatDispatchView,
 } from '../../lib/chat-dispatch'
 import {
@@ -48,11 +48,8 @@ import {
 import {
   cancelSystemCredentialRequest,
   executeStoredCredentialContinuation,
-  listThreadSystemCredentialRequests,
   submitSystemCredentialRequest,
-  type SystemCredentialRequestView,
 } from '../../lib/system-credential-requests'
-import { listThreadApprovals, type ChatApprovalView } from '../../lib/chat-approvals'
 
 /**
  * The chat page's server actions.
@@ -98,32 +95,14 @@ export async function listThreadsAction(
   })
 }
 
-export async function getThreadAction(
-  threadId: string,
-): Promise<{
-  thread: ChatThreadView
-  messages: ChatMessageView[]
-  dispatches: ChatDispatchView[]
-  credentialRequests: SystemCredentialRequestView[]
-  approvals: ChatApprovalView[]
-  canDecideApprovals: boolean
-} | null> {
+export async function getThreadAction(threadId: string): Promise<ChatThreadDetailView | null> {
   if (!threadId) return null
   const access = await requireTenantPermission('work.read')
-  const detail = await getThread(access.tenantId, threadId)
-  if (!detail) return null
-  const [dispatches, credentialRequests, approvalRequests] = await Promise.all([
-    listChatDispatches({ tenantId: access.tenantId, threadId }),
-    listThreadSystemCredentialRequests(access.tenantId, threadId),
-    listThreadApprovals(access.tenantId, threadId),
-  ])
-  return {
-    ...detail,
-    dispatches,
-    credentialRequests,
-    approvals: approvalRequests,
+  return chatThreadDetail({
+    tenantId: access.tenantId,
+    threadId,
     canDecideApprovals: access.user.isSuperAdmin || access.permissions.has('approvals.decide'),
-  }
+  })
 }
 
 /**
@@ -442,6 +421,28 @@ export async function retryQueuedMessageAction(
     return { dispatch }
   } catch (reason) {
     return { error: reason instanceof Error ? reason.message : 'That queued message could not be retried.' }
+  }
+}
+
+/**
+ * "Send now" on a message that is waiting its turn: move it to the front, then
+ * drain rather than waiting for the worker's next conversation pass.
+ */
+export async function sendQueuedMessageNowAction(
+  dispatchId: string,
+): Promise<{ dispatch: ChatDispatchView } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  try {
+    const dispatch = await sendChatDispatchNow({ tenantId: access.tenantId, dispatchId, userId: access.user.id })
+    after(() => drainChatDispatchQueue({
+      tenantId: access.tenantId,
+      threadId: dispatch.threadId,
+      requester: chatRequesterFor(access),
+    }))
+    revalidatePath(CHAT_PATH)
+    return { dispatch }
+  } catch (reason) {
+    return { error: reason instanceof Error ? reason.message : 'That queued message could not be sent yet.' }
   }
 }
 

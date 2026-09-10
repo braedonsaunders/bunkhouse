@@ -39,10 +39,8 @@ import {
 } from './person-sections'
 import { AgentChatWorkspace, type ChatThreadDetail } from '../../components/chat-workspace'
 import { AgentRecordPage, AgentRecordSubsections, type AgentPageSection } from '../../components/agent-record-page'
-import { getThread, listThreads } from '../../lib/chat-threads'
-import { listChatDispatches } from '../../lib/chat-dispatch'
-import { listThreadSystemCredentialRequests } from '../../lib/system-credential-requests'
-import { listThreadApprovals } from '../../lib/chat-approvals'
+import { listThreads } from '../../lib/chat-threads'
+import { chatThreadDetail } from '../../lib/chat-detail'
 import { listResourceCatalog } from '../../lib/role-resources'
 import { agentBinding, bindsToAgent } from '../../lib/assignment'
 import { listRoles } from '../../lib/roles'
@@ -455,23 +453,13 @@ export async function personDrawer({
     const selectedChatThreadId = chatThreadId && reachableThreads.some((thread) => thread.id === chatThreadId)
       ? chatThreadId
       : openThreads[0]?.id
+    // The same assembly the chat page's action uses — one reader, one shape.
     const initialChat: ChatThreadDetail | null = selectedChatThreadId
-      ? await (async () => {
-          const detail = await getThread(tenantId, selectedChatThreadId)
-          if (!detail) return null
-          const [dispatches, credentialRequests, approvalRequests] = await Promise.all([
-            listChatDispatches({ tenantId, threadId: selectedChatThreadId }),
-            listThreadSystemCredentialRequests(tenantId, selectedChatThreadId),
-            listThreadApprovals(tenantId, selectedChatThreadId),
-          ])
-          return {
-            ...detail,
-            dispatches,
-            credentialRequests,
-            approvals: approvalRequests,
-            canDecideApprovals: pageAccess?.canDecideApprovals === true,
-          }
-        })()
+      ? await chatThreadDetail({
+          tenantId,
+          threadId: selectedChatThreadId,
+          canDecideApprovals: pageAccess?.canDecideApprovals === true,
+        })
       : null
     const canStartChat = canReadWork && Boolean(await resolveAgentAiConfig(tenantId, selected.id))
 

@@ -16,6 +16,8 @@ export type ChatQueueUiMessage = {
   editable: boolean
   removable: boolean
   retryable: boolean
+  /** Whether "send now" is honest here — see the projection below. */
+  sendable: boolean
 }
 
 export type ChatQueueUiProjection = {
@@ -48,6 +50,11 @@ export function chatQueueUiProjection(dispatches: readonly ChatDispatchUiRecord[
       editable: dispatch.status === 'queued' || dispatch.status === 'failed',
       removable: dispatch.status === 'queued' || dispatch.status === 'failed',
       retryable: dispatch.status === 'failed',
+      // Only a waiting message can be sent ahead of its turn, and never past a
+      // failure: a failed turn is a deliberate barrier, because the work behind
+      // it may be the work that depended on it. Offering a button that the
+      // service would refuse is worse than not offering one.
+      sendable: dispatch.status === 'queued' && !visible.some((other) => other.status === 'failed'),
     })),
   }
 }

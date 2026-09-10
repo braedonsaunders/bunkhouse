@@ -1,0 +1,14 @@
+-- "Send now" on a message that is waiting its turn.
+--
+-- A queued message went when the conversation got to it, and there was no way
+-- to say "go now" without deleting it and typing it again. Moving it to the
+-- front of the queue is a change to the order work will happen in, made by a
+-- person, so the append-only dispatch ledger needs a word for it rather than
+-- borrowing `edited` — which would record a change to the message's TEXT and
+-- be untrue.
+--
+-- Adding an enum value is backward compatible: every existing row keeps the
+-- kind it already had, and nothing reads an exhaustive list of these. The value
+-- is only added here, never used in this transaction, which is what Postgres
+-- requires of ALTER TYPE inside one.
+ALTER TYPE "chat_dispatch_event_kind" ADD VALUE IF NOT EXISTS 'promoted';

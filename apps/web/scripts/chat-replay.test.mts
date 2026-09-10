@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 // What a reloaded conversation gets back, proved without a database: the fold
 // from run-ledger events to transcript activity, and the guard that keeps a
@@ -129,6 +131,65 @@ await check('an empty answer is refused', () => {
   assert.equal(cleanProposedTitle(''), null)
   assert.equal(cleanProposedTitle('   \n  '), null)
   assert.equal(cleanProposedTitle('""'), null)
+})
+
+// --- the turn that has not landed yet ---------------------------------------
+//
+// A reader who reloads mid-turn used to see their own prompt and nothing else:
+// the agent's message is appended when the run finishes, so every call already
+// made and every finished sentence was invisible. A run that legitimately works
+// for ten minutes was a blank conversation for ten minutes.
+await check('a live turn renders its calls as running, not as failures', () => {
+  const workspace = readFileSync(
+    fileURLToPath(new URL('../src/components/chat-workspace.tsx', import.meta.url)),
+    'utf8',
+  )
+  const live = workspace.slice(
+    workspace.indexOf('function liveTurnMessage'),
+    workspace.indexOf('function stampLabel'),
+  )
+  // The one difference from a recovered FINISHED turn, and the whole point: there
+  // an unreturned call means the run died inside it, here it means the tool is
+  // still working.
+  assert.match(live, /state: entry\.output === null \? \('input-available' as const\)/)
+  assert.equal(live.includes('output-error'), false, 'a call still running is never shown as an error')
+  assert.match(live, /id: `live:\$\{live\.runId\}`/, 'the provisional message is identified as provisional')
+
+  const finished = workspace.slice(workspace.indexOf('function toAgentMessage'), workspace.indexOf('function liveTurnMessage'))
+  assert.match(
+    finished,
+    /state: entry\.output === null \? \('output-error' as const\)/,
+    'a FINISHED turn still reports an unreturned call as the failure it was',
+  )
+
+  // It must never become a transcript entry: the transcript is append-only and
+  // this is a provisional read of work in progress.
+  assert.match(workspace, /liveTurn && !streamingTurn \? \[liveTurnMessage\(detail\.liveTurn\)\] : \[\]/)
+})
+
+await check('the live turn is read from the ledger and never duplicates recorded work', () => {
+  const activity = readFileSync(
+    fileURLToPath(new URL('../src/lib/chat-activity.ts', import.meta.url)),
+    'utf8',
+  )
+  const liveTurn = activity.slice(activity.indexOf('export async function chatLiveTurn'))
+  assert.match(liveTurn, /notInArray\(runs\.id, excludeRunIds\)/, 'a run already attributed to a message is skipped')
+  assert.match(liveTurn, /inArray\(runs\.status, \[\.\.\.LIVE_RUN_STATUSES\]\)/, 'only an unfinished run is live')
+  assert.match(
+    activity,
+    /const LIVE_RUN_STATUSES = \['running', 'waiting_approval', 'waiting_reply', 'waiting_credential'\] as const/,
+    'a run parked on a wait is still in flight as far as a reader is concerned',
+  )
+  // Completed steps' prose is part of the answer that already exists; withholding
+  // it until the run ends is the thing being fixed.
+  assert.match(liveTurn, /'thought', 'tool_call', 'tool_result', 'message'/)
+
+  const detail = readFileSync(fileURLToPath(new URL('../src/lib/chat-detail.ts', import.meta.url)), 'utf8')
+  assert.match(
+    detail,
+    /message\.role === 'agent' && message\.runId \? \[message\.runId\] : \[\]/,
+    'the exclusion list is every run the transcript already speaks for',
+  )
 })
 
 if (failures > 0) {

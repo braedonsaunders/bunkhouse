@@ -37,6 +37,8 @@ export const chatDispatchEventKind = pgEnum('chat_dispatch_event_kind', [
   'retried',
   'edited',
   'cancelled',
+  /** Moved to the front of the queue by a person who wanted it sent now. */
+  'promoted',
 ])
 export const chatFileUploadStatus = pgEnum('chat_file_upload_status', ['pending', 'finalized', 'failed'])
 

@@ -72,6 +72,23 @@ assert.equal(queue.messages[1]?.statusLabel, 'The provider timed out.')
 assert.equal(chatQueueUiProjection([{ id: 'failed', body: 'Retry', status: 'failed', lastError: null }]).state, 'recovering')
 assert.deepEqual(chatQueueUiProjection([]), { state: 'idle', messages: [] })
 
+// "Send now" is offered only where the service would honour it. A failed turn is
+// a deliberate barrier — the work behind it may be the work that depended on it —
+// so nothing may jump it, and a button the service would refuse is worse than no
+// button at all.
+assert.equal(queue.messages[0]?.sendable, false, 'nothing is sent ahead of a failure in the same queue')
+assert.equal(queue.messages[1]?.sendable, false, 'a failed message is retried, never "sent now"')
+const clear = chatQueueUiProjection([
+  { id: 'running', body: 'Working now', status: 'running', lastError: null },
+  { id: 'first', body: 'Next', status: 'queued', lastError: null },
+  { id: 'second', body: 'After that', status: 'queued', lastError: null },
+])
+assert.deepEqual(
+  clear.messages.map(({ id, sendable }) => ({ id, sendable })),
+  [{ id: 'first', sendable: true }, { id: 'second', sendable: true }],
+  'with no failure in the way, any waiting message can be sent ahead of its turn',
+)
+
 // These contracts must remain production boundaries, not test-only diagrams.
 const organizationActions = readFileSync(new URL('../src/app/organization/actions.ts', import.meta.url), 'utf8')
 const runExecution = readFileSync(new URL('../src/lib/run-execution.ts', import.meta.url), 'utf8')
@@ -81,5 +98,20 @@ assert.match(organizationActions, /assertPersonStatusTransition/)
 assert.match(runExecution, /assertRunAttemptTransition/)
 assert.match(chatDispatch, /assertChatDispatchTransition/)
 assert.match(chatWorkspace, /chatQueueUiProjection/)
+
+// Promotion re-checks at the database what the projection decided for the eye: a
+// queue can change between the render and the click.
+assert.match(chatDispatch, /Only a message that is still waiting can be sent now\./)
+assert.match(chatDispatch, /An earlier message in this conversation needs attention/)
+assert.match(
+  chatDispatch,
+  /position: lowest - 1/,
+  'promotion takes the slot below the lowest rather than swapping, because position is unique per thread',
+)
+assert.match(
+  chatDispatch,
+  /pg_advisory_xact_lock\(hashtext\('bunkhouse\.chat_dispatch'\), hashtext\(\$\{current\.threadId\}\)\)/,
+  'promotion serializes against claiming on the same per-thread lock',
+)
 
 console.log('lifecycle: exhaustive person, execution-attempt, dispatch, and queue-UI state matrices verified')

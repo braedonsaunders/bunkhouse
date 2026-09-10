@@ -1,6 +1,6 @@
 import 'server-only'
-import { and, asc, inArray } from 'drizzle-orm'
-import { runEvents } from '../db/schema'
+import { and, asc, desc, inArray, notInArray, sql } from 'drizzle-orm'
+import { runEvents, runs } from '../db/schema'
 import { db } from '../db/client'
 
 /**
@@ -126,4 +126,84 @@ export async function chatActivityByRun(
     if (folded.length > 0) grouped.set(runId, folded)
   }
   return grouped
+}
+
+/**
+ * The turn that is happening RIGHT NOW, for a reader who just arrived.
+ *
+ * A streaming reader watches tool cards and prose appear as the run produces
+ * them, but none of that is in `chat_messages` yet: the agent's message is
+ * appended when the turn finishes. So a reload mid-turn showed the person their
+ * own prompt and nothing else — every call already made, every thought, every
+ * completed sentence invisible, as though the agent had not started. A run that
+ * legitimately works for ten minutes was a blank conversation for ten minutes.
+ *
+ * This reads the same ledger the finished turn is recovered from, for a run that
+ * has not landed its message yet. It is explicitly NOT part of `messages`: the
+ * transcript is the append-only record and this is a provisional view of work in
+ * progress, which is exactly why it carries the run's status rather than
+ * pretending to be a recorded answer.
+ *
+ * `excludeRunIds` is the runs whose work is already attributed to a message in
+ * the transcript — `post_to_conversation` can post mid-run — so their activity
+ * is not shown twice.
+ */
+export type ChatLiveTurn = {
+  runId: string
+  /** `running`, or one of the `waiting_*` states a run parks in. */
+  status: string
+  activity: ChatMessageActivity[]
+  /** Prose from steps that have completed; the tail may still be unwritten. */
+  text: string
+}
+
+/** A run that has not reached a terminal state: still working, or parked on a wait. */
+const LIVE_RUN_STATUSES = ['running', 'waiting_approval', 'waiting_reply', 'waiting_credential'] as const
+
+export async function chatLiveTurn(
+  tenantId: string,
+  conversationId: string,
+  excludeRunIds: string[],
+): Promise<ChatLiveTurn | null> {
+  const app = db()
+  return app.withTenantContext(tenantId, async () => {
+    const [live] = await app.db
+      .select({ id: runs.id, status: runs.status })
+      .from(runs)
+      .where(
+        and(
+          sql`${runs.trigger}->>'conversationId' = ${conversationId}`,
+          inArray(runs.status, [...LIVE_RUN_STATUSES]),
+          ...(excludeRunIds.length > 0 ? [notInArray(runs.id, excludeRunIds)] : []),
+        ),
+      )
+      .orderBy(desc(runs.startedAt))
+      .limit(1)
+    if (!live) return null
+
+    // `message` joins the folded kinds here: a completed step's prose is the
+    // part of the answer that already exists, and withholding it until the run
+    // ends is the very thing this fixes.
+    const rows = await app.db
+      .select({ runId: runEvents.runId, kind: runEvents.kind, payload: runEvents.payload })
+      .from(runEvents)
+      .where(
+        and(
+          inArray(runEvents.runId, [live.id]),
+          inArray(runEvents.kind, ['thought', 'tool_call', 'tool_result', 'message']),
+        ),
+      )
+      .orderBy(asc(runEvents.seq))
+      .limit(MAX_EVENTS_PER_THREAD)
+
+    const typed = rows as EventRow[]
+    const text = typed
+      .filter((row) => row.kind === 'message')
+      .map((row) => (typeof row.payload?.text === 'string' ? row.payload.text.trim() : ''))
+      .filter(Boolean)
+      .join('\n\n')
+    const activity = foldRun(typed.filter((row) => row.kind !== 'message'))
+    if (activity.length === 0 && !text) return null
+    return { runId: live.id, status: live.status, activity, text }
+  })
 }
