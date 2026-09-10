@@ -1,6 +1,7 @@
 import 'server-only'
 import { eq, sql } from 'drizzle-orm'
 import { runEvents } from '../db/schema'
+import { pgJsonSafe } from './pg-json'
 import type { BunkhouseDb } from '../db/client'
 
 type TenantDatabase = BunkhouseDb['db']
@@ -24,7 +25,9 @@ async function appendLocked(database: TenantDatabase, input: AppendInput): Promi
     runId: input.runId,
     seq: next,
     kind: input.kind,
-    payload: input.payload,
+    // Arbitrary output from elsewhere — a tool's stdout, a page, a model's
+    // text. Postgres rejects the entire insert over one U+0000 anywhere in it.
+    payload: pgJsonSafe(input.payload),
   })
   // NOTIFY is only a wake-up hint and is delivered on commit. Consumers
   // always cursor-read the table afterwards, so a dropped notification or a

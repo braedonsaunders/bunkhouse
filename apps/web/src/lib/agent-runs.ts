@@ -1,6 +1,6 @@
 import 'server-only'
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, gte, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, getTableColumns, gte, ne, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { ModelMessage } from 'ai'
 import {
@@ -1693,14 +1693,40 @@ export async function startRunsForNewInbound(tenantId: string, onlyMessageId?: s
   return started
 }
 
-/** Due duties → runs; the kind-aware next occurrence comes from lib/duties. */
+/**
+ * Due duties → runs; the kind-aware next occurrence comes from lib/duties.
+ *
+ * A duty belonging to somebody who may not work is not due. `workRefusal` is
+ * still the gate that decides it — `executeAgentRun` consults it and refuses —
+ * but a duty firing into that refusal produces a run row whose entire content is
+ * the refusal, on a schedule, forever. Three agents left in `onboarding` with
+ * twelve enabled cron duties between them opened 171 such runs over 24 days:
+ * every one of them failed on arrival, and the only thing they recorded was that
+ * hiring had never been finished.
+ *
+ * Skipping the occurrence outright rather than advancing `next_due_at` past it
+ * is deliberate. Nothing is consumed — not the run budget, not `run_count` — so
+ * the day somebody finishes onboarding, the duty is simply due and runs once,
+ * instead of having quietly burned three weeks of its `maxRuns`.
+ *
+ * Offboarded agents never reached here: standing an agent down already switches
+ * its duties off. `onboarding` is the state that had no such edge.
+ */
 export async function dueDuties(tenantId: string): Promise<(typeof duties.$inferSelect)[]> {
   const app = db()
   return app.withTenantContext(tenantId, () =>
     app.db
-      .select()
+      .select(getTableColumns(duties))
       .from(duties)
-      .where(and(eq(duties.enabled, 'on'), sql`(${duties.nextDueAt} is null or ${duties.nextDueAt} <= now())`)),
+      .innerJoin(people, eq(people.id, duties.personId))
+      .where(
+        and(
+          eq(duties.enabled, 'on'),
+          eq(people.kind, 'agent'),
+          eq(people.status, 'active'),
+          sql`(${duties.nextDueAt} is null or ${duties.nextDueAt} <= now())`,
+        ),
+      ),
   )
 }
 
