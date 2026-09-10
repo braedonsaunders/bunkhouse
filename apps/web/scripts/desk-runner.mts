@@ -599,7 +599,25 @@ async function ensureDesk(
     browserPath: null,
     index,
   }
-  await configureGuestNetwork(entry)
+  try {
+    await configureGuestNetwork(entry)
+  } catch (error) {
+    // A desk that came up and cannot be spoken to must not be left running.
+    //
+    // `desks.set` is below this, so a failure here used to leave the VM RESIDENT
+    // on the host while this process forgot it existed. Every later call then
+    // resumed that same unreachable VM and failed in exactly the same way, so a
+    // desk that broke once stayed broken until somebody intervened. Measured in
+    // production: three hours of `run_shell` and workspace-file calls timing out
+    // behind one desk whose guest agent never answered its vsock handshake,
+    // while the host reported a resident desk nothing could reach.
+    //
+    // `suspend`, never `destroy`: parking the VM keeps the agent's overlay disk,
+    // so the next lease cold-boots the same machine with its files intact. The
+    // next attempt is then a genuinely fresh start rather than a replay.
+    await host.suspend(deskId).catch(() => undefined)
+    throw error
+  }
   desks.set(deskId, entry)
   return entry
 }
