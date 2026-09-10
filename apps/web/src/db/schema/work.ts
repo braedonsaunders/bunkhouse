@@ -1,4 +1,4 @@
-import { bigint, boolean, foreignKey, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { bigint, foreignKey, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { auditColumns, id, money, tenantRef } from '@braedonsaunders/appkit-db'
 
 /**
@@ -51,16 +51,6 @@ export const duties = pgTable(
     endsAt: timestamp('ends_at', { withTimezone: true }),
     maxRuns: integer('max_runs'),
     runCount: integer('run_count').notNull().default(0),
-    /**
-     * A person explicitly asked for this routine, so it has no run budget.
-     *
-     * `max_runs IS NULL` used to carry this on its own, which made a requested
-     * routine indistinguishable from an uncapped duty an agent booked for
-     * itself — `created_by` is the agent in both cases. The pass that caps
-     * runaway self-booking matched on exactly that pair and so retired fifteen
-     * standing lanes nobody had asked it to touch.
-     */
-    standing: boolean('standing').notNull().default(false),
     /**
      * Who the work product goes to, and how. Empty means nothing is declared
      * and the instruction's own words stand — which is every duty written

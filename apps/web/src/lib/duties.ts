@@ -22,25 +22,33 @@ export type ScheduleInput = Pick<Duty, 'scheduleKind' | 'schedule'> &
 
 export class ScheduleError extends Error {}
 
-/** Repeats an employee books on its own must end; human-requested standing routines need not. */
-export const MAX_SELF_SCHEDULED_REPEATS = 12
-
-export function scheduledRunLimit(input: {
-  kind: 'once' | 'cron'
-  standing: boolean
-  standingAllowed: boolean
-  maxRuns?: number
-}): number | null {
+/**
+ * How many times a schedule may fire — `null` for as long as it is wanted.
+ *
+ * A repeat used to be capped at twelve runs unless a person in the conversation
+ * had asked for it, and the cap was applied whether or not anyone had asked for
+ * a cap. Two things followed from that, both bad:
+ *
+ * A duty-triggered run was never in a "person asked" context, so a lane could
+ * not renew itself as ongoing — only as another bounded twelve. Agents therefore
+ * built renewal chains out of bounded bookings to keep continuous work alive,
+ * which is the behaviour the ceiling existed to prevent, and every renewal left
+ * another dead `-2`, `-3`, `-4` duty behind it.
+ *
+ * And the default quietly decided something nobody had decided. A watch lane
+ * asked for in plain words stopped after twelve passes with no notice and a null
+ * next run, which reads as the platform having lost it.
+ *
+ * So the bound is the agent's to choose, and absent a choice there is none. The
+ * guardrails that remain are the ones that fail loudly at booking time rather
+ * than silently twelve runs later: a floor on how often a schedule may repeat, a
+ * ceiling on how many a person may hold at once, and the spend budget, which
+ * skips an occurrence and says so.
+ */
+export function scheduledRunLimit(input: { kind: 'once' | 'cron'; maxRuns?: number }): number | null {
+  // A one-shot has nothing to bound: it happens, and `nextOccurrence` retires it.
   if (input.kind === 'once') return null
-  if (input.standing) {
-    if (!input.standingAllowed) {
-      throw new ScheduleError(
-        'An ongoing schedule must be explicitly requested by a person in this conversation. Book a bounded follow-up instead.',
-      )
-    }
-    return null
-  }
-  return Math.min(input.maxRuns ?? MAX_SELF_SCHEDULED_REPEATS, MAX_SELF_SCHEDULED_REPEATS)
+  return input.maxRuns ?? null
 }
 
 /** The instant a `once` duty is pinned to. */
