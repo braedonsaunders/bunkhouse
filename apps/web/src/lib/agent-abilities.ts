@@ -929,6 +929,12 @@ export function schedulingAbilities(args: {
               instruction,
               ...spec,
               maxRuns: runLimit,
+              // Recorded on the row, not only in the audit entry below. A
+              // requested routine and an agent's own uncapped booking were
+              // previously the same row — `max_runs IS NULL`, `created_by` the
+              // agent — so the pass that caps runaway self-booking could not
+              // tell them apart and retired the requested ones too.
+              standing: runLimit === null && when.kind === 'cron',
               nextDueAt,
               createdBy: person.id,
               sourceRunId: runId,

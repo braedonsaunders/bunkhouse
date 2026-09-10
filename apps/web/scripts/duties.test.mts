@@ -4,6 +4,7 @@ import {
   gapMinutes,
   MAX_SELF_SCHEDULED_REPEATS,
   nextOccurrence,
+  occurrenceAfterSkip,
   scheduledRunLimit,
   ScheduleError,
   type Duty,
@@ -225,6 +226,72 @@ assert.equal(scheduledRunLimit({ kind: 'once', standing: false, standingAllowed:
     webGrace >= maxDuration,
     `a turn the route allows ${maxDuration}s must not be killed after ${webGrace}s`,
   )
+}
+
+// --- a routine a person asked for is not an agent booking itself ------------
+//
+// "Standing" lived only as `max_runs IS NULL`, and `schedule_task` writes the
+// agent as `created_by` whether it invented the repeat or a person asked for it.
+// So the pass that caps runaway self-booking matched on `max_runs is null and
+// created_by = person_id` — which is equally the shape of a requested routine —
+// and retired the requested ones too.
+//
+// On the live tenant it capped all fifteen of one agent's standing duties. Two
+// prove the order of events arithmetically: a one-minute watch lane carried a cap
+// of 12 against 176 completed runs, and a five-minute position monitor 12 against
+// 36. A cap cannot be honoured 176 times; it was written afterwards, and the next
+// occurrence computed as spent and retired the duty with next_due_at = null.
+{
+  const { readFileSync } = await import('node:fs')
+  const worker = readFileSync(new URL('./worker.mts', import.meta.url), 'utf8')
+  const pass = worker.slice(worker.indexOf('async function staleBeliefsPass'))
+  const capping = pass.slice(0, pass.indexOf('returning id, title, run_count'))
+  assert.match(capping, /standing = false/, 'the cap skips routines a person asked for')
+  assert.match(capping, /created_by = person_id/, 'and still only looks at what an agent booked')
+  assert.match(capping, /from_role_pack_duty is null/, 'role-pack duties belong to the role')
+
+  // The column has to be written, or the guard above is permanently true.
+  const abilities = readFileSync(new URL('../src/lib/agent-abilities.ts', import.meta.url), 'utf8')
+  const insert = abilities.slice(abilities.indexOf('.insert(duties)'))
+  assert.match(
+    insert.slice(0, insert.indexOf('.returning(')),
+    /standing: runLimit === null/,
+    'an uncapped repeat records that it is standing',
+  )
+  // Only a recurrence can be standing: a one-shot has no budget to exempt.
+  assert.match(insert.slice(0, insert.indexOf('.returning(')), /when\.kind === 'cron'/)
+}
+
+// --- an occurrence that never ran costs the duty nothing ---------------------
+//
+// The schedule still advances — the occurrence is gone and must not fire twice —
+// but the run budget is for runs. The self-directed budget check used to sit past
+// the claim and `return`, so a duty skipped for a spent budget was charged a run
+// for work that was never attempted, on every occurrence until the budget
+// refreshed. A bounded duty could retire having run nothing at all.
+assert.equal(
+  occurrenceAfterSkip(duty({ maxRuns: 12, runCount: 11 }), NOW)?.toISOString(),
+  nextOccurrence(duty({ maxRuns: 12, runCount: 10 }), NOW)?.toISOString(),
+  'skipping is exactly one run cheaper than running',
+)
+// The cap still bites, one step later than it would for a real run.
+assert.notEqual(occurrenceAfterSkip(duty({ maxRuns: 3, runCount: 2 }), NOW), null, 'the 3rd run is still owed')
+assert.equal(nextOccurrence(duty({ maxRuns: 3, runCount: 2 }), NOW), null, 'but after it actually runs, it is spent')
+assert.equal(occurrenceAfterSkip(duty({ maxRuns: 3, runCount: 3 }), NOW), null, 'a spent duty stays spent')
+assert.equal(occurrenceAfterSkip(duty({ maxRuns: null, runCount: 500 }), NOW) !== null, true, 'standing never runs out')
+assert.equal(occurrenceAfterSkip(duty({ scheduleKind: 'once', schedule: at }), NOW), null, 'a one-shot never repeats')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const execution = readFileSync(new URL('../src/lib/duty-execution.ts', import.meta.url), 'utf8')
+  const claim = execution.slice(execution.indexOf('export async function executeDueDuty'))
+  // The decision must precede the write, or the charge has already happened.
+  assert.ok(
+    claim.indexOf('selfDirectedBudget') < claim.indexOf('.update(duties)'),
+    'the budget is consulted before the schedule is written, not after',
+  )
+  assert.match(claim, /anchoring \|\| skipped \? \{\} : \{ lastRunAt/, 'a skipped occurrence increments nothing')
+  assert.match(claim, /skipped \? occurrenceAfterSkip\(duty\) : nextOccurrence\(duty\)/, 'and counts one fewer run')
 }
 
 console.log('duties scheduling: all assertions passed')

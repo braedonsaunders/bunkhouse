@@ -100,6 +100,25 @@ export function nextOccurrence(duty: Duty, from: Date = new Date()): Date | null
   return firstOccurrence(duty, from)
 }
 
+/**
+ * The occurrence after one that was claimed but never became a run.
+ *
+ * The schedule still has to move — the occurrence is gone and must not fire
+ * twice — but nothing ran, so it costs the duty nothing. That makes the
+ * arithmetic differ from `nextOccurrence` by exactly one: no run is being
+ * counted here, so the *next* occurrence is the (runCount + 1)th and the cap
+ * bites a step later.
+ *
+ * Without this, a duty skipped because its owner's self-directed budget was
+ * spent was charged a run for work that never happened — silently, and on every
+ * occurrence until the budget refreshed.
+ */
+export function occurrenceAfterSkip(duty: Duty, from: Date = new Date()): Date | null {
+  if (duty.scheduleKind === 'once') return null
+  if (duty.maxRuns !== null && duty.runCount >= duty.maxRuns) return null
+  return firstOccurrence(duty, from)
+}
+
 /** Validate a schedule at authoring time, surfacing the operator-facing reason. */
 export function assertSchedule(input: ScheduleInput): void {
   firstOccurrence(input)

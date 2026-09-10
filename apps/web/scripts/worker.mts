@@ -547,10 +547,21 @@ async function staleBeliefsPass(): Promise<void> {
   // one-off backfill, so a duty that reaches production without a cap cannot
   // outlive this pass either. Role-pack duties belong to the role and are left
   // alone; this is only what an agent booked for itself.
+  //
+  // `standing` is what makes that last sentence true. It was not, for months:
+  // "an agent booked this for itself" was inferred from `max_runs is null and
+  // created_by = person_id`, which is equally the shape of a routine a person
+  // explicitly asked for in conversation — `schedule_task` writes the agent as
+  // `created_by` either way. So this pass has been retiring requested routines.
+  // On the live tenant it capped all fifteen of one agent's standing duties; a
+  // one-minute watch lane was stamped with a cap of 12 after it had run 176
+  // times, which retired it on its next occurrence, and every "24/7" lane in
+  // that account died the same way with nothing anywhere to say why.
   const capped = await app.withSuperAdmin((superDb) =>
     superDb.execute(sql`
       update duties set max_runs = ${MAX_SELF_SCHEDULED_REPEATS}, updated_at = now()
       where max_runs is null
+        and standing = false
         and schedule_kind = 'cron'
         and created_by = person_id
         and from_role_pack_duty is null

@@ -5,7 +5,7 @@ import { duties, type DeliveryTarget } from '../db/schema'
 import { db } from '../db/client'
 import { executeAgentRun } from './agent-runs'
 import { deliveryInstruction, resolveDeliveryTargets } from './delivery-targets'
-import { nextOccurrence } from './duties'
+import { nextOccurrence, occurrenceAfterSkip } from './duties'
 import { isPersonNotWorking } from './person-work'
 import { dutyIsSelfDirected, selfDirectedBudget } from './work-budget'
 
@@ -47,9 +47,24 @@ export async function executeDueDuty(
     if (observed !== scheduledAt) return null
 
     const anchoring = duty.nextDueAt === null && duty.scheduleKind !== 'once'
+
+    // Whether this occurrence is going to produce a run decides whether it costs
+    // the duty anything, so the question is asked before the schedule is written
+    // rather than after. The budget check used to sit past the claim and simply
+    // `return`, which charged a run for work that never happened — on every
+    // occurrence, for as long as the budget stayed spent, until a bounded duty
+    // had burned its whole allowance on runs that were never attempted.
+    const skipped = anchoring
+      ? null
+      : await (async () => {
+          if (!(await dutyIsSelfDirected(duty.id))) return null
+          const budget = await selfDirectedBudget(duty.personId)
+          return budget.exhausted ? budget.reason : null
+        })()
+
     let next: Date | null
     try {
-      next = nextOccurrence(duty)
+      next = skipped ? occurrenceAfterSkip(duty) : nextOccurrence(duty)
     } catch (error) {
       await app.db
         .update(duties)
@@ -63,7 +78,7 @@ export async function executeDueDuty(
       .set({
         nextDueAt: next,
         updatedAt: new Date(),
-        ...(anchoring ? {} : { lastRunAt: new Date(), runCount: duty.runCount + 1 }),
+        ...(anchoring || skipped ? {} : { lastRunAt: new Date(), runCount: duty.runCount + 1 }),
         ...(next === null ? { enabled: 'off' as const } : {}),
       })
       .where(
@@ -75,17 +90,13 @@ export async function executeDueDuty(
       )
       .returning()
     if (!updated || anchoring) return null
+    if (skipped) {
+      console.warn(`[duty] ${updated.title}: skipped — ${skipped}`)
+      return null
+    }
     return updated
   })
   if (!claimed) return
-
-  if (await app.withTenant(tenantId, () => dutyIsSelfDirected(claimed.id))) {
-    const budget = await app.withTenant(tenantId, () => selfDirectedBudget(claimed.personId))
-    if (budget.exhausted) {
-      console.warn(`[duty] ${claimed.title}: skipped — ${budget.reason}`)
-      return
-    }
-  }
 
   try {
     const { outcome } = await executeAgentRun({
