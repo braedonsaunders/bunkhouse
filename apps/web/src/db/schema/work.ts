@@ -186,6 +186,15 @@ export const runEventKind = pgEnum('run_event_kind', [
    * or exclude it from the narrative surfaces that show an agent's work.
    */
   'trace',
+  /**
+   * Something the person said while the run was already working.
+   *
+   * Not `message` (the agent's own prose) and not a second copy of the chat
+   * turn: the conversation already has the words. This records that THIS run
+   * received them mid-task and when, which is how a run that changes direction
+   * halfway through can explain why it did.
+   */
+  'steered',
 ])
 
 export const runEvents = pgTable(

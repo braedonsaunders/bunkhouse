@@ -177,6 +177,15 @@ export type RunEvent =
    * thinking, not its speech — `message` stays the utterance.
    */
   | { kind: 'thought'; text: string }
+  /**
+   * Something the person said while the run was already working, taken mid-task.
+   *
+   * Distinct from `message` (the agent's utterance) and from a new turn: the
+   * conversation already has the words, and this records that THIS run received
+   * them and when — which is how a run that changes direction halfway through
+   * can explain why it did.
+   */
+  | { kind: 'steered'; text: string }
   | { kind: 'tool_call'; toolCallId?: string; toolName: string; category: ActionCategory | null; input: unknown }
   | { kind: 'tool_result'; toolCallId?: string; toolName: string; output: unknown }
   | { kind: 'procedure_citation'; slug: string; version: number }

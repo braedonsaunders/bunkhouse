@@ -1,0 +1,15 @@
+-- Delivering a queued message into a turn that is already running.
+--
+-- The first attempt at "send now" reordered the queue, and could never have
+-- worked: `enforce_chat_dispatch_change` in 0063 rejects any change to
+-- `position`, because FIFO order is an invariant of this queue rather than a
+-- preference. The database was right and the feature was wrong — order was never
+-- the problem, latency was. Somebody watching an agent head down the wrong path
+-- needs the correction to land NOW, not after the turn it would have changed.
+--
+-- A steered message is therefore delivered, not moved: its words are appended to
+-- the transcript, the running loop takes them before its next step, and the
+-- dispatch goes to `cancelled` because it is never going to need a turn of its
+-- own. `cancelled` alone would read as "thrown away", which is the opposite of
+-- what happened, so this event kind is what records the delivery.
+ALTER TYPE "chat_dispatch_event_kind" ADD VALUE IF NOT EXISTS 'steered';

@@ -37,8 +37,12 @@ export const chatDispatchEventKind = pgEnum('chat_dispatch_event_kind', [
   'retried',
   'edited',
   'cancelled',
-  /** Moved to the front of the queue by a person who wanted it sent now. */
-  'promoted',
+  /**
+   * Delivered into a turn already in progress instead of waiting for one of its
+   * own. The status goes to `cancelled` — this dispatch never gets a run — and
+   * this is what says the words were delivered rather than discarded.
+   */
+  'steered',
 ])
 export const chatFileUploadStatus = pgEnum('chat_file_upload_status', ['pending', 'finalized', 'failed'])
 

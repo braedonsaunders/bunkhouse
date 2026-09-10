@@ -448,22 +448,32 @@ export async function retryQueuedMessageAction(
 }
 
 /**
- * "Send now" on a message that is waiting its turn: move it to the front, then
- * drain rather than waiting for the worker's next conversation pass.
+ * "Send now": say it to the turn already in progress, or start the queue if
+ * nothing is running. Never reorders — FIFO position is immutable, and order was
+ * never what this was for.
  */
 export async function sendQueuedMessageNowAction(
   dispatchId: string,
-): Promise<{ dispatch: ChatDispatchView } | { error: string }> {
+): Promise<{ steered: boolean; threadId: string } | { error: string }> {
   const access = await requireTenantPermission('work.manage')
   try {
-    const dispatch = await sendChatDispatchNow({ tenantId: access.tenantId, dispatchId, userId: access.user.id })
-    after(() => drainChatDispatchQueue({
+    const { steered, threadId } = await sendChatDispatchNow({
       tenantId: access.tenantId,
-      threadId: dispatch.threadId,
-      requester: chatRequesterFor(access),
-    }))
+      dispatchId,
+      userId: access.user.id,
+    })
+    // Nothing was running, so there is nothing to interrupt: draining starts the
+    // head of the queue immediately rather than waiting for the worker's next
+    // conversation pass.
+    if (!steered) {
+      after(() => drainChatDispatchQueue({
+        tenantId: access.tenantId,
+        threadId,
+        requester: chatRequesterFor(access),
+      }))
+    }
     revalidatePath(CHAT_PATH)
-    return { dispatch }
+    return { steered, threadId }
   } catch (reason) {
     return { error: readerSafeError(reason, 'That queued message could not be sent yet.') }
   }

@@ -1105,6 +1105,17 @@ export async function executeAgentRun(args: {
           const [row] = await app.db.select({ status: runs.status }).from(runs).where(eq(runs.id, runId))
           return row?.status === 'cancelled'
         },
+        // Asked between steps, beside cancellation: has the person said anything
+        // else while this was working? Only a conversation can be steered — there
+        // is nobody watching a duty at 08:30 to correct it mid-task.
+        ...(chatThreadId
+          ? {
+              steer: async () => {
+                const { takePendingSteer } = await import('./chat-steer')
+                return takePendingSteer({ tenantId: args.tenantId, runId, threadId: chatThreadId })
+              },
+            }
+          : {}),
         ...(priorMessages.length ? { priorMessages: priorMessages as ModelMessage[] } : {}),
         ...(args.maxSteps ? { maxSteps: args.maxSteps } : {}),
         state: waitState,

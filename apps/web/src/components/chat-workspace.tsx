@@ -1065,9 +1065,10 @@ export function AgentChatWorkspace({
   }, [refreshThread])
 
   /**
-   * Jump a waiting message to the front and start it. Where a turn is already
-   * running it goes the moment that turn ends — the running one is real work and
-   * is never torn down to make room.
+   * Say it now. Where a turn is running the message is delivered INTO it, so the
+   * agent meets the correction mid-task instead of after the work it would have
+   * changed; where nothing is running the queue simply starts. The running turn
+   * is never torn down — it is told, not killed.
    */
   const sendQueuedNow = React.useCallback(async (message: AgentQueuedMessage) => {
     const result = await sendQueuedMessageNowAction(message.id)
@@ -1075,7 +1076,10 @@ export function AgentChatWorkspace({
       setError(result.error)
       return
     }
-    await refreshThread(result.dispatch.threadId)
+    // Steered: the words are already in the transcript and the running turn will
+    // meet them before its next step. Not steered: nothing was running, so the
+    // queue has just been started. Either way the refresh shows what happened.
+    await refreshThread(result.threadId)
   }, [refreshThread])
 
   const submitCredentialRequest = React.useCallback(async (requestId: string, secret: string) => {
@@ -1430,6 +1434,20 @@ export function AgentChatWorkspace({
             initialMessages={[
               ...detail.messages.map((message) => toAgentMessage(message, detail.messages, detail.credentialRequests, detail.approvals)),
               ...(detail.liveTurn && !streamingTurn ? [liveTurnMessage(detail.liveTurn)] : []),
+              // A message waiting its turn is still something the person SAID, and
+              // it belongs in the conversation from the moment they said it. It
+              // used to exist only in the strip above the composer until a worker
+              // claimed it, so typing something and pressing send showed nothing
+              // in the transcript at all — and when the claim finally happened it
+              // vanished from the strip a beat before the poll brought it back as
+              // a real turn. It read as the message being swallowed.
+              ...queueUi.messages
+                .filter((queued) => queued.status !== 'failed')
+                .map((queued): AgentMessage => ({
+                  id: `queued:${queued.id}`,
+                  role: 'user',
+                  parts: [{ type: 'text', text: queued.text }],
+                })),
             ]}
             send={send}
             onSubmitSecretRequest={submitCredentialRequest}

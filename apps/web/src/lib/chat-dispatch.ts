@@ -29,7 +29,7 @@ export type ChatDispatchEventKind =
   | 'retried'
   | 'edited'
   | 'cancelled'
-  | 'promoted'
+  | 'steered'
 
 export const MAX_CHAT_MESSAGE_CHARS = 32_000
 const MAX_IDEMPOTENCY_KEY_CHARS = 128
@@ -151,7 +151,6 @@ export type ChatDispatchStore = {
   retry(args: { tenantId: string; dispatchId: string; actorId: string }): Promise<ChatDispatchView>
   edit(args: { tenantId: string; dispatchId: string; actorId: string; body: string }): Promise<ChatDispatchView>
   cancel(args: { tenantId: string; dispatchId: string; actorId: string }): Promise<ChatDispatchView>
-  promote(args: { tenantId: string; dispatchId: string; actorId: string }): Promise<ChatDispatchView>
   pendingThreadIds(args: { tenantId: string }): Promise<string[]>
   running(args: { tenantId: string }): Promise<ChatDispatchView[]>
 }
@@ -376,91 +375,6 @@ export function dbChatDispatchStore(): ChatDispatchStore {
         actorId,
         action: 'cancelled',
       })
-    },
-    /**
-     * Move a waiting message to the front of its queue.
-     *
-     * The position column is unique per thread, so this takes the slot below the
-     * current lowest rather than swapping — no collision, and nothing else has
-     * to move. Positions going negative is fine: new work is still `max + 1`,
-     * and the queue is read in position order, never by absolute value.
-     *
-     * A FAILED dispatch anywhere in the thread refuses the whole operation. That
-     * barrier is deliberate — work behind a failure never skips it, because the
-     * failed turn may be the one the later message depends on — and "send now"
-     * must not be a way around it.
-     */
-    async promote({ tenantId, dispatchId, actorId }) {
-      return app.withTenant(tenantId, () =>
-        app.db.transaction(async (rawTx) => {
-          const tx = rawTx as unknown as TenantDatabase
-          const [current] = await tx
-            .select(dispatchSelection)
-            .from(chatDispatches)
-            .where(eq(chatDispatches.id, dispatchId))
-            .limit(1)
-          if (!current) throw new Error('That queued message no longer exists.')
-          if (current.status !== 'queued') throw new Error('Only a message that is still waiting can be sent now.')
-          await tx.execute(
-            sql`select pg_advisory_xact_lock(hashtext('bunkhouse.chat_dispatch'), hashtext(${current.threadId}))`,
-          )
-          const [blocked] = await tx
-            .select({ id: chatDispatches.id })
-            .from(chatDispatches)
-            .where(and(eq(chatDispatches.threadId, current.threadId), eq(chatDispatches.status, 'failed')))
-            .limit(1)
-          if (blocked) {
-            throw new Error('An earlier message in this conversation needs attention before anything else can be sent.')
-          }
-          // TWO different minima, and conflating them is a unique-violation.
-          //
-          // "Already next" is a question about PENDING order — is anything
-          // waiting or running ahead of this one. Where to MOVE it is a question
-          // about every row in the thread, because `chat_dispatches_position_key`
-          // is unique on (thread_id, position) across all statuses, completed
-          // ones included. Taking one below the lowest pending position landed on
-          // a completed turn's slot and the update failed: Send now returned "could
-          // not be sent yet" every time, on a queue with nothing wrong with it.
-          //
-          // Positions are only ever assigned as max + 1, so one below the global
-          // minimum is always free. Going negative is fine — the queue is read in
-          // position order, never by absolute value.
-          const [{ nextPending } = { nextPending: current.position }] = await tx
-            .select({
-              nextPending: sql<number>`coalesce(min(${chatDispatches.position}), ${current.position})`.mapWith(Number),
-            })
-            .from(chatDispatches)
-            .where(
-              and(
-                eq(chatDispatches.threadId, current.threadId),
-                inArray(chatDispatches.status, ['queued', 'running']),
-              ),
-            )
-          // Already next: nothing to reorder, and recording a move that did not
-          // happen would put a lie in the ledger.
-          if (current.position <= nextPending) return dispatchView(current)
-          const [{ lowestEver } = { lowestEver: current.position }] = await tx
-            .select({
-              lowestEver: sql<number>`coalesce(min(${chatDispatches.position}), ${current.position})`.mapWith(Number),
-            })
-            .from(chatDispatches)
-            .where(eq(chatDispatches.threadId, current.threadId))
-          const [updated] = await tx
-            .update(chatDispatches)
-            .set({ position: lowestEver - 1, updatedAt: new Date(), updatedBy: actorId })
-            .where(and(eq(chatDispatches.id, dispatchId), eq(chatDispatches.status, 'queued')))
-            .returning(dispatchSelection)
-          if (!updated) throw new Error('That queued message could not be moved.')
-          await appendEvent(tx, {
-            tenantId,
-            dispatchId,
-            kind: 'promoted',
-            detail: { from: current.position, to: updated.position },
-            actorId,
-          })
-          return dispatchView(updated)
-        }),
-      )
     },
     async pendingThreadIds({ tenantId }) {
       const rows = await app.withTenantContext(tenantId, () =>
@@ -726,25 +640,36 @@ export async function cancelChatDispatch(
 }
 
 /**
- * Send a waiting message ahead of its turn.
+ * Say this now, to whatever is already happening.
  *
- * Two halves, and both are needed. Moving it to the front decides what runs
- * next; draining decides WHEN, because a queue with nothing running otherwise
- * waits for the worker's next conversation pass. Together they mean "now" where
- * the conversation is free, and "the moment this turn ends" where it is not — a
- * running turn is never torn down for this, since it is real work that may
- * already have sent something.
+ * The first version of this reordered the queue, and could never have worked:
+ * `enforce_chat_dispatch_change` rejects any change to `position`, because FIFO
+ * order is an invariant of the queue and not a preference. The database was
+ * right and the feature was wrong — order was never the problem here, latency
+ * was. Somebody correcting an agent mid-task needs the words to land now, not
+ * after the turn they would have changed.
+ *
+ * So: where a turn is running, the message is delivered into it (see
+ * lib/chat-steer.ts) and the queue entry stops existing. Where nothing is
+ * running there is nothing to jump — the caller drains, and the head of the
+ * queue starts within the second.
+ *
+ * A running turn is still never torn down. It is real work that may already have
+ * sent something; it is told, not killed.
  */
 export async function sendChatDispatchNow(
   args: { tenantId: string; dispatchId: string; userId: string },
   deps: ChatDispatchDeps = {},
-): Promise<ChatDispatchView> {
+): Promise<{ steered: boolean; threadId: string }> {
   const dispatch = await mutableOwnedDispatch(args, deps)
-  return dispatchStoreOf(deps).promote({
+  const { steerRunningTurn } = await import('./chat-steer')
+  const { steered } = await steerRunningTurn({
     tenantId: args.tenantId,
+    threadId: dispatch.threadId,
     dispatchId: dispatch.id,
-    actorId: args.userId,
+    userId: args.userId,
   })
+  return { steered, threadId: dispatch.threadId }
 }
 
 export async function pendingChatThreadIds(

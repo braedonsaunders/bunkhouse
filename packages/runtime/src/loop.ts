@@ -84,6 +84,24 @@ export type RunAgentArgs = {
    * uses, and for the same reason.
    */
   isCancelled?: () => Promise<boolean>
+  /**
+   * Asked between steps, beside cancellation: has the person said something
+   * ELSE while this run was working?
+   *
+   * A conversation is not turn-locked in practice. Somebody watching an agent
+   * head down the wrong path says so immediately — "not that coin, the other
+   * one" — and before this there was nowhere for that to go: the message waited
+   * in a queue until the whole turn finished, by which point the agent had spent
+   * the intervening minutes doing the thing nobody wanted any more.
+   *
+   * Returned text is appended as a user turn before the next step, so the model
+   * meets it the way it would meet any instruction, mid-task. Between steps for
+   * the same reason cancellation is: a step with a tool call in flight cannot be
+   * interrupted without deciding what to do with an email half sent.
+   *
+   * The caller is responsible for handing each message back exactly once.
+   */
+  steer?: () => Promise<readonly string[]>
   /** Additional credentials held by application adapters during this run. */
   runSecrets?: readonly string[]
   /**
@@ -337,9 +355,26 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
       // Evidence the agent has already reasoned over does not need re-buying at
       // full price on every subsequent step. The working set stays verbatim.
       prepareStep: async ({ messages: stepMessages }) => {
+        // What the person said while this was working, before the next step.
+        //
+        // Ahead of compaction deliberately: a fresh instruction is the least
+        // trimmable thing in the context, and it must survive whatever the
+        // compactor decides about everything else.
+        const steered = args.steer ? await args.steer().catch(() => []) : []
+        const withSteer = steered.length > 0
+          ? [...stepMessages, ...steered.map((text): ModelMessage => ({ role: 'user', content: text }))]
+          : stepMessages
+        for (const text of steered) {
+          // On the record as a turn in its own right: the run has to be able to
+          // explain why it changed direction halfway through.
+          await sink.event({ kind: 'steered', text })
+        }
+
         const { messages: compacted, trimmedChars, trimmedResults, prunedFrames, deduplicatedFrames } =
-          compactMessages(stepMessages)
-        if (trimmedChars <= 0 && prunedFrames <= 0 && deduplicatedFrames <= 0) return {}
+          compactMessages(withSteer)
+        if (trimmedChars <= 0 && prunedFrames <= 0 && deduplicatedFrames <= 0) {
+          return steered.length > 0 ? { messages: withSteer } : {}
+        }
         if (!compactionAnnounced) {
           compactionAnnounced = true
           await sink.event({

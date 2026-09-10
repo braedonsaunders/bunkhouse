@@ -72,11 +72,13 @@ assert.equal(queue.messages[1]?.statusLabel, 'The provider timed out.')
 assert.equal(chatQueueUiProjection([{ id: 'failed', body: 'Retry', status: 'failed', lastError: null }]).state, 'recovering')
 assert.deepEqual(chatQueueUiProjection([]), { state: 'idle', messages: [] })
 
-// "Send now" is offered only where the service would honour it. A failed turn is
-// a deliberate barrier — the work behind it may be the work that depended on it —
-// so nothing may jump it, and a button the service would refuse is worse than no
-// button at all.
-assert.equal(queue.messages[0]?.sendable, false, 'nothing is sent ahead of a failure in the same queue')
+// "Send now" is an interrupt, not a reorder. The first version moved the
+// dispatch's `position`, which the database rejects outright
+// (`enforce_chat_dispatch_change`: FIFO position is immutable) — so it could never
+// have worked, and the unique-index collision it appeared to hit was a symptom.
+// Delivering the words into the running turn needs no ordering at all, so a failed
+// message ahead of it is irrelevant to whether the agent can hear this one.
+assert.equal(queue.messages[0]?.sendable, true, 'a waiting message can be said now even behind a failure')
 assert.equal(queue.messages[1]?.sendable, false, 'a failed message is retried, never "sent now"')
 const clear = chatQueueUiProjection([
   { id: 'running', body: 'Working now', status: 'running', lastError: null },
@@ -86,7 +88,6 @@ const clear = chatQueueUiProjection([
 assert.deepEqual(
   clear.messages.map(({ id, sendable }) => ({ id, sendable })),
   [{ id: 'first', sendable: true }, { id: 'second', sendable: true }],
-  'with no failure in the way, any waiting message can be sent ahead of its turn',
 )
 
 // These contracts must remain production boundaries, not test-only diagrams.
@@ -99,32 +100,27 @@ assert.match(runExecution, /assertRunAttemptTransition/)
 assert.match(chatDispatch, /assertChatDispatchTransition/)
 assert.match(chatWorkspace, /chatQueueUiProjection/)
 
-// Promotion re-checks at the database what the projection decided for the eye: a
-// queue can change between the render and the click.
-assert.match(chatDispatch, /Only a message that is still waiting can be sent now\./)
-assert.match(chatDispatch, /An earlier message in this conversation needs attention/)
-// Two minima, deliberately. "Already next" is about PENDING order; the slot to
-// move into must clear EVERY row, because the unique index on
-// (thread_id, position) covers completed turns too. Conflating them picked a
-// completed turn's position and every Send now failed on a unique violation.
+// Steering never touches the queue's order, and the queue's order is why: the
+// database refuses any change to `position`, so a feature built on reordering was
+// unshippable by construction.
+assert.equal(chatDispatch.includes('promote'), false, 'no code reorders the queue any more')
+const steer = readFileSync(new URL('../src/lib/chat-steer.ts', import.meta.url), 'utf8')
+assert.match(steer, /status: 'cancelled'/, 'a delivered dispatch never gets a turn of its own')
+assert.match(steer, /kind: 'steered'/, 'and the event is what says it was delivered rather than discarded')
 assert.match(
-  chatDispatch,
-  /position: lowestEver - 1/,
-  'promotion moves below the lowest position EVER used in the thread, so the slot is free',
+  steer,
+  /gt\(chatMessages\.at, run\.startedAt\)/,
+  "a run never re-reads its own prompt as if it were a correction",
 )
 assert.match(
-  chatDispatch,
-  /if \(current\.position <= nextPending\) return dispatchView\(current\)/,
-  '"already next" is judged against pending work, not against completed history',
+  steer,
+  /consumedMessageIds/,
+  'delivery is at-most-once, so a long run does not meet the same correction every step',
 )
-assert.ok(
-  chatDispatch.includes("inArray(chatDispatches.status, ['queued', 'running'])"),
-  'the pending minimum is scoped to queued/running',
-)
-assert.match(
-  chatDispatch,
-  /pg_advisory_xact_lock\(hashtext\('bunkhouse\.chat_dispatch'\), hashtext\(\$\{current\.threadId\}\)\)/,
-  'promotion serializes against claiming on the same per-thread lock',
+assert.equal(
+  /update\s+chatDispatches[\s\S]{0,200}position/.test(steer),
+  false,
+  'steering writes no position',
 )
 
 console.log('lifecycle: exhaustive person, execution-attempt, dispatch, and queue-UI state matrices verified')

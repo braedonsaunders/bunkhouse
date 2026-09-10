@@ -1,0 +1,18 @@
+-- Steering a run that is already working.
+--
+-- A conversation is not turn-locked in practice. Somebody watching an agent head
+-- down the wrong path says so immediately — "not that coin, the other one" — and
+-- until now there was nowhere for that to go: the message waited in the queue
+-- until the whole turn finished, by which point the agent had spent the
+-- intervening minutes doing the thing nobody wanted any more.
+--
+-- `steered` records that a run received such an instruction mid-task, and when.
+-- Deliberately not `message`, which is the agent's own utterance, and not a
+-- second copy of the chat turn, which already holds the words — this is the join
+-- between the two, and the reason a run that changes direction halfway through
+-- can explain itself afterwards.
+--
+-- Adding an enum value is backward compatible: every existing row keeps its kind
+-- and nothing reads an exhaustive list. Added here and never used in this
+-- transaction, which is what Postgres requires of ALTER TYPE inside one.
+ALTER TYPE "run_event_kind" ADD VALUE IF NOT EXISTS 'steered';
