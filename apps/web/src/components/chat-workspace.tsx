@@ -1094,22 +1094,41 @@ export function AgentChatWorkspace({
     await refreshThread(threadId)
   }, [activeId, refreshThread])
 
-  // A queued turn may finish in a worker after the request that accepted it
-  // has returned. Follow the durable projection while there is pending work;
-  // when a new persisted answer lands outside the direct stream, remount the
-  // panel from the authoritative transcript.
+  /**
+   * Follow an open conversation, not just a turn in flight.
+   *
+   * Work arrives in a thread that this pane never asked for. A queued turn
+   * finishes in a worker after the request that accepted it returned. An
+   * approval continuation resumes. And a scheduled duty delivers into the
+   * conversation it came from: `post_to_conversation` calls `postAgentMessage`,
+   * which appends the message and touches the thread WITHOUT creating a
+   * dispatch row. So while this only followed threads with pending dispatches,
+   * Avery's 08:30 brief landed in the transcript and the person sitting in front
+   * of that very conversation saw nothing until they reloaded the page — the
+   * same silence `post_to_conversation` was added to end.
+   *
+   * Now an open thread is always followed: quickly while there is pending work,
+   * gently the rest of the time. The reads CHAIN rather than repeat on an
+   * interval, because this is a server action and they share one queue per
+   * client, and they pause while the window is in the background — a
+   * conversation left open for an hour should not spend that hour asking — with
+   * an immediate read when the reader comes back to it.
+   */
   const approvalContinuationPending = detail?.approvals.some((approval) => approval.continuationPending) === true
   const credentialContinuationPending =
     detail?.credentialRequests.some((request) => request.continuationPending) === true
+  const workPending =
+    (detail?.dispatches.length ?? 0) > 0 || approvalContinuationPending || credentialContinuationPending
   React.useEffect(() => {
     const threadId = detail?.thread.id
-    if (
-      !threadId ||
-      (detail.dispatches.length === 0 && !approvalContinuationPending && !credentialContinuationPending)
-    ) return
-    const timer = window.setInterval(() => {
-      void getThreadAction(threadId).then((loaded) => {
-        if (!loaded) return
+    if (!threadId) return
+    let stopped = false
+    let timer: number | undefined
+
+    const read = async () => {
+      try {
+        const loaded = await getThreadAction(threadId)
+        if (stopped || !loaded) return
         setDetail((current) => {
           if (!current || current.thread.id !== threadId) return current
           const previousLast = current.messages.at(-1)?.id
@@ -1123,10 +1142,33 @@ export function AgentChatWorkspace({
           }
           return loaded
         })
-      }).catch(() => undefined)
-    }, 1_500)
-    return () => window.clearInterval(timer)
-  }, [approvalContinuationPending, credentialContinuationPending, detail?.dispatches.length, detail?.thread.id])
+      } catch {
+        // The next read re-asks; a transient failure does not blank the pane.
+      }
+    }
+
+    const schedule = () => {
+      if (stopped) return
+      timer = window.setTimeout(tick, workPending ? 1_500 : 10_000)
+    }
+    const tick = async () => {
+      if (document.visibilityState === 'visible') await read()
+      schedule()
+    }
+    schedule()
+
+    // Coming back to a tab should not cost a further wait.
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || stopped) return
+      void read()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      stopped = true
+      document.removeEventListener('visibilitychange', onVisible)
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [detail?.thread.id, workPending])
 
   /**
    * A conversation starts empty and its first turn streams like every other

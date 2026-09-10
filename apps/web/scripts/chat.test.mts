@@ -870,6 +870,37 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     'whether this pane owns a live stream is rendered state, not only a ref',
   )
 
+  // An open conversation is followed even with nothing pending, because work
+  // arrives in it that this pane never asked for. `post_to_conversation` →
+  // `postAgentMessage` appends a message and touches the thread WITHOUT a
+  // dispatch row, so while the follow required pending dispatches, a duty's
+  // 08:30 delivery landed in the transcript and the person sitting in that very
+  // conversation saw nothing until they reloaded — the same silence the ability
+  // exists to end.
+  const follow = workspace.slice(
+    workspace.indexOf('const approvalContinuationPending'),
+    workspace.indexOf('const startThread = React.useCallback'),
+  )
+  assert.ok(
+    follow.includes('if (!threadId) return') &&
+      !follow.includes('dispatches.length === 0 && !approvalContinuationPending'),
+    'an open thread is followed whether or not a dispatch is pending',
+  )
+  assert.ok(
+    follow.includes('workPending ? 1_500 : 10_000'),
+    'the follow is quick while work is pending and gentle otherwise',
+  )
+  assert.ok(
+    follow.includes('window.setTimeout(tick,') && !follow.includes('window.setInterval'),
+    'the follow chains too — it is a server action and shares the one queue',
+  )
+  assert.ok(
+    follow.includes("document.visibilityState === 'visible'") &&
+      follow.includes("document.addEventListener('visibilitychange', onVisible)") &&
+      follow.includes("document.removeEventListener('visibilitychange', onVisible)"),
+    'a backgrounded window stops asking, and reading resumes the moment it is looked at again',
+  )
+
   // The copy must never send somebody into a duplicate governed run.
   const labels = workspace.slice(workspace.indexOf('labels={{'), workspace.indexOf('queueFailed:'))
   const failedCopy = labels.slice(labels.indexOf('failed:'))
