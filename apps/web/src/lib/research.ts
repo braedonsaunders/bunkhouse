@@ -222,8 +222,21 @@ export async function assertPublicHost(url: URL): Promise<void> {
   // A resolver that never answers used to hang the whole run: no result, no
   // error, an agent saying "almost there" for five minutes. DNS gets a
   // deadline like everything else that leaves this process.
+  // Every other refusal in this function is a sentence. A host that does not
+  // exist was the one that escaped as Node's own words — `getaddrinfo ENOTFOUND
+  // api.pumpportal.fun` reached an agent verbatim, which reads as the network
+  // being broken rather than as a URL it had guessed wrong and should correct.
   const resolved = await Promise.race([
-    lookup(host, { all: true }),
+    lookup(host, { all: true }).catch((error: unknown) => {
+      const code = (error as { code?: string } | null)?.code
+      if (code === 'ENOTFOUND' || code === 'EAI_NONAME') {
+        throw new Error(`There is no such host as ${host} — check the address.`)
+      }
+      if (code === 'EAI_AGAIN') {
+        throw new Error(`${host} could not be looked up just now. Try again shortly.`)
+      }
+      throw error
+    }),
     new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error(`Looking up ${host} took too long.`)), 5_000).unref?.(),
     ),

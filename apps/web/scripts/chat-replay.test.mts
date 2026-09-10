@@ -273,6 +273,40 @@ await check('a non-Error failure still produces something readable', async () =>
   assert.match(cyclic, /WeirdError/)
 })
 
+// --- and the run loop's own catch is held to the same standard ---------------
+//
+// `readableFailure` above guards the app's side of the boundary, but it never saw
+// the one failure that mattered: `runAgent` had already converted the thrown
+// value with `String(error)`, so the run recorded an error event and a summary
+// that both read "[object Object]" and the app faithfully passed the words on.
+// `describeThrown` is the reader the tool path has used all along.
+await check('a run that fails on a plain object says what failed', async () => {
+  const { describeThrown } = await import('@bunkhouse/runtime')
+
+  assert.equal(describeThrown(new Error('provider refused')), 'provider refused')
+  assert.equal(describeThrown({ message: 'rate limited' }), 'rate limited')
+  // An object with nothing readable on it — the live case.
+  assert.equal(
+    describeThrown({ status: 500 }, 'The run failed without reporting a reason.'),
+    'The run failed without reporting a reason.',
+  )
+  assert.equal(describeThrown({}).includes('[object Object]'), false)
+  // The tool path's wording is untouched by gaining the parameter.
+  assert.equal(describeThrown({}), 'The tool failed without reporting a reason.')
+
+  const { readFileSync } = await import('node:fs')
+  const loop = readFileSync(new URL('../../../packages/runtime/src/loop.ts', import.meta.url), 'utf8')
+  const caught = loop.slice(loop.lastIndexOf('} catch (error) {'))
+  assert.match(caught, /describeThrown\(error, 'The run failed/, 'the loop reads the thrown value properly')
+  // Comments stripped: the explanation of the old bug quotes the old call.
+  const code = caught.split('\n').filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join('\n')
+  assert.equal(
+    /String\(error\)/.test(code),
+    false,
+    'and no longer stringifies it into nothing',
+  )
+})
+
 if (failures > 0) {
   console.log(`\n${failures} check(s) failed`)
   process.exit(1)

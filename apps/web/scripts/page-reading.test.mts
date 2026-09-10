@@ -660,3 +660,28 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
   assert.deepEqual(dead, [], `every revalidated path resolves to a page:\n  ${dead.join('\n  ')}`)
   console.log(`revalidation: all ${checked} revalidated paths resolve to a real page`)
 }
+
+// --- a host that does not exist is refused in words, not in errno ------------
+//
+// Every other refusal `assertPublicHost` makes is a sentence an agent can act on
+// — "Only http(s) pages can be read.", "That address is not reachable from
+// here." A hostname that does not resolve was the one case that escaped as
+// Node's own text: `getaddrinfo ENOTFOUND api.pumpportal.fun` was handed to an
+// agent verbatim, which reads as the network being broken rather than as a URL
+// it guessed and should correct. `browser_open` shares this gate, so both
+// abilities were reporting it that way.
+{
+  const { assertPublicHost } = await import('../src/lib/research')
+  // `.invalid` is reserved precisely so it can never resolve (RFC 2606). The
+  // assertion is resolver-independent: whatever the resolver does — NXDOMAIN, a
+  // temporary failure, or nothing at all — the refusal must be a readable
+  // sentence that names the host and never leaks a syscall.
+  const failure = await assertPublicHost(new URL('https://api.pumpportal.invalid/trade'))
+    .then(() => null, (error: unknown) => (error instanceof Error ? error.message : String(error)))
+
+  assert.ok(failure, 'a host that cannot resolve is refused')
+  assert.doesNotMatch(failure, /getaddrinfo|ENOTFOUND|EAI_|errno/, `leaked a syscall: ${failure}`)
+  assert.match(failure, /api\.pumpportal\.invalid/, `names the host: ${failure}`)
+  assert.match(failure, /\.$/, `reads as a sentence: ${failure}`)
+  console.log(`unresolvable host: "${failure}"`)
+}

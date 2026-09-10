@@ -24,6 +24,7 @@ import { startDeskCast, stopDeskCast } from './desk-cast'
 import { getDeskPolicy, type DeskFeatures, type DeskPolicy } from './desk-policy'
 import { deskIdentity } from './desk-security'
 import { collectMarks, drawMarks, markLegend, type DeskMark } from './desk-marks'
+import { pgJsonSafe } from './pg-json'
 
 /**
  * The desk: each agent's own Debian machine — a terminal, a filesystem,
@@ -970,7 +971,10 @@ export function dbDeskLedgerStore(): DeskLedgerStore {
           sessionId: args.sessionId,
           seq: args.seq,
           kind: args.kind,
-          detail: args.detail,
+          // `detail` carries whatever the command printed. One U+0000 in it
+          // fails the whole insert, which used to surface to the agent as its
+          // successful command having failed.
+          detail: pgJsonSafe(args.detail),
           screenshotFileId: args.screenshotFileId ?? null,
           at: args.at ?? new Date(),
         })
@@ -1543,6 +1547,12 @@ async function runShellOnDesk(
   const output = SPAWN_ENOENT.test(capped)
     ? `${capped}\n(The working folder ${cwd} does not exist on your machine. Create it first, or pass a folder that does — "." is your home.)`
     : capped
+  // The command has already run. Recording it is an audit obligation, not part
+  // of executing it, so a ledger write that fails must not be handed back as
+  // though the command failed: four completed commands in one day were reported
+  // to the agent as failures whose text was the raw failed INSERT, because the
+  // output they printed contained a NUL. `pgJsonSafe` is why that particular
+  // write no longer fails; this is why no other cause can lie about the result.
   await appendSerialized(ctx, live, 'shell_command', {
     command: args.command,
     cwd: args.cwd,
@@ -1553,6 +1563,8 @@ async function runShellOnDesk(
     commandStatus: outcome.status,
     startedAt: outcome.startedAt,
     finishedAt: outcome.finishedAt,
+  }).catch((error: unknown) => {
+    console.error('[desk] shell_command was not recorded on the ledger:', error)
   })
   await drainRunnerEvents(ctx, live).catch(() => undefined)
   return { status: outcome.status, exitCode: outcome.exitCode, output }

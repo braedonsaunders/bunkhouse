@@ -13,11 +13,14 @@ import {
 import { db } from '../db/client'
 import { activateAuthoredSystem, listAuthoredSystems } from './authored-systems'
 import { redactCredentialText } from './credential-redaction'
+import { appendRunEventInTransaction } from './run-events'
 
 const REQUEST_LIFETIME_MS = 7 * 24 * 60 * 60 * 1_000
 const VERIFYING_LEASE_MS = 2 * 60 * 1_000
 const CONTINUATION_LEASE_MS = 10 * 60 * 1_000
 const CONTINUATION_MAX_ATTEMPTS = 5
+/** What the run says about itself once the credential it waited on is declined. */
+const CANCELLED_SUMMARY = 'The credential this work was waiting for was not provided, so it was stopped here.'
 
 type RequestRow = typeof authoredSystemCredentialRequests.$inferSelect
 type RequestEventKind = typeof authoredSystemCredentialRequestEvents.$inferInsert.kind
@@ -605,6 +608,22 @@ export async function executeStoredCredentialContinuation(tenantId: string, requ
   }
 }
 
+/**
+ * The person declines the handoff — and the work parked behind it ends with it.
+ *
+ * Only `stored` resumes a parked run: `executeStoredCredentialContinuation` is
+ * reached from `pendingStoredCredentialContinuationIds`, which asks for
+ * `status = 'stored'` and nothing else. Cancelling settled the request and left
+ * the run it belonged to sitting in `waiting_credential` with nothing in the
+ * system able to move it again — a run claiming to be waiting on a request that
+ * had already been answered, five minutes after it was asked, for good. The
+ * abandoned-work sweep could not close it either: that sweep only looks at runs
+ * still claiming to be `running`.
+ *
+ * So the run is closed here, in the same transaction that settles the request.
+ * `cancelled` rather than `failed` because nothing failed — a person decided
+ * not to hand over a credential, which is an answer.
+ */
 export async function cancelSystemCredentialRequest(args: {
   tenantId: string
   threadId: string
@@ -639,5 +658,21 @@ export async function cancelSystemCredentialRequest(args: {
       actorType: 'user',
       actorId: args.userId,
     })
+    // Scoped to the run this request parked, and only while it is still parked:
+    // a run that has moved on under its own steam is none of this function's
+    // business.
+    const [closed] = await tx
+      .update(runs)
+      .set({ status: 'cancelled', finishedAt: now, updatedAt: now, summary: CANCELLED_SUMMARY })
+      .where(and(eq(runs.id, request.runId), eq(runs.status, 'waiting_credential')))
+      .returning({ id: runs.id })
+    if (closed) {
+      await appendRunEventInTransaction(tx, {
+        tenantId: args.tenantId,
+        runId: closed.id,
+        kind: 'error',
+        payload: { message: CANCELLED_SUMMARY },
+      })
+    }
   }))
 }

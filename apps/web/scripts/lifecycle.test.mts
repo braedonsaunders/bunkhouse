@@ -123,4 +123,32 @@ assert.equal(
   'steering writes no position',
 )
 
+// --- a duty belonging to somebody who may not work is not due ---------------
+//
+// `workRefusal` is the gate, and `executeAgentRun` honours it — but a duty that
+// fires into that refusal still opens a run whose entire content is the refusal,
+// on a schedule, for as long as the duty is enabled. Three agents left in
+// `onboarding` with twelve enabled cron duties between them opened 171 runs over
+// 24 days; every one failed on arrival and recorded nothing but the fact that
+// hiring had never been finished.
+//
+// Offboarding already switches duties off, so `onboarding` was the state with no
+// edge — which is exactly the shape of gap this file exists to catch.
+{
+  const agentRuns = readFileSync(new URL('../src/lib/agent-runs.ts', import.meta.url), 'utf8')
+  const due = agentRuns.slice(agentRuns.indexOf('export async function dueDuties'))
+  const body = due.slice(0, due.indexOf('\n}'))
+  assert.match(body, /innerJoin\(people/, 'the due-duty query asks who the duty belongs to')
+  assert.match(body, /eq\(people\.status, 'active'\)/, 'and only an active person has due duties')
+  assert.match(body, /eq\(people\.kind, 'agent'\)/, 'a human colleague is not run by the scheduler')
+  // Skipped, not advanced: nothing may be consumed on behalf of a person who
+  // never got the occurrence, or a duty finishes its `maxRuns` while standing
+  // still and retires before its owner is ever hired.
+  assert.equal(
+    /markDutyRun|runCount/.test(body),
+    false,
+    'a skipped occurrence spends no run budget',
+  )
+}
+
 console.log('lifecycle: exhaustive person, execution-attempt, dispatch, and queue-UI state matrices verified')

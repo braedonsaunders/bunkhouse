@@ -29,20 +29,20 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))
       '@braedonsaunders/appkit-ai':
-        specifier: ^1.4.0
-        version: 1.4.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)
+        specifier: ^1.4.1
+        version: 1.4.1(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)
       '@braedonsaunders/appkit-api':
         specifier: ^0.1.2
         version: 0.1.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
       '@braedonsaunders/appkit-apps':
         specifier: ^2.0.0
-        version: 2.0.0(@babel/runtime@7.29.7)(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 2.0.0(@babel/runtime@7.29.7)(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@braedonsaunders/appkit-auth':
         specifier: ^0.1.3
         version: 0.1.3(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(drizzle-kit@0.31.10)(kysely@0.29.4)(next@16.3.4(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@22.20.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@braedonsaunders/appkit-avatars':
         specifier: ^1.0.0
-        version: 1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(framer-motion@12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
+        version: 1.0.0(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(framer-motion@12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
       '@braedonsaunders/appkit-crypto':
         specifier: ^0.3.0
         version: 0.3.0
@@ -51,7 +51,7 @@ importers:
         version: 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
       '@braedonsaunders/appkit-design-studio':
         specifier: ^1.0.0
-        version: 1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+        version: 1.0.0(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@braedonsaunders/appkit-desk':
         specifier: ^0.5.1
         version: 0.5.1
@@ -59,8 +59,8 @@ importers:
         specifier: ^0.2.2
         version: 0.2.2(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@braedonsaunders/appkit-egress-proxy':
-        specifier: ^0.2.0
-        version: 0.2.0
+        specifier: ^0.2.1
+        version: 0.2.1
       '@braedonsaunders/appkit-email-designer':
         specifier: ^0.2.0
         version: 0.2.0(@grapesjs/react@2.0.0(grapesjs@0.22.16)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@noble/hashes@2.2.0)(grapesjs@0.22.16)(juice@12.1.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -87,22 +87,22 @@ importers:
         version: 0.1.1(@noble/hashes@2.2.0)(tailwindcss@4.3.3)
       '@braedonsaunders/appkit-forms-pdf':
         specifier: ^2.0.0
-        version: 2.0.0(@braedonsaunders/appkit-design-studio@1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@braedonsaunders/appkit-pdf@0.1.1(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)
+        version: 2.0.0(@braedonsaunders/appkit-design-studio@1.0.0(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@braedonsaunders/appkit-pdf@0.1.1(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)
       '@braedonsaunders/appkit-i18n':
         specifier: ^0.1.1
         version: 0.1.1
       '@braedonsaunders/appkit-iam':
         specifier: ^2.0.0
-        version: 2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-tenant@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-tenant@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@braedonsaunders/appkit-jobs':
-        specifier: ^0.2.2
-        version: 0.2.2(@noble/hashes@2.2.0)
+        specifier: ^0.2.4
+        version: 0.2.4(@noble/hashes@2.2.0)
       '@braedonsaunders/appkit-mailbox':
         specifier: ^1.0.0
-        version: 1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 1.0.0(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@braedonsaunders/appkit-notifications':
         specifier: ^2.0.0
-        version: 2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-jobs@0.2.2(@noble/hashes@2.2.0))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-jobs@0.2.4(@noble/hashes@2.2.0))(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@braedonsaunders/appkit-oauth':
         specifier: ^0.1.0
         version: 0.1.0
@@ -126,16 +126,16 @@ importers:
         version: 1.0.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@braedonsaunders/appkit-scripts':
         specifier: ^2.0.0
-        version: 2.0.0(@babel/runtime@7.29.7)(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 2.0.0(@babel/runtime@7.29.7)(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@braedonsaunders/appkit-sms':
         specifier: ^0.2.0
         version: 0.2.0
       '@braedonsaunders/appkit-storage':
         specifier: ^1.0.0
-        version: 1.0.1(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 1.0.1(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@braedonsaunders/appkit-superadmin':
         specifier: ^1.0.0
-        version: 1.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 1.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@braedonsaunders/appkit-telephony':
         specifier: ^0.2.0
         version: 0.2.0
@@ -146,14 +146,14 @@ importers:
         specifier: ^0.1.2
         version: 0.1.2(tailwindcss@4.3.3)
       '@braedonsaunders/appkit-ui':
-        specifier: ^0.2.0
-        version: 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+        specifier: ^0.2.1
+        version: 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@braedonsaunders/appkit-voice':
         specifier: ^0.1.1
         version: 0.1.1
       '@braedonsaunders/appkit-workflows':
         specifier: ^2.0.0
-        version: 2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-forms-core@0.1.1(@noble/hashes@2.2.0))(@braedonsaunders/appkit-forms@0.2.2(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@xyflow/react@12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-forms-core@0.1.1(@noble/hashes@2.2.0))(@braedonsaunders/appkit-forms@0.2.2(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@xyflow/react@12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@bunkhouse/acp':
         specifier: workspace:*
         version: link:../../packages/acp
@@ -345,8 +345,8 @@ importers:
         specifier: ^1.0.64
         version: 1.0.64(zod@4.4.3)
       '@braedonsaunders/appkit-ai':
-        specifier: ^1.4.0
-        version: 1.4.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)
+        specifier: ^1.4.1
+        version: 1.4.1(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)
       '@bunkhouse/acp':
         specifier: workspace:*
         version: link:../acp
@@ -678,8 +678,8 @@ packages:
       drizzle-orm:
         optional: true
 
-  '@braedonsaunders/appkit-ai@1.4.0':
-    resolution: {integrity: sha512-XQXv4a57byls65X5r6mXwBWkpufCkIogDQzzPSt++sZ0H+fFv0xqsRxxi8UHfKtAts4F89XmtiWAsBBmttdRgw==}
+  '@braedonsaunders/appkit-ai@1.4.1':
+    resolution: {integrity: sha512-jjF1Pmw9/B3KRaRiAOaGCv5KKmKKSH4K8ZDMnVG11Z7kzhUDBakNzRPsqfkIM8qH2KwUOebSShzck6k6Ug0QaA==}
     engines: {node: '>=22'}
     peerDependencies:
       '@braedonsaunders/appkit-ui': ^0.2.1
@@ -797,12 +797,8 @@ packages:
       react: ^19.0.0
       react-dom: ^19.0.0
 
-  '@braedonsaunders/appkit-egress-proxy@0.1.1':
-    resolution: {integrity: sha512-svFopWJDiWvkDDR0yyen8Sqp3dtHejo2i/h0D8bWakADV6U+AYc40wAD0Q0jMt5vCXTl4nBOd/UKew6cqO/a2g==}
-    engines: {node: '>=22'}
-
-  '@braedonsaunders/appkit-egress-proxy@0.2.0':
-    resolution: {integrity: sha512-sUX7T+rqb8y1iJT89tsWttwv6OsJd9cvriFER66lny5tA1hvxis8JYVtw/LHQar39WtZiGW4fVt2Dkw58MaAyQ==}
+  '@braedonsaunders/appkit-egress-proxy@0.2.1':
+    resolution: {integrity: sha512-3MzES7XMzgX6UuX+Ndh9Png5KwkAokJ1A59QQdc/GUzfxiTjfL/Iw1+RLUMnwE8oq4KMO+WdkTDUZRmxGf69mA==}
     engines: {node: '>=22'}
 
   '@braedonsaunders/appkit-email-designer@0.2.0':
@@ -909,8 +905,8 @@ packages:
       react-dom:
         optional: true
 
-  '@braedonsaunders/appkit-jobs@0.2.2':
-    resolution: {integrity: sha512-PGcGU0fnL0RwcByKBL3wbdp3LJml7XsGa90FtMlVC5ZbeJ/ByI6JSme2a2pTjRjLbRM0oThoGOoTff769dBAXw==}
+  '@braedonsaunders/appkit-jobs@0.2.4':
+    resolution: {integrity: sha512-6KuofuiEAq43YYklUKjnIYmHkPow9yIP+SlR2x5zl4+uoawUXfGss5oYh8VV4qYJx5jWObDJ2jWc9qeNaDJ7OA==}
     engines: {node: '>=22'}
 
   '@braedonsaunders/appkit-mailbox@1.0.0':
@@ -1091,8 +1087,8 @@ packages:
     peerDependencies:
       tailwindcss: ^4.0.0
 
-  '@braedonsaunders/appkit-ui@0.2.0':
-    resolution: {integrity: sha512-aULqo6VB/b18JhMVil64PadPWvPVVjzHVdMJY4mf/i5eYFUCIocT5QvUzk8GTM0DUl5Xdb3ioHFZWfVLlmzeZw==}
+  '@braedonsaunders/appkit-ui@0.2.1':
+    resolution: {integrity: sha512-M4MLSkyVRhR7iq+J1xeFtXBZESD0HLrDQlrh7hj6SVRir4K+vteLWHhjoII2v0SdKjR7EFyFEZMGwv8WBuaa7Q==}
     engines: {node: '>=22'}
     peerDependencies:
       react: ^19.0.0
@@ -8099,17 +8095,17 @@ snapshots:
       '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
 
-  '@braedonsaunders/appkit-ai@1.4.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)':
+  '@braedonsaunders/appkit-ai@1.4.1(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)':
     dependencies:
       '@ai-sdk/anthropic': 3.0.103(zod@4.4.3)
       '@ai-sdk/google': 3.0.101(zod@4.4.3)
       '@ai-sdk/openai': 3.0.88(zod@4.4.3)
       '@ai-sdk/openai-compatible': 2.0.62(zod@4.4.3)
-      '@braedonsaunders/appkit-egress-proxy': 0.2.0
+      '@braedonsaunders/appkit-egress-proxy': 0.2.1
       ai: 6.0.236(zod@4.4.3)
       zod: 4.4.3
     optionalDependencies:
-      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui': 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
@@ -8154,7 +8150,7 @@ snapshots:
       - sql.js
       - sqlite3
 
-  '@braedonsaunders/appkit-apps@2.0.0(@babel/runtime@7.29.7)(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@braedonsaunders/appkit-apps@2.0.0(@babel/runtime@7.29.7)(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@braedonsaunders/appkit-endpoints': 0.1.1
       '@codemirror/lang-css': 6.3.1
@@ -8166,7 +8162,7 @@ snapshots:
       zod: 4.4.3
     optionalDependencies:
       '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
-      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui': 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
@@ -8185,7 +8181,7 @@ snapshots:
   '@braedonsaunders/appkit-auth@0.1.3(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(drizzle-kit@0.31.10)(kysely@0.29.4)(next@16.3.4(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@22.20.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
     dependencies:
       '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
-      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui': 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       better-auth: 1.6.25(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(next@16.3.4(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@22.20.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.51.0))(pg@8.22.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
       pg: 8.22.0
@@ -8236,13 +8232,13 @@ snapshots:
       - vitest
       - vue
 
-  '@braedonsaunders/appkit-avatars@1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(framer-motion@12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)':
+  '@braedonsaunders/appkit-avatars@1.0.0(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(framer-motion@12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)':
     dependencies:
       '@ai-sdk/google': 3.0.101(zod@4.4.3)
       '@ai-sdk/openai': 3.0.88(zod@4.4.3)
       ai: 6.0.236(zod@4.4.3)
     optionalDependencies:
-      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui': 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       framer-motion: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
@@ -8287,11 +8283,11 @@ snapshots:
       - sql.js
       - sqlite3
 
-  '@braedonsaunders/appkit-design-studio@1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
+  '@braedonsaunders/appkit-design-studio@1.0.0(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
     dependencies:
       '@braedonsaunders/appkit-tokens': 0.1.2(tailwindcss@4.3.3)
     optionalDependencies:
-      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui': 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
@@ -8302,7 +8298,7 @@ snapshots:
 
   '@braedonsaunders/appkit-editor@0.2.2(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
     dependencies:
-      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui': 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@tiptap/extension-link': 3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)
       '@tiptap/extension-placeholder': 3.31.3(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))
       '@tiptap/extension-table': 3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)
@@ -8320,9 +8316,7 @@ snapshots:
       - '@types/react-dom'
       - tailwindcss
 
-  '@braedonsaunders/appkit-egress-proxy@0.1.1': {}
-
-  '@braedonsaunders/appkit-egress-proxy@0.2.0': {}
+  '@braedonsaunders/appkit-egress-proxy@0.2.1': {}
 
   '@braedonsaunders/appkit-email-designer@0.2.0(@grapesjs/react@2.0.0(grapesjs@0.22.16)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@noble/hashes@2.2.0)(grapesjs@0.22.16)(juice@12.1.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
@@ -8409,11 +8403,11 @@ snapshots:
       - canvas
       - tailwindcss
 
-  '@braedonsaunders/appkit-forms-pdf@2.0.0(@braedonsaunders/appkit-design-studio@1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@braedonsaunders/appkit-pdf@0.1.1(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)':
+  '@braedonsaunders/appkit-forms-pdf@2.0.0(@braedonsaunders/appkit-design-studio@1.0.0(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@braedonsaunders/appkit-pdf@0.1.1(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)':
     dependencies:
       '@braedonsaunders/appkit-tokens': 0.1.2(tailwindcss@4.3.3)
     optionalDependencies:
-      '@braedonsaunders/appkit-design-studio': 1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-design-studio': 1.0.0(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@braedonsaunders/appkit-pdf': 0.1.1(isomorphic-dompurify@3.19.0(@noble/hashes@2.2.0))(puppeteer-core@25.4.0)(tailwindcss@4.3.3)
       puppeteer-core: 25.4.0
     transitivePeerDependencies:
@@ -8425,7 +8419,7 @@ snapshots:
       '@braedonsaunders/appkit-forms-core': 0.1.1(@noble/hashes@2.2.0)
       '@braedonsaunders/appkit-i18n': 0.1.1
       '@braedonsaunders/appkit-tokens': 0.1.2(tailwindcss@4.3.3)
-      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui': 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@excalidraw/excalidraw': 0.18.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       framer-motion: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       lucide-react: 1.27.0(react@19.2.8)
@@ -8447,19 +8441,19 @@ snapshots:
 
   '@braedonsaunders/appkit-i18n@0.1.1': {}
 
-  '@braedonsaunders/appkit-iam@2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-tenant@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@braedonsaunders/appkit-iam@2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-tenant@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     optionalDependencies:
       '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
       '@braedonsaunders/appkit-tenant': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
-      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui': 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
-  '@braedonsaunders/appkit-jobs@0.2.2(@noble/hashes@2.2.0)':
+  '@braedonsaunders/appkit-jobs@0.2.4(@noble/hashes@2.2.0)':
     dependencies:
-      '@braedonsaunders/appkit-egress-proxy': 0.1.1
+      '@braedonsaunders/appkit-egress-proxy': 0.2.1
       '@braedonsaunders/appkit-email-render': 0.1.1(@noble/hashes@2.2.0)
       bullmq: 5.81.2
       ioredis: 5.11.1
@@ -8470,22 +8464,22 @@ snapshots:
       - redis
       - supports-color
 
-  '@braedonsaunders/appkit-mailbox@1.0.0(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@braedonsaunders/appkit-mailbox@1.0.0(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       imapflow: 1.6.1
       mailparser: 3.9.14
       nodemailer: 9.1.0
     optionalDependencies:
-      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui': 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
-  '@braedonsaunders/appkit-notifications@2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-jobs@0.2.2(@noble/hashes@2.2.0))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@braedonsaunders/appkit-notifications@2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-jobs@0.2.4(@noble/hashes@2.2.0))(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     optionalDependencies:
       '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
-      '@braedonsaunders/appkit-jobs': 0.2.2(@noble/hashes@2.2.0)
-      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-jobs': 0.2.4(@noble/hashes@2.2.0)
+      '@braedonsaunders/appkit-ui': 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
@@ -8527,7 +8521,7 @@ snapshots:
 
   '@braedonsaunders/appkit-scene@1.0.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
     dependencies:
-      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui': 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       framer-motion: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
@@ -8535,7 +8529,7 @@ snapshots:
       - '@emotion/is-prop-valid'
       - tailwindcss
 
-  '@braedonsaunders/appkit-scripts@2.0.0(@babel/runtime@7.29.7)(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@braedonsaunders/appkit-scripts@2.0.0(@babel/runtime@7.29.7)(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@codemirror/autocomplete@6.20.3)(@codemirror/language@6.12.4)(@codemirror/lint@6.9.7)(@codemirror/search@6.7.1)(@codemirror/state@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@codemirror/view@6.43.7)(codemirror@6.0.2)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@braedonsaunders/appkit-sandbox': 0.1.0
       '@codemirror/lang-javascript': 6.2.5
@@ -8543,7 +8537,7 @@ snapshots:
       cron-parser: 4.9.0
     optionalDependencies:
       '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
-      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui': 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
@@ -8563,20 +8557,20 @@ snapshots:
     dependencies:
       '@braedonsaunders/appkit-crypto': 0.3.0
 
-  '@braedonsaunders/appkit-storage@1.0.1(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@braedonsaunders/appkit-storage@1.0.1(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@aws-sdk/client-s3': 3.1096.0
       '@aws-sdk/s3-request-presigner': 3.1096.0
     optionalDependencies:
-      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui': 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
-  '@braedonsaunders/appkit-superadmin@1.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@braedonsaunders/appkit-superadmin@1.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     optionalDependencies:
       '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
-      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui': 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
       lucide-react: 1.27.0(react@19.2.8)
       react: 19.2.8
@@ -8627,7 +8621,7 @@ snapshots:
     dependencies:
       tailwindcss: 4.3.3
 
-  '@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
+  '@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
     dependencies:
       '@braedonsaunders/appkit-tokens': 0.1.2(tailwindcss@4.3.3)
       class-variance-authority: 0.7.1
@@ -8645,12 +8639,12 @@ snapshots:
     dependencies:
       livekit-server-sdk: 2.17.0
 
-  '@braedonsaunders/appkit-workflows@2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-forms-core@0.1.1(@noble/hashes@2.2.0))(@braedonsaunders/appkit-forms@0.2.2(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@braedonsaunders/appkit-ui@0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@xyflow/react@12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@braedonsaunders/appkit-workflows@2.0.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(@braedonsaunders/appkit-forms-core@0.1.1(@noble/hashes@2.2.0))(@braedonsaunders/appkit-forms@0.2.2(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(@xyflow/react@12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     optionalDependencies:
       '@braedonsaunders/appkit-db': 0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)
       '@braedonsaunders/appkit-forms': 0.2.2(@floating-ui/dom@1.8.0)(@noble/hashes@2.2.0)(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@braedonsaunders/appkit-forms-core': 0.1.1(@noble/hashes@2.2.0)
-      '@braedonsaunders/appkit-ui': 0.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+      '@braedonsaunders/appkit-ui': 0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@xyflow/react': 12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       drizzle-orm: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
       lucide-react: 1.27.0(react@19.2.8)

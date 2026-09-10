@@ -3,6 +3,7 @@ import { runTsx } from './run-tsx.mjs'
 const tests = [
   'authorization',
   'redaction',
+  'pg-json',
   'governance',
   'approval-presentation',
   'compaction',
