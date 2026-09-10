@@ -530,36 +530,6 @@ function ThreadNoticeBar({ messages }: { messages: ChatMessageRecord[] }) {
   )
 }
 
-/**
- * A turn this pane is not streaming, but which is still running.
- *
- * A governed run is real work and outlives its reader: Stop detaches a stream,
- * it never cancels the run, and neither does a dropped connection or a reload.
- * The panel draws a thinking indicator only while IT owns the stream, so
- * without this the reader of a reloaded — or cut-off — conversation sees their
- * own question, no answer, and nothing at all to say the agent is still on it.
- * The durable dispatch is the authority for "still working", and the answer
- * appears here by itself when the run records it.
- */
-function RunningTurnNotice({ personName, onShowWork }: { personName: string; onShowWork: () => void }) {
-  return (
-    <div
-      role="status"
-      className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-surface-hover px-4 py-2 text-xs text-fg-muted"
-    >
-      <span className="flex min-w-0 items-center gap-2">
-        <Loader2 aria-hidden className="size-3.5 shrink-0 animate-spin" />
-        <span className="truncate">
-          {personName} is still working on this. The answer appears here when it lands — nothing has been lost.
-        </span>
-      </span>
-      <button type="button" className="shrink-0 font-medium text-primary hover:underline" onClick={onShowWork}>
-        Show work
-      </button>
-    </div>
-  )
-}
-
 function ContinuationNotice({ originThreadId, onOpen }: { originThreadId: string | null; onOpen: (id: string) => void }) {
   if (!originThreadId) return null
   return (
@@ -1441,9 +1411,6 @@ export function AgentChatWorkspace({
         <>
           <ContinuationNotice originThreadId={detail.thread.originThreadId} onOpen={(id) => void load(id)} />
           <ThreadNoticeBar messages={detail.messages} />
-          {queueUi.state === 'running' && !streamingTurn ? (
-            <RunningTurnNotice personName={detail.thread.personName} onShowWork={() => setDeskChoice(true)} />
-          ) : null}
           <AgentPanel
             // Keyed by the thread: the panel seeds its transcript once, so a
             // different conversation has to be a different panel.
@@ -1456,6 +1423,10 @@ export function AgentChatWorkspace({
             // streaming the turn — the work in progress read back from the
             // ledger, so arriving mid-turn shows the same calls a streaming
             // reader is watching instead of an empty conversation.
+            // A turn running in a worker is still a turn in flight: the panel
+            // shows its own thinking indicator for it rather than this pane
+            // explaining in a banner that something is happening elsewhere.
+            working={queueUi.state === 'running' && !streamingTurn}
             initialMessages={[
               ...detail.messages.map((message) => toAgentMessage(message, detail.messages, detail.credentialRequests, detail.approvals)),
               ...(detail.liveTurn && !streamingTurn ? [liveTurnMessage(detail.liveTurn)] : []),

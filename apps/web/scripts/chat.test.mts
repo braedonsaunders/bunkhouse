@@ -859,11 +859,21 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     'a request that died in flight may still have opened a run, so the projection is read rather than assumed empty',
   )
 
-  // The reader of a reloaded conversation must be told the work continues.
-  assert.ok(workspace.includes('<RunningTurnNotice'), 'a running turn this pane is not streaming is still visible')
+  // A turn running elsewhere is shown as a turn, in the transcript, where the
+  // reader is already looking. It was briefly a banner beside the conversation
+  // promising the answer would appear when it landed — reported as "garbage UI,
+  // should show at the bottom like regular work", and rightly: nobody reads
+  // beside the transcript, and a promise of a future answer is not progress. It
+  // also carried a second "Show work" button that duplicated the header's.
+  assert.equal(workspace.includes('RunningTurnNotice'), false, 'no banner stands in for the work itself')
+  assert.equal(workspace.includes('Follow along'), false, 'and no duplicate control beside it')
   assert.ok(
-    workspace.includes("queueUi.state === 'running' && !streamingTurn"),
-    'the notice is driven by the durable dispatch, and stands down while the panel streams its own turn',
+    workspace.includes("working={queueUi.state === 'running' && !streamingTurn}"),
+    'the panel is told a turn is in flight so it shows its own indicator, driven by the durable dispatch',
+  )
+  assert.ok(
+    workspace.includes('detail.liveTurn && !streamingTurn ? [liveTurnMessage(detail.liveTurn)]'),
+    'and the work itself is appended to the transcript rather than described next to it',
   )
   assert.ok(
     workspace.includes('const [streamingTurn, setStreamingTurn]'),

@@ -74,6 +74,29 @@ import {
 
 const CHAT_PATH = '/chat'
 
+/**
+ * The sentence a reader is allowed to see.
+ *
+ * These actions surfaced `error.message` directly, and a driver error's message
+ * carries the failed statement with it — so a unique-constraint violation on the
+ * queue reached the screen as raw SQL about updating `chat_dispatches`. That is
+ * not an explanation, it is an implementation detail with a stack trace's
+ * manners, and the reader can do nothing with it.
+ *
+ * Anything this codebase authored is written for a person and passes through.
+ * Anything that smells like it came from the database is replaced by the
+ * caller's own sentence; the real text still reaches the server log, where
+ * somebody can act on it.
+ */
+function readerSafeError(reason: unknown, fallback: string): string {
+  if (!(reason instanceof Error) || !reason.message) return fallback
+  if (/failed query|duplicate key|violates|constraint|syntax error|relation "/i.test(reason.message)) {
+    console.error('[chat] suppressed a database error from the reader:', reason.message)
+    return fallback
+  }
+  return reason.message
+}
+
 function chatRequesterFor(access: TenantAccess): ChatRequester {
   return {
     name: access.user.name.trim() || access.user.email,
@@ -406,7 +429,7 @@ export async function removeQueuedMessageAction(
     revalidatePath(CHAT_PATH)
     return { dispatch }
   } catch (reason) {
-    return { error: reason instanceof Error ? reason.message : 'That queued message could not be removed.' }
+    return { error: readerSafeError(reason, 'That queued message could not be removed.') }
   }
 }
 
@@ -420,7 +443,7 @@ export async function retryQueuedMessageAction(
     revalidatePath(CHAT_PATH)
     return { dispatch }
   } catch (reason) {
-    return { error: reason instanceof Error ? reason.message : 'That queued message could not be retried.' }
+    return { error: readerSafeError(reason, 'That queued message could not be retried.') }
   }
 }
 
@@ -442,7 +465,7 @@ export async function sendQueuedMessageNowAction(
     revalidatePath(CHAT_PATH)
     return { dispatch }
   } catch (reason) {
-    return { error: reason instanceof Error ? reason.message : 'That queued message could not be sent yet.' }
+    return { error: readerSafeError(reason, 'That queued message could not be sent yet.') }
   }
 }
 
@@ -499,7 +522,7 @@ export async function setThreadStatusAction(
     revalidatePath(CHAT_PATH)
     return { ok: true, status }
   } catch (reason) {
-    return { error: reason instanceof Error ? reason.message : 'That conversation could not be changed.' }
+    return { error: readerSafeError(reason, 'That conversation could not be changed.') }
   }
 }
 
