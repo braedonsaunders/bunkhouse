@@ -15,10 +15,23 @@ export const DESK_POLICY_KEY = 'desk.policy'
 export const FEATURES_KEY = 'company.features'
 
 export type DeskPolicy = {
-  /** How long one lease keeps a desk resident before it must be renewed. */
+  /**
+   * How long one lease keeps a desk resident before it must be renewed.
+   *
+   * The desk host parks a desk at whichever comes first, its lease deadline or
+   * its idle deadline (`deadlines = [leaseDeadline, lastActivityAt + idle]` in
+   * appkit-desk). So this is a ceiling on residency, not merely a liveness
+   * check, and setting it below the idle window makes the idle window dead —
+   * which is exactly what happened: the lease was fifteen minutes against a
+   * forty-five minute idle window, so a desk was parked seventeen minutes after
+   * the run that leased it and cold booted again on the next occurrence, while
+   * the idle setting that was supposed to prevent that did nothing.
+   *
+   * Keep it above `BUNKHOUSE_DESK_IDLE_MS` on the desk host so inactivity is
+   * what parks a desk and this stays what it reads as: the safety net that
+   * reclaims a desk whose owner died mid-run.
+   */
   leaseMs: number
-  /** Idle this long and the desk suspends — the VM stops, the disk persists. */
-  idleSuspendMs: number
   /** Hard cap on concurrently resident desks. Size against SCREEN-OPEN desks. */
   concurrencyCap: number
   /** Queue depth past which the operator surface should alert (§3.15). */
@@ -34,8 +47,9 @@ export type DeskPolicy = {
 }
 
 export const DEFAULT_DESK_POLICY: DeskPolicy = {
-  leaseMs: 15 * 60_000,
-  idleSuspendMs: 5 * 60_000,
+  // Above the desk host's idle window, so inactivity parks a desk rather than
+  // the lease expiring under work that is still arriving on a schedule.
+  leaseMs: 60 * 60_000,
   concurrencyCap: 8,
   queueAlertDepth: 3,
   screenStepCeiling: 40,
@@ -55,7 +69,6 @@ export function resolveDeskPolicy(value: Partial<DeskPolicy> | null | undefined)
   const policy = { ...DEFAULT_DESK_POLICY, ...(value ?? {}) }
   return {
     leaseMs: boundedInteger(policy.leaseMs, 60_000, 4 * 60 * 60_000, 'Desk lease duration'),
-    idleSuspendMs: boundedInteger(policy.idleSuspendMs, 30_000, 60 * 60_000, 'Desk idle suspend'),
     concurrencyCap: boundedInteger(policy.concurrencyCap, 1, 64, 'Desk concurrency cap'),
     queueAlertDepth: boundedInteger(policy.queueAlertDepth, 1, 64, 'Desk queue alert depth'),
     screenStepCeiling: boundedInteger(policy.screenStepCeiling, 5, 200, 'Screen session step ceiling'),

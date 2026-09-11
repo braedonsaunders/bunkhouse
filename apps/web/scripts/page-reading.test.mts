@@ -407,9 +407,21 @@ console.log('page reading: fetched, visited, described, and honest when nothing 
   // The one that actually happened: a broken mailbox an agent decided to fix
   // itself, a day of NetSuite queries, every run its own root so no per-ask
   // ceiling ever applied.
+  //
+  // This used to assert the day cap was SMALLER than one ask's ceiling, which
+  // held at a dollar against three and was a category error either way: one
+  // bounds a single request, the other bounds a whole day across every lane an
+  // agent runs for itself. At a dollar it stopped measuring cost and started
+  // measuring the first hour — a fifteen-minute watch lane spent it before
+  // 00:15 and was then skipped for eleven hours, forty-five occurrences, with
+  // nothing on the duty to say why. So the two real bounds are stated instead.
   assert.ok(
-    MAX_SELF_DIRECTED_USD_PER_DAY > 0 && MAX_SELF_DIRECTED_USD_PER_DAY < MAX_SPEND_PER_ROOT_USD,
-    'work nobody asked for gets a smaller allowance than work somebody did',
+    MAX_SELF_DIRECTED_USD_PER_DAY < 53,
+    'still well under the runaway that caused this — a day of unasked work at $53',
+  )
+  assert.ok(
+    MAX_SELF_DIRECTED_USD_PER_DAY >= 5,
+    'and above a full day of legitimate continuous watching, measured at $1.30',
   )
   console.log(
     `provenance: one ask may spend $${MAX_SPEND_PER_ROOT_USD} across ${MAX_DERIVED_RUNS_PER_ROOT} runs; unasked work $${MAX_SELF_DIRECTED_USD_PER_DAY}/day`,

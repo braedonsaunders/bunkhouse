@@ -453,32 +453,76 @@ async function enableForwarding(): Promise<void> {
   }
 }
 
-async function installEgressRules(tap: string, guest: string): Promise<void> {
-  for (const { table, parent, chain, jumps, rules } of deskRules(tap, guest)) {
-    if (!(await succeeds('iptables', ['-t', table, '-N', chain]))) {
-      await run('iptables', ['-t', table, '-F', chain])
-    }
-    for (const rule of rules) await run('iptables', ['-t', table, '-A', chain, ...rule])
-    for (const jump of jumps) {
-      const target = [...jump, '-j', chain]
-      if (await succeeds('iptables', ['-t', table, '-C', parent, ...target])) continue
-      // Position 1: docker owns rules in FORWARD, and a desk's default drop
-      // has to be reached before anything of docker's can accept around it.
-      await run('iptables', ['-t', table, '-I', parent, '1', ...target])
-    }
-  }
+/**
+ * One rule installation per tap at a time.
+ *
+ * Filling a chain is several `iptables` processes — create, flush, then one
+ * append per rule — and nothing made that sequence exclusive. Two installations
+ * for the same tap therefore interleaved, and because one of them flushes, the
+ * other's already-appended rules were wiped mid-sequence and re-appended after
+ * rules the first had since added. The result on a live desk:
+ *
+ *   -A bh-fwd-dsk2 -d 1.1.1.1/32 -i dsk2 -p tcp --dport 53 -j ACCEPT
+ *   -A bh-fwd-dsk2 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+ *   -A bh-fwd-dsk2 -j DROP                                   <- evaluation ends
+ *   -A bh-fwd-dsk2 -d 1.1.1.1/32 -i dsk2 -p udp --dport 53 -j ACCEPT
+ *
+ * Six rules where four were intended, with the default DROP reached before the
+ * UDP accept — so UDP DNS was silently dropped inside the guest while TCP:53
+ * kept working. The agent living in there diagnosed exactly that asymmetry and
+ * spent a scheduled tick building a UDP-to-TCP forwarder to get around it.
+ *
+ * It failed closed, which is the one mercy: a stray DROP denies, it does not
+ * leak. But a chain whose order depends on timing is not enforcement, so the
+ * sequence is serialized per tap and the chain is always emptied before it is
+ * refilled rather than only when creation happened to fail.
+ */
+const ruleWork = new Map<string, Promise<void>>()
+
+function serializedByTap(tap: string, work: () => Promise<void>): Promise<void> {
+  const previous = ruleWork.get(tap) ?? Promise.resolve()
+  const next = previous.catch(() => undefined).then(work)
+  // Kept un-rejected so one failure cannot poison every later install for this
+  // tap, while the caller still sees its own error.
+  ruleWork.set(tap, next.catch(() => undefined))
+  return next
 }
 
-async function removeEgressRules(tap: string, guest: string): Promise<void> {
-  for (const { table, parent, chain, jumps } of deskRules(tap, guest)) {
-    for (const jump of jumps) {
-      while (await succeeds('iptables', ['-t', table, '-C', parent, ...jump, '-j', chain])) {
-        if (!(await succeeds('iptables', ['-t', table, '-D', parent, ...jump, '-j', chain]))) break
+async function installEgressRules(tap: string, guest: string): Promise<void> {
+  return serializedByTap(tap, async () => {
+    for (const { table, parent, chain, jumps, rules } of deskRules(tap, guest)) {
+      // Create if missing, then flush unconditionally. Deciding to flush from
+      // whether `-N` failed assumed a brand-new chain is empty, which is true of
+      // a chain nobody else is filling and false of this one; it also left a
+      // half-filled chain behind whenever an install died partway through.
+      await succeeds('iptables', ['-t', table, '-N', chain])
+      await run('iptables', ['-t', table, '-F', chain])
+      for (const rule of rules) await run('iptables', ['-t', table, '-A', chain, ...rule])
+      for (const jump of jumps) {
+        const target = [...jump, '-j', chain]
+        if (await succeeds('iptables', ['-t', table, '-C', parent, ...target])) continue
+        // Position 1: docker owns rules in FORWARD, and a desk's default drop
+        // has to be reached before anything of docker's can accept around it.
+        await run('iptables', ['-t', table, '-I', parent, '1', ...target])
       }
     }
-    await succeeds('iptables', ['-t', table, '-F', chain])
-    await succeeds('iptables', ['-t', table, '-X', chain])
-  }
+  })
+}
+
+/** Teardown shares the install's per-tap turn: a remove racing a fill leaves
+ *  either a chain with no jump or a jump to a chain that no longer exists. */
+async function removeEgressRules(tap: string, guest: string): Promise<void> {
+  return serializedByTap(tap, async () => {
+    for (const { table, parent, chain, jumps } of deskRules(tap, guest)) {
+      for (const jump of jumps) {
+        while (await succeeds('iptables', ['-t', table, '-C', parent, ...jump, '-j', chain])) {
+          if (!(await succeeds('iptables', ['-t', table, '-D', parent, ...jump, '-j', chain]))) break
+        }
+      }
+      await succeeds('iptables', ['-t', table, '-F', chain])
+      await succeeds('iptables', ['-t', table, '-X', chain])
+    }
+  })
 }
 
 /**
@@ -557,11 +601,28 @@ async function verifyNetAdmin(): Promise<void> {
   }
 }
 
+/** Warned once per process: the lease/idle inversion is a config fact, not an event. */
+let warnedShortLease = false
+
 async function ensureDesk(
   deskId: string,
   options: { memoryMb?: number; vcpus?: number; leaseMs?: number },
 ): Promise<DeskEntry> {
   if (!host) throw new Error(refusalReason ?? 'This host cannot serve desks.')
+  // A desk is parked at whichever deadline comes first, lease or idle. So a
+  // lease shorter than the idle window makes the idle window unreachable, and
+  // the symptom is invisible from both ends: desks park on a timer nobody
+  // configured, agents read the resulting cold boots as host instability, and
+  // the idle setting that was supposed to prevent it sits there looking correct.
+  // Lived through exactly once, which is once more than necessary.
+  if (options.leaseMs && options.leaseMs < IDLE_SUSPEND_MS && !warnedShortLease) {
+    warnedShortLease = true
+    console.warn(
+      `[desk] lease ${options.leaseMs}ms is shorter than the ${IDLE_SUSPEND_MS}ms idle window, `
+      + 'so desks will be parked by lease expiry and the idle window has no effect. '
+      + 'Raise the tenant desk policy leaseMs above BUNKHOUSE_DESK_IDLE_MS.',
+    )
+  }
   const existing = desks.get(deskId)
   if (existing) {
     try {
