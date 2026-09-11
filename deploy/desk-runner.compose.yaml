@@ -118,15 +118,26 @@ volumes:
 
 services:
   desk-runner:
-    # Built from the app image plus the VMM tooling (cloud-hypervisor + qemu-img)
-    # that the app image deliberately omits — see deploy/desk-runner.Dockerfile.
-    # This is the only service that maps /dev/kvm and spawns microVMs.
-    build:
-      context: ..
-      dockerfile: deploy/desk-runner.Dockerfile
-      args:
-        BUNKHOUSE_IMAGE: ${BUNKHOUSE_IMAGE:-ghcr.io/braedonsaunders/bunkhouse}
-        BUNKHOUSE_TAG: ${BUNKHOUSE_TAG:-latest}
+    # The app image plus the VMM tooling it deliberately omits (cloud-hypervisor
+    # + qemu-img) — see deploy/desk-runner.Dockerfile. The only service that maps
+    # /dev/kvm and spawns microVMs.
+    #
+    # PULLED, NOT BUILT, and that is the point of this line.
+    #
+    # This used to be `build: { context: .., dockerfile: ... }`, which meant the
+    # desk host needed a checkout of the repo to deploy at all. In practice that
+    # became a source tree rsync'd to /opt/bunkhouse-src by hand and a
+    # `docker compose up` run over SSH, so the runner was the one component with
+    # no pipeline: it drifted behind the app for three weeks, a merged fix to
+    # scripts/desk-runner.mts was live nowhere, and every recreate silently
+    # reverted whatever environment the last person had exported.
+    #
+    # Now CI builds this image beside the app image, from the same commit and
+    # under the same tag, and the desk host only ever pulls. The host needs no
+    # source, no build toolchain and no repo credentials — it already pulls the
+    # app image for the egress proxy below, so this is not a new capability.
+    image: ${BUNKHOUSE_DESK_IMAGE:-ghcr.io/braedonsaunders/bunkhouse-desk-runner}:${BUNKHOUSE_TAG:-latest}
+    pull_policy: always
     # The guest disk assets (base.raw + vmlinux) are produced by
     # deploy/desk-image/build-golden-image.sh and live in the agent-disks
     # volume; per-desk overlays are raw reflink copies of base.raw.

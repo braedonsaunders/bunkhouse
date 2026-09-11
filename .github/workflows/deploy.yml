@@ -52,6 +52,19 @@ permissions:
 
 env:
   IMAGE_NAME: ghcr.io/braedonsaunders/bunkhouse
+  # The desk runner is the app image plus a hypervisor — a separate IMAGE,
+  # because only one container may boot microVMs and the rest must not be able
+  # to, but deliberately a tag of the SAME PACKAGE rather than a package of its
+  # own.
+  #
+  # The desk host pulls anonymously: `ghcr.io/braedonsaunders/bunkhouse` was
+  # made public, which is why that host needs no registry credentials for the
+  # egress proxy. A brand-new GHCR package is PRIVATE by default and can only be
+  # made public by hand afterwards — so a second package would have meant the
+  # first deploy failing to pull on the host, which is precisely the kind of
+  # one-time manual step that left this component undeployed for three weeks.
+  # Sharing the package inherits its visibility and needs no new secret.
+  DESK_TAG_SUFFIX: -desk
 
 jobs:
   check:
@@ -207,7 +220,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v7
+      - name: Build and push the app image
+        uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.contextReleaseTag != '' && '/tmp/bunkhouse-deploy-context' || '.' }}
           platforms: linux/amd64
@@ -215,6 +229,29 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
             ${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max,ignore-error=true
+
+      # Strictly after the app image: this one FROMs it by tag, so it can only be
+      # built once that tag exists in the registry. Same commit, same tag — the
+      # app and the runner can never be a version apart again, which is the whole
+      # reason this step exists rather than a person rebuilding it on the host.
+      #
+      # amd64 only, deliberately: it boots microVMs on /dev/kvm and there is no
+      # arm64 desk host to serve.
+      - name: Build and push the desk-runner image
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.contextReleaseTag != '' && '/tmp/bunkhouse-deploy-context' || '.' }}
+          file: ${{ inputs.contextReleaseTag != '' && '/tmp/bunkhouse-deploy-context' || '.' }}/deploy/desk-runner.Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            BUNKHOUSE_IMAGE=${{ env.IMAGE_NAME }}
+            BUNKHOUSE_TAG=${{ steps.image-tag.outputs.tag }}
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}${{ env.DESK_TAG_SUFFIX }}
+            ${{ env.IMAGE_NAME }}:latest${{ env.DESK_TAG_SUFFIX }}
           cache-from: type=gha
           cache-to: type=gha,mode=max,ignore-error=true
 
@@ -255,6 +292,16 @@ jobs:
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin >/dev/null
           docker manifest inspect "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null
           echo "Verified prebuilt image ${IMAGE_NAME}:${IMAGE_TAG}"
+          # The runner image is deployed from the same tag, so a redeploy of a
+          # tag built before the runner had its own image would point the desk
+          # host at something that does not exist. Fail here, where it reads as a
+          # missing artifact, rather than on the host as a pull error.
+          if docker manifest inspect "${IMAGE_NAME}:${IMAGE_TAG}${DESK_TAG_SUFFIX}" >/dev/null 2>&1; then
+            echo "Verified prebuilt desk-runner image ${IMAGE_NAME}:${IMAGE_TAG}${DESK_TAG_SUFFIX}"
+          else
+            echo "::error title=No desk-runner image for this tag::${IMAGE_NAME}:${IMAGE_TAG}${DESK_TAG_SUFFIX} does not exist. Redeploy a tag built after the desk runner became a CI artifact, or rebuild this one."
+            exit 1
+          fi
 
       - name: Point Dokploy at the new image tag
         env:
@@ -416,7 +463,7 @@ jobs:
             # nowhere. Drift this consequential must not be silent, so it is a
             # warning annotation now rather than a log line.
             if [ -n "${DESK_URL:-}" ]; then
-              echo "::warning title=Desk runner is drifting::The app is configured with BUNKHOUSE_DESK_URL=${DESK_URL} but DOKPLOY_DESK_COMPOSE_ID is unset, so the desk runner was NOT moved to ${NEW_TAG}. Changes to apps/web/scripts/desk-runner.mts are not live. Update the desk host by hand, or set DOKPLOY_DESK_COMPOSE_ID so this step can do it."
+              echo "::warning title=Desk runner is drifting::The app is configured with BUNKHOUSE_DESK_URL=${DESK_URL} but DOKPLOY_DESK_COMPOSE_ID is unset, so the desk runner was NOT moved to ${NEW_TAG}. Changes to apps/web/scripts/desk-runner.mts are not live. The image exists — ${IMAGE_NAME}:${NEW_TAG}${DESK_TAG_SUFFIX} was just pushed — so all that is missing is a Dokploy compose application on the desk host and its id in DOKPLOY_DESK_COMPOSE_ID. See docs/desk-runner-deployment.md."
             else
               echo "No desk runner configured (DOKPLOY_DESK_COMPOSE_ID unset, no BUNKHOUSE_DESK_URL) — nothing to update."
             fi
