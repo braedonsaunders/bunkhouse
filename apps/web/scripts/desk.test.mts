@@ -484,4 +484,51 @@ function build(runId: string) {
   assert.equal(/idleSuspend/.test(ui), false, 'and no operator-facing box for it')
 }
 
+
+// --- a chain whose order depends on timing is not enforcement ----------------
+//
+// Filling a per-desk chain is several iptables processes (create, flush, one
+// append per rule) and nothing made that exclusive. Two installs for the same
+// tap interleaved, and because one flushes, the other's appended rules were
+// wiped mid-sequence and re-appended AFTER rules the first had since added.
+// Observed on a live desk: six rules where four were intended, with the default
+// DROP third, ahead of the UDP:53 ACCEPT.
+//
+// So UDP DNS was silently dropped inside the guest while TCP:53 kept working,
+// and the agent living there diagnosed exactly that asymmetry and spent a
+// scheduled tick building a UDP-to-TCP forwarder around it. Fail-closed, so
+// nothing leaked — but order that depends on scheduling is not a rule set.
+{
+  const { readFileSync } = await import('node:fs')
+  const runner = readFileSync(new URL('./desk-runner.mts', import.meta.url), 'utf8')
+  const install = runner.slice(runner.indexOf('async function installEgressRules'))
+  const body = install.slice(0, install.indexOf('\nasync function removeEgressRules'))
+
+  assert.match(body, /serializedByTap\(tap/, 'installs for one tap take turns')
+  // The flush must be unconditional: gating it on `-N` failing assumed a fresh
+  // chain is empty, which is false while something else is filling it, and left
+  // half-filled chains behind when an install died partway through.
+  assert.match(body, /await run\('iptables', \['-t', table, '-F', chain\]\)/, 'the chain is always emptied first')
+  assert.equal(
+    /if \(!\(await succeeds\('iptables', \['-t', table, '-N', chain\]\)\)\)/.test(body),
+    false,
+    'and the flush is no longer conditional on creation having failed',
+  )
+  // Teardown shares the turn, or a remove racing a fill orphans a jump.
+  const remove = runner.slice(runner.indexOf('async function removeEgressRules'))
+  assert.match(remove.slice(0, 600), /serializedByTap\(tap/, 'teardown takes the same turn')
+
+  // The rule set itself must never place a terminal DROP before an ACCEPT it is
+  // meant to sit behind — that is the shape the race produced by accident.
+  const rulesFn = runner.slice(runner.indexOf('function deskRules'), runner.indexOf('async function installEgressRules'))
+  for (const chainName of ['bh-in-', 'bh-fwd-']) {
+    const block = rulesFn.slice(rulesFn.indexOf(`${chainName}$`))
+    const rules = block.slice(0, block.indexOf('},'))
+    const dropAt = rules.indexOf("'-j', 'DROP'")
+    const lastAccept = rules.lastIndexOf("'-j', 'ACCEPT'")
+    assert.ok(dropAt > -1 && lastAccept > -1, `${chainName} has both accepts and a drop`)
+    assert.ok(dropAt > lastAccept, `${chainName} reaches every ACCEPT before its DROP`)
+  }
+}
+
 console.log('desk: fail-closed support, ledgered shell, recorded escalation, bounded screen, idempotent takeover, split dials')
