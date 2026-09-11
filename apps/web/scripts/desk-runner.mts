@@ -92,6 +92,17 @@ const CAPACITY = Number(process.env.BUNKHOUSE_DESK_CAPACITY ?? 8)
  * interval (see deploy/desk-runner.compose.yaml).
  */
 const IDLE_SUSPEND_MS = Number(process.env.BUNKHOUSE_DESK_IDLE_MS ?? 5 * 60_000)
+/**
+ * Park desks with their memory rather than shutting them down.
+ *
+ * On by default here — a desk whose process tree does not survive parking is a
+ * desk that cannot host anything continuous, and scheduled work is most of what
+ * runs on these. Switchable because it costs a snapshot the size of guest RAM
+ * per parked desk on BUNKHOUSE_AGENT_DISKS, and a host that is tight on that
+ * volume should be able to turn it off without a deploy.
+ */
+const PARK_WITH_MEMORY = (process.env.BUNKHOUSE_DESK_PARK_WITH_MEMORY ?? 'on') !== 'off'
+
 const BODY_LIMIT_BYTES = 512 * 1024
 const EXEC_RETENTION_MS = 15 * 60_000
 const EVENT_BUFFER_CAP = 1_000
@@ -2436,6 +2447,19 @@ server.listen(PORT, () => {
         idleSuspendMs: IDLE_SUSPEND_MS,
         kernelCmdline: GUEST_KERNEL_CMDLINE,
         backend: deskBackend,
+        // Park with memory, so a parked desk is paused rather than switched off.
+        //
+        // Without it nothing inside the guest survives between runs: an agent
+        // that installs a daemon and believes it is watching something
+        // continuously is wrong about its own machine, and the cold boot on every
+        // scheduled occurrence is — from inside the guest — indistinguishable
+        // from a failing host. One agent reported a hypervisor fault twice, on
+        // two different theories, about a host that had not rebooted in a month.
+        //
+        // Costs a snapshot roughly the size of guest RAM per parked desk on
+        // DISKS_ROOT, which is why appkit-desk leaves it off by default and a
+        // deployment opts in once it has sized for it.
+        parkWithMemory: PARK_WITH_MEMORY,
         ports: {
           // Governance deliberately does NOT live here (spec §3.22): the dial
           // and the feature gate are enforced in bunkhouse's tier before a
