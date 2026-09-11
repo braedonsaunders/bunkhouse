@@ -87,3 +87,29 @@ test('the desk runner is a CI artifact, not something built on its own host', as
   assert.match(deploy, /Desk runner is drifting/)
   assert.match(deploy, /docs\/desk-runner-deployment\.md/, 'pointing at how to close it')
 })
+
+test('the deploy waits for Dokploy before racing it', async () => {
+  const deploy = await readRepo('.github/workflows/deploy.yml')
+
+  // The compose-scoped fallback updates the swarm services directly, so running
+  // it while Dokploy is still deploying the same stack means two deployments
+  // competing. That happened: the step bailed after 60s, Dokploy finished on its
+  // own at 4m49s, both succeeded, and the step still reported failure — a red
+  // pipeline over a green deployment, which is the outcome most likely to get a
+  // real failure ignored.
+  const bail = Number(/\[ "\$latest" = "queued" \] && \[ "\$i" -ge (\d+) \]/.exec(deploy)?.[1])
+  assert.ok(Number.isFinite(bail), 'the queued bail-out states its threshold')
+
+  // The loop sleeps ten seconds per turn, so the threshold is in units of that.
+  const sleepSeconds = Number(/for i in \$\(seq 1 (\d+)\); do\n\s*sleep (\d+)/.exec(deploy)?.[2] ?? 10)
+  const patienceSeconds = bail * sleepSeconds
+  assert.ok(
+    patienceSeconds >= 300,
+    `a ${patienceSeconds}s wait is shorter than Dokploy's observed start latency; the fallback would race it`,
+  )
+
+  // And it must still be inside the loop's own budget, or the fallback is dead
+  // code and a genuinely stuck queue never gets one.
+  const iterations = Number(/for i in \$\(seq 1 (\d+)\); do/.exec(deploy)?.[1])
+  assert.ok(Number.isFinite(iterations) && bail < iterations, 'the fallback is still reachable')
+})

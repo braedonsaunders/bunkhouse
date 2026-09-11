@@ -614,8 +614,24 @@ jobs:
               echo "::warning::Dokploy queue reported an error; trying the compose-scoped fallback."
               break
             fi
-            if [ "$latest" = "queued" ] && [ "$i" -ge 6 ]; then
-              echo "::warning::Dokploy queue has not started after one minute; trying the compose-scoped fallback."
+            # Patience before the fallback, because the fallback RACES Dokploy.
+            #
+            # This used to give up after one minute. Dokploy routinely takes
+            # longer than that to start a queued deployment — measured at 4m49s
+            # on a two-application project — so the common case became: bail at
+            # 60s, update the swarm services directly, and then wait for an image
+            # to become healthy while Dokploy is concurrently deploying the same
+            # stack. Both finished successfully and the step still reported
+            # failure, which is the worst of the three outcomes: a red pipeline
+            # over a green deployment.
+            #
+            # The loop's own budget is ten minutes and it exits the moment the
+            # deployment is done or the live gates pass, so waiting longer here
+            # costs nothing when things are working. Seven and a half minutes
+            # leaves the fallback real time while making it a last resort rather
+            # than the default path.
+            if [ "$latest" = "queued" ] && [ "$i" -ge 45 ]; then
+              echo "::warning::Dokploy queue has not started after seven minutes; trying the compose-scoped fallback."
               break
             fi
           done
