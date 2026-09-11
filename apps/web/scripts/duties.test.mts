@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import {
   firstOccurrence,
   gapMinutes,
-  MAX_SELF_SCHEDULED_REPEATS,
   nextOccurrence,
+  occurrenceAfterSkip,
   scheduledRunLimit,
   ScheduleError,
   type Duty,
@@ -77,19 +77,57 @@ assert.equal(
 // --- bad input surfaces as an operator-readable error ------------------------
 assert.throws(() => firstOccurrence({ scheduleKind: 'cron', schedule: 'not cron' }, NOW), ScheduleError)
 
-// A person's explicit standing routine remains active until cancelled; an
-// employee's own follow-up stays bounded even if the model omits maxRuns.
-assert.equal(scheduledRunLimit({ kind: 'cron', standing: true, standingAllowed: true }), null)
-assert.equal(
-  scheduledRunLimit({ kind: 'cron', standing: false, standingAllowed: false }),
-  MAX_SELF_SCHEDULED_REPEATS,
-)
-assert.equal(scheduledRunLimit({ kind: 'cron', standing: false, standingAllowed: false, maxRuns: 3 }), 3)
-assert.throws(
-  () => scheduledRunLimit({ kind: 'cron', standing: true, standingAllowed: false }),
-  ScheduleError,
-)
-assert.equal(scheduledRunLimit({ kind: 'once', standing: false, standingAllowed: false }), null)
+// --- a run budget is the agent's to set, or nobody's -------------------------
+//
+// A repeat used to be capped at twelve unless a person in the conversation had
+// asked for it — and the cap was applied whether or not anyone had asked for a
+// cap. Two things followed, both bad.
+//
+// The default decided something nobody had decided. A watch lane asked for in
+// plain words stopped after twelve passes, inactive with a null next run, which
+// reads as the platform having lost it. On the live tenant that retired all
+// fifteen of one agent's standing duties.
+//
+// And the exemption was unreachable from the place that needed it: a
+// duty-triggered run is not a conversation, so a lane could only ever renew
+// itself as another bounded twelve. Agents built renewal chains to keep
+// continuous work alive — exactly the behaviour the ceiling was added to prevent
+// — and left a dead `-2`, `-3`, `-4` duty behind on every renewal.
+assert.equal(scheduledRunLimit({ kind: 'cron' }), null, 'no cap unless one is asked for')
+assert.equal(scheduledRunLimit({ kind: 'cron', maxRuns: 3 }), 3, 'and the agent may still choose one')
+assert.equal(scheduledRunLimit({ kind: 'cron', maxRuns: 5_000 }), 5_000, 'with no ceiling over it')
+assert.equal(scheduledRunLimit({ kind: 'once' }), null, 'a one-shot has nothing to bound')
+// Nothing about this decision can throw any more: there is no permission to fail.
+assert.doesNotThrow(() => scheduledRunLimit({ kind: 'cron' }))
+
+// An uncapped recurrence therefore never runs out, however many times it fires.
+assert.notEqual(nextOccurrence(duty({ maxRuns: null, runCount: 10_000 }), NOW), null)
+
+// And the retrofit pass that stamped the old default onto duties already running
+// is gone. Aiming it better was not the fix: the duty is mid-flight, nobody asked
+// for a bound, and the failure is silent and total.
+{
+  const { readFileSync } = await import('node:fs')
+  const { fileURLToPath } = await import('node:url')
+  const worker = readFileSync(fileURLToPath(new URL('./worker.mts', import.meta.url)), 'utf8')
+  assert.equal(
+    /update duties set max_runs/.test(worker),
+    false,
+    'nothing writes a run budget onto a duty that is already running',
+  )
+  const abilities = readFileSync(
+    fileURLToPath(new URL('../src/lib/agent-abilities.ts', import.meta.url)),
+    'utf8',
+  )
+  assert.equal(
+    /allowStandingSchedules|standingAllowed/.test(abilities),
+    false,
+    'an ongoing schedule needs no permission, so the gate is gone rather than defaulted open',
+  )
+  // The tool has to say what the absence of maxRuns means, or the model keeps
+  // guessing a bound — which is how the renewal chains started.
+  assert.match(abilities, /repeats until cancelled/, 'the description states the new default')
+}
 
 // --- the closest an agent may book itself is the platform's real resolution ---
 //
@@ -225,6 +263,38 @@ assert.equal(scheduledRunLimit({ kind: 'once', standing: false, standingAllowed:
     webGrace >= maxDuration,
     `a turn the route allows ${maxDuration}s must not be killed after ${webGrace}s`,
   )
+}
+
+// --- an occurrence that never ran costs the duty nothing ---------------------
+//
+// The schedule still advances — the occurrence is gone and must not fire twice —
+// but the run budget is for runs. The self-directed budget check used to sit past
+// the claim and `return`, so a duty skipped for a spent budget was charged a run
+// for work that was never attempted, on every occurrence until the budget
+// refreshed. A bounded duty could retire having run nothing at all.
+assert.equal(
+  occurrenceAfterSkip(duty({ maxRuns: 12, runCount: 11 }), NOW)?.toISOString(),
+  nextOccurrence(duty({ maxRuns: 12, runCount: 10 }), NOW)?.toISOString(),
+  'skipping is exactly one run cheaper than running',
+)
+// The cap still bites, one step later than it would for a real run.
+assert.notEqual(occurrenceAfterSkip(duty({ maxRuns: 3, runCount: 2 }), NOW), null, 'the 3rd run is still owed')
+assert.equal(nextOccurrence(duty({ maxRuns: 3, runCount: 2 }), NOW), null, 'but after it actually runs, it is spent')
+assert.equal(occurrenceAfterSkip(duty({ maxRuns: 3, runCount: 3 }), NOW), null, 'a spent duty stays spent')
+assert.equal(occurrenceAfterSkip(duty({ maxRuns: null, runCount: 500 }), NOW) !== null, true, 'standing never runs out')
+assert.equal(occurrenceAfterSkip(duty({ scheduleKind: 'once', schedule: at }), NOW), null, 'a one-shot never repeats')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const execution = readFileSync(new URL('../src/lib/duty-execution.ts', import.meta.url), 'utf8')
+  const claim = execution.slice(execution.indexOf('export async function executeDueDuty'))
+  // The decision must precede the write, or the charge has already happened.
+  assert.ok(
+    claim.indexOf('selfDirectedBudget') < claim.indexOf('.update(duties)'),
+    'the budget is consulted before the schedule is written, not after',
+  )
+  assert.match(claim, /anchoring \|\| skipped \? \{\} : \{ lastRunAt/, 'a skipped occurrence increments nothing')
+  assert.match(claim, /skipped \? occurrenceAfterSkip\(duty\) : nextOccurrence\(duty\)/, 'and counts one fewer run')
 }
 
 console.log('duties scheduling: all assertions passed')

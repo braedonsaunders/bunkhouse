@@ -22,7 +22,7 @@ import { authoredSystemAbilities, listAuthoredSystems, proposeAuthoredSystem } f
 import { requestSystemCredential } from './system-credential-requests'
 import { sendNewMail } from './mailbox'
 import { createNote, retrieveNotes, supersedeNote } from './memory'
-import { firstOccurrence, gapMinutes, MAX_SELF_SCHEDULED_REPEATS, scheduledRunLimit } from './duties'
+import { firstOccurrence, gapMinutes, scheduledRunLimit } from './duties'
 import { readWebpage, webSearch } from './research'
 import { documentAbilities } from './documents'
 import { templateAbilities } from './document-templates'
@@ -63,9 +63,16 @@ const MAX_SELF_SCHEDULED_DUTIES = 25
  *
  * Runaway is governed by the things that actually measure it, each consulted
  * every step rather than once at the door: the salary budget, no-progress
- * detection, the step ceiling, and `MAX_SELF_SCHEDULED_REPEATS` bounding how
- * many times an unattended self-booking may fire. A spacing rule was the weakest
- * of those and the only one a person could not see.
+ * detection, the step ceiling, and the spend budget that skips an occurrence and
+ * says which budget it was. A spacing rule was the weakest of those and the only
+ * one a person could not see.
+ *
+ * A twelve-run ceiling on self-booked repeats used to sit here too. It is gone:
+ * it decided something nobody had decided, retired lanes people had asked for in
+ * plain words, and — because a duty-triggered run was never in a context that
+ * could book an ongoing schedule — pushed agents into renewing bounded lanes
+ * forever, which is the behaviour it was added to prevent. A run budget is now
+ * the agent's to set when it wants one.
  *
  * Worth knowing, because it is now reachable: an occurrence is not suppressed
  * while the previous one is still working — `executeDueDuty` advances
@@ -810,7 +817,6 @@ export function schedulingAbilities(args: {
   tenantId: string
   person: PersonRow
   runId: string
-  allowStandingSchedules?: boolean
 }): Ability[] {
   const app = db()
   const { tenantId, person, runId } = args
@@ -818,7 +824,7 @@ export function schedulingAbilities(args: {
     defineAbility({
       name: 'schedule_task',
       description:
-        'Create a durable scheduled duty from this conversation — once at a specific time or on a repeating schedule. When a person explicitly asks for an ongoing routine such as "every morning", set standing=true; it continues until they cancel it. Follow-ups you decide to book yourself must keep standing false and are bounded. Never create a standing routine unless the person actually requested it, and never poll for a colleague\'s answer — colleagues return on their own. Returns the first run time and whether the duty is ongoing.',
+        'Create a durable scheduled duty from this conversation — once at a specific time or on a repeating schedule. A repeating duty runs until it is cancelled; set maxRuns only when the work genuinely has a natural end, such as chasing a reply you expect within a few days. Prefer cancelling a duty you no longer need over letting a run budget expire, and never poll for a colleague\'s answer — colleagues return on their own. Returns the first run time and whether the duty is ongoing.',
       category: 'background_job',
       inputSchema: z.object({
         title: z.string().describe('Short name, e.g. "Chase Acme invoice"'),
@@ -835,20 +841,16 @@ export function schedulingAbilities(args: {
           }),
         ]),
         endsAt: z.string().optional().describe('ISO 8601; a repeating task stops after this.'),
-        standing: z
-          .boolean()
-          .optional()
-          .describe('True only for an ongoing routine the person explicitly requested in this conversation.'),
         maxRuns: z
           .number()
           .int()
           .min(1)
           .optional()
           .describe(
-            `How many times a repeating task may fire. Defaults to ${MAX_SELF_SCHEDULED_REPEATS} and cannot exceed it — say how many times this is genuinely worth checking.`,
+            'How many times a repeating task may fire. Omit it and the task repeats until cancelled, which is what ongoing work wants. Set it only when the work has a natural end and you would rather it stopped than kept going.',
           ),
       }),
-      execute: async ({ title, instruction, when, endsAt, standing, maxRuns }) => {
+      execute: async ({ title, instruction, when, endsAt, maxRuns }) => {
         const open = await app.db
           .select({ id: duties.id })
           .from(duties)
@@ -897,17 +899,10 @@ export function schedulingAbilities(args: {
           }
         }
 
-        let runLimit: number | null
-        try {
-          runLimit = scheduledRunLimit({
-            kind: when.kind,
-            standing: standing === true,
-            standingAllowed: args.allowStandingSchedules === true,
-            ...(maxRuns === undefined ? {} : { maxRuns }),
-          })
-        } catch (error) {
-          return { scheduled: false, reason: (error as Error).message }
-        }
+        const runLimit = scheduledRunLimit({
+          kind: when.kind,
+          ...(maxRuns === undefined ? {} : { maxRuns }),
+        })
 
         const base = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'task'
         const taken = new Set(
@@ -950,7 +945,7 @@ export function schedulingAbilities(args: {
               nextDueAt: nextDueAt.toISOString(),
               maxRuns: runLimit,
             },
-            metadata: { personId: person.id, runId, standing: standing === true },
+            metadata: { personId: person.id, runId, ongoing: runLimit === null },
           })
           return duty
         })
@@ -1272,8 +1267,6 @@ export async function assembleAbilities(args: {
   rootRunId?: string
   /** How many colleagues this work has already passed between before now. */
   handoffDepth?: number
-  /** A human is presently asking, so an explicit ongoing routine may be recorded. */
-  allowStandingSchedules?: boolean
   /** The first-party web conversation that can render secure inline requests. */
   chatThreadId?: string
 }): Promise<{
@@ -1338,12 +1331,7 @@ export async function assembleAbilities(args: {
     // Self-scheduling follows the proactivity dial: an agent set to react only
     // answers what reaches it, and has no business booking its own future work.
     ...((person.proactivity ?? 'duties') !== 'reactive'
-      ? schedulingAbilities({
-          tenantId,
-          person,
-          runId,
-          allowStandingSchedules: args.allowStandingSchedules,
-        })
+      ? schedulingAbilities({ tenantId, person, runId })
       : []),
     ...integrations.abilities,
   ]

@@ -1464,7 +1464,6 @@ export default defineAgent({
         runId: session.runId ?? session.id,
         // Browser calls are authenticated app conversations. A PSTN caller
         // does not gain authority to create an endless background routine.
-        allowStandingSchedules: session.direction === 'web',
         // Work taken on this call anchors to the call, and defaults its
         // delivery to whoever is on the line (web callers carry an email).
         assignmentSource: { kind: 'call', sessionId: session.id },

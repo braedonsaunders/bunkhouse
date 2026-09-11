@@ -969,11 +969,6 @@ export async function executeAgentRun(args: {
         pendingCredentialRequestId: null,
         pendingWait: null,
       }
-      const allowStandingSchedules =
-        args.trigger.type === 'chat' ||
-        (args.trigger.type === 'manual' && Boolean(args.trigger.requestedBy)) ||
-        (args.trigger.type === 'email' && (await threadIsInternal(args.tenantId, args.trigger.threadId)))
-
       // The conversation this run can speak into. A chat turn names its own; a
       // duty is triggered by the clock and has to be told, which is what its
       // provenance is for. Without this second case, work somebody scheduled
@@ -999,7 +994,6 @@ export async function executeAgentRun(args: {
             // every handoff reported itself as the first, so the depth guard
             // only ever saw "1" and never stopped anything.
             handoffDepth,
-            allowStandingSchedules,
             ...(chatThreadId ? { chatThreadId } : {}),
             ...(args.counterparty ? { counterparty: args.counterparty } : {}),
             waitState,

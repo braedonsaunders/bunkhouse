@@ -5,7 +5,6 @@ import { db } from '../src/db/client'
 import { ASSIGNMENT_MAX_STEPS } from '../src/lib/agent-runs'
 import { retireContradictedBeliefs } from '../src/lib/stale-beliefs'
 import { consolidateMemories } from '../src/lib/memory-consolidation'
-import { MAX_SELF_SCHEDULED_REPEATS } from '../src/lib/duties'
 import { approvals, assignments, mailboxAccounts, mailMessages, people, runs, tokenSpend } from '../src/db/schema'
 import { sendNewMail, sendReplyInThread, syncPersonMailbox } from '../src/lib/mailbox'
 import {
@@ -537,32 +536,24 @@ async function consolidateMemoriesAll(): Promise<void> {
  * the note. This is what contradicts it.
  */
 async function staleBeliefsPass(): Promise<void> {
-  // A repeat an agent booked for itself has to be bounded, and the bound has to
-  // apply to the ones already out there — not only to the next one written.
-  // Two hourly duties whose titles were "check whether Dana's note has arrived"
-  // and "re-check whether Dana's note has arrived" went on firing after the
-  // ceiling was added, because the ceiling was only applied at creation and
-  // they had already been created. `maxRuns` was always honoured by the
-  // scheduler; it was simply never set. Standing enforcement rather than a
-  // one-off backfill, so a duty that reaches production without a cap cannot
-  // outlive this pass either. Role-pack duties belong to the role and are left
-  // alone; this is only what an agent booked for itself.
-  const capped = await app.withSuperAdmin((superDb) =>
-    superDb.execute(sql`
-      update duties set max_runs = ${MAX_SELF_SCHEDULED_REPEATS}, updated_at = now()
-      where max_runs is null
-        and schedule_kind = 'cron'
-        and created_by = person_id
-        and from_role_pack_duty is null
-      returning id, title, run_count
-    `),
-  )
-  for (const row of capped.rows) {
-    console.log(
-      `[duties] capped "${row.title}" at ${MAX_SELF_SCHEDULED_REPEATS} runs (it had already fired ${row.run_count})`,
-    )
-  }
-
+  // A pass used to sit here stamping `max_runs = 12` onto every uncapped cron
+  // duty an agent had created. It is gone, and the reason is worth keeping:
+  //
+  // "an agent booked this for itself" was inferred from `max_runs is null and
+  // created_by = person_id`, which is equally the shape of a routine a person
+  // asked for out loud — `schedule_task` records the agent as `created_by`
+  // either way. So the pass retired requested routines. On the live tenant it
+  // capped all fifteen of one agent's standing duties; a one-minute watch lane
+  // was stamped with a cap of 12 after it had already run 176 times, which
+  // retired it on its very next occurrence, and every "24/7" lane in that
+  // account died the same way with nothing anywhere saying so. The agent read
+  // the wreckage and blamed host restarts.
+  //
+  // Retrofitting a bound onto work already running is the part that cannot be
+  // made safe, whatever the predicate: the duty is mid-flight, nobody asked for
+  // a bound, and the failure is silent and total. A run budget is now the
+  // agent's to set when it wants one, and the guardrails that remain are the
+  // ones that fail at booking time or say which budget stopped them.
   for (const tenantId of await activeTenantIds()) {
     const retired = await retireContradictedBeliefs(tenantId).catch((error: unknown) => {
       console.error(`[beliefs] ${tenantId}: ${error instanceof Error ? error.message : String(error)}`)
