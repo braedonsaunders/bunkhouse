@@ -136,7 +136,10 @@ services:
     # under the same tag, and the desk host only ever pulls. The host needs no
     # source, no build toolchain and no repo credentials — it already pulls the
     # app image for the egress proxy below, so this is not a new capability.
-    image: ${BUNKHOUSE_DESK_IMAGE:-ghcr.io/braedonsaunders/bunkhouse-desk-runner}:${BUNKHOUSE_TAG:-latest}
+    # The app package, with this commit's tag plus the `-desk` suffix CI appends.
+    # Deliberately the same package: the desk host pulls anonymously because that
+    # package was made public, and a new GHCR package is private by default.
+    image: ${BUNKHOUSE_IMAGE:-ghcr.io/braedonsaunders/bunkhouse}:${BUNKHOUSE_TAG:-latest}-desk
     pull_policy: always
     # The guest disk assets (base.raw + vmlinux) are produced by
     # deploy/desk-image/build-golden-image.sh and live in the agent-disks
