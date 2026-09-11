@@ -34,7 +34,7 @@
     "@braedonsaunders/appkit-crypto": "^0.3.0",
     "@braedonsaunders/appkit-db": "^0.2.0",
     "@braedonsaunders/appkit-design-studio": "^1.0.0",
-    "@braedonsaunders/appkit-desk": "^0.5.1",
+    "@braedonsaunders/appkit-desk": "^0.6.0",
     "@braedonsaunders/appkit-editor": "^0.2.2",
     "@braedonsaunders/appkit-egress-proxy": "^0.2.1",
     "@braedonsaunders/appkit-email-designer": "^0.2.0",

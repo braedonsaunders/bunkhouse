@@ -53,8 +53,8 @@ importers:
         specifier: ^1.0.0
         version: 1.0.0(@braedonsaunders/appkit-ui@0.2.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       '@braedonsaunders/appkit-desk':
-        specifier: ^0.5.1
-        version: 0.5.1
+        specifier: ^0.6.0
+        version: 0.6.0
       '@braedonsaunders/appkit-editor':
         specifier: ^0.2.2
         version: 0.2.2(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
@@ -786,8 +786,8 @@ packages:
       react-dom:
         optional: true
 
-  '@braedonsaunders/appkit-desk@0.5.1':
-    resolution: {integrity: sha512-8hLYoo8c2zfWQrXsVtveEQ0D71bd0HTkNAColwIW5yyCmxuPD+CW4Rt+zlNgUJwuvGTgukrPd4b8omubV56Gjw==}
+  '@braedonsaunders/appkit-desk@0.6.0':
+    resolution: {integrity: sha512-uVQdoZiEku4q87HCuIUXPg+bSTfnhO4gcrbWTcKjEZ3zxPTFofEXARmc+a1hxrq0usBb21b77dFTpF1a8HTiDw==}
     engines: {node: '>=22'}
 
   '@braedonsaunders/appkit-editor@0.2.2':
@@ -8294,7 +8294,7 @@ snapshots:
     transitivePeerDependencies:
       - tailwindcss
 
-  '@braedonsaunders/appkit-desk@0.5.1': {}
+  '@braedonsaunders/appkit-desk@0.6.0': {}
 
   '@braedonsaunders/appkit-editor@0.2.2(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
     dependencies:
