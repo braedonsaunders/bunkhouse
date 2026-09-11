@@ -76,6 +76,21 @@ const TOKEN = process.env.BUNKHOUSE_DESK_TOKEN ?? ''
 const DISKS_ROOT = process.env.BUNKHOUSE_AGENT_DISKS ?? '/data/agent-disks'
 const SHARED_FOLDER = process.env.BUNKHOUSE_SHARED_FOLDER ?? '/data/shared'
 const CAPACITY = Number(process.env.BUNKHOUSE_DESK_CAPACITY ?? 8)
+/**
+ * How long a desk may sit idle before it is parked — and parking is a full
+ * shutdown, not a pause. `appkit-desk`'s teardown calls `machine.shutdown()` and
+ * keeps only the disk, so whatever leases the desk next COLD BOOTS the guest.
+ *
+ * Worth stating because the consequence is invisible from both sides. Set
+ * shorter than the gap between a duty's occurrences and the machine is shut down
+ * and booted on every tick: nothing inside the guest survives between runs, so an
+ * agent that installs a systemd unit does not have the continuous process it
+ * believes it has, and the boot churn reads from inside the guest exactly like a
+ * failing host. Both halves of that happened in production on the five-minute
+ * default — an agent reported a hypervisor fault and vouched for a watch loop
+ * that had not been running. Deployments set this above their longest lane's
+ * interval (see deploy/desk-runner.compose.yaml).
+ */
 const IDLE_SUSPEND_MS = Number(process.env.BUNKHOUSE_DESK_IDLE_MS ?? 5 * 60_000)
 const BODY_LIMIT_BYTES = 512 * 1024
 const EXEC_RETENTION_MS = 15 * 60_000

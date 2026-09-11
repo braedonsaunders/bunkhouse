@@ -172,6 +172,28 @@ services:
       # The one resolver a guest may reach; 53 is DNAT'd to it and nothing
       # else in the guest can choose otherwise.
       BUNKHOUSE_GUEST_DNS: 1.1.1.1
+      # How long a desk may sit idle before it is parked.
+      #
+      # Parking is a full shutdown, not a pause: appkit-desk's teardown calls
+      # `machine.shutdown()` and keeps the disk, so the next lease COLD BOOTS the
+      # guest. At the five-minute default that happens between every scheduled
+      # run — a duty on */15 leaves ~14 minutes of idle, so the machine is shut
+      # down and booted again on every single tick.
+      #
+      # Two things follow, both seen in production. Nothing inside the guest
+      # survives between runs, so an agent that installs a systemd unit and
+      # believes it has a continuous watch loop is wrong about its own machine:
+      # the daemon is down for most of every interval rather than "recovering
+      # within seconds". And the boot churn is indistinguishable from inside the
+      # guest from host instability — an agent read eight cold boots in one
+      # evening as a failing hypervisor, reported a hardware problem, and
+      # reassured its operator that nothing was at risk on the strength of a
+      # daemon that had not been running.
+      #
+      # 45 minutes keeps a desk resident across a */30 lane with margin. The cost
+      # is one desk's RAM held on the host between runs — 1024 MB by default, per
+      # agent that has work booked, against a capacity of eight.
+      BUNKHOUSE_DESK_IDLE_MS: ${BUNKHOUSE_DESK_IDLE_MS:-2700000}
     volumes:
       - agent-disks:/data/agent-disks
       - shared-folder:/data/shared
