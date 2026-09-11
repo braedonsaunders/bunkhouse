@@ -34,3 +34,43 @@ test('AppKit dependencies resolve from the public registry', async () => {
     assert.doesNotMatch(source, /@appkit\//)
   }
 })
+
+test('the desk runner is a CI artifact, not something built on its own host', async () => {
+  const compose = await readRepo('deploy/desk-runner.compose.yaml')
+  const deploy = await readRepo('.github/workflows/deploy.yml')
+
+  // The whole point. A `build:` here means the desk host needs a source tree to
+  // deploy, which in practice meant a repository rsync'd to /opt/bunkhouse-src
+  // and a `docker compose up` over SSH — so the runner was the one component
+  // with no pipeline. It drifted three weeks behind the app and a merged fix to
+  // desk-runner.mts was live nowhere.
+  assert.equal(/^\s*build:/m.test(compose), false, 'the desk runner is pulled, never built on the host')
+  assert.match(compose, /^\s*image: .*bunkhouse-desk-runner.*|^\s*image: .*\$\{BUNKHOUSE_TAG/m)
+  assert.match(compose, /pull_policy: always/, 'so a redeploy of the same tag still moves')
+
+  // CI has to actually produce the thing the compose file asks for.
+  assert.match(deploy, /name: Build and push the desk-runner image/)
+  assert.match(deploy, /file: .*deploy\/desk-runner\.Dockerfile/)
+  // amd64 only: it boots microVMs on /dev/kvm and there is no arm64 desk host.
+  const deskBuild = deploy.slice(deploy.indexOf('Build and push the desk-runner image'))
+  assert.match(deskBuild.slice(0, 900), /platforms: linux\/amd64/)
+
+  // Same tag as the app, from the same commit. The runner being a version apart
+  // from the app is the failure this replaced.
+  const appTag = /\$\{\{ steps\.image-tag\.outputs\.tag \}\}/
+  assert.match(deskBuild.slice(0, 900), appTag, 'the runner is tagged from the same resolved tag')
+
+  // A tag of the SAME package, not a new one. A fresh GHCR package is private by
+  // default and the desk host pulls anonymously, so a second package would fail
+  // to pull on the host until somebody flipped it public by hand.
+  assert.match(deploy, /DESK_TAG_SUFFIX: -desk/)
+  assert.equal(
+    /DESK_IMAGE_NAME: ghcr\.io/.test(deploy),
+    false,
+    'no separate package, which would need a manual visibility change',
+  )
+
+  // And the gap that remains must stay loud rather than passing quietly.
+  assert.match(deploy, /Desk runner is drifting/)
+  assert.match(deploy, /docs\/desk-runner-deployment\.md/, 'pointing at how to close it')
+})
