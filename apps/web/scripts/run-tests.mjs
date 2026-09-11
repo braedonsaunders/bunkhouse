@@ -4,6 +4,7 @@ const tests = [
   'authorization',
   'redaction',
   'pg-json',
+  'mcp-token-renewal',
   'governance',
   'approval-presentation',
   'compaction',
