@@ -203,12 +203,43 @@ await check('the live turn is read from the ledger and never duplicates recorded
 await check('duty runs are resolved into their thread by provenance', () => {
   const duty = readFileSync(fileURLToPath(new URL('../src/lib/duty-conversation.ts', import.meta.url)), 'utf8')
   assert.match(duty, /export async function threadDutyIds/, 'the inverse of dutyConversationThreadId exists')
-  assert.match(
-    duty,
-    /innerJoin\(runs, eq\(runs\.id, duties\.sourceRunId\)\)/,
-    'it walks the same source_run_id provenance post_to_conversation uses',
-  )
   assert.match(duty, /web:\$\{threadId\}/, 'and matches the in-app conversation prefix, not a Slack/Teams id')
+
+  // The provenance is a CHAIN, and reading one link of it is what broke.
+  //
+  // An agent that re-books its own lane does so from inside a scheduled run, and
+  // a duty run's trigger carries a dutyId rather than a conversation. Following
+  // `source_run_id` once therefore resolved null for every self-renewed lane:
+  // the replacement was born mute, fell back to email, and reported "no mailbox
+  // is connected" while the lane it replaced had been posting for days. Two of
+  // three live lanes were in that state, silently, and the chain breaks again on
+  // every renewal.
+  //
+  // Verified against the live tenant before shipping: the watchdog lane reached
+  // its chat turn in one hop and the wake loop in three, both landing on the same
+  // thread as the lane that still worked.
+  for (const [name, body] of [
+    ['dutyConversationThreadId', duty.slice(duty.indexOf('export async function dutyConversationThreadId'), duty.indexOf('export async function threadDutyIds'))],
+    ['threadDutyIds', duty.slice(duty.indexOf('export async function threadDutyIds'))],
+  ] as const) {
+    assert.match(body, /with recursive/, `${name} walks the chain rather than one link`)
+  }
+
+  // Bounded, because a renewal chain is short in practice and a cycle is possible
+  // in principle. Unbounded recursion here would hang a chat turn.
+  const forward = duty.slice(duty.indexOf('export async function dutyConversationThreadId'))
+  assert.match(forward, /chain\.hop < \d+/, 'the forward walk is hop-bounded')
+  // The reverse walk terminates by deduplication instead, so it must not be
+  // `union all` — that would loop forever on a cycle.
+  const reverse = duty.slice(duty.indexOf('export async function threadDutyIds'))
+  // Comments stripped: the note explaining the choice quotes the rejected form.
+  const reverseCode = reverse.split('\n').filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join('\n')
+  assert.equal(/union all/.test(reverseCode), false, 'the reverse walk dedupes, which is what terminates it')
+  assert.match(reverse, /\bunion\b/, 'and it is still a recursive union')
+
+  // A dutyId that is not a uuid must not reach a cast, or one malformed trigger
+  // throws for every caller of this.
+  assert.match(forward, /\[0-9a-fA-F-\]\{36\}/, 'the dutyId is shape-checked before casting')
 
   // Both surfaces have to agree with where a duty may SPEAK, or the conversation
   // claims one thing and its own work surface another.

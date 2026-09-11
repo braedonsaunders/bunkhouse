@@ -1,5 +1,5 @@
 import 'server-only'
-import { eq, sql } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import { duties, runs } from '../db/schema'
 import { db } from '../db/client'
 
@@ -30,24 +30,51 @@ export async function dutyConversationThreadId(
 ): Promise<string | null> {
   const app = db()
   return app.withTenantContext(tenantId, async () => {
-    const [duty] = await app.db
-      .select({ sourceRunId: duties.sourceRunId })
-      .from(duties)
-      .where(eq(duties.id, dutyId))
-      .limit(1)
-    if (!duty?.sourceRunId) return null
-
-    const [source] = await app.db
-      .select({ trigger: runs.trigger })
-      .from(runs)
-      .where(eq(runs.id, duty.sourceRunId))
-      .limit(1)
-    const trigger = source?.trigger
-    if (!trigger || trigger.type !== 'chat') return null
+    // Walk the chain, not one link of it.
+    //
+    // Reading only `duties.source_run_id` found the conversation exactly once:
+    // for a duty booked in a chat turn. An agent that re-books its own lane does
+    // so from inside a SCHEDULED run, and a duty run's trigger carries a dutyId
+    // rather than a conversation — so the replacement resolved to null and was
+    // born mute. It then fell back to email and reported "no mailbox is
+    // connected", while the lane it replaced had been posting fine for days.
+    //
+    // Nothing is lost when that happens, which is the point: the run that booked
+    // the new duty names the OLD duty, and that duty names the run that booked
+    // it. The address is still reachable, just further back. On the live tenant a
+    // watch lane was three renewals deep and still led to the original chat turn.
+    //
+    // Bounded rather than unbounded: a renewal chain is a few links in practice,
+    // a cycle is possible in principle, and a duty whose origin is genuinely not
+    // a conversation must come back null rather than spin.
+    const rows = await app.db.execute(sql`
+      with recursive chain as (
+        select d.id, d.source_run_id, 0 as hop
+          from ${duties} d
+         where d.id = ${dutyId}
+        union all
+        select next_duty.id, next_duty.source_run_id, chain.hop + 1
+          from chain
+          join ${runs} source on source.id = chain.source_run_id
+           and source.trigger->>'type' = 'duty'
+           and source.trigger->>'dutyId' ~ '^[0-9a-fA-F-]{36}$'
+          join ${duties} next_duty on next_duty.id = (source.trigger->>'dutyId')::uuid
+         where chain.hop < 16
+           and next_duty.id <> chain.id
+      )
+      select origin.trigger->>'conversationId' as conversation
+        from chain
+        join ${runs} origin on origin.id = chain.source_run_id
+       where origin.trigger->>'type' = 'chat'
+       order by chain.hop
+       limit 1
+    `)
+    const conversation = (rows.rows[0] as { conversation?: unknown } | undefined)?.conversation
+    if (typeof conversation !== 'string') return null
     // `web:` is the in-app conversation prefix; a Slack or Teams conversation
     // id is not a thread in this database and must not be treated as one.
-    if (!trigger.conversationId.startsWith('web:')) return null
-    const threadId = trigger.conversationId.slice('web:'.length)
+    if (!conversation.startsWith('web:')) return null
+    const threadId = conversation.slice('web:'.length)
     return threadId.length > 0 ? threadId : null
   })
 }
@@ -75,11 +102,29 @@ export async function threadDutyIds(tenantId: string, threadId: string): Promise
   if (!threadId) return []
   const app = db()
   return app.withTenantContext(tenantId, async () => {
-    const rows = await app.db
-      .select({ id: duties.id })
-      .from(duties)
-      .innerJoin(runs, eq(runs.id, duties.sourceRunId))
-      .where(sql`${runs.trigger}->>'conversationId' = ${`web:${threadId}`}`)
-    return rows.map((row) => row.id)
+    // Walked the same number of links as `dutyConversationThreadId`, for the same
+    // reason it must be: if this finds fewer duties than that one will speak for,
+    // the conversation shows a reader one set of work while the agent posts from
+    // another. A self-renewed lane was invisible here and audible there.
+    //
+    // `union` rather than `union all`: deduplication is what terminates this if a
+    // renewal chain ever loops back on itself.
+    const rows = await app.db.execute(sql`
+      with recursive rooted as (
+        select d.id
+          from ${duties} d
+          join ${runs} origin on origin.id = d.source_run_id
+         where origin.trigger->>'conversationId' = ${`web:${threadId}`}
+        union
+        select renewed.id
+          from rooted
+          join ${runs} booked_in
+            on booked_in.trigger->>'type' = 'duty'
+           and booked_in.trigger->>'dutyId' = rooted.id::text
+          join ${duties} renewed on renewed.source_run_id = booked_in.id
+      )
+      select id from rooted
+    `)
+    return rows.rows.map((row) => String((row as { id: unknown }).id))
   })
 }
