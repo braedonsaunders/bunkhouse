@@ -45,8 +45,21 @@ test('the desk runner is a CI artifact, not something built on its own host', as
   // with no pipeline. It drifted three weeks behind the app and a merged fix to
   // desk-runner.mts was live nowhere.
   assert.equal(/^\s*build:/m.test(compose), false, 'the desk runner is pulled, never built on the host')
-  assert.match(compose, /^\s*image: .*bunkhouse-desk-runner.*|^\s*image: .*\$\{BUNKHOUSE_TAG/m)
   assert.match(compose, /pull_policy: always/, 'so a redeploy of the same tag still moves')
+
+  // The compose file and CI must name the SAME image. They did not, briefly: CI
+  // was switched to publish `<package>:<tag>-desk` and the compose file was left
+  // pointing at a `bunkhouse-desk-runner` package that would never exist. The
+  // first loose assertion here matched either spelling and sailed past it, so
+  // this derives both sides and compares them instead.
+  const pkg = /^\s*IMAGE_NAME: (\S+)$/m.exec(deploy)?.[1]
+  const suffix = /^\s*DESK_TAG_SUFFIX: (\S+)$/m.exec(deploy)?.[1]
+  assert.ok(pkg, 'CI names the package')
+  assert.ok(suffix, 'CI names the desk tag suffix')
+  const deskImage = /^\s*image: \$\{BUNKHOUSE_IMAGE:-([^}]+)\}:\$\{BUNKHOUSE_TAG:-latest\}(\S*)$/m.exec(compose)
+  assert.ok(deskImage, 'the desk service pins its image through BUNKHOUSE_IMAGE/BUNKHOUSE_TAG')
+  assert.equal(deskImage[1], pkg, `compose pulls ${deskImage[1]} but CI pushes ${pkg}`)
+  assert.equal(deskImage[2], suffix, `compose expects tag suffix "${deskImage[2]}" but CI appends "${suffix}"`)
 
   // CI has to actually produce the thing the compose file asks for.
   assert.match(deploy, /name: Build and push the desk-runner image/)
