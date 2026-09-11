@@ -557,11 +557,28 @@ async function verifyNetAdmin(): Promise<void> {
   }
 }
 
+/** Warned once per process: the lease/idle inversion is a config fact, not an event. */
+let warnedShortLease = false
+
 async function ensureDesk(
   deskId: string,
   options: { memoryMb?: number; vcpus?: number; leaseMs?: number },
 ): Promise<DeskEntry> {
   if (!host) throw new Error(refusalReason ?? 'This host cannot serve desks.')
+  // A desk is parked at whichever deadline comes first, lease or idle. So a
+  // lease shorter than the idle window makes the idle window unreachable, and
+  // the symptom is invisible from both ends: desks park on a timer nobody
+  // configured, agents read the resulting cold boots as host instability, and
+  // the idle setting that was supposed to prevent it sits there looking correct.
+  // Lived through exactly once, which is once more than necessary.
+  if (options.leaseMs && options.leaseMs < IDLE_SUSPEND_MS && !warnedShortLease) {
+    warnedShortLease = true
+    console.warn(
+      `[desk] lease ${options.leaseMs}ms is shorter than the ${IDLE_SUSPEND_MS}ms idle window, `
+      + 'so desks will be parked by lease expiry and the idle window has no effect. '
+      + 'Raise the tenant desk policy leaseMs above BUNKHOUSE_DESK_IDLE_MS.',
+    )
+  }
   const existing = desks.get(deskId)
   if (existing) {
     try {

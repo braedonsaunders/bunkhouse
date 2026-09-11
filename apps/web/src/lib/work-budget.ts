@@ -40,11 +40,26 @@ export const MAX_DERIVED_RUNS_PER_ROOT = 40
 /**
  * What one agent may spend in a day on work nobody asked for.
  *
- * Deliberately small. A day of unrequested investigation cost more than every
- * phone call in the same period by two orders of magnitude, and produced
- * nothing anybody wanted.
+ * Deliberately bounded. A day of unrequested investigation once cost more than
+ * every phone call in the same period by two orders of magnitude and produced
+ * nothing anybody wanted, which is why this exists at all.
+ *
+ * It was a dollar, which turned out to be a speed bump rather than a guard. An
+ * agent asked to watch a market continuously books a lane for itself to do it —
+ * correctly, because it is the one who knows the cadence the work needs — and a
+ * lane like that is self-directed by this function's definition even when the
+ * watching was requested out loud. A fifteen-minute lane spent the dollar before 00:15 and
+ * was then skipped for the following eleven hours: forty-five occurrences, no
+ * runs, no failures, nothing on the duty to say why, because the record of a
+ * skip is a line in the worker log. Meanwhile the agent's whole set of lanes
+ * cost $1.30 across a full day, so the cap was not measuring cost — it was
+ * measuring the first hour.
+ *
+ * Twenty-five leaves room for continuous work to actually be continuous while
+ * still stopping the runaway this was written for, which was two orders of
+ * magnitude past it.
  */
-export const MAX_SELF_DIRECTED_USD_PER_DAY = 1
+export const MAX_SELF_DIRECTED_USD_PER_DAY = 25
 
 export type WorkBudget = { spentUsd: number; runs: number; exhausted: boolean; reason?: string }
 

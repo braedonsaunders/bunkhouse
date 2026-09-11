@@ -287,7 +287,6 @@ export type WorkspacePolicyView = {
 
 export type DeskPolicyFields = {
   leaseMs: number
-  idleSuspendMs: number
   concurrencyCap: number
   queueAlertDepth: number
   screenStepCeiling: number
@@ -343,7 +342,6 @@ const SESSION_VARIANT = (status: string) =>
 function DeskPolicyForm({ policy }: { policy: DeskPolicyFields }) {
   const [fields, setFields] = React.useState({
     leaseMinutes: String(Math.round(policy.leaseMs / 60_000)),
-    idleSuspendSeconds: String(Math.round(policy.idleSuspendMs / 1_000)),
     concurrencyCap: String(policy.concurrencyCap),
     queueAlertDepth: String(policy.queueAlertDepth),
     screenStepCeiling: String(policy.screenStepCeiling),
@@ -358,8 +356,10 @@ function DeskPolicyForm({ policy }: { policy: DeskPolicyFields }) {
     <SettingsRow title="Desk machine policy" stacked>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {([
+          // No idle-suspend field: the idle window is host-level on the desk
+          // runner (BUNKHOUSE_DESK_IDLE_MS), never per tenant, and a box here
+          // that saved cleanly and changed nothing is worse than no box at all.
           ['leaseMinutes', 'Lease (minutes)', 1, 240],
-          ['idleSuspendSeconds', 'Idle suspend (seconds)', 30, 3600],
           ['concurrencyCap', 'Concurrent desks', 1, 64],
           ['queueAlertDepth', 'Queue alert depth', 1, 64],
           ['screenStepCeiling', 'Screen steps per session', 5, 200],
@@ -393,7 +393,6 @@ function DeskPolicyForm({ policy }: { policy: DeskPolicyFields }) {
               setNotice(null)
               const result = await saveDeskPolicyAction({
                 leaseMs: Number(fields.leaseMinutes) * 60_000,
-                idleSuspendMs: Number(fields.idleSuspendSeconds) * 1_000,
                 concurrencyCap: Number(fields.concurrencyCap),
                 queueAlertDepth: Number(fields.queueAlertDepth),
                 screenStepCeiling: Number(fields.screenStepCeiling),

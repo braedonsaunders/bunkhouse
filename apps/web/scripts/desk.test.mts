@@ -436,4 +436,52 @@ function build(runId: string) {
   console.log('desk: forbidding the desktop dial blocks desktop_* without touching run_shell')
 }
 
+
+// --- the lease is a ceiling on residency, not a liveness check ---------------
+//
+// appkit-desk parks a desk at whichever deadline comes first:
+//   deadlines = [record.leaseDeadline, record.lastActivityAt + idleSuspendMs]
+// so a lease SHORTER than the idle window makes the idle window unreachable, and
+// nothing says so. Lived through: the lease was 15 minutes against a 45-minute
+// idle window, so desks were parked ~17 minutes after the run that leased them
+// and cold booted on every occurrence of a */30 lane. Parking is a shutdown, so
+// the agent's in-guest daemon died each time; it read the churn as a failing
+// host and escalated a hardware fault twice on two different theories.
+{
+  const { readFileSync } = await import('node:fs')
+  const { DEFAULT_DESK_POLICY, resolveDeskPolicy } = await import('../src/lib/desk-policy')
+  const runner = readFileSync(new URL('./desk-runner.mts', import.meta.url), 'utf8')
+
+  const idleDefault = Number(
+    /BUNKHOUSE_DESK_IDLE_MS \?\? ([\d_ *]+?)\)/.exec(runner)?.[1]?.replaceAll('_', '')
+      ?.split('*').map(Number).reduce((a, b) => a * b, 1),
+  )
+  assert.ok(Number.isFinite(idleDefault) && idleDefault > 0, 'the runner states an idle default')
+  assert.ok(
+    DEFAULT_DESK_POLICY.leaseMs > idleDefault,
+    `a lease of ${DEFAULT_DESK_POLICY.leaseMs}ms cannot let a ${idleDefault}ms idle window decide anything`,
+  )
+
+  // Deployments raise the idle window past the default (45 min on the desk host),
+  // so the lease has to clear that too or the same trap reopens silently.
+  const compose = readFileSync(new URL('../../../deploy/desk-runner.compose.yaml', import.meta.url), 'utf8')
+  const deployedIdle = Number(/BUNKHOUSE_DESK_IDLE_MS:.*:-(\d+)\}/.exec(compose)?.[1])
+  assert.ok(Number.isFinite(deployedIdle), 'the compose pins an idle window')
+  assert.ok(
+    DEFAULT_DESK_POLICY.leaseMs >= deployedIdle,
+    `the deployed idle window (${deployedIdle}ms) is never reached under a ${DEFAULT_DESK_POLICY.leaseMs}ms lease`,
+  )
+
+  // And the runner says so out loud rather than leaving it to be rediscovered.
+  assert.match(runner, /is shorter than the .* idle window/, 'a short lease warns at lease time')
+
+  // The idle window is host-level in appkit-desk (one value per createDeskHost),
+  // so it was never a per-tenant number. A policy field an operator could set,
+  // that saved cleanly and changed nothing, is worse than no field.
+  assert.equal('idleSuspendMs' in DEFAULT_DESK_POLICY, false, 'no dead idle knob on the tenant policy')
+  assert.equal('idleSuspendMs' in resolveDeskPolicy({}), false, 'and none resolved onto it either')
+  const ui = readFileSync(new URL('../src/components/capability-settings.tsx', import.meta.url), 'utf8')
+  assert.equal(/idleSuspend/.test(ui), false, 'and no operator-facing box for it')
+}
+
 console.log('desk: fail-closed support, ledgered shell, recorded escalation, bounded screen, idempotent takeover, split dials')
