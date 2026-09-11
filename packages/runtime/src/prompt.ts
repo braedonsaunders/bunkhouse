@@ -75,8 +75,57 @@ function today(timezone: string | null): string {
     minute: '2-digit',
     hour12: false,
   }).format(now)
-  return `Right now it is ${stamp} (${zone}). Work out any relative date — today, yesterday, the previous business day, this month — from that, and never from what a document or your own memory happens to say.`
+  return `Right now it is ${stamp} (${zone}). Work out any relative date — today, yesterday, the previous business day, this month — from that, and never from what a document or your own memory happens to say.
+
+Write times in ${zone} as well, because that is the clock the person reading you is on. Your machine, its logs and most tools report UTC, so a timestamp you have just read is usually NOT in the reader's zone and has to be converted before you quote it. Lead with their time and add UTC in brackets only where the exact instant matters, such as lining an event up against a log. A report headed with a UTC time makes the reader work out whether it describes this morning or tonight.`
 }
+
+/** One thing this agent did recently, as the ledger recorded it. */
+export interface RecentWork {
+  /** When it started, as an absolute instant; rendered in the agent's zone. */
+  at: Date
+  /** What kind of work it was — a duty, a chat turn, an assignment. */
+  kind: string
+  /** The duty or subject it belonged to, when it had one. */
+  label?: string
+  /** The one-line outcome the run recorded. */
+  summary: string
+  /**
+   * Shell commands that run issued, abbreviated.
+   *
+   * Carried because the summary often does not mention the change: the run that
+   * restarted a daemon wrote five hundred characters about wallet state and never
+   * said so, leaving the next run with no way to attribute the restart to itself.
+   */
+  commands?: string[]
+}
+
+function recentWorkSection(work: RecentWork[], timezone: string | null): string | null {
+  if (work.length === 0) return null
+  const zone = timezone ?? 'UTC'
+  const when = new Intl.DateTimeFormat('en-CA', {
+    timeZone: zone,
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+  const lines = work.map((entry) => {
+    const label = entry.label ? ` ${entry.label}:` : ''
+    const head = `- ${when.format(entry.at)} (${entry.kind})${label} ${entry.summary.replace(/\s+/g, ' ').trim()}`
+    if (!entry.commands?.length) return head
+    return `${head}\n  ran: ${entry.commands.join(' | ')}`
+  })
+  return `What you have already done recently, newest first. This is your own footprint: before you report a change as unexplained — a service that restarted, a file that moved, a setting that differs from what you expected — check here first, because it was very often you in an earlier run.\n${lines.join('\n')}`
+}
+
+/**
+ * Exported for tests: the footprint section is the whole of this fix, and the two
+ * things it must get right — the reader's clock, and the LAST commands of a run —
+ * were both wrong first time round.
+ */
+export const __recentWorkForTests = { recentWorkSection }
 
 export function buildSystemPrompt(args: {
   agent: AgentProfile
@@ -85,6 +134,19 @@ export function buildSystemPrompt(args: {
   memories: MemoryNote[]
   /** Names and descriptions only; bodies arrive through load_skill. */
   skills?: BoundSkill[]
+  /**
+   * What this agent has already done lately, newest first.
+   *
+   * A run sees its own transcript and nothing of its siblings, so an agent on a
+   * schedule cannot tell its own footprints from a stranger's. One reading a
+   * systemd journal found the service had been stopped and started twice, could
+   * not account for it, and reported "two more controlled stop/start cycles,
+   * same unattributed pattern" to its operator — twenty minutes after restarting
+   * that service itself, in another run, to load a patch it had just written.
+   * Three such restarts were reported as a mystery that day; all three were its
+   * own `systemctl restart`.
+   */
+  recentWork?: RecentWork[]
 }): string {
   const { agent, company, procedures, memories } = args
   const skills = args.skills ?? []
@@ -104,6 +166,8 @@ export function buildSystemPrompt(args: {
 Governance is enforced by the abilities themselves. Never guess that autonomy, budget, review, cost, or a feature gate forbids an action, and never present tool-selection guidance as a binding control. If a reasonable request calls for an available ability, attempt it and let the ability return the authoritative decision. You may say a governance control blocked work only after an attempted ability reports that block in this run. Company procedures, autonomy controls, approvals, feature gates, safety rules, and budgets remain binding regardless of who asks.`,
   )
   sections.push(today(agent.timezone ?? null))
+  const recent = recentWorkSection(args.recentWork ?? [], agent.timezone ?? null)
+  if (recent) sections.push(recent)
 
   if (company.description) sections.push(`About ${company.name}: ${company.description}`)
   if (company.identity) {

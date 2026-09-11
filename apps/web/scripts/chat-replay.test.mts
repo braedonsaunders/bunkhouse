@@ -338,6 +338,66 @@ await check('a run that fails on a plain object says what failed', async () => {
   )
 })
 
+// --- an agent can recognise its own footprints -------------------------------
+//
+// A run sees its own transcript and nothing of its siblings, so an agent on a
+// schedule cannot tell its own changes from a stranger's. One read a systemd
+// journal, found the service stopped and started twice, and reported "two more
+// controlled stop/start cycles, same unattributed pattern" to its operator —
+// twenty minutes after restarting that service itself, in another run, to load a
+// patch it had just written. Three restarts went out as a mystery that day and
+// all three were its own `systemctl restart`.
+await check('a run is shown what the agent already did, with times and commands', async () => {
+  const { __recentWorkForTests } = await import('@bunkhouse/runtime')
+  const { recentWorkSection } = __recentWorkForTests
+
+  // 22:07 UTC is 18:07 in Toronto. The reader's clock is what must appear.
+  const section = recentWorkSection(
+    [
+      {
+        at: new Date('2026-09-11T22:07:37Z'),
+        kind: 'chat',
+        summary: 'Wallet flat, all token accounts zeroed.',
+        commands: ['systemctl restart launchwatch && sleep 8'],
+      },
+    ],
+    'America/Toronto',
+  )
+  assert.ok(section, 'a footprint renders')
+  assert.match(section, /18:07/, 'stamped in the reader’s zone')
+  assert.equal(section.includes('22:07'), false, 'not in the zone the machine happens to use')
+  // The summary of that very run never mentioned the restart, which is why the
+  // command rides along rather than the summary being trusted to carry it.
+  assert.match(section, /systemctl restart launchwatch/, 'the action is shown, not only the prose')
+  assert.match(section, /Wallet flat/, 'and the outcome too')
+  assert.match(section, /was very often you in an earlier run/, 'with what the list is for')
+
+  // Nothing to show means no section at all, so a prompt is unchanged for every
+  // caller that cannot supply this.
+  assert.equal(recentWorkSection([], 'America/Toronto'), null)
+
+  // A run with no recorded commands still lists, just without the `ran:` line.
+  const prose = recentWorkSection(
+    [{ at: new Date('2026-09-11T22:07:37Z'), kind: 'duty', label: 'watchdog', summary: 'All healthy.' }],
+    'America/Toronto',
+  )
+  assert.match(prose ?? '', /watchdog: All healthy/)
+  assert.equal((prose ?? '').includes('ran:'), false)
+
+  // And the caller must take the LAST commands of a run, not the first: a run
+  // reads state before it changes anything, so its opening calls are all `cat`
+  // and `ps`. The restart that went out unattributed was command 15 of 20.
+  const runs = readFileSync(fileURLToPath(new URL('../src/lib/agent-runs.ts', import.meta.url)), 'utf8')
+  const digest = runs.slice(
+    runs.indexOf('const recentWork = await app.db'),
+    runs.indexOf('const memories = await runMemories'),
+  )
+  assert.match(digest, /desc\(runEvents\.seq\)/, 'commands collected newest-first so the last ones survive')
+  assert.match(digest, /\.reverse\(\)/, 'then read back in the order they ran')
+  assert.match(digest, /isNotNull\(runs\.summary\)/, 'only runs that recorded an outcome')
+  assert.match(digest, /ne\(runs\.id, runId\)/, 'never the run being assembled, which has no summary yet')
+})
+
 if (failures > 0) {
   console.log(`\n${failures} check(s) failed`)
   process.exit(1)
