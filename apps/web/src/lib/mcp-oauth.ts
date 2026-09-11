@@ -310,20 +310,93 @@ export async function completeMcpOauth(input: { state: string; code: string }): 
 
 // --- Access tokens ---------------------------------------------------------
 
-type StoredTokens = { accessToken: string; tokenType: string; refreshToken?: string; expiresAt?: number }
+type StoredTokens = {
+  accessToken: string
+  tokenType: string
+  refreshToken?: string
+  expiresAt?: number
+  /**
+   * When this token set was minted. Written so a refresh token can be rotated on
+   * age alone, for the providers that report no lifetime at all.
+   */
+  mintedAt?: number
+}
 
 function sealTokens(tokens: OAuthTokens): SealedSecret {
   const stored: StoredTokens = {
     accessToken: tokens.accessToken,
     tokenType: tokens.tokenType,
+    mintedAt: Date.now(),
     ...(tokens.refreshToken ? { refreshToken: tokens.refreshToken } : {}),
     ...(tokens.expiresAt ? { expiresAt: tokens.expiresAt } : {}),
   }
   return sealSecret(JSON.stringify(stored))
 }
 
+/**
+ * A refresh token only stays alive by being spent, so the longest a token set
+ * may sit untouched is a property of this system, not of the access token.
+ *
+ * NetSuite's refresh token lasts seven days from issue. Twenty-four hours leaves
+ * six days of margin and costs one token request a day per connection.
+ */
+const MAX_TOKEN_AGE_MS = 24 * 60 * 60 * 1000
+
+/** What to assume an access token is worth when the provider reports nothing. */
+const ASSUMED_ACCESS_LIFETIME_MS = 30 * 60 * 1000
+
+/**
+ * Whether this token set needs replacing.
+ *
+ * Two reasons, and the second is the one that was missing.
+ *
+ * `expiresAt` is only stored when the provider reported `expires_in`
+ * (`readTokens` in appkit-oauth). When it did not, this used to return false —
+ * so an unknown expiry read as "fresh", for ever. The fail-safe was inverted:
+ * the cheapest thing to do about a token whose lifetime nobody knows is mint
+ * another one, and the most expensive is to assume it is eternal.
+ *
+ * That is exactly how the live NetSuite connection died. Its grant was written
+ * 2026-09-03 09:00 and never rewritten: nothing was ever stale, so the
+ * ten-minute housekeeping pass declined to renew it 1,000 times in a row and
+ * the header path never renewed it either. The access token happened to keep
+ * working, so ten tool calls succeeded across the week and nothing looked wrong
+ * — while the refresh token sat unspent. It lapsed at NetSuite's seven-day
+ * limit, and the first refresh ever attempted failed with `invalid_grant` on
+ * 2026-09-10 10:00, seven days and one hour after issue.
+ *
+ * So: an unknown expiry is due now, and a token set older than
+ * `MAX_TOKEN_AGE_MS` is due regardless of what the access token claims. The
+ * second clause is what keeps a rotating refresh token from lapsing out of
+ * disuse, which is what the renewal schedule was always supposed to guarantee.
+ */
 function isStale(tokens: StoredTokens, slackMs: number = EXPIRY_SLACK_MS): boolean {
-  return typeof tokens.expiresAt === 'number' && tokens.expiresAt - Date.now() < slackMs
+  // Undated sets predate `mintedAt`; treating them as ancient costs one refresh
+  // and heals them, where treating them as new preserves the original bug.
+  const age = Date.now() - (typeof tokens.mintedAt === 'number' ? tokens.mintedAt : 0)
+  if (typeof tokens.expiresAt === 'number') {
+    if (tokens.expiresAt - Date.now() < slackMs) return true
+  } else if (age >= ASSUMED_ACCESS_LIFETIME_MS) {
+    // Assume the shortest plausible lifetime rather than none, exactly as the
+    // M2M path does. "Always stale" would be correct and would also mint a token
+    // on every dial; this refreshes on a cadence instead.
+    return true
+  }
+  // And whatever the access token claims, a refresh token that is never spent
+  // is a refresh token that quietly expires.
+  return age >= MAX_TOKEN_AGE_MS
+}
+
+/**
+ * Exported for tests only. The renewal decision is the whole of this module's
+ * durability and it failed silently for a week, so it is worth driving directly
+ * rather than inferring from a connection that happens to be working today.
+ */
+export const __tokenRenewalForTests = {
+  isStale,
+  MAX_TOKEN_AGE_MS,
+  ASSUMED_ACCESS_LIFETIME_MS,
+  REFRESH_AHEAD: () => REFRESH_AHEAD_MS,
 }
 
 function readStoredTokens(grant: McpOauthGrant): StoredTokens {
@@ -444,6 +517,9 @@ async function refreshSharedTokens(
       return {
         accessToken: refreshed.accessToken,
         tokenType: refreshed.tokenType,
+        // Carried so a caller re-checking staleness on what it was just handed
+        // does not read it as undated, and therefore ancient.
+        mintedAt: Date.now(),
         ...(refreshed.refreshToken ? { refreshToken: refreshed.refreshToken } : {}),
         ...(refreshed.expiresAt ? { expiresAt: refreshed.expiresAt } : {}),
       }
