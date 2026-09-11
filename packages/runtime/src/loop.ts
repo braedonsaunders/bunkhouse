@@ -11,7 +11,7 @@ import {
 import { cachedInputTokens, cachedSystemMessage, sessionPinningOptions } from './caching'
 import { compactMessages } from './compaction'
 import { reportedCostUsd, usageAccountingOptions } from './cost'
-import { buildRunInstruction, buildSystemPrompt } from './prompt'
+import { buildRunInstruction, buildSystemPrompt, type RecentWork } from './prompt'
 import { loadSkillAbility, type BoundSkill } from './skills'
 import {
   createRedactingSink,
@@ -40,6 +40,12 @@ export type RunAgentArgs = {
   company: CompanyProfile
   procedures: BoundProcedure[]
   memories: MemoryNote[]
+  /**
+   * What this agent did in its recent runs, newest first. Optional: a caller
+   * that cannot cheaply supply it simply leaves the agent without the context,
+   * which is the behaviour every caller had before it existed.
+   */
+  recentWork?: RecentWork[]
   /** Skills this agent may draw on; indexed in the prompt, loaded on demand. */
   skills?: BoundSkill[]
   /** Writes a loaded skill's bundle into the agent's workspace. */
@@ -249,6 +255,7 @@ export async function runAgent(args: RunAgentArgs): Promise<RunOutcome> {
     company: args.company,
     procedures: args.procedures,
     memories: args.memories,
+    ...(args.recentWork ? { recentWork: args.recentWork } : {}),
     skills,
   })
   // Image attachments ride the opening turn so multimodal models genuinely

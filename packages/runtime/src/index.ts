@@ -23,7 +23,7 @@ export {
   type CompactionResult,
 } from './compaction'
 export { reportedCostUsd, reportsItsOwnCost, usageAccountingOptions } from './cost'
-export { buildRunInstruction, buildSystemPrompt } from './prompt'
+export { buildRunInstruction, buildSystemPrompt, __recentWorkForTests, type RecentWork } from './prompt'
 export {
   DEFAULT_MODEL_INACTIVITY_DEADLINE_MS,
   runAgent,

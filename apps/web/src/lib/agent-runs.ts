@@ -1,6 +1,6 @@
 import 'server-only'
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, getTableColumns, gte, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, getTableColumns, gte, inArray, isNotNull, ne, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { ModelMessage } from 'ai'
 import {
@@ -729,6 +729,36 @@ async function refuseRun(args: {
  * else is serialized, because a JSON body is a poor error message but an
  * infinitely better one than nothing at all.
  */
+/**
+ * How much of its own recent footprint an agent is shown.
+ *
+ * Bounded on three axes because this rides in every prompt: a window, a count,
+ * and a length. Summaries are one line each, so twenty of them is a short list
+ * and not a second transcript — enough to cover the last few hours of a
+ * fifteen-minute lane, which is the span over which an agent mistakes its own
+ * changes for somebody else's.
+ */
+const RECENT_WORK_WINDOW_MS = 6 * 60 * 60 * 1000
+const RECENT_WORK_LIMIT = 20
+/** The whole stored summary. `runs.summary` is already capped at 500 on write. */
+const RECENT_WORK_SUMMARY_CHARS = 500
+/**
+ * Actions, not only prose — because the prose frequently omits the action.
+ *
+ * The run that restarted the daemon summarised itself in 500 characters about
+ * wallet state and never mentioned the restart, so a digest built from summaries
+ * alone would not have told the next run who was responsible. A shell command is
+ * the unambiguous record of having changed something, so a few per run ride
+ * along: enough to recognise a footprint, far short of a second transcript.
+ *
+ * The LAST few, not the first. A run reads state before it changes anything, so
+ * its opening commands are all `cat` and `ps` while the action sits near the end
+ * — the restart that went out as unattributed was command fifteen of twenty, and
+ * a digest of the first six would have shown six read-only checks and missed it.
+ */
+const RECENT_WORK_COMMANDS_PER_RUN = 8
+const RECENT_WORK_COMMAND_CHARS = 120
+
 export function readableFailure(error: unknown): string {
   if (error instanceof Error && error.message) return error.message
   if (typeof error === 'string' && error) return error
@@ -930,6 +960,73 @@ export async function executeAgentRun(args: {
                     : runInput.type === 'credential_stored'
                       ? `${runInput.systemName} ${runInput.purpose}`
                       : runInput.instruction
+      // What this agent has already done, so it can recognise its own footprints.
+      //
+      // A run sees its own transcript and nothing of its siblings. An agent on a
+      // schedule therefore reads a systemd journal, finds the service stopped and
+      // started twice, cannot account for it, and reports "two more controlled
+      // stop/start cycles, same unattributed pattern" — twenty minutes after
+      // restarting that service itself, in another run, to load a patch it had
+      // just written. Three restarts went out as a mystery that day and all three
+      // were its own `systemctl restart`.
+      //
+      // Deliberately just the ledger's own one-line summaries: cheap, already
+      // written, and the same sentences the operator reads. Excludes this run,
+      // which has no summary yet.
+      const recentWork = await app.db
+        .select({
+          id: runs.id,
+          at: runs.startedAt,
+          trigger: runs.trigger,
+          summary: runs.summary,
+          lane: duties.slug,
+        })
+        .from(runs)
+        .leftJoin(duties, sql`${duties.id}::text = ${runs.trigger}->>'dutyId'`)
+        .where(
+          and(
+            eq(runs.personId, person.id),
+            ne(runs.id, runId),
+            gte(runs.startedAt, new Date(Date.now() - RECENT_WORK_WINDOW_MS)),
+            isNotNull(runs.summary),
+          ),
+        )
+        .orderBy(desc(runs.startedAt))
+        .limit(RECENT_WORK_LIMIT)
+        .then(async (rows) => {
+          if (rows.length === 0) return []
+          // One query for every run's commands rather than one per run.
+          const commands = await app.db
+            .select({ runId: runEvents.runId, seq: runEvents.seq, payload: runEvents.payload })
+            .from(runEvents)
+            .where(
+              and(
+                inArray(runEvents.runId, rows.map((row) => row.id)),
+                eq(runEvents.kind, 'tool_call'),
+                sql`${runEvents.payload}->>'toolName' in ('run_shell', 'run_script')`,
+              ),
+            )
+            .orderBy(runEvents.runId, desc(runEvents.seq))
+          const byRun = new Map<string, string[]>()
+          for (const row of commands) {
+            const list = byRun.get(row.runId) ?? []
+            if (list.length >= RECENT_WORK_COMMANDS_PER_RUN) continue
+            const command = (row.payload as { input?: { command?: unknown } }).input?.command
+            if (typeof command !== 'string') continue
+            list.push(command.replace(/\s+/g, ' ').trim().slice(0, RECENT_WORK_COMMAND_CHARS))
+            byRun.set(row.runId, list)
+          }
+          // Collected newest-first to keep the last few; read back chronologically.
+          for (const list of byRun.values()) list.reverse()
+          return rows.map((row) => ({
+            at: row.at,
+            kind: row.trigger.type,
+            ...(row.lane ? { label: row.lane } : {}),
+            summary: (row.summary ?? '').slice(0, RECENT_WORK_SUMMARY_CHARS),
+            ...(byRun.get(row.id)?.length ? { commands: byRun.get(row.id)! } : {}),
+          }))
+        })
+
       const memories = await runMemories(
         { tenantId: args.tenantId, agent: agentBinding(person), query: retrievalQuery },
         {
@@ -1118,6 +1215,7 @@ export async function executeAgentRun(args: {
         company: foundation.company,
         procedures: foundation.procedures,
         memories,
+        recentWork,
         skills: foundation.skills,
         materializeSkill: foundation.materializeSkill,
         abilities,
