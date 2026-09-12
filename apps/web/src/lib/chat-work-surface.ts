@@ -17,6 +17,7 @@ import {
 import { db } from '../db/client'
 import { threadDutyIds } from './duty-conversation'
 import { conversationIdFor } from './chat-threads'
+import { dashboardSummary } from './chat-dashboard'
 import type { TerminalSurfaceEntry } from '@braedonsaunders/appkit-remote-sessions/react'
 
 const DISTINCT_BROWSER_DESK_EVENTS = new Set(['navigate', 'read', 'browser_close'])
@@ -92,10 +93,18 @@ export type ChatTerminalWorkSurface = {
 }
 
 export type ChatWorkFocus = {
-  tab: 'desktop' | 'browser' | 'terminal' | 'files' | 'remote'
+  tab: 'desktop' | 'browser' | 'terminal' | 'files' | 'remote' | 'dashboard'
   /** Changes for every new observable action, even inside the same run. */
   key: string
   at: string
+}
+
+export type ChatDashboardSummary = {
+  /** Whether the conversation has a dashboard app yet. */
+  present: boolean
+  /** ISO — the newest dashboard file write, so the tab knows when to reload. */
+  updatedAt: string | null
+  appName: string | null
 }
 
 export type ChatWorkSurface = {
@@ -104,6 +113,7 @@ export type ChatWorkSurface = {
   recentBrowser: ChatBrowserWorkSurface | null
   recentTerminal: ChatTerminalWorkSurface | null
   files: ChatWorkFile[]
+  dashboard: ChatDashboardSummary
   focus: ChatWorkFocus | null
 } & (
   | { kind: 'idle'; runId: null }
@@ -140,7 +150,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
   const app = db()
   return app.withTenantContext(tenantId, async () => {
     const [thread] = await app.db.select({ id: chatThreads.id }).from(chatThreads).where(eq(chatThreads.id, threadId)).limit(1)
-    if (!thread) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], focus: null }
+    if (!thread) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], dashboard: { present: false, updatedAt: null, appName: null }, focus: null }
     // A thread's work is its chat turns AND the scheduled work it asked for.
     //
     // A duty run is triggered by the clock, so its trigger names no
@@ -168,7 +178,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
       .orderBy(desc(runs.startedAt))
       .limit(100)
     const run = threadRuns[0]
-    if (!run) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], focus: null }
+    if (!run) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], dashboard: { present: false, updatedAt: null, appName: null }, focus: null }
 
     const conversationFiles = await app.db
       .select({
@@ -406,7 +416,11 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
         .map((file) => ({ tab: 'files' as const, key: `files:${file.id}`, at: file.createdAt })),
     ]
     const focus = focusCandidates.sort((left, right) => Date.parse(right.at) - Date.parse(left.at))[0] ?? null
-    const retained = { history, recentBrowser, recentTerminal, files: workFiles, focus }
+    // The dashboard's freshness rides the same poll as everything else, so
+    // the tab reloads the moment the agent (or the operator) saves — without
+    // it the tab would sit on a stale bundle until a full page reload.
+    const dashboard = await dashboardSummary(tenantId, threadId)
+    const retained = { history, recentBrowser, recentTerminal, files: workFiles, dashboard, focus }
 
     const [call] = await app.db
       .select({ id: callSessions.id, room: callSessions.room, status: callSessions.status, direction: callSessions.direction, startedAt: callSessions.startedAt })

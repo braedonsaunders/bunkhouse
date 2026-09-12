@@ -675,7 +675,7 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     'utf8',
   )
   assert.ok(
-    workSurface.includes("React.useState<'desktop' | 'browser' | 'terminal' | 'files' | 'remote' | 'history'>('desktop')"),
+    workSurface.includes("React.useState<'desktop' | 'browser' | 'terminal' | 'files' | 'dashboard' | 'remote' | 'history'>('desktop')"),
     'the persistent desktop is the default visual surface',
   )
   assert.ok(
@@ -692,9 +692,16 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     workSurface.includes("surface.recentBrowser") && workSurface.includes("surface.recentTerminal"),
     'completed browser and terminal work remain reopenable after a turn or page reload',
   )
-  for (const tab of ['desktop', 'browser', 'terminal', 'files', 'history']) {
+  for (const tab of ['desktop', 'browser', 'terminal', 'files', 'dashboard', 'history']) {
     assert.ok(workSurface.includes(`key: '${tab}'`), `${tab} remains a stable tab even before it has content`)
   }
+  assert.ok(workSurface.includes("key: 'dashboard'") && workSurface.includes('<ChatDashboard threadId={threadId}'), 'the agent-kept dashboard renders beside the conversation')
+  assert.ok(
+    workSurface.indexOf("key: 'files'") < workSurface.indexOf("key: 'dashboard'") &&
+      workSurface.indexOf("key: 'dashboard'") < workSurface.indexOf("key: 'history'"),
+    'Dashboard sits between Files and History',
+  )
+  assert.ok(workSurface.includes('<TabContent tabKey={activeTab}'), 'swapping surfaces crossfades with the tab indicator instead of cutting')
   assert.ok(workSurface.includes('<FilesWorkStage'), 'conversation files have a previewable work surface')
 
   // Following the agent is an offer, not a claim on the stage. `focus.key`

@@ -34,6 +34,7 @@ const tests = [
   'delivery-targets',
   'chat',
   'chat-dispatch',
+  'chat-dashboard',
   'lifecycle',
   'product-ui',
   'acp-boundary',

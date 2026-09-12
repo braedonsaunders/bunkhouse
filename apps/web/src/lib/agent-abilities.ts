@@ -1102,6 +1102,106 @@ export function schedulingAbilities(args: {
   ]
 }
 
+/**
+ * The conversation's dashboard: the live surface the agent keeps beside the
+ * chat. Available only inside runs that belong to a conversation (chat turns
+ * and duty runs with provenance) — without a thread there is no tab to keep.
+ *
+ * Reads are ungoverned: the dashboard shows the reader's own conversation
+ * back to them. Writes ride `file_write`, the same dial as every other file
+ * the agent produces, and every write lands on the audit log with its actor.
+ */
+export function dashboardAbilities(args: {
+  tenantId: string
+  person: PersonRow
+  runId: string
+  chatThreadId: string
+}): Ability[] {
+  const { tenantId, person, runId, chatThreadId } = args
+  return [
+    defineAbility({
+      name: 'get_dashboard',
+      description:
+        'Read this conversation\'s Dashboard tab: the live surface beside the chat that you keep current. Returns the dashboard\'s name, its files (frontend markup, styles, scripts, backend endpoints), and its recent backend runs with any errors. Read it before your first save so you extend what is there instead of starting over, and re-read it after the operator edits — they can change the same files.',
+      category: null,
+      inputSchema: z.object({}),
+      execute: async () => {
+        const { readDashboardForAgent } = await import('./chat-dashboard')
+        return readDashboardForAgent({ tenantId, threadId: chatThreadId })
+      },
+    }),
+    defineAbility({
+      name: 'save_dashboard_file',
+      description:
+        'Write one file on this conversation\'s Dashboard tab — frontend/index.html, frontend/styles.css, frontend/app.js, a backend/*.js endpoint, or anything under assets/. The frontend runs sandboxed with no network: it reads live conversation data (messages, runs, files, duties) through the bridge — appkit.records.list(\'thread.overview\' | \'thread.messages\' | \'thread.runs\' | \'thread.files\' | \'thread.duties\') — keeps its own state through backend endpoints you author (appkit.storage in QuickJS), and refreshes itself on an interval. Keep every file under 200 KB; put data over the bridge instead of pasting bundles. The tab updates the moment you save.',
+      category: 'file_write',
+      inputSchema: z.object({
+        path: z.string().min(1).max(240),
+        content: z.string().min(1).max(200_000),
+      }),
+      execute: async ({ path, content }) => {
+        const { saveDashboardFile } = await import('./chat-dashboard')
+        const saved = await saveDashboardFile({
+          tenantId,
+          actorId: person.id,
+          threadId: chatThreadId,
+          runId,
+          file: { path, content },
+        })
+        return {
+          saved: saved.path,
+          size: saved.size,
+          note: 'It is live on the Dashboard tab now. Do not paste the file back into the conversation.',
+        }
+      },
+    }),
+    defineAbility({
+      name: 'update_dashboard',
+      description:
+        'Change this conversation\'s dashboard settings: its name, description, icon, or backend endpoints. An endpoint is a name plus the backend/*.js file that serves it (save the file first with save_dashboard_file) — the frontend reaches it as appkit.callBackend(name, payload). The dashboard can only ever request the conversation-records capability; anything else is refused.',
+      category: 'file_write',
+      inputSchema: z.object({
+        name: z.string().trim().min(1).max(120).optional(),
+        description: z.string().max(2_000).optional(),
+        icon: z.string().max(80).optional(),
+        endpoints: z
+          .array(z.object({ name: z.string(), file: z.string(), method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'ANY']).optional() }))
+          .max(20)
+          .optional(),
+      }),
+      execute: async (input) => {
+        const { updateDashboardMeta } = await import('./chat-dashboard')
+        await updateDashboardMeta({
+          tenantId,
+          actorId: person.id,
+          threadId: chatThreadId,
+          runId,
+          update: input,
+        })
+        return { updated: true }
+      },
+    }),
+    defineAbility({
+      name: 'delete_dashboard_file',
+      description:
+        'Delete one file from this conversation\'s dashboard. The frontend entry and files a backend endpoint uses cannot be deleted — point the endpoint elsewhere (or remove it with update_dashboard) first.',
+      category: 'file_write',
+      inputSchema: z.object({ path: z.string().min(1).max(240) }),
+      execute: async ({ path }) => {
+        const { deleteDashboardFile } = await import('./chat-dashboard')
+        await deleteDashboardFile({
+          tenantId,
+          actorId: person.id,
+          threadId: chatThreadId,
+          path,
+          runId,
+        })
+        return { deleted: path }
+      },
+    }),
+  ]
+}
+
 // ---------------------------------------------------------------------------
 // MCP integrations — tenant-configured external systems
 // ---------------------------------------------------------------------------
@@ -1411,6 +1511,12 @@ export async function assembleAbilities(args: {
     // answers what reaches it, and has no business booking its own future work.
     ...((person.proactivity ?? 'duties') !== 'reactive'
       ? schedulingAbilities({ tenantId, person, runId })
+      : []),
+    // The conversation's dashboard belongs to runs that have a conversation
+    // to keep it in — chat turns, and duty runs with provenance. Without a
+    // thread there is no tab, and the tools would provision orphans.
+    ...(args.chatThreadId
+      ? dashboardAbilities({ tenantId, person, runId, chatThreadId: args.chatThreadId })
       : []),
     ...integrations.abilities,
   ]
