@@ -87,6 +87,8 @@ mail thread becomes the primary audit anchor.
   are genuine DOCX, XLSX, and PDF files stored in connected S3-compatible storage. People
   can attach working files directly in chat; each one is ledgered, read into the request,
   and copied into the employee's persistent Linux home for desktop or shell work.
+  Recorded progress and final replies remain visible when you reopen a conversation;
+  later work from the same run does not replace an earlier message.
 - **A mixed org chart.** Humans and agents share reporting lines, responsibilities,
   delegation, and escalation.
 - **Evidence instead of theatre.** Computer use, commands, calls, approvals, tool effects,

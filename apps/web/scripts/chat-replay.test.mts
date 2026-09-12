@@ -106,6 +106,45 @@ await check('an orphan result with no call is dropped rather than inventing a ca
   assert.deepEqual(fold([{ kind: 'tool_result', payload: { toolCallId: 'ghost', toolName: 'x', output: 1 } }]), [])
 })
 
+await check('saved replies retain every spoken step and show the final answer once', async () => {
+  const { replayChatBody } = await import('../src/lib/chat-reply')
+  assert.equal(replayChatBody(['I found the invoice.', 'I sent the reminder.', 'All done.'], 'All done.'),
+    'I found the invoice.\n\nI sent the reminder.\n\nAll done.')
+  assert.equal(replayChatBody(['Checking.', 'Checking.', 'Finished.'], 'Finished.'),
+    'Checking.\n\nChecking.\n\nFinished.')
+  assert.equal(replayChatBody(['Ready for review.'], 'Ready for review.\n\nPlease approve below.'),
+    'Ready for review.\n\nPlease approve below.')
+  assert.equal(replayChatBody([], 'An older saved answer.'), 'An older saved answer.')
+  assert.equal(replayChatBody(['The total is 10.'], 'The total is 100.'),
+    'The total is 10.\n\nThe total is 100.')
+})
+
+await check('later work never rewrites an earlier post from the same run', () => {
+  const { replayChatMessages } = activityModule
+  const messages = [
+    { id: 'first', role: 'agent', runId: 'r', at: '2026-01-01T00:00:02Z', body: 'First result.' },
+    { id: 'second', role: 'agent', runId: 'r', at: '2026-01-01T00:00:04Z', body: 'Second result.' },
+  ]
+  const rows = ['First progress.', 'First result.', 'Second progress.', 'Second result.', 'Still working.']
+    .map((text, seq) => ({ runId: 'r', seq, kind: 'message', payload: { text }, createdAt: new Date(`2026-01-01T00:00:0${seq + 1}Z`) }))
+  const replay = replayChatMessages(messages, rows)
+  assert.equal(replay.get('first')?.body, 'First progress.\n\nFirst result.')
+  assert.equal(replay.get('second')?.body, 'Second progress.\n\nSecond result.')
+  assert.equal(JSON.stringify([...replay]).includes('Still working.'), false)
+  assert.deepEqual(replayChatMessages(messages, rows.slice(0, 2)).get('first'), replay.get('first'))
+})
+
+await check('a long conversation keeps prose beyond its first 600 events', () => {
+  const rows = Array.from({ length: 605 }, (_, seq) => ({
+    runId: 'long', seq, kind: 'message', payload: { text: `Step ${seq}` }, createdAt: new Date('2026-01-01T00:00:00Z'),
+  }))
+  const replay = activityModule.replayChatMessages([
+    { id: 'answer', runId: 'long', role: 'agent', at: '2026-01-01T00:00:01Z', body: 'Step 604' },
+  ], rows)
+  assert.equal(replay.get('answer')?.body.split('\n\n').length, 605)
+  assert.ok(replay.get('answer')?.body.endsWith('Step 604'))
+})
+
 console.log('proposed thread titles')
 
 await check('a plain title is kept', () => {
@@ -182,7 +221,7 @@ await check('the live turn is read from the ledger and never duplicates recorded
   )
   // Completed steps' prose is part of the answer that already exists; withholding
   // it until the run ends is the thing being fixed.
-  assert.match(liveTurn, /'thought', 'tool_call', 'tool_result', 'message'/)
+  assert.match(liveTurn, /readChatEvents\(tenantId, \[live.id\], new Date\(\)\)/)
 
   const detail = readFileSync(fileURLToPath(new URL('../src/lib/chat-detail.ts', import.meta.url)), 'utf8')
   assert.match(
