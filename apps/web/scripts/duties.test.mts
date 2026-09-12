@@ -348,4 +348,105 @@ assert.equal(occurrenceAfterSkip(duty({ scheduleKind: 'once', schedule: at }), N
   )
 }
 
+// --- a duty can be deleted, not just cancelled -------------------------------
+//
+// Cancel was the deepest control an agent had: off, never firing again, and a
+// permanent row in every listing. A self-renewing lane leaves a dead `-2`, `-3`,
+// `-4` duty behind each renewal, so the list only grows — one agent carried
+// twenty-two of them, and told the person "that's a platform limitation" because
+// it had no tool that could clean up after itself.
+//
+// Deletion is a lifecycle state, not an erasure. Hard-deleting the row would
+// sever the renewal-chain walk in duty-conversation.ts (a duty booked behind the
+// deleted one resolves to no conversation and is born mute — the bug that made a
+// watch lane fall back to email), and would orphan its runs from the
+// conversation's work surface. `deleted_at` set, off, never firing, gone from
+// listings — present for every join that resolves history.
+{
+  const { readFileSync } = await import('node:fs')
+  const { fileURLToPath } = await import('node:url')
+  const abilities = readFileSync(fileURLToPath(new URL('../src/lib/agent-abilities.ts', import.meta.url)), 'utf8')
+
+  // The tool exists, is governed like every other background-job action, and
+  // says which of cancel/delete the caller actually wants.
+  const tool = abilities.slice(abilities.indexOf("name: 'delete_scheduled_task'"))
+  assert.ok(tool.length > 0, 'the delete tool exists')
+  const toolBlock = tool.slice(0, tool.indexOf('execute:'))
+  assert.match(toolBlock, /category: 'background_job'/, 'deletion rides the autonomy dial like booking does')
+
+  // A run in flight owns its lane: deleting the duty under it leaves a live run
+  // writing back to a row the listings no longer show. The same
+  // unfinished-work guard the scheduler applies to self-overlap applies here,
+  // and for the same reason — the ORECAT double-buy was exactly work running
+  // beside itself.
+  const deleteBlock = tool.slice(tool.indexOf('execute:'))
+  const decision = deleteBlock.slice(0, deleteBlock.indexOf('.update(duties)'))
+  assert.match(decision, /unfinished/, 'the delete asks whether the task still has work in flight')
+  for (const status of ['running', 'waiting_approval', 'waiting_reply', 'waiting_credential']) {
+    assert.match(decision, new RegExp(`'${status}'`), `${status} blocks deletion`)
+  }
+  assert.equal(
+    /'completed'/.test(decision),
+    false,
+    'a finished run never blocks deletion — history stays readable',
+  )
+
+  // The slug is freed, so a re-booked lane takes the plain name instead of
+  // drifting to `-2`, `-3`, `-4`. Nothing resolves by slug; chains join on id.
+  assert.match(deleteBlock, /--deleted-\$\{before\.id\}/, 'the slug is renamed out of the way on delete')
+
+  // Every listing and scheduling decision excludes deleted duties. The agent's
+  // own list most of all — it cannot clean up what it cannot see is gone.
+  const listBlock = abilities.slice(abilities.indexOf("name: 'list_scheduled_tasks'"))
+  const listQuery = listBlock.slice(0, listBlock.indexOf('return {'))
+  assert.match(listQuery, /isNull\(duties\.deletedAt\)/, "list_scheduled_tasks doesn't list deleted tasks")
+
+  const agentRuns = readFileSync(fileURLToPath(new URL('../src/lib/agent-runs.ts', import.meta.url)), 'utf8')
+  const dueStart = agentRuns.indexOf('export async function dueDuties')
+  const due = agentRuns.slice(dueStart)
+  const dueEnd = due.indexOf('export async function', 1)
+  assert.match(
+    due.slice(0, dueEnd < 0 ? undefined : dueEnd),
+    /isNull\(duties\.deletedAt\)/,
+    'the scheduler never fires a deleted duty',
+  )
+
+  // But the chain walks do NOT filter: they resolve history, and a deleted link
+  // in a renewal chain still leads back to the conversation that asked for it.
+  const dutyConversation = readFileSync(
+    fileURLToPath(new URL('../src/lib/duty-conversation.ts', import.meta.url)),
+    'utf8',
+  )
+  assert.equal(
+    /deleted_at|deletedAt/.test(dutyConversation),
+    false,
+    'the chain walks resolve history and must not filter deleted duties',
+  )
+
+  // The operator's delete is the same lifecycle, not a hard DELETE that severs
+  // the chains — and it is audited.
+  const actions = readFileSync(
+    fileURLToPath(new URL('../src/app/organization/actions.ts', import.meta.url)),
+    'utf8',
+  )
+  const operatorDelete = actions.slice(actions.indexOf('export async function deleteDuty'))
+  assert.ok(operatorDelete.length > 0, 'the operator delete exists')
+  assert.equal(
+    /\.delete\(duties\)/.test(operatorDelete),
+    false,
+    'the operator no longer hard-deletes a duty row',
+  )
+  assert.match(operatorDelete, /deletedAt: new Date\(\)/, 'it retires the duty instead')
+
+  // And the claim itself refuses a deleted duty even if enabled somehow
+  // disagrees — never fire is the contract, not a pair of columns in agreement.
+  const execution = readFileSync(fileURLToPath(new URL('../src/lib/duty-execution.ts', import.meta.url)), 'utf8')
+  const claim = execution.slice(execution.indexOf('export async function executeDueDuty'))
+  assert.match(
+    claim.slice(0, claim.indexOf('const observed')),
+    /duty\.deletedAt !== null/,
+    'the claim refuses a deleted duty outright',
+  )
+}
+
 console.log('duties scheduling: all assertions passed')

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { and, asc, desc, eq, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
 import {
   DEEPGRAM_STT_MODELS,
   ELEVENLABS_TTS_MODELS,
@@ -119,7 +119,7 @@ export async function personDrawer({
     const personDuties = await app.db
       .select()
       .from(duties)
-      .where(eq(duties.personId, selected.id))
+      .where(and(eq(duties.personId, selected.id), isNull(duties.deletedAt)))
       .orderBy(asc(duties.title))
     const dial = await app.db.select().from(autonomySettings).where(eq(autonomySettings.personId, selected.id))
     // Paged, because a logbook only grows. One agent wrote 195 notes in a day

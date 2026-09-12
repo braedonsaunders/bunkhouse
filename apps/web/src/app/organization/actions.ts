@@ -895,14 +895,46 @@ export async function addDuty(formData: FormData): Promise<void> {
   revalidatePath('/organization')
 }
 
-/** Remove a duty entirely (runs it produced stay in the ledger). */
+/**
+ * Delete a duty.
+ *
+ * The row is retired, not erased: `deleted_at` set, off, never firing again,
+ * gone from every listing — while the runs it produced and the renewal chains
+ * that name it stay resolvable. (A hard delete severed the chain walk in
+ * `duty-conversation.ts`: duties booked behind it resolved to no conversation
+ * and were born mute — the exact bug that made a watchdog lane fall back to
+ * email and report "no mailbox is connected".) The slug is renamed out of the
+ * way so a re-created duty can take the plain name.
+ */
 export async function deleteDuty(formData: FormData): Promise<void> {
   const dutyId = String(formData.get('dutyId') ?? '')
   if (!dutyId) throw new Error('dutyId is required.')
   const tenantId = await resolveTenantId()
   const app = db()
   await app.withTenant(tenantId, async () => {
-    await app.db.delete(duties).where(eq(duties.id, dutyId))
+    await app.db.transaction(async (tx) => {
+      const [before] = await tx.select().from(duties).where(eq(duties.id, dutyId)).limit(1)
+      if (!before || before.deletedAt) return
+      await tx
+        .update(duties)
+        .set({
+          deletedAt: new Date(),
+          enabled: 'off',
+          nextDueAt: null,
+          slug: `${before.slug}--deleted-${before.id}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(duties.id, dutyId))
+      await tx.insert(identity.auditLog).values({
+        tenantId,
+        action: 'deleted_by_operator',
+        entityType: 'duty',
+        entityId: dutyId,
+        summary: `Deleted duty ${before.title}`,
+        before: { slug: before.slug, enabled: before.enabled, nextDueAt: before.nextDueAt?.toISOString() ?? null },
+        after: { deletedAt: true, enabled: 'off', nextDueAt: null },
+      })
+    })
   })
   revalidatePath('/organization')
 }

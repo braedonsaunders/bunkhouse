@@ -51,7 +51,7 @@ export async function executeDueDuty(
   const app = db()
   const claimed = await app.withTenant(tenantId, async () => {
     const [duty] = await app.db.select().from(duties).where(eq(duties.id, dutyId)).limit(1)
-    if (!duty || duty.enabled !== 'on') return null
+    if (!duty || duty.enabled !== 'on' || duty.deletedAt !== null) return null
     const observed = duty.nextDueAt?.toISOString() ?? null
     if (observed !== scheduledAt) return null
 

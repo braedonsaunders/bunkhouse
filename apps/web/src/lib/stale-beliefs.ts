@@ -122,6 +122,7 @@ const KNOWN_TOOLS: ReadonlySet<string> = new Set([
   'schedule_task',
   'list_scheduled_tasks',
   'cancel_scheduled_task',
+  'delete_scheduled_task',
   'cite_procedure',
   'list_tools',
   'run_tool',

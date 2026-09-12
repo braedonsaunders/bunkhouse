@@ -64,6 +64,17 @@ export const duties = pgTable(
     enabled: text('enabled').$type<'on' | 'off'>().notNull().default('on'),
     lastRunAt: timestamp('last_run_at', { withTimezone: true }),
     nextDueAt: timestamp('next_due_at', { withTimezone: true }),
+    /**
+     * Deleted, not merely cancelled. A cancelled duty is paused: its
+     * configuration stands, it can be resumed, and it keeps its row in the
+     * operator's list. A deleted duty is gone from every listing and can never
+     * fire again, but the row itself stays — the run history and the renewal
+     * chains that name it (`duties.source_run_id` → run → old duty) remain
+     * resolvable, so a deleted lane's past work does not fall out of the
+     * conversation that asked for it. The audit row carries the before/after;
+     * this column carries the lifecycle state.
+     */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     ...auditColumns,
   },
   (t) => [

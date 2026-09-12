@@ -1,6 +1,6 @@
 import 'server-only'
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, getTableColumns, gte, inArray, isNotNull, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, getTableColumns, gte, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { ModelMessage } from 'ai'
 import {
@@ -1814,6 +1814,10 @@ export async function dueDuties(tenantId: string): Promise<(typeof duties.$infer
       .where(
         and(
           eq(duties.enabled, 'on'),
+          // A deleted duty is off, so this is belt to that braces — but the
+          // scheduler's contract is "never fire a deleted duty", and that
+          // should not ride on a second column staying in agreement.
+          isNull(duties.deletedAt),
           eq(people.kind, 'agent'),
           eq(people.status, 'active'),
           sql`(${duties.nextDueAt} is null or ${duties.nextDueAt} <= now())`,

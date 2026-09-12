@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { unsealSecret } from '@braedonsaunders/appkit-crypto'
 import { auditLog } from '@braedonsaunders/appkit-db'
@@ -11,7 +11,7 @@ import {
   type ActionCategory,
   type GovernanceState,
 } from '@bunkhouse/runtime'
-import { assignments, duties, memories, people, type AssignmentSource, type McpIntegrationEntry } from '../db/schema'
+import { assignments, duties, memories, people, runs, type AssignmentSource, type McpIntegrationEntry } from '../db/schema'
 import { db } from '../db/client'
 import { agentBinding, bindsToAgent, type AgentBinding } from './assignment'
 import { findColleague, postToColleague } from './colleague-post'
@@ -858,7 +858,7 @@ export function schedulingAbilities(args: {
         const open = await app.db
           .select({ id: duties.id })
           .from(duties)
-          .where(and(eq(duties.personId, person.id), eq(duties.enabled, 'on')))
+          .where(and(eq(duties.personId, person.id), eq(duties.enabled, 'on'), isNull(duties.deletedAt)))
         if (open.length >= MAX_SELF_SCHEDULED_DUTIES) {
           return {
             scheduled: false,
@@ -910,9 +910,12 @@ export function schedulingAbilities(args: {
 
         const base = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'task'
         const taken = new Set(
-          (await app.db.select({ slug: duties.slug }).from(duties).where(eq(duties.personId, person.id))).map(
-            (d) => d.slug,
-          ),
+          (
+            await app.db
+              .select({ slug: duties.slug })
+              .from(duties)
+              .where(and(eq(duties.personId, person.id), isNull(duties.deletedAt)))
+          ).map((d) => d.slug),
         )
         let slug = base
         for (let n = 2; taken.has(slug); n += 1) slug = `${base}-${n}`
@@ -977,7 +980,7 @@ export function schedulingAbilities(args: {
         const mine = await app.db
           .select()
           .from(duties)
-          .where(eq(duties.personId, person.id))
+          .where(and(eq(duties.personId, person.id), isNull(duties.deletedAt)))
           .orderBy(duties.nextDueAt)
         return {
           tasks: mine.map((d) => ({
@@ -1003,7 +1006,7 @@ export function schedulingAbilities(args: {
           const [before] = await tx
             .select()
             .from(duties)
-            .where(and(eq(duties.personId, person.id), eq(duties.slug, slug)))
+            .where(and(eq(duties.personId, person.id), eq(duties.slug, slug), isNull(duties.deletedAt)))
           if (!before) return null
           await tx
             .update(duties)
@@ -1022,6 +1025,78 @@ export function schedulingAbilities(args: {
           return before
         })
         return cancelled ? { cancelled: true, title: cancelled.title } : { cancelled: false, reason: 'No such task.' }
+      },
+    }),
+    defineAbility({
+      name: 'delete_scheduled_task',
+      description:
+        'Delete a task you scheduled for yourself, by its slug from list_scheduled_tasks. A deleted task is gone from your list and can never run again — this is the cleanup for cancelled or spent tasks you will not resume, such as the dead renewals a lane leaves behind it. Use cancel instead when you might want the task back.',
+      category: 'background_job',
+      inputSchema: z.object({ slug: z.string() }),
+      execute: async ({ slug }) => {
+        const outcome = await app.db.transaction(async (tx) => {
+          const [before] = await tx
+            .select()
+            .from(duties)
+            .where(and(eq(duties.personId, person.id), eq(duties.slug, slug)))
+          if (!before) return { deleted: false as const, reason: 'No such task.' }
+          if (before.deletedAt) return { deleted: false as const, reason: 'That task is already deleted.' }
+          // A run still in flight owns its lane: deleting the duty now leaves a
+          // live run reporting against a task that no longer exists, and its
+          // completion writes back to a deleted row. The same unfinished-work
+          // guard the scheduler applies to overlap applies here. A task with
+          // only FINISHED runs deletes cleanly — history stays readable.
+          const [unfinished] = await tx
+            .select({ id: runs.id, status: runs.status })
+            .from(runs)
+            .where(
+              and(
+                sql`${runs.trigger}->>'dutyId' = ${before.id}`,
+                inArray(runs.status, ['running', 'waiting_approval', 'waiting_reply', 'waiting_credential']),
+              ),
+            )
+            .limit(1)
+          if (unfinished) {
+            return {
+              deleted: false as const,
+              reason: `That task has a run still in progress (${unfinished.status}). Wait for it to finish before deleting.`,
+            }
+          }
+          await tx
+            .update(duties)
+            .set({
+              deletedAt: new Date(),
+              enabled: 'off',
+              nextDueAt: null,
+              // The slug is freed for reuse: a deleted `watch` row renamed out
+              // of the way lets a re-booked `watch` take the plain slug rather
+              // than `watch-2`, `watch-3`, … — the drift renewal chains already
+              // produce. Uniqueness holds (`duties_person_slug_key`), and
+              // nothing resolves history by slug: chains, budgets and audit all
+              // join on the duty's id.
+              slug: `${before.slug}--deleted-${before.id}`,
+              updatedAt: new Date(),
+              updatedBy: person.id,
+            })
+            .where(eq(duties.id, before.id))
+          await tx.insert(auditLog).values({
+            tenantId,
+            entityType: 'duty',
+            entityId: before.id,
+            action: 'deleted_by_employee',
+            summary: `${person.name} deleted ${before.title}`,
+            before: {
+              slug: before.slug,
+              enabled: before.enabled,
+              nextDueAt: before.nextDueAt?.toISOString() ?? null,
+              runCount: before.runCount,
+            },
+            after: { deletedAt: true, enabled: 'off', nextDueAt: null },
+            metadata: { personId: person.id, runId },
+          })
+          return { deleted: true as const, title: before.title, runsSoFar: before.runCount }
+        })
+        return outcome
       },
     }),
   ]
