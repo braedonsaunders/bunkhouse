@@ -125,3 +125,16 @@ test('health diagnostics survive a Dokploy control-plane outage', async () => {
   assert.match(deploy, /docker service ls --format '\{\{\.Name\}\} \{\{\.Image\}\}'/)
   assert.match(deploy, /Bunkhouse web service is not present in Swarm/)
 })
+
+test('manual Swarm recovery is bounded and proves the restored service', async () => {
+  const deploy = await readRepo('.github/workflows/deploy.yml')
+  const recovery = deploy.slice(deploy.indexOf('\n  recover:'))
+  assert.match(recovery, /inputs\.recoverSwarm == true && inputs\.imageTag != ''/)
+  assert.match(recovery, /\^\[0-9a-f\]\{40\}\$/, 'only an immutable commit image may be restored')
+  assert.match(recovery, /docker container prune --force --filter until=24h/)
+  assert.match(recovery, /docker image prune --all --force --filter until=24h/)
+  assert.match(recovery, /docker builder prune --all --force --filter until=24h/)
+  assert.doesNotMatch(recovery, /docker volume prune/, 'recovery never touches durable volumes')
+  assert.match(recovery, /services_are_live/)
+  assert.match(recovery, /\[ "\$code" = "200" \]/, 'success requires the public login route')
+})

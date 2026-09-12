@@ -41,6 +41,11 @@ on:
         type: boolean
         required: false
         default: false
+      recoverSwarm:
+        description: 'Reclaim unused Docker cache and restart Bunkhouse services on imageTag without Dokploy'
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: deploy-dev
@@ -171,6 +176,7 @@ jobs:
       ${{
         always() &&
         inputs.diagnosticsOnly != true &&
+        inputs.recoverSwarm != true &&
         inputs.imageTag == '' &&
         (inputs.contextReleaseTag != '' || needs.check.result == 'success')
       }}
@@ -798,3 +804,66 @@ jobs:
             code="$(curl -s -o /dev/null -w '%{http_code}' "${PUBLIC_URL%/}/login" || true)"
             echo "public_login_status=$code"
           fi
+
+  recover:
+    if: ${{ inputs.recoverSwarm == true && inputs.imageTag != '' }}
+    runs-on: [self-hosted, linux, x64, dokploy]
+    timeout-minutes: 15
+    environment: dev
+    steps:
+      - name: Reclaim unused Docker data and restore application services
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RECOVERY_TAG: ${{ inputs.imageTag }}
+          PUBLIC_URL: ${{ vars.BUNKHOUSE_PUBLIC_URL }}
+        run: |
+          set -euo pipefail
+          [[ "$RECOVERY_TAG" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::Recovery requires an exact commit SHA image tag."
+            exit 1
+          }
+
+          app_name="$(docker service ls --format '{{.Name}} {{.Image}}' \
+            | awk -v image="$IMAGE_NAME:" '$2 ~ "^" image && $1 ~ /_web$/ { sub(/_web$/, "", $1); print $1; exit }')"
+          : "${app_name:?Bunkhouse web service is not present in Swarm}"
+
+          echo "Docker usage before recovery:"
+          docker system df
+          docker container prune --force --filter until=24h
+          docker image prune --all --force --filter until=24h
+          docker builder prune --all --force --filter until=24h
+          echo "Docker usage after recovery:"
+          docker system df
+
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
+          for unit in web worker voice-agent; do
+            docker service update --detach=true --with-registry-auth \
+              --image "${IMAGE_NAME}:${RECOVERY_TAG}" "${app_name}_${unit}"
+          done
+
+          services_are_live() {
+            local unit service desired running image
+            for unit in web worker voice-agent; do
+              service="${app_name}_${unit}"
+              image="$(docker service inspect --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}' "$service" 2>/dev/null)" || return 1
+              [ "${image%%@*}" = "${IMAGE_NAME}:${RECOVERY_TAG}" ] || return 1
+              desired="$(docker service inspect --format '{{.Spec.Mode.Replicated.Replicas}}' "$service" 2>/dev/null)" || return 1
+              running="$(docker service ps --filter desired-state=running --format '{{.CurrentState}}' "$service" 2>/dev/null \
+                | grep -c '^Running' || true)"
+              [ "$running" -ge "$desired" ] || return 1
+            done
+          }
+
+          for _ in $(seq 1 120); do
+            if services_are_live; then
+              code="$(curl -s -o /dev/null -w '%{http_code}' "${PUBLIC_URL%/}/login" || true)"
+              if [ "$code" = "200" ]; then
+                echo "Bunkhouse application services and public login are healthy on ${RECOVERY_TAG}."
+                exit 0
+              fi
+            fi
+            sleep 5
+          done
+          echo "::error::Bunkhouse did not recover on ${RECOVERY_TAG}."
+          exit 1
