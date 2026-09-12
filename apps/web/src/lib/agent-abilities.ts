@@ -74,11 +74,15 @@ const MAX_SELF_SCHEDULED_DUTIES = 25
  * forever, which is the behaviour it was added to prevent. A run budget is now
  * the agent's to set when it wants one.
  *
- * Worth knowing, because it is now reachable: an occurrence is not suppressed
- * while the previous one is still working — `executeDueDuty` advances
- * `next_due_at` when it claims, so a duty that repeats every minute and takes ten
- * will overlap itself. That is the operator's call to make, and a duty that tight
- * is usually a cheap check rather than a long run.
+ * A duty no longer laps itself, which this comment once called the operator's
+ * call to make. It was not. `executeDueDuty` advances `next_due_at` when it
+ * CLAIMS, so a lane whose runs outlast its interval used to start a second
+ * instance beside the first; a fifteen-minute wake loop taking twenty to
+ * thirty-five did it nine times in twelve hours, and on one of those both
+ * instances read the same queue, both bought, and the wallet held twice the
+ * intended position. An occurrence that finds its predecessor still working is
+ * skipped now — so a tight schedule is a request for frequent checks, not
+ * permission to run the same work concurrently with itself.
  */
 const MIN_SELF_SCHEDULE_GAP_MINUTES = 1
 
