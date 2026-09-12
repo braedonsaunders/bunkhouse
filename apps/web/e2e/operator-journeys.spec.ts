@@ -57,6 +57,12 @@ test('conversation components cover search, provenance, export, and archive stat
 
   await page.getByRole('button', { name: /Dawson receivable review Avery Chen/ }).click()
   await expect(page).toHaveURL(new RegExp(`thread=${E2E_SOURCE_THREAD_ID}$`))
+  const desktopTab = page.getByRole('tab', { name: 'Desktop' })
+  await expect(desktopTab).toHaveAttribute('aria-selected', 'true')
+  await page.waitForTimeout(2_000)
+  await expect(desktopTab).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByText('Follow along', { exact: true })).toHaveCount(0)
+  await expect(page.getByText(/is working in Terminal/)).toHaveCount(0)
   await page.getByRole('button', { name: 'Actions for Dawson receivable review' }).click()
   await page.getByRole('menuitem', { name: 'Archive' }).click()
   await expect(page.getByRole('button', { name: 'Actions for Dawson receivable review' })).toHaveCount(0)

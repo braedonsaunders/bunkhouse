@@ -251,7 +251,7 @@ export async function finalizeChatUploadAction(
 /** The visual stage plus durable step history for the conversation. */
 export async function workSurfaceAction(threadId: string): Promise<ChatWorkSurface> {
   const access = await requireTenantPermission('work.read')
-  if (!threadId) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], dashboard: { present: false, updatedAt: null, appName: null }, focus: null }
+  if (!threadId) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], dashboard: { present: false, updatedAt: null, appName: null } }
   return chatWorkSurface(access.tenantId, threadId)
 }
 
@@ -762,4 +762,3 @@ export async function setDeskFrameRateAction(
   if (!personId) return { error: 'No agent selected.' }
   return setDeskFrameRate({ tenantId: access.tenantId, personId, driving })
 }
-

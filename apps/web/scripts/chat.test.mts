@@ -709,24 +709,13 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   assert.ok(workSurface.includes('<TabContent tabKey={activeTab}'), 'swapping surfaces crossfades with the tab indicator instead of cutting')
   assert.ok(workSurface.includes('<FilesWorkStage'), 'conversation files have a previewable work surface')
 
-  // Following the agent is an offer, not a claim on the stage. `focus.key`
-  // changes on every observable action, so an agent in a shell loop re-selected
-  // the tab about once a second: somebody who opened the desktop to take
-  // control was hauled back to Terminal mid-gesture and the desktop they were
-  // driving was unmounted under them, tearing down its video stream.
   assert.ok(
-    workSurface.includes('if (!followingAgent) return') &&
-      workSurface.includes('setFollowingAgent(false)'),
-    'a person choosing a surface stops the automatic following',
+    workSurface.includes('onSelect={(tab) => setActiveTab(tab as typeof activeTab)}'),
+    'the reader controls the selected work tab directly',
   )
-  assert.ok(
-    workSurface.includes('onSelect={(tab) => selectTab(tab as typeof activeTab)}'),
-    'every tab choice goes through the one handler that takes the stage',
-  )
-  assert.ok(
-    workSurface.includes('Follow along') && workSurface.includes('agentElsewhere'),
-    'the reader is told where the work moved and can opt back into following it',
-  )
+  for (const removed of ['followingAgent', 'followedSurfaceRef', 'agentElsewhere', 'Follow along']) {
+    assert.equal(workSurface.includes(removed), false, `${removed} is absent with the retired follow-along behavior`)
+  }
 
   // Both of these are server actions, and server actions share one queue per
   // client. On a fixed interval a slow read put another in line, and the queue
@@ -809,10 +798,7 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     deploymentImage.includes('libreoffice-writer') && deploymentImage.includes('libreoffice-calc'),
     'the deployment image carries both Writer and Calc for DOCX and Excel previews',
   )
-  assert.ok(
-    workSurface.includes('surface.focus.key') && workSurface.includes('setActiveTab(surface.focus.tab)'),
-    'each new observable work event selects its matching work tab, including repeated actions in one run',
-  )
+  assert.equal(workSurface.includes('surface.focus'), false, 'polling never changes the reader-selected work tab')
   assert.ok(workSurface.includes('surface.history.map'), 'the History tab renders conversation-wide durable steps')
   // Thread reads race: opening B on the heels of A lets A's slower read
   // resolve last, showing A's transcript under B's address. The loader drops
@@ -836,7 +822,7 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   )
   const historyBlock = workSurfaceLib.slice(
     workSurfaceLib.indexOf('const history = historyRows'),
-    workSurfaceLib.indexOf('const newestToolFocus'),
+    workSurfaceLib.indexOf('const recentDeskRows'),
   )
   assert.equal(
     historyBlock.includes('.reverse()'),
