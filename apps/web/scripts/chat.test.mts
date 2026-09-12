@@ -802,6 +802,23 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     'each new observable work event selects its matching work tab, including repeated actions in one run',
   )
   assert.ok(workSurface.includes('surface.history.map'), 'the History tab renders conversation-wide durable steps')
+  const workSurfaceLib = readFileSync(
+    fileURLToPath(new URL('../src/lib/chat-work-surface.ts', import.meta.url)),
+    'utf8',
+  )
+  assert.ok(
+    workSurfaceLib.includes('orderBy(desc(runEvents.createdAt), desc(runEvents.id))'),
+    'History reads newest first from the ledger',
+  )
+  const historyBlock = workSurfaceLib.slice(
+    workSurfaceLib.indexOf('const history = historyRows'),
+    workSurfaceLib.indexOf('const newestToolFocus'),
+  )
+  assert.equal(
+    historyBlock.includes('.reverse()'),
+    false,
+    'History stays newest-first instead of being flipped back to oldest-first',
+  )
   assert.ok(
     workSurface.includes('&run=${event.runId}&runTab=activity'),
     'a History step opens the work record flyout over the conversation instead of leaving Chat',
