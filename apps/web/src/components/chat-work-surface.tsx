@@ -17,16 +17,6 @@ import { ChatDesk } from './chat-desk'
 import { ChatDashboard } from './chat-dashboard'
 import { WorkSurfaceFullscreenButton } from './work-surface-fullscreen-button'
 
-/** How each work surface is named to a reader, for "working in …" copy. */
-const TAB_LABELS: Record<NonNullable<WorkSurface['focus']>['tab'], string> = {
-  desktop: 'Desktop',
-  browser: 'Browser',
-  terminal: 'Terminal',
-  files: 'Files',
-  dashboard: 'Dashboard',
-  remote: 'the remote computer',
-}
-
 type ObserverCredential = { serverUrl: string; token: string }
 
 function useObserverCredential(args: {
@@ -461,9 +451,7 @@ export function ChatWorkSurface({
   personName: string
 }) {
   const [activeTab, setActiveTab] = React.useState<'desktop' | 'browser' | 'terminal' | 'files' | 'dashboard' | 'remote' | 'history'>('desktop')
-  const [surface, setSurface] = React.useState<WorkSurface>({ kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], dashboard: { present: false, updatedAt: null, appName: null }, focus: null })
-  const followedSurfaceRef = React.useRef('idle')
-  const [followingAgent, setFollowingAgent] = React.useState(true)
+  const [surface, setSurface] = React.useState<WorkSurface>({ kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], dashboard: { present: false, updatedAt: null, appName: null } })
 
   React.useEffect(() => {
     // No conversation means History renders its own empty state below. Keep
@@ -503,35 +491,6 @@ export function ChatWorkSurface({
     }
   }, [threadId])
 
-  /**
-   * Following the agent is a convenience, not a claim on the stage.
-   *
-   * `focus.key` changes on every observable action, so an agent in a shell loop
-   * re-selected the tab roughly once a second. Somebody who had opened the
-   * desktop to take control was hauled back to Terminal mid-gesture, and the
-   * desktop they were driving was unmounted underneath them — tearing down its
-   * video stream, which is then slow to re-establish on the way back.
-   *
-   * So: the agent's activity offers a surface while nobody has chosen one, and
-   * a person's choice ends the offer. Following resumes only when they ask.
-   */
-  React.useEffect(() => {
-    if (!followingAgent) return
-    if (!surface.focus || surface.focus.key === followedSurfaceRef.current) return
-    followedSurfaceRef.current = surface.focus.key
-    setActiveTab(surface.focus.tab)
-  }, [followingAgent, surface.focus])
-
-  // Taking a surface is what stops the following; the stale `followedSurfaceRef`
-  // is deliberate, so resuming jumps straight to whatever is happening then.
-  const selectTab = React.useCallback((tab: typeof activeTab) => {
-    setActiveTab(tab)
-    setFollowingAgent(false)
-  }, [])
-
-  const agentElsewhere =
-    !followingAgent && surface.focus !== null && surface.focus.tab !== activeTab ? surface.focus.tab : null
-
   // Seven tabs never fit as seven words in this pane, so the bar is adaptive:
   // the selected tab names itself and the rest ride as icons, with the word
   // always present for assistive tech and as a hover tooltip. The selected
@@ -551,7 +510,7 @@ export function ChatWorkSurface({
         <SubtabNav
           ariaLabel={`${personName}'s work surfaces`}
           active={activeTab}
-          onSelect={(tab) => selectTab(tab as typeof activeTab)}
+          onSelect={(tab) => setActiveTab(tab as typeof activeTab)}
           className="h-12 gap-0 overflow-x-hidden [&>button]:!h-12 [&>button]:!min-w-0 [&>button]:!flex-1 [&>button]:!shrink [&>button]:!justify-center [&>button]:!gap-1 [&>button]:!px-1.5 [&>button]:!py-0 [&>button]:!text-xs [&>button]:!transition-all [&>button[aria-selected=true]]:!flex-[2.5]"
           tabs={[
             {
@@ -585,24 +544,6 @@ export function ChatWorkSurface({
           ]}
         />
       </div>
-
-      {/* The offer, once it is no longer taken automatically: say where the work
-          moved and let the reader go back to following it, rather than deciding
-          for them. */}
-      {agentElsewhere !== null ? (
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-surface-hover px-4 py-2 text-xs text-fg-muted">
-          <span className="min-w-0 truncate">
-            {personName} is working in {TAB_LABELS[agentElsewhere]}. You are driving this surface, so nothing has moved.
-          </span>
-          <button
-            type="button"
-            className="shrink-0 font-medium text-primary hover:underline"
-            onClick={() => setFollowingAgent(true)}
-          >
-            Follow along
-          </button>
-        </div>
-      ) : null}
 
       {/* Swapping surfaces crossfades instead of cutting: the tab bar's
           sliding indicator and the stage move as one gesture. */}

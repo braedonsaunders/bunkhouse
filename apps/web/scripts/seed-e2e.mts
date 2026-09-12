@@ -5,6 +5,8 @@ import {
   E2E_CONTINUED_THREAD_ID,
   E2E_FAILED_THREAD_ID,
   E2E_QUEUE_THREAD_ID,
+  E2E_SOURCE_DESK_ID,
+  E2E_SOURCE_RUN_ID,
   E2E_SOURCE_THREAD_ID,
 } from './e2e-fixtures'
 
@@ -77,6 +79,38 @@ try {
       [tenantId, threadId, seq, role, body],
     )
   }
+
+  // A live terminal gives the work-surface poll something that used to seize
+  // the selected tab. The browser journey proves Desktop remains selected:
+  // fresh work updates the surface contents without steering the operator.
+  await client.query(
+    `insert into runs (id, tenant_id, person_id, status, trigger, started_at)
+     values ($1, $2, $3, 'running', $4::jsonb, now() - interval '1 minute')
+     on conflict (id) do nothing`,
+    [E2E_SOURCE_RUN_ID, tenantId, E2E_AGENT_ID, JSON.stringify({
+      type: 'chat',
+      channel: 'web',
+      conversationId: `web:${E2E_SOURCE_THREAD_ID}`,
+    })],
+  )
+  await client.query(
+    `insert into desk_sessions (id, tenant_id, person_id, run_id, status)
+     values ($1, $2, $3, $4, 'active')
+     on conflict (id) do nothing`,
+    [E2E_SOURCE_DESK_ID, tenantId, E2E_AGENT_ID, E2E_SOURCE_RUN_ID],
+  )
+  await client.query(
+    `insert into desk_events (tenant_id, session_id, seq, kind, detail)
+     values ($1, $2, 0, 'shell_command', $3::jsonb)
+     on conflict (session_id, seq) do nothing`,
+    [tenantId, E2E_SOURCE_DESK_ID, JSON.stringify({
+      command: 'printf work-surface-ready',
+      cwd: '/home/avery',
+      exitCode: 0,
+      commandStatus: 'completed',
+      output: 'work-surface-ready',
+    })],
+  )
 
   const dispatches = [
     [E2E_QUEUE_THREAD_ID, 0, 'queue-running', 'Working now', 'running', 1, null],

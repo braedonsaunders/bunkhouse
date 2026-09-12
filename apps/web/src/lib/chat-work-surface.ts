@@ -22,7 +22,6 @@ import type { TerminalSurfaceEntry } from '@braedonsaunders/appkit-remote-sessio
 
 const DISTINCT_BROWSER_DESK_EVENTS = new Set(['navigate', 'read', 'browser_close'])
 const SHARED_BROWSER_DESK_EVENTS = new Set(['click', 'type', 'key', 'scroll'])
-const DESKTOP_DESK_EVENTS = new Set(['screen_open', 'app_launch', 'move', 'click', 'type', 'key', 'scroll', 'drag', 'a11y_invoke', 'window_focus', 'screenshot'])
 
 function isBrowserDeskEvent(kind: string, detail: Record<string, unknown>): boolean {
   if (DISTINCT_BROWSER_DESK_EVENTS.has(kind)) return true
@@ -92,13 +91,6 @@ export type ChatTerminalWorkSurface = {
   }
 }
 
-export type ChatWorkFocus = {
-  tab: 'desktop' | 'browser' | 'terminal' | 'files' | 'remote' | 'dashboard'
-  /** Changes for every new observable action, even inside the same run. */
-  key: string
-  at: string
-}
-
 export type ChatDashboardSummary = {
   /** Whether the conversation has a dashboard app yet. */
   present: boolean
@@ -114,7 +106,6 @@ export type ChatWorkSurface = {
   recentTerminal: ChatTerminalWorkSurface | null
   files: ChatWorkFile[]
   dashboard: ChatDashboardSummary
-  focus: ChatWorkFocus | null
 } & (
   | { kind: 'idle'; runId: null }
   | { kind: 'desktop'; runId: string; status: string }
@@ -137,20 +128,12 @@ function eventLabel(kind: string, payload: Record<string, unknown>): string {
   return kind.replaceAll('_', ' ')
 }
 
-function workTabForTool(toolName: unknown): ChatWorkFocus['tab'] | null {
-  if (typeof toolName !== 'string') return null
-  if (toolName === 'run_shell') return 'terminal'
-  if (toolName === 'open_desktop' || toolName.startsWith('desktop_')) return 'desktop'
-  if (toolName.startsWith('browser_')) return 'browser'
-  return null
-}
-
 /** Resolve the live surface and durable execution history for one conversation. */
 export async function chatWorkSurface(tenantId: string, threadId: string): Promise<ChatWorkSurface> {
   const app = db()
   return app.withTenantContext(tenantId, async () => {
     const [thread] = await app.db.select({ id: chatThreads.id }).from(chatThreads).where(eq(chatThreads.id, threadId)).limit(1)
-    if (!thread) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], dashboard: { present: false, updatedAt: null, appName: null }, focus: null }
+    if (!thread) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], dashboard: { present: false, updatedAt: null, appName: null } }
     // A thread's work is its chat turns AND the scheduled work it asked for.
     //
     // A duty run is triggered by the clock, so its trigger names no
@@ -178,7 +161,7 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
       .orderBy(desc(runs.startedAt))
       .limit(100)
     const run = threadRuns[0]
-    if (!run) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], dashboard: { present: false, updatedAt: null, appName: null }, focus: null }
+    if (!run) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], dashboard: { present: false, updatedAt: null, appName: null } }
 
     const conversationFiles = await app.db
       .select({
@@ -251,12 +234,6 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
         label: eventLabel(event.kind, event.payload),
         at: event.at.toISOString(),
       }))
-    const newestToolFocus = historyRows.flatMap<ChatWorkFocus>((event) => {
-      if (event.kind !== 'tool_call') return []
-      const tab = workTabForTool(event.payload.toolName)
-      return tab ? [{ tab, key: `tool:${event.id}`, at: event.at.toISOString() }] : []
-    })[0] ?? null
-
     // The stage is durable across turns. Keep the last graphical browser and
     // shell ledger available after the live run closes and after a page reload.
     const recentDeskRows = await app.db
@@ -382,45 +359,11 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
         : null,
     } : null
 
-    const latestConversationScreenBoundary = recentDeskRows.find(
-      (event) => event.kind === 'screen_open' || event.kind === 'screen_close',
-    ) ?? null
-    const latestDesktopRow = latestConversationScreenBoundary?.kind === 'screen_open'
-      ? recentDeskRows.find((event) => DESKTOP_DESK_EVENTS.has(event.kind) && !isBrowserDeskEvent(event.kind, event.detail)) ?? null
-      : null
-    const focusCandidates: ChatWorkFocus[] = [
-      ...(newestToolFocus ? [newestToolFocus] : []),
-      ...(recentBrowser ? [{
-        tab: 'browser' as const,
-        key: `browser:${recentBrowser.runId}:${recentBrowser.frame.at}`,
-        at: recentBrowser.frame.at,
-      }] : []),
-      ...(recentTerminal ? [{
-        tab: 'terminal' as const,
-        key: `terminal:${recentTerminal.runId}:${recentTerminal.terminal.lastActivityAt}`,
-        at: recentTerminal.terminal.lastActivityAt,
-      }] : []),
-      ...(latestDesktopRow ? [{
-        tab: 'desktop' as const,
-        key: `desktop:${latestDesktopRow.runId}:${latestDesktopRow.sessionId}:${latestDesktopRow.seq}`,
-        at: latestDesktopRow.at.toISOString(),
-      }] : []),
-      ...(remote ? [{
-        tab: 'remote' as const,
-        key: `remote:${remote.sessionId}:${remote.lastActivityAt}`,
-        at: remote.lastActivityAt,
-      }] : []),
-      ...workFiles
-        .filter((file) => file.kind === 'document' || file.kind === 'spreadsheet')
-        .slice(0, 1)
-        .map((file) => ({ tab: 'files' as const, key: `files:${file.id}`, at: file.createdAt })),
-    ]
-    const focus = focusCandidates.sort((left, right) => Date.parse(right.at) - Date.parse(left.at))[0] ?? null
     // The dashboard's freshness rides the same poll as everything else, so
     // the tab reloads the moment the agent (or the operator) saves — without
     // it the tab would sit on a stale bundle until a full page reload.
     const dashboard = await dashboardSummary(tenantId, threadId)
-    const retained = { history, recentBrowser, recentTerminal, files: workFiles, dashboard, focus }
+    const retained = { history, recentBrowser, recentTerminal, files: workFiles, dashboard }
 
     const [call] = await app.db
       .select({ id: callSessions.id, room: callSessions.room, status: callSessions.status, direction: callSessions.direction, startedAt: callSessions.startedAt })

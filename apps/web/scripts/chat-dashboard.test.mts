@@ -143,7 +143,7 @@ test('reading the dashboard cannot mint an app', () => {
 test('the work surface carries dashboard freshness for the tab poll', () => {
   assert.ok(surface.includes('dashboard: ChatDashboardSummary'), 'the surface type carries the dashboard')
   assert.ok(surface.includes('dashboardSummary(tenantId, threadId)'), 'freshness rides the same poll as everything else')
-  assert.ok(surface.includes("tab: 'desktop' | 'browser' | 'terminal' | 'files' | 'remote' | 'dashboard'"), 'focus knows the new tab')
+  assert.equal(surface.includes('ChatWorkFocus'), false, 'dashboard updates never steer the reader to another tab')
   assert.ok(actions.includes('dashboardBundleAction'), 'the tab reads its bundle through an action')
   assert.ok(actions.includes('dashboardBridgeAction'), 'bridge calls cross through an action, never directly')
   assert.ok(actions.includes('ensureDashboardAction'), 'the operator can start from the live starter')
