@@ -267,6 +267,7 @@ jobs:
       ${{
         always() &&
         inputs.diagnosticsOnly != true &&
+        inputs.recoverSwarm != true &&
         (
           (inputs.imageTag != '' && needs.check.result == 'skipped' && needs.build.result == 'skipped') ||
           (
