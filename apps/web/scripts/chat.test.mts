@@ -809,6 +809,18 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     'each new observable work event selects its matching work tab, including repeated actions in one run',
   )
   assert.ok(workSurface.includes('surface.history.map'), 'the History tab renders conversation-wide durable steps')
+  // Thread reads race: opening B on the heels of A lets A's slower read
+  // resolve last, showing A's transcript under B's address. The loader drops
+  // stale arrivals instead of adopting them.
+  const chatWorkspace = readFileSync(
+    fileURLToPath(new URL('../src/components/chat-workspace.tsx', import.meta.url)),
+    'utf8',
+  )
+  assert.ok(
+    chatWorkspace.includes('wantedThreadRef') &&
+      chatWorkspace.includes('if (wantedThreadRef.current !== threadId) return'),
+    'a thread read that resolves after a newer one was asked for is dropped',
+  )
   const workSurfaceLib = readFileSync(
     fileURLToPath(new URL('../src/lib/chat-work-surface.ts', import.meta.url)),
     'utf8',

@@ -867,11 +867,18 @@ export function AgentChatWorkspace({
     })
   }, [])
 
+  // The latest conversation this pane asked for. Thread reads race — opening
+  // B on the heels of A lets A's slower read resolve last, and without this
+  // the transcript shown would be A's under B's address. A stale arrival is
+  // dropped on the floor instead.
+  const wantedThreadRef = React.useRef<string | null>(initialThread?.thread.id ?? null)
   const load = React.useCallback(async (threadId: string) => {
+    wantedThreadRef.current = threadId
     setLoading(true)
     setError(null)
     try {
       const loaded = await getThreadAction(threadId)
+      if (wantedThreadRef.current !== threadId) return
       if (loaded === null) {
         setError('That conversation is no longer here.')
         return
@@ -886,9 +893,10 @@ export function AgentChatWorkspace({
         `/organization/${encodeURIComponent(agent.id)}?section=chat&thread=${encodeURIComponent(threadId)}`,
       )
     } catch (reason) {
+      if (wantedThreadRef.current !== threadId) return
       setError(reason instanceof Error ? reason.message : 'That conversation could not be opened.')
     } finally {
-      setLoading(false)
+      if (wantedThreadRef.current === threadId) setLoading(false)
     }
   }, [agent.id])
 
