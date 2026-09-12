@@ -25,7 +25,6 @@ import { css } from '@codemirror/lang-css'
 import { javascript } from '@codemirror/lang-javascript'
 import { json } from '@codemirror/lang-json'
 import {
-  dashboardBridgeAction,
   dashboardBundleAction,
   dashboardFileAction,
   dashboardFilesAction,
@@ -192,8 +191,18 @@ export function ChatDashboard({
   const isDirty = baseline !== null && draft !== null && draft !== baseline
 
   const bridgeCall = React.useCallback(
-    async (request: { method: string; payload: unknown }): Promise<unknown> =>
-      dashboardBridgeAction({ threadId, method: request.method, payload: request.payload }),
+    async (request: { method: string; payload: unknown }): Promise<unknown> => {
+      const response = await fetch(`/api/chat/${encodeURIComponent(threadId)}/dashboard/bridge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+        credentials: 'same-origin',
+        cache: 'no-store',
+      })
+      const result = await response.json() as { result?: unknown; error?: string }
+      if (!response.ok) throw new Error(result.error ?? 'The dashboard could not load live data.')
+      return result.result
+    },
     [threadId],
   )
 
