@@ -569,6 +569,50 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   assert.match(migration, /approvals_pending_tool_call_key/)
 }
 
+// --- (b2b) an arriving message does not wipe what you were reading ---------
+//
+// The panel is keyed by the THREAD and nothing else. A `panelGeneration` counter
+// used to ride along in that key, bumped whenever the poll saw a new trailing
+// message or an approval being decided, which REMOUNTED the whole panel: every
+// node in the conversation destroyed and rebuilt. Text you had selected ready to
+// copy was deselected the instant anything arrived, and a composer draft and your
+// scroll position went with it.
+//
+// It was a workaround for a panel that seeded its transcript once, on mount. The
+// panel reconciles now — a new message, a new part, prose growing, and a secret or
+// approval request being decided all reach it in place — so remounting to deliver
+// them is both unnecessary and destructive.
+{
+  const workspace = readFileSync(
+    fileURLToPath(new URL('../src/components/chat-workspace.tsx', import.meta.url)),
+    'utf8',
+  )
+  const panel = workspace.slice(workspace.indexOf('<AgentPanel'))
+  const key = panel.slice(0, panel.indexOf('enabled='))
+  assert.match(key, /key=\{detail\.thread\.id\}/, 'the panel is keyed by the conversation')
+  assert.equal(
+    /key=\{`\$\{detail\.thread\.id\}:/.test(key),
+    false,
+    'and by nothing that moves while the conversation is open',
+  )
+
+  // Nothing anywhere may reintroduce a remount counter. Ignore prose: the comment
+  // above the key explains the bug by name, and an assertion that matched it would
+  // fail the moment someone documented it.
+  const code = workspace
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+    .join('\n')
+  assert.equal(/panelGeneration/.test(code), false, 'no generation counter survives in the code')
+
+  // The reconciliation this relies on, in the panel itself: it adopts the host
+  // transcript whenever that transcript has moved, rather than only on mount.
+  const { createRequire } = await import('node:module')
+  const react = readFileSync(createRequire(import.meta.url).resolve('@braedonsaunders/appkit-ai/react'), 'utf8')
+  assert.match(react, /sameTranscript/, 'the installed panel compares transcripts')
+  assert.match(react, /initialMessages, streaming/, 'and re-reconciles when they change')
+}
+
 // --- (b3) a completed streamed turn survives a profile-section switch ------
 //
 // AgentPanel keeps the rich live parts while it is mounted. The server tree

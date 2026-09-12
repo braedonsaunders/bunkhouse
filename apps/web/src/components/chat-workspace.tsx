@@ -339,18 +339,6 @@ function fileSizeLabel(bytes: number): string {
   return `${(bytes / (1_024 * 1_024)).toFixed(bytes >= 10 * 1_024 * 1_024 ? 0 : 1)} MB`
 }
 
-function credentialRequestSignature(requests: ChatCredentialRequestRecord[]): string {
-  return requests
-    .map((request) => `${request.id}:${request.status}:${request.attempts}:${request.continuationPending}:${request.lastError ?? ''}`)
-    .join('|')
-}
-
-function approvalRequestSignature(requests: ChatApprovalRecord[]): string {
-  return requests
-    .map((request) => `${request.id}:${request.status}:${request.continuationPending}:${request.decisionNote ?? ''}`)
-    .join('|')
-}
-
 const DEFAULT_WORK_PANE_WIDTH = 448
 const MIN_WORK_PANE_WIDTH = 320
 const MAX_WORK_PANE_WIDTH = 720
@@ -820,7 +808,6 @@ export function AgentChatWorkspace({
   const [deskChoice, setDeskChoice] = React.useState<boolean | null>(null)
   const [callThreadId, setCallThreadId] = React.useState<string | null>(null)
   const [callStarting, setCallStarting] = React.useState(false)
-  const [panelGeneration, setPanelGeneration] = React.useState(0)
   const [uploadOpen, setUploadOpen] = React.useState(false)
   const [draftUploads, setDraftUploads] = React.useState<Record<string, UploadedFile[]>>({})
   const [workPaneWidth, setWorkPaneWidth] = React.useState(DEFAULT_WORK_PANE_WIDTH)
@@ -943,12 +930,6 @@ export function AgentChatWorkspace({
         // that has just streamed, in far more detail than the stored bodies.
         setDetail((current) => {
           if (!current || current.thread.id !== threadId) return current
-          if (
-            credentialRequestSignature(current.credentialRequests) !== credentialRequestSignature(loaded.credentialRequests)
-            || approvalRequestSignature(current.approvals) !== approvalRequestSignature(loaded.approvals)
-          ) {
-            setPanelGeneration((generation) => generation + 1)
-          }
           return loaded
         })
       } catch {
@@ -1160,15 +1141,6 @@ export function AgentChatWorkspace({
         if (stopped || !loaded) return
         setDetail((current) => {
           if (!current || current.thread.id !== threadId) return current
-          const previousLast = current.messages.at(-1)?.id
-          const nextLast = loaded.messages.at(-1)?.id
-          const credentialRequestsChanged =
-            credentialRequestSignature(current.credentialRequests) !== credentialRequestSignature(loaded.credentialRequests)
-          const approvalsChanged =
-            approvalRequestSignature(current.approvals) !== approvalRequestSignature(loaded.approvals)
-          if (!directStreamRef.current && (previousLast !== nextLast || credentialRequestsChanged || approvalsChanged)) {
-            setPanelGeneration((generation) => generation + 1)
-          }
           return loaded
         })
       } catch {
@@ -1416,9 +1388,21 @@ export function AgentChatWorkspace({
           <ContinuationNotice originThreadId={detail.thread.originThreadId} onOpen={(id) => void load(id)} />
           <ThreadNoticeBar messages={detail.messages} />
           <AgentPanel
-            // Keyed by the thread: the panel seeds its transcript once, so a
-            // different conversation has to be a different panel.
-            key={`${detail.thread.id}:${panelGeneration}`}
+            // Keyed by the THREAD, and by nothing else: a different conversation
+            // is a different panel, and everything short of that is a transcript
+            // the panel reconciles in place.
+            //
+            // A `panelGeneration` counter used to ride along in this key and was
+            // bumped whenever the poll saw a new trailing message or an approval
+            // being decided — which remounted the whole panel. That destroyed and
+            // rebuilt every node in the conversation, so text you had selected
+            // ready to copy was deselected the moment anything arrived; a draft in
+            // the composer and your scroll position went with it. It was a
+            // workaround for a panel that seeded its transcript only on mount.
+            // It does not any more: it reconciles `initialMessages` on every
+            // change, noticing a new message, a new part, prose growing, and a
+            // secret or approval request being decided.
+            key={detail.thread.id}
             // An archived conversation is closed to new turns on the server, so
             // the composer is closed here too rather than offering a Send that
             // is only going to be refused.
