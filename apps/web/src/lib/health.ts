@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, desc, eq, gt, isNotNull, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, isNotNull, isNull, ne, sql } from 'drizzle-orm'
 import { ACP_PROTOCOL_VERSION, BUNKHOUSE_ACP_CAPABILITIES } from '@bunkhouse/acp'
 import { approvals, duties, mailboxAccounts, people, runs } from '../db/schema'
 import { db } from '../db/client'
@@ -260,7 +260,7 @@ async function checkScheduler(tenantId: string): Promise<HealthCheck> {
     app.db
       .select({ title: duties.title, nextDueAt: duties.nextDueAt })
       .from(duties)
-      .where(and(eq(duties.enabled, 'on'), isNotNull(duties.nextDueAt)))
+      .where(and(eq(duties.enabled, 'on'), isNull(duties.deletedAt), isNotNull(duties.nextDueAt)))
       .orderBy(desc(duties.nextDueAt)),
   )
   // An hour past due is the scheduler being down, not a duty running late.

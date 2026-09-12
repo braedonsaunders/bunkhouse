@@ -120,6 +120,8 @@ export function describeToolCall(toolName: string, input: unknown): string {
       return 'Reviewing scheduled tasks'
     case 'cancel_scheduled_task':
       return 'Cancelling a scheduled task'
+    case 'delete_scheduled_task':
+      return 'Deleting a scheduled task'
     case 'take_assignment': {
       const t = quote(args.title)
       return t ? `Taking on ${t}` : 'Taking on the work'
