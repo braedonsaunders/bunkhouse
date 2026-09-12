@@ -228,6 +228,10 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
       )
       .orderBy(desc(runEvents.createdAt), desc(runEvents.id))
       .limit(200)
+    // Newest first: the History tab reads like a ledger, not a transcript —
+    // the latest step is what a reader opening the pane is looking for.
+    // (Terminal outputs and the Activity fallback below stay chronological;
+    // only this tab is newest-first.)
     const history = historyRows
       .map((event) => ({
         id: event.id,
@@ -237,7 +241,6 @@ export async function chatWorkSurface(tenantId: string, threadId: string): Promi
         label: eventLabel(event.kind, event.payload),
         at: event.at.toISOString(),
       }))
-      .reverse()
     const newestToolFocus = historyRows.flatMap<ChatWorkFocus>((event) => {
       if (event.kind !== 'tool_call') return []
       const tab = workTabForTool(event.payload.toolName)
