@@ -38,6 +38,17 @@ import {
   setTakeover,
 } from '../../lib/chat-desk'
 import { chatWorkSurface, type ChatWorkSurface } from '../../lib/chat-work-surface'
+import {
+  deleteDashboardFile,
+  ensureDashboardApp,
+  getDashboardBundle,
+  listDashboardFiles,
+  listDashboardRuns,
+  readDashboardFile,
+  runDashboardBridge,
+  saveDashboardFile,
+  updateDashboardMeta,
+} from '../../lib/chat-dashboard'
 import { runScreenRoomName } from '../../lib/run-screen-room'
 import { observeRemoteWork } from '../../lib/remote-computers'
 import {
@@ -240,7 +251,7 @@ export async function finalizeChatUploadAction(
 /** The visual stage plus durable step history for the conversation. */
 export async function workSurfaceAction(threadId: string): Promise<ChatWorkSurface> {
   const access = await requireTenantPermission('work.read')
-  if (!threadId) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], focus: null }
+  if (!threadId) return { kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], dashboard: { present: false, updatedAt: null, appName: null }, focus: null }
   return chatWorkSurface(access.tenantId, threadId)
 }
 
@@ -307,6 +318,147 @@ export async function observeWorkSurfaceAction(input: {
     },
   )
   return { serverUrl, token }
+}
+
+/**
+ * The conversation's dashboard, as the Dashboard tab meets it.
+ *
+ * Reading is `work.read`; changing anything is `work.manage`, the same line
+ * the rest of the conversation draws. Every payload crossing here is plain
+ * data: bundles are strings, runs are mapped to ISO timestamps, and errors
+ * arrive as thrown Errors the tab renders — never as half-shaped rows.
+ */
+export async function dashboardBundleAction(threadId: string) {
+  const access = await requireTenantPermission('work.read')
+  if (!threadId) return null
+  const found = await getDashboardBundle(access.tenantId, threadId)
+  if (!found) return null
+  return {
+    app: {
+      key: found.app.key,
+      name: found.app.name,
+      description: found.app.description,
+      iconKey: found.app.iconKey,
+      status: found.app.status,
+      version: found.app.version,
+      grantedPermissions: found.app.grantedPermissions,
+      endpoints: found.app.manifest?.endpoints ?? [],
+    },
+    bundle: found.bundle,
+    context: {
+      app: { id: found.app.id, key: found.app.key, name: found.app.name, version: found.app.version ?? '1.0.0' },
+      user: { id: access.user.id, name: access.user.name },
+    },
+  }
+}
+
+export async function dashboardFilesAction(threadId: string) {
+  const access = await requireTenantPermission('work.read')
+  if (!threadId) return null
+  const found = await listDashboardFiles(access.tenantId, threadId)
+  if (!found) return null
+  return {
+    app: { key: found.app.key, name: found.app.name, description: found.app.description, iconKey: found.app.iconKey },
+    files: found.files.map((file) => ({
+      path: file.path,
+      kind: file.kind,
+      contentType: file.contentType,
+      size: file.size,
+      isBinary: file.isBinary,
+    })),
+  }
+}
+
+export async function dashboardFileAction(threadId: string, path: string) {
+  const access = await requireTenantPermission('work.read')
+  if (!threadId || !path) return null
+  const file = await readDashboardFile(access.tenantId, threadId, path)
+  if (!file) return null
+  return { path: file.path, kind: file.kind, contentType: file.contentType, content: file.isBinary ? '' : file.content, isBinary: file.isBinary }
+}
+
+export async function dashboardRunsAction(threadId: string) {
+  const access = await requireTenantPermission('work.read')
+  if (!threadId) return []
+  const runs = await listDashboardRuns(access.tenantId, threadId, 20)
+  return runs.map((run) => ({
+    endpoint: run.endpoint,
+    status: run.status,
+    error: run.errorMessage,
+    at: run.at.toISOString(),
+  }))
+}
+
+export async function saveDashboardFileAction(
+  threadId: string,
+  path: string,
+  content: string,
+): Promise<{ path: string; size: number } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  try {
+    const saved = await saveDashboardFile({
+      tenantId: access.tenantId,
+      actorId: access.user.id,
+      threadId,
+      userId: access.user.id,
+      file: { path, content },
+    })
+    return saved
+  } catch (reason) {
+    return { error: reason instanceof Error ? reason.message : 'That file could not be saved.' }
+  }
+}
+
+export async function updateDashboardAction(
+  threadId: string,
+  update: { name?: string; description?: string; icon?: string; endpoints?: Array<{ name: string; file: string; method?: string }> },
+): Promise<{ updated: true } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  try {
+    await updateDashboardMeta({
+      tenantId: access.tenantId,
+      actorId: access.user.id,
+      threadId,
+      userId: access.user.id,
+      update,
+    })
+    return { updated: true }
+  } catch (reason) {
+    return { error: reason instanceof Error ? reason.message : 'Those settings could not be saved.' }
+  }
+}
+
+export async function deleteDashboardFileAction(threadId: string, path: string): Promise<{ deleted: true } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  try {
+    await deleteDashboardFile({ tenantId: access.tenantId, actorId: access.user.id, threadId, path, userId: access.user.id })
+    return { deleted: true }
+  } catch (reason) {
+    return { error: reason instanceof Error ? reason.message : 'That file could not be deleted.' }
+  }
+}
+
+/** One bridge call from the dashboard sandbox to its conversation's records. */
+export async function dashboardBridgeAction(input: { threadId: string; method: string; payload: unknown }): Promise<unknown> {
+  const access = await requireTenantPermission('work.read')
+  return runDashboardBridge({
+    tenantId: access.tenantId,
+    user: { id: access.user.id, name: access.user.name },
+    threadId: input.threadId,
+    method: input.method,
+    payload: input.payload,
+  })
+}
+
+/** Provision the conversation's starter dashboard without waiting for the agent. */
+export async function ensureDashboardAction(threadId: string): Promise<{ provisioned: true } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  try {
+    await ensureDashboardApp({ tenantId: access.tenantId, actorId: access.user.id, threadId })
+    return { provisioned: true }
+  } catch (reason) {
+    return { error: reason instanceof Error ? reason.message : 'The starter dashboard could not be built.' }
+  }
 }
 
 /**

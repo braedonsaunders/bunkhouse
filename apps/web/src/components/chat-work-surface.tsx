@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { ArrowLeft, CheckCircle2, ChevronRight, Download, ExternalLink, FileCode2, FileSpreadsheet, FileText, Globe, History as HistoryIcon, Image as ImageIcon, Loader2, Monitor, MonitorUp, MoreHorizontal, TerminalSquare } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, ChevronRight, Download, ExternalLink, FileCode2, FileSpreadsheet, FileText, Globe, History as HistoryIcon, Image as ImageIcon, LayoutDashboard, Loader2, Monitor, MonitorUp, MoreHorizontal, TerminalSquare } from 'lucide-react'
 import { Badge, Button, ContextMenu, EmptyState, SubtabNav, TabContent, useContextMenu, type ContextMenuEntry } from '@braedonsaunders/appkit-ui'
 import { LiveKitRoom, VideoTrack, useTracks } from '@livekit/components-react'
 import { Track } from 'livekit-client'
@@ -14,6 +14,7 @@ import { RemoteComputerViewer, TerminalSurface } from '@braedonsaunders/appkit-r
 import type { RemoteProtocol } from '@braedonsaunders/appkit-remote-sessions'
 import { AGENT_BROWSER_TRACK_NAME } from '../lib/agent-screen'
 import { ChatDesk } from './chat-desk'
+import { ChatDashboard } from './chat-dashboard'
 import { WorkSurfaceFullscreenButton } from './work-surface-fullscreen-button'
 
 /** How each work surface is named to a reader, for "working in …" copy. */
@@ -22,6 +23,7 @@ const TAB_LABELS: Record<NonNullable<WorkSurface['focus']>['tab'], string> = {
   browser: 'Browser',
   terminal: 'Terminal',
   files: 'Files',
+  dashboard: 'Dashboard',
   remote: 'the remote computer',
 }
 
@@ -458,8 +460,8 @@ export function ChatWorkSurface({
   personId: string
   personName: string
 }) {
-  const [activeTab, setActiveTab] = React.useState<'desktop' | 'browser' | 'terminal' | 'files' | 'remote' | 'history'>('desktop')
-  const [surface, setSurface] = React.useState<WorkSurface>({ kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], focus: null })
+  const [activeTab, setActiveTab] = React.useState<'desktop' | 'browser' | 'terminal' | 'files' | 'dashboard' | 'remote' | 'history'>('desktop')
+  const [surface, setSurface] = React.useState<WorkSurface>({ kind: 'idle', runId: null, history: [], remote: null, recentBrowser: null, recentTerminal: null, files: [], dashboard: { present: false, updatedAt: null, appName: null }, focus: null })
   const followedSurfaceRef = React.useRef('idle')
   const [followingAgent, setFollowingAgent] = React.useState(true)
 
@@ -560,6 +562,15 @@ export function ChatWorkSurface({
               key: 'files',
               label: <span className="flex min-w-0 items-center gap-1"><FileText aria-hidden className="size-3.5 shrink-0" /><span className="truncate">Files</span></span>,
             },
+            {
+              key: 'dashboard',
+              label: (
+                <span className="flex min-w-0 items-center gap-1">
+                  <LayoutDashboard aria-hidden className="size-3.5 shrink-0" />
+                  <span className="truncate">Dashboard</span>
+                </span>
+              ),
+            },
             ...(surface.remote ? [{
               key: 'remote',
               label: <span className="flex min-w-0 items-center gap-1"><MonitorUp aria-hidden className="size-3.5 shrink-0" /><span className="truncate">{surface.remote.computerName}</span></span>,
@@ -595,6 +606,9 @@ export function ChatWorkSurface({
         </div>
       ) : null}
 
+      {/* Swapping surfaces crossfades instead of cutting: the tab bar's
+          sliding indicator and the stage move as one gesture. */}
+      <TabContent tabKey={activeTab} className="flex min-h-0 flex-1 flex-col">
       {activeTab === 'browser' && threadId !== null && (surface.kind === 'browser' || surface.recentBrowser) ? (
         <BrowserWorkStage threadId={threadId} surface={surface.kind === 'browser' ? surface : surface.recentBrowser!} personName={personName} />
       ) : activeTab === 'browser' ? (
@@ -615,6 +629,12 @@ export function ChatWorkSurface({
         </div>
       ) : activeTab === 'files' ? (
         <FilesWorkStage files={surface.files} personName={personName} />
+      ) : activeTab === 'dashboard' && threadId !== null ? (
+        <ChatDashboard threadId={threadId} personName={personName} summary={surface.dashboard} />
+      ) : activeTab === 'dashboard' ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+          <EmptyState icon={<LayoutDashboard />} title="No conversation open" description={`${personName}'s dashboard lives beside the conversation it's about — open one to see it.`} />
+        </div>
       ) : activeTab === 'remote' && threadId !== null && surface.remote ? (
         surface.remote.terminal ? (
           <ExpandableTerminalSurface
@@ -682,6 +702,7 @@ export function ChatWorkSurface({
           </div>
         </div>
       )}
+      </TabContent>
     </section>
   )
 }
