@@ -343,6 +343,8 @@ export async function dashboardBundleAction(threadId: string) {
       version: found.app.version,
       grantedPermissions: found.app.grantedPermissions,
       endpoints: found.app.manifest?.endpoints ?? [],
+      dataOrigins: found.app.manifest?.network?.origins ?? [],
+      liveDataGranted: found.app.grantedPermissions.includes('network.read'),
     },
     bundle: found.bundle,
     context: {
@@ -411,7 +413,7 @@ export async function saveDashboardFileAction(
 
 export async function updateDashboardAction(
   threadId: string,
-  update: { name?: string; description?: string; icon?: string; endpoints?: Array<{ name: string; file: string; method?: string }> },
+  update: { name?: string; description?: string; icon?: string; endpoints?: Array<{ name: string; file: string; method?: string }>; dataOrigins?: string[]; allowLiveData?: boolean },
 ): Promise<{ updated: true } | { error: string }> {
   const access = await requireTenantPermission('work.manage')
   try {

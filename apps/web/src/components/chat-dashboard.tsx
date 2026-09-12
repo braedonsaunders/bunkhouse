@@ -17,7 +17,7 @@ import {
   Settings2,
   Trash2,
 } from 'lucide-react'
-import { Badge, Button, EmptyState, Input, SubtabNav } from '@braedonsaunders/appkit-ui'
+import { Badge, Button, EmptyState, Input, SubtabNav, Switch } from '@braedonsaunders/appkit-ui'
 import { AppFrame } from '@braedonsaunders/appkit-apps/react'
 import CodeMirror from '@uiw/react-codemirror'
 import { html } from '@codemirror/lang-html'
@@ -47,6 +47,8 @@ type BundleView = {
     version: string | null
     grantedPermissions: string[]
     endpoints: Array<{ name: string; file: string; method: string }>
+    dataOrigins: string[]
+    liveDataGranted: boolean
   }
   bundle: { entry: string; entryHtml: string; replacements: Record<string, string> }
   context: {
@@ -74,7 +76,7 @@ function fileSizeLabel(bytes: number): string {
 
 /** This conversation's live surface: the agent's sandboxed dashboard, rendered
  *  and editable in place. View is the thing itself, running opaque-origin with
- *  no network — data arrives over the conversation bridge. Edit is the full
+ *  no ambient network — data arrives over governed bridge calls. Edit is the full
  *  management surface: files, settings and endpoints, and the backend run
  *  record with its errors. */
 export function ChatDashboard({
@@ -100,7 +102,7 @@ export function ChatDashboard({
   const [binarySelected, setBinarySelected] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [runs, setRuns] = React.useState<RunRow[] | null>(null)
-  const [meta, setMeta] = React.useState<{ name: string; description: string; icon: string } | null>(null)
+  const [meta, setMeta] = React.useState<{ name: string; description: string; icon: string; dataOrigins: string[]; allowLiveData: boolean } | null>(null)
   const [endpoints, setEndpoints] = React.useState<Array<{ name: string; file: string; method: string }>>([])
   const [notice, setNotice] = React.useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
   const [confirmDelete, setConfirmDelete] = React.useState(false)
@@ -206,7 +208,7 @@ export function ChatDashboard({
     setConfirmDelete(false)
     setNotice(null)
     if (bundle) {
-      setMeta({ name: bundle.app.name, description: bundle.app.description ?? '', icon: bundle.app.iconKey })
+      setMeta({ name: bundle.app.name, description: bundle.app.description ?? '', icon: bundle.app.iconKey, dataOrigins: [...bundle.app.dataOrigins], allowLiveData: bundle.app.liveDataGranted })
       setEndpoints(bundle.app.endpoints.map((endpoint) => ({ name: endpoint.name, file: endpoint.file, method: endpoint.method })))
     }
     setMode('edit')
@@ -278,6 +280,8 @@ export function ChatDashboard({
       name: meta.name.trim() || undefined,
       description: meta.description.trim(),
       icon: meta.icon.trim() || undefined,
+      dataOrigins: meta.dataOrigins.map((origin) => origin.trim()).filter(Boolean),
+      allowLiveData: meta.allowLiveData,
       endpoints: endpoints
         .filter((endpoint) => endpoint.name.trim() && endpoint.file.trim())
         .map((endpoint) => ({ name: endpoint.name.trim(), file: endpoint.file.trim(), method: endpoint.method })),
@@ -512,6 +516,36 @@ export function ChatDashboard({
                 <Input id="dashboard-icon" value={meta?.icon ?? ''} onChange={(event) => setMeta((current) => current ? { ...current, icon: event.target.value } : current)} className="h-8" />
               </div>
               <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <span className="text-xs font-semibold text-fg">Live public data</span>
+                    <p className="mt-1 text-xs leading-relaxed text-fg-muted">Dashboard JavaScript can poll its backend, which may request only these exact HTTPS origins.</p>
+                  </div>
+                  <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 px-2" onClick={() => setMeta((current) => current ? { ...current, dataOrigins: [...current.dataOrigins, 'https://'] } : current)}>
+                    <Plus aria-hidden className="size-3.5" />Add source
+                  </Button>
+                </div>
+                {meta?.dataOrigins.length ? (
+                  <ul className="space-y-2">
+                    {meta.dataOrigins.map((origin, index) => (
+                      <li key={index} className="flex items-center gap-2">
+                        <Input aria-label={`Public data source ${index + 1}`} placeholder="https://api.example.com" value={origin} onChange={(event) => setMeta((current) => current ? { ...current, dataOrigins: current.dataOrigins.map((candidate, candidateIndex) => candidateIndex === index ? event.target.value : candidate) } : current)} className="h-7 font-mono text-xs" />
+                        <Button type="button" variant="ghost" size="icon" className="size-7 shrink-0" aria-label={`Remove public data source ${index + 1}`} onClick={() => setMeta((current) => current ? { ...current, dataOrigins: current.dataOrigins.filter((_, candidateIndex) => candidateIndex !== index), allowLiveData: current.dataOrigins.length > 1 && current.allowLiveData } : current)}>
+                          <Trash2 aria-hidden className="size-3.5" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="text-xs text-fg-muted">No public data sources declared.</p>}
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-bg-subtle p-3">
+                  <div>
+                    <p className="text-xs font-medium text-fg">Allow live public-data requests</p>
+                    <p className="mt-0.5 text-xs text-fg-muted">Backend requests stay bounded and limited to the declared origins.</p>
+                  </div>
+                  <Switch checked={meta?.allowLiveData ?? false} disabled={!meta?.dataOrigins.some((origin) => origin.trim() && origin.trim() !== 'https://')} onChange={(event) => setMeta((current) => current ? { ...current, allowLiveData: event.target.checked } : current)} aria-label="Allow live public-data requests" />
+                </div>
+              </div>
+              <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-fg">Backend endpoints</span>
                   <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={() => setEndpoints((current) => [...current, { name: '', file: 'backend/', method: 'POST' }])}>
@@ -535,7 +569,7 @@ export function ChatDashboard({
                 )}
               </div>
               <div className="rounded-lg border border-border bg-bg-subtle p-3 text-xs leading-relaxed text-fg-muted">
-                Granted capability: conversation records (read-only). The dashboard can never ask for more — anything beyond this conversation is refused at the bridge.
+                Conversation records are read-only. Live public-data access requires exact HTTPS origins and this operator grant; the iframe itself has no ambient network.
               </div>
               <div>
                 <Button type="button" variant="outline" size="sm" onClick={() => void saveMeta()} disabled={saving}>
