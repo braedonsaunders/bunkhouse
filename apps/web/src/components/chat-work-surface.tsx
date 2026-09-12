@@ -532,6 +532,19 @@ export function ChatWorkSurface({
   const agentElsewhere =
     !followingAgent && surface.focus !== null && surface.focus.tab !== activeTab ? surface.focus.tab : null
 
+  // Seven tabs never fit as seven words in this pane, so the bar is adaptive:
+  // the selected tab names itself and the rest ride as icons, with the word
+  // always present for assistive tech and as a hover tooltip. The selected
+  // tab takes about twice the room, eased by the shared motion tokens, while
+  // the sliding indicator travels between them.
+  const workTabLabel = (tab: typeof activeTab, Icon: typeof Monitor, word: string) => (
+    <span title={word} className="flex min-w-0 items-center gap-1">
+      <Icon aria-hidden className="size-3.5 shrink-0" />
+      <span className="sr-only">{word}</span>
+      {activeTab === tab ? <span className="truncate">{word}</span> : null}
+    </span>
+  )
+
   return (
     <section className="flex size-full min-h-0 flex-col bg-surface" aria-label={`${personName}'s work surfaces`}>
       <div className="shrink-0 border-b border-border px-2">
@@ -539,50 +552,35 @@ export function ChatWorkSurface({
           ariaLabel={`${personName}'s work surfaces`}
           active={activeTab}
           onSelect={(tab) => selectTab(tab as typeof activeTab)}
-          className="h-12 gap-0 overflow-x-hidden [&>button]:!h-12 [&>button]:!min-w-0 [&>button]:!flex-1 [&>button]:!shrink [&>button]:!justify-center [&>button]:!gap-1 [&>button]:!px-1.5 [&>button]:!py-0 [&>button]:!text-xs"
+          className="h-12 gap-0 overflow-x-hidden [&>button]:!h-12 [&>button]:!min-w-0 [&>button]:!flex-1 [&>button]:!shrink [&>button]:!justify-center [&>button]:!gap-1 [&>button]:!px-1.5 [&>button]:!py-0 [&>button]:!text-xs [&>button]:!transition-all [&>button[aria-selected=true]]:!flex-[2.5]"
           tabs={[
             {
+              key: 'dashboard',
+              label: workTabLabel('dashboard', LayoutDashboard, 'Dashboard'),
+            },
+            {
               key: 'desktop',
-              label: (
-                <span className="flex min-w-0 items-center gap-1">
-                  <Monitor aria-hidden className="size-3.5 shrink-0" />
-                  <span className="truncate">Desktop</span>
-                </span>
-              ),
+              label: workTabLabel('desktop', Monitor, 'Desktop'),
             },
             {
               key: 'browser',
-              label: <span className="flex min-w-0 items-center gap-1"><Globe aria-hidden className="size-3.5 shrink-0" /><span className="truncate">Browser</span></span>,
+              label: workTabLabel('browser', Globe, 'Browser'),
             },
             {
               key: 'terminal',
-              label: <span className="flex min-w-0 items-center gap-1"><TerminalSquare aria-hidden className="size-3.5 shrink-0" /><span className="truncate">Terminal</span></span>,
+              label: workTabLabel('terminal', TerminalSquare, 'Terminal'),
             },
             {
               key: 'files',
-              label: <span className="flex min-w-0 items-center gap-1"><FileText aria-hidden className="size-3.5 shrink-0" /><span className="truncate">Files</span></span>,
-            },
-            {
-              key: 'dashboard',
-              label: (
-                <span className="flex min-w-0 items-center gap-1">
-                  <LayoutDashboard aria-hidden className="size-3.5 shrink-0" />
-                  <span className="truncate">Dashboard</span>
-                </span>
-              ),
+              label: workTabLabel('files', FileText, 'Files'),
             },
             ...(surface.remote ? [{
               key: 'remote',
-              label: <span className="flex min-w-0 items-center gap-1"><MonitorUp aria-hidden className="size-3.5 shrink-0" /><span className="truncate">{surface.remote.computerName}</span></span>,
+              label: workTabLabel('remote', MonitorUp, surface.remote.computerName),
             }] : []),
             {
               key: 'history',
-              label: (
-                <span className="flex min-w-0 items-center gap-1">
-                  <HistoryIcon aria-hidden className="size-3.5 shrink-0" />
-                  <span className="truncate">History</span>
-                </span>
-              ),
+              label: workTabLabel('history', HistoryIcon, 'History'),
             },
           ]}
         />

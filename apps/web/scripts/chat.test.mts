@@ -697,9 +697,14 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   }
   assert.ok(workSurface.includes("key: 'dashboard'") && workSurface.includes('<ChatDashboard threadId={threadId}'), 'the agent-kept dashboard renders beside the conversation')
   assert.ok(
-    workSurface.indexOf("key: 'files'") < workSurface.indexOf("key: 'dashboard'") &&
-      workSurface.indexOf("key: 'dashboard'") < workSurface.indexOf("key: 'history'"),
-    'Dashboard sits between Files and History',
+    workSurface.indexOf("key: 'dashboard'") < workSurface.indexOf("key: 'desktop'") &&
+      workSurface.indexOf("key: 'desktop'") < workSurface.indexOf("key: 'history'"),
+    'Dashboard leads the work surface, History still closes it',
+  )
+  assert.ok(
+    workSurface.includes('sr-only') && workSurface.includes('[aria-selected=true]') &&
+      workSurface.includes('activeTab === tab'),
+    'seven tabs fit by naming only the selected one: icons for the rest, words for tech and tooltips',
   )
   assert.ok(workSurface.includes('<TabContent tabKey={activeTab}'), 'swapping surfaces crossfades with the tab indicator instead of cutting')
   assert.ok(workSurface.includes('<FilesWorkStage'), 'conversation files have a previewable work surface')
@@ -809,6 +814,18 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     'each new observable work event selects its matching work tab, including repeated actions in one run',
   )
   assert.ok(workSurface.includes('surface.history.map'), 'the History tab renders conversation-wide durable steps')
+  // Thread reads race: opening B on the heels of A lets A's slower read
+  // resolve last, showing A's transcript under B's address. The loader drops
+  // stale arrivals instead of adopting them.
+  const chatWorkspace = readFileSync(
+    fileURLToPath(new URL('../src/components/chat-workspace.tsx', import.meta.url)),
+    'utf8',
+  )
+  assert.ok(
+    chatWorkspace.includes('wantedThreadRef') &&
+      chatWorkspace.includes('if (wantedThreadRef.current !== threadId) return'),
+    'a thread read that resolves after a newer one was asked for is dropped',
+  )
   const workSurfaceLib = readFileSync(
     fileURLToPath(new URL('../src/lib/chat-work-surface.ts', import.meta.url)),
     'utf8',
