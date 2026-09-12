@@ -29,8 +29,8 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0(@braedonsaunders/appkit-db@0.2.0(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4))(drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0))
       '@braedonsaunders/appkit-ai':
-        specifier: ^1.4.2
-        version: 1.4.2(@braedonsaunders/appkit-ui@0.3.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)
+        specifier: ^2.0.1
+        version: 2.0.1(@braedonsaunders/appkit-ui@0.3.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)
       '@braedonsaunders/appkit-api':
         specifier: ^0.1.2
         version: 0.1.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
@@ -717,11 +717,11 @@ packages:
       remark-gfm:
         optional: true
 
-  '@braedonsaunders/appkit-ai@1.4.2':
-    resolution: {integrity: sha512-cI1NVrGm3vheyF4V7G88ZVqWOyH+pSyUsEdVS/Wq+JX7ZjIW9HBNKL0FNLRPhRRdSQH/gVHnQRdhK/K0E+Bkuw==}
+  '@braedonsaunders/appkit-ai@2.0.1':
+    resolution: {integrity: sha512-buRHOQ1GlthIixmcbM6pFCVZd0WanYqeYIOYxrbq7FBlSz3ffjEs0UrR+8KATd0tg20mbbnwCOc2Ih0BFicVNg==}
     engines: {node: '>=22'}
     peerDependencies:
-      '@braedonsaunders/appkit-ui': ^0.2.1
+      '@braedonsaunders/appkit-ui': ^0.3.0
       lucide-react: ^1.24.0
       react: ^19.0.0
       react-dom: ^19.0.0
@@ -8155,7 +8155,7 @@ snapshots:
       react-markdown: 10.1.0(@types/react@19.2.17)(react@19.2.8)
       remark-gfm: 4.0.1
 
-  '@braedonsaunders/appkit-ai@1.4.2(@braedonsaunders/appkit-ui@0.3.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)':
+  '@braedonsaunders/appkit-ai@2.0.1(@braedonsaunders/appkit-ui@0.3.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3))(lucide-react@1.27.0(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react-markdown@10.1.0(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(remark-gfm@4.0.1)':
     dependencies:
       '@ai-sdk/anthropic': 3.0.103(zod@4.4.3)
       '@ai-sdk/google': 3.0.101(zod@4.4.3)
