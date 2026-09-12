@@ -124,7 +124,7 @@ test('dashboard tools exist, read freely, and write under the file dial', () => 
     'dashboard tools assemble wherever a conversation is in scope',
   )
   assert.ok(
-    abilities.includes('Without a\n    // thread there is no tab'),
+    abilities.includes('thread there is no tab, and the tools would provision orphans'),
     'the assembly says why threadless runs get no dashboard tools',
   )
 })
