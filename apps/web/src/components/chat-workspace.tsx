@@ -487,7 +487,7 @@ function ConversationWelcome({ agent, avatar }: { agent: ChatAgentOption; avatar
       </div>
       <h2 className="mt-4 text-lg font-semibold text-fg">Ask {agent.name} for something</h2>
       <p className="mt-1 max-w-md text-sm leading-relaxed text-fg-muted">
-        Talk naturally. Their browser, desktop, terminal, files, and complete work history stay visible beside the conversation.
+        Talk naturally. Their dashboard, desktop, browser, terminal, files, and complete work history stay visible beside the conversation.
       </p>
     </div>
   )

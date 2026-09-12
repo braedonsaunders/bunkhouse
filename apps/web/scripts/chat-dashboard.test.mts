@@ -153,7 +153,7 @@ test('the work surface carries dashboard freshness for the tab poll', () => {
 
 test('the Dashboard tab renders the sandbox and manages it in place', () => {
   assert.ok(stage.includes("key: 'dashboard'"), 'Dashboard is a work-surface tab')
-  assert.ok(stage.indexOf("key: 'files'") < stage.indexOf("key: 'dashboard'"), 'Dashboard follows Files')
+  assert.ok(stage.indexOf("key: 'dashboard'") < stage.indexOf("key: 'desktop'"), 'Dashboard leads the work-surface tabs')
   assert.ok(stage.includes('<ChatDashboard threadId={threadId}'), 'the tab renders the dashboard panel')
   assert.ok(stage.includes('<TabContent tabKey={activeTab}'), 'swapping surfaces crossfades instead of cutting')
   assert.ok(panel.includes('<AppFrame'), 'the dashboard renders through the opaque-origin app frame')
