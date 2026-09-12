@@ -686,10 +686,18 @@ jobs:
         run: |
           set -euo pipefail
           base="${DOKPLOY_URL%/}"
-          compose="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
-            -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID")"
-          app_name="$(printf '%s' "$compose" | jq -r '.appName // empty')"
-          : "${app_name:?Dokploy compose has no appName}"
+          app_name=""
+          if compose="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+            -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID")"; then
+            app_name="$(printf '%s' "$compose" | jq -r '.appName // empty')"
+          else
+            echo "Dokploy API unavailable; deriving the service from Swarm."
+          fi
+          if [ -z "$app_name" ]; then
+            app_name="$(docker service ls --format '{{.Name}} {{.Image}}' \
+              | awk -v image="$IMAGE_NAME:" '$2 ~ "^" image && $1 ~ /_web$/ { sub(/_web$/, "", $1); print $1; exit }')"
+          fi
+          : "${app_name:?Bunkhouse web service is not present in Swarm}"
 
           media_is_live() {
             local unit service desired running
@@ -747,10 +755,18 @@ jobs:
         run: |
           set -euo pipefail
           base="${DOKPLOY_URL%/}"
-          compose="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
-            -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID")"
-          app_name="$(printf '%s' "$compose" | jq -r '.appName // empty')"
-          : "${app_name:?Dokploy compose has no appName}"
+          app_name=""
+          if compose="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+            -G "$base/api/compose.one" --data-urlencode "composeId=$COMPOSE_ID")"; then
+            app_name="$(printf '%s' "$compose" | jq -r '.appName // empty')"
+          else
+            echo "Dokploy API unavailable; deriving the service from Swarm."
+          fi
+          if [ -z "$app_name" ]; then
+            app_name="$(docker service ls --format '{{.Name}} {{.Image}}' \
+              | awk -v image="$IMAGE_NAME:" '$2 ~ "^" image && $1 ~ /_web$/ { sub(/_web$/, "", $1); print $1; exit }')"
+          fi
+          : "${app_name:?Bunkhouse web service is not present in Swarm}"
           for unit in web worker voice-agent livekit livekit-egress livekit-sip; do
             service="${app_name}_${unit}"
             if ! image="$(docker service inspect --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}' "$service" 2>/dev/null)"; then
