@@ -26,6 +26,10 @@ const actions = readFileSync(
   fileURLToPath(new URL('../src/app/chat/actions.ts', import.meta.url)),
   'utf8',
 )
+const bridgeRoute = readFileSync(
+  fileURLToPath(new URL('../src/app/api/chat/[threadId]/dashboard/bridge/route.ts', import.meta.url)),
+  'utf8',
+)
 const stage = readFileSync(
   fileURLToPath(new URL('../src/components/chat-work-surface.tsx', import.meta.url)),
   'utf8',
@@ -161,7 +165,9 @@ test('the work surface carries dashboard freshness for the tab poll', () => {
   assert.ok(surface.includes('dashboardSummary(tenantId, threadId)'), 'freshness rides the same poll as everything else')
   assert.equal(surface.includes('ChatWorkFocus'), false, 'dashboard updates never steer the reader to another tab')
   assert.ok(actions.includes('dashboardBundleAction'), 'the tab reads its bundle through an action')
-  assert.ok(actions.includes('dashboardBridgeAction'), 'bridge calls cross through an action, never directly')
+  assert.equal(actions.includes('dashboardBridgeAction'), false, 'the live bridge is not tied to a deployment-specific Server Action id')
+  assert.ok(bridgeRoute.includes("requireTenantPermission('work.read')"), 'the HTTP bridge keeps the same tenant permission gate')
+  assert.ok(bridgeRoute.includes('runDashboardBridge'), 'the route reuses the one governed bridge implementation')
   assert.ok(actions.includes('ensureDashboardAction'), 'the operator can start from the live starter')
   assert.ok(actions.includes("requireTenantPermission('work.read')"), 'dashboard reads sit behind the work gate')
   assert.ok(actions.includes("requireTenantPermission('work.manage')"), 'dashboard writes sit behind the manage gate')
@@ -173,7 +179,8 @@ test('the Dashboard tab renders the sandbox and manages it in place', () => {
   assert.ok(stage.includes('<ChatDashboard threadId={threadId}'), 'the tab renders the dashboard panel')
   assert.ok(stage.includes('<TabContent tabKey={activeTab}'), 'swapping surfaces crossfades instead of cutting')
   assert.ok(panel.includes('<AppFrame'), 'the dashboard renders through the opaque-origin app frame')
-  assert.ok(panel.includes('dashboardBridgeAction'), 'the frame reaches its conversation through the bridge action')
+  assert.ok(panel.includes("fetch(`/api/chat/${encodeURIComponent(threadId)}/dashboard/bridge`"), 'the frame reaches its conversation through a stable HTTP route')
+  assert.ok(panel.includes("cache: 'no-store'"), 'live bridge responses are never reused as snapshots')
   assert.ok(panel.includes('no ambient network'), 'the sandbox model is stated where it runs')
   assert.ok(panel.includes('Live public data'), 'operators can configure exact public-data origins and the grant')
   assert.ok(panel.includes('<Switch'), 'the public-data grant is an explicit operator control')

@@ -45,7 +45,6 @@ import {
   listDashboardFiles,
   listDashboardRuns,
   readDashboardFile,
-  runDashboardBridge,
   saveDashboardFile,
   updateDashboardMeta,
 } from '../../lib/chat-dashboard'
@@ -438,18 +437,6 @@ export async function deleteDashboardFileAction(threadId: string, path: string):
   } catch (reason) {
     return { error: reason instanceof Error ? reason.message : 'That file could not be deleted.' }
   }
-}
-
-/** One bridge call from the dashboard sandbox to its conversation's records. */
-export async function dashboardBridgeAction(input: { threadId: string; method: string; payload: unknown }): Promise<unknown> {
-  const access = await requireTenantPermission('work.read')
-  return runDashboardBridge({
-    tenantId: access.tenantId,
-    user: { id: access.user.id, name: access.user.name },
-    threadId: input.threadId,
-    method: input.method,
-    payload: input.payload,
-  })
 }
 
 /** Provision the conversation's starter dashboard without waiting for the agent. */
