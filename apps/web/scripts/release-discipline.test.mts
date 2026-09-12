@@ -113,3 +113,15 @@ test('the deploy waits for Dokploy before racing it', async () => {
   const iterations = Number(/for i in \$\(seq 1 (\d+)\); do/.exec(deploy)?.[1])
   assert.ok(Number.isFinite(iterations) && bail < iterations, 'the fallback is still reachable')
 })
+
+test('health diagnostics survive a Dokploy control-plane outage', async () => {
+  const deploy = await readRepo('.github/workflows/deploy.yml')
+  const fallback = 'Dokploy API unavailable; deriving the service from Swarm.'
+  assert.equal(
+    deploy.split(fallback).length - 1,
+    2,
+    'both the media health gate and diagnostic job derive the app from Swarm when the control API is unavailable',
+  )
+  assert.match(deploy, /docker service ls --format '\{\{\.Name\}\} \{\{\.Image\}\}'/)
+  assert.match(deploy, /Bunkhouse web service is not present in Swarm/)
+})
