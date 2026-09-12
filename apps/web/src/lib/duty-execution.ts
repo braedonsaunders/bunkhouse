@@ -1,13 +1,22 @@
 import 'server-only'
 
-import { and, eq, isNull } from 'drizzle-orm'
-import { duties, type DeliveryTarget } from '../db/schema'
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { duties, runs, type DeliveryTarget } from '../db/schema'
 import { db } from '../db/client'
 import { executeAgentRun } from './agent-runs'
 import { deliveryInstruction, resolveDeliveryTargets } from './delivery-targets'
 import { nextOccurrence, occurrenceAfterSkip } from './duties'
 import { isPersonNotWorking } from './person-work'
 import { dutyIsSelfDirected, selfDirectedBudget } from './work-budget'
+
+/**
+ * A run that has not reached a terminal state: still working, or parked on a wait.
+ *
+ * A parked run still owns its lane — it is mid-task waiting for an approval or a
+ * reply, and starting the same work beside it is the same collision as starting
+ * it beside a running one.
+ */
+const UNFINISHED_RUN_STATUSES = ['running', 'waiting_approval', 'waiting_reply', 'waiting_credential'] as const
 
 /**
  * The duty's own words, plus the recipients it declares.
@@ -57,6 +66,41 @@ export async function executeDueDuty(
     const skipped = anchoring
       ? null
       : await (async () => {
+          // A duty never runs twice at once.
+          //
+          // The schedule advances when an occurrence is CLAIMED, not when its run
+          // finishes, so a lane whose runs outlast its interval laps itself. A
+          // fifteen-minute wake loop taking twenty to thirty-five minutes did
+          // exactly that nine times in twelve hours — and on one of them both
+          // instances read the same candidate queue, both decided to buy, and the
+          // wallet ended up holding twice the intended position. The second
+          // instance then spent the rest of its run discovering the first one's
+          // trade on-chain, calling it "two signatures I did not create", and
+          // unwinding half of it at a loss.
+          //
+          // Overlap was a documented acceptance in `schedulingAbilities` — "the
+          // operator's call to make" — written when the spacing floor came down.
+          // That was wrong. Stateful work cannot be run concurrently with itself
+          // just because the clock came round again, and the cost of finding out
+          // was real money.
+          //
+          // The occurrence is SKIPPED rather than queued behind the live run: the
+          // next one is a minute or fifteen away and will see a settled world,
+          // where a backlog would pile identical work behind a slow run and make
+          // the lapping worse.
+          const [live] = await app.db
+            .select({ id: runs.id, startedAt: runs.startedAt })
+            .from(runs)
+            .where(
+              and(
+                sql`${runs.trigger}->>'dutyId' = ${duty.id}`,
+                inArray(runs.status, [...UNFINISHED_RUN_STATUSES]),
+              ),
+            )
+            .limit(1)
+          if (live) {
+            return `its previous occurrence is still working (run ${live.id}, started ${live.startedAt.toISOString()})`
+          }
           if (!(await dutyIsSelfDirected(duty.id))) return null
           const budget = await selfDirectedBudget(duty.personId)
           return budget.exhausted ? budget.reason : null

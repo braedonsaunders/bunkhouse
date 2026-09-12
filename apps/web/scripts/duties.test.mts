@@ -297,4 +297,55 @@ assert.equal(occurrenceAfterSkip(duty({ scheduleKind: 'once', schedule: at }), N
   assert.match(claim, /skipped \? occurrenceAfterSkip\(duty\) : nextOccurrence\(duty\)/, 'and counts one fewer run')
 }
 
+// --- a duty never runs twice at once ----------------------------------------
+//
+// The schedule advances when an occurrence is CLAIMED, not when its run finishes,
+// so a lane whose runs outlast its interval laps itself. A fifteen-minute wake
+// loop taking twenty to thirty-five minutes did exactly that nine times in twelve
+// hours. On one of them both instances read the same candidate queue, both decided
+// to buy, and the wallet ended up holding twice the intended position — the second
+// instance then spent its run discovering the first one's trade on-chain, calling
+// it "two signatures I did not create", and unwinding half at a loss.
+//
+// This was a documented acceptance ("the operator's call to make") written when
+// the spacing floor came down. Stateful work cannot be run concurrently with
+// itself just because the clock came round again.
+{
+  const { readFileSync } = await import('node:fs')
+  const { fileURLToPath } = await import('node:url')
+  const execution = readFileSync(fileURLToPath(new URL('../src/lib/duty-execution.ts', import.meta.url)), 'utf8')
+  const claim = execution.slice(execution.indexOf('export async function executeDueDuty'))
+
+  // The check has to sit in the SKIP decision, which runs before the schedule is
+  // written — a later check would have already charged the occurrence a run.
+  const decision = claim.slice(0, claim.indexOf('.update(duties)'))
+  assert.match(decision, /dutyId' = \$\{duty\.id\}/, 'it asks whether this duty already has a run')
+  assert.match(decision, /UNFINISHED_RUN_STATUSES/, 'against every state that is not terminal')
+
+  // A parked run still owns the lane: it is mid-task waiting on a person, and
+  // starting the same work beside it is the same collision.
+  for (const status of ['running', 'waiting_approval', 'waiting_reply', 'waiting_credential']) {
+    assert.match(execution, new RegExp(`'${status}'`), `${status} counts as still working`)
+  }
+  assert.equal(
+    /UNFINISHED_RUN_STATUSES[\s\S]{0,200}'completed'/.test(execution),
+    false,
+    'a finished run never blocks the next occurrence',
+  )
+
+  // Skipped, not queued: a backlog would pile identical work behind a slow run
+  // and make the lapping worse. The skip path spends no run budget either.
+  assert.match(claim, /occurrenceAfterSkip\(duty\)/, 'a skipped occurrence costs the duty nothing')
+  assert.match(claim, /anchoring \|\| skipped \? \{\} : \{ lastRunAt/, 'and increments nothing')
+
+  // And the comment that blessed overlapping is gone, so the next reader does not
+  // re-derive it as intended behaviour.
+  const abilities = readFileSync(fileURLToPath(new URL('../src/lib/agent-abilities.ts', import.meta.url)), 'utf8')
+  assert.equal(
+    /an occurrence is not suppressed\s+\*? ?while the previous one is still working/.test(abilities),
+    false,
+    'the documented acceptance of self-overlap is withdrawn',
+  )
+}
+
 console.log('duties scheduling: all assertions passed')
