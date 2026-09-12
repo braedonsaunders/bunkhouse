@@ -1133,7 +1133,7 @@ export function dashboardAbilities(args: {
     defineAbility({
       name: 'save_dashboard_file',
       description:
-        'Write one file on this conversation\'s Dashboard tab — frontend/index.html, frontend/styles.css, frontend/app.js, a backend/*.js endpoint, or anything under assets/. The frontend runs sandboxed with no network: it reads live conversation data (messages, runs, files, duties) through the bridge — appkit.records.list(\'thread.overview\' | \'thread.messages\' | \'thread.runs\' | \'thread.files\' | \'thread.duties\') — keeps its own state through backend endpoints you author (appkit.storage in QuickJS), and refreshes itself on an interval. Keep every file under 200 KB; put data over the bridge instead of pasting bundles. The tab updates the moment you save.',
+        'Write one file on this conversation\'s Dashboard tab — frontend/index.html, frontend/styles.css, frontend/app.js, a backend/*.js endpoint, or anything under assets/. The sandboxed frontend reads conversation data through appkit.records.list, calls its own backend with appkit.callBackend, and refreshes itself on an interval. Backend endpoints may call appkit.http.request({ url, method, body }) only after update_dashboard declares that exact HTTPS origin and an operator grants live public-data access. Keep every file under 200 KB; put data over the bridge instead of pasting snapshots. Never create or schedule a duty merely to refresh a dashboard; freshness belongs to the dashboard JavaScript. The tab updates the moment you save.',
       category: 'file_write',
       inputSchema: z.object({
         path: z.string().min(1).max(240),
@@ -1158,12 +1158,13 @@ export function dashboardAbilities(args: {
     defineAbility({
       name: 'update_dashboard',
       description:
-        'Change this conversation\'s dashboard settings: its name, description, icon, or backend endpoints. An endpoint is a name plus the backend/*.js file that serves it (save the file first with save_dashboard_file) — the frontend reaches it as appkit.callBackend(name, payload). The dashboard can only ever request the conversation-records capability; anything else is refused.',
+        'Change this conversation\'s dashboard settings: its name, description, icon, backend endpoints, or exact HTTPS public-data origins. An endpoint is a name plus the backend/*.js file that serves it (save the file first with save_dashboard_file); the frontend reaches it as appkit.callBackend(name, payload). Declaring dataOrigins requests the generic live-data capability but never grants it — an operator must review and enable it in Dashboard settings.',
       category: 'file_write',
       inputSchema: z.object({
         name: z.string().trim().min(1).max(120).optional(),
         description: z.string().max(2_000).optional(),
         icon: z.string().max(80).optional(),
+        dataOrigins: z.array(z.string().url().max(500)).max(20).optional(),
         endpoints: z
           .array(z.object({ name: z.string(), file: z.string(), method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'ANY']).optional() }))
           .max(20)

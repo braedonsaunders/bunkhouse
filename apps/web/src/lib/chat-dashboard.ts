@@ -12,6 +12,7 @@ import {
 import { createDrizzleAppStore } from '@braedonsaunders/appkit-apps/drizzle'
 import { auditLog } from '@braedonsaunders/appkit-db'
 import { appFiles } from '@braedonsaunders/appkit-apps/schema'
+import { secureFetch } from '@braedonsaunders/appkit-egress-proxy/secure-fetch'
 import { db } from '../db/client'
 import { chatMessages, chatThreads } from '../db/schema/chat-threads'
 import { duties, runs } from '../db/schema/work'
@@ -34,18 +35,28 @@ type Store = ReturnType<typeof createDrizzleAppStore>
  * when its author is being creative.
  */
 
-/** Capabilities a conversation dashboard may request. Read-only by design:
- *  the bridge exposes this conversation's data and nothing else, so granting
- *  it at provision time asks nothing of the operator. */
+/** Capabilities a conversation dashboard may request. Conversation records
+ *  are safe to grant at provision time because the adapter is structurally
+ *  scoped to this thread. Public data access remains an explicit operator
+ *  grant and is further narrowed by the dashboard's declared HTTPS origins. */
 export const DASHBOARD_CAPABILITIES = [
   {
     key: 'records.read',
     label: 'Read conversation records',
     description: 'Read this conversation\u2019s messages, runs, files, and the agent\u2019s duties through the sandboxed bridge.',
   },
+  {
+    key: 'network.read',
+    label: 'Read live public data',
+    description: 'Query only the exact HTTPS data sources declared in this dashboard\u2019s settings, through bounded backend runs.',
+  },
 ] as const
 
 const DASHBOARD_CAPABILITY_KEYS = new Set(DASHBOARD_CAPABILITIES.map((capability) => capability.key))
+const DASHBOARD_NETWORK_CAPABILITY = 'network.read'
+const DASHBOARD_REQUEST_TIMEOUT_MS = 10_000
+const DASHBOARD_REQUEST_MAX_BYTES = 512 * 1_024
+const DASHBOARD_REQUEST_MAX_BODY_BYTES = 128 * 1_024
 
 /** Model-facing ceiling per dashboard file — far below the store's own 2 MB,
  *  because a file bigger than this is a bundle that should have been an
@@ -195,6 +206,86 @@ export async function ensureDashboardApp(args: {
 
 export type DashboardFileInput = { path: string; content: string; isBinary?: boolean }
 
+export type DashboardMetaInput = {
+  name?: string
+  description?: string | null
+  icon?: string
+  endpoints?: Array<{ name: string; file: string; method?: string }>
+  dataOrigins?: string[]
+  /** Operator action only. Employee tools may request origins but never grant access. */
+  allowLiveData?: boolean
+}
+
+type DashboardDataRequest = { url: string; method?: 'GET' | 'POST'; body?: unknown }
+
+export function dashboardDataRequestError(origins: readonly string[], input: unknown): string | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return 'Live data requests must be objects.'
+  const request = input as Record<string, unknown>
+  if (typeof request.url !== 'string' || request.url.length > 4_096) return 'Live data requests need a valid URL.'
+  let url: URL
+  try {
+    url = new URL(request.url)
+  } catch {
+    return 'Live data requests need a valid URL.'
+  }
+  if (url.protocol !== 'https:' || url.username || url.password) return 'Live data requests must use HTTPS without URL credentials.'
+  const allowed = new Set(origins.map((origin) => new URL(origin).origin))
+  if (!allowed.has(url.origin)) return `${url.origin} is not a declared dashboard data source.`
+  if (request.method !== undefined && request.method !== 'GET' && request.method !== 'POST') return 'Live data requests support GET and POST only.'
+  return null
+}
+
+export function normalizeDashboardOrigins(origins: readonly string[]): string[] {
+  if (origins.length > 20) throw new Error('A dashboard can declare at most 20 public data sources.')
+  return [...new Set(origins.map((candidate) => {
+    const value = candidate.trim()
+    let url: URL
+    try {
+      url = new URL(value)
+    } catch {
+      throw new Error(`${value || 'That value'} is not a valid public data source.`)
+    }
+    if (url.protocol !== 'https:' || url.username || url.password || (url.pathname !== '/' && url.pathname !== '') || url.search || url.hash) {
+      throw new Error(`${value} must be an exact HTTPS origin without credentials, a path, query, or fragment.`)
+    }
+    return url.origin
+  }))]
+}
+
+async function requestDashboardData(origins: readonly string[], input: unknown): Promise<unknown> {
+  const problem = dashboardDataRequestError(origins, input)
+  if (problem) throw new Error(problem)
+  const request = input as DashboardDataRequest
+  const method = request.method ?? 'GET'
+  const body = request.body === undefined ? undefined : JSON.stringify(request.body)
+  if (body && Buffer.byteLength(body) > DASHBOARD_REQUEST_MAX_BODY_BYTES) {
+    throw new Error(`Live data request bodies cannot exceed ${DASHBOARD_REQUEST_MAX_BODY_BYTES / 1_024} KB.`)
+  }
+  const response = await secureFetch(request.url, {
+    method,
+    headers: {
+      Accept: 'application/json, text/plain;q=0.9',
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body ? { body } : {}),
+    timeoutMs: DASHBOARD_REQUEST_TIMEOUT_MS,
+    maxRequestBytes: DASHBOARD_REQUEST_MAX_BODY_BYTES,
+    maxResponseBytes: DASHBOARD_REQUEST_MAX_BYTES,
+    maxRedirects: 0,
+  })
+  if (!response.ok) throw new Error(`Live data source returned ${response.status} ${response.statusText || 'Error'}.`)
+  const text = await response.text()
+  let bodyValue: unknown = text
+  if (text) {
+    try {
+      bodyValue = JSON.parse(text)
+    } catch {
+      // Plain text is a valid public-data response; JSON is decoded when possible.
+    }
+  }
+  return { status: response.status, contentType: response.headers.get('content-type'), body: bodyValue }
+}
+
 function checkFileInput(path: string, content: string): void {
   const problem = dashboardPathError(path)
   if (problem) throw new Error(problem)
@@ -249,18 +340,41 @@ export async function updateDashboardMeta(args: {
   threadId: string
   runId?: string
   userId?: string
-  update: Omit<AppMetaUpdate, 'endpoints'> & { endpoints?: Array<{ name: string; file: string; method?: string }> }
+  update: DashboardMetaInput
 }): Promise<void> {
   const context = await threadContext(args.tenantId, args.threadId)
   if (!context) throw new Error('That conversation is no longer here.')
   const endpoints = args.update.endpoints ? toAppEndpoints(args.update.endpoints) : undefined
-  const { endpoints: _looseEndpoints, ...rest } = args.update
-  void _looseEndpoints
-  const update: AppMetaUpdate = { ...rest, ...(endpoints ? { endpoints } : {}) }
+  const dataOrigins = args.update.dataOrigins ? normalizeDashboardOrigins(args.update.dataOrigins) : undefined
+  if (args.update.allowLiveData !== undefined && (!args.userId || args.runId)) {
+    throw new Error('Only an operator can grant live public-data access.')
+  }
   const app = db()
   return app.withTenantContext(args.tenantId, async () => {
     const store = storeFor(app)
     const installed = await ensureDashboardApp({ tenantId: args.tenantId, actorId: args.actorId, threadId: args.threadId })
+    const currentOrigins = installed.manifest?.network?.origins ?? []
+    const effectiveOrigins = dataOrigins ?? currentOrigins
+    const originsChanged = JSON.stringify([...currentOrigins].sort()) !== JSON.stringify([...effectiveOrigins].sort())
+    const requestedPermissions = (installed.manifest?.permissions ?? ['records.read'])
+      .filter((permission) => permission !== DASHBOARD_NETWORK_CAPABILITY)
+    if (effectiveOrigins.length) requestedPermissions.push(DASHBOARD_NETWORK_CAPABILITY)
+    let grantedPermissions = installed.grantedPermissions.filter((permission) => requestedPermissions.includes(permission))
+    if (originsChanged) grantedPermissions = grantedPermissions.filter((permission) => permission !== DASHBOARD_NETWORK_CAPABILITY)
+    if (args.update.allowLiveData === true && effectiveOrigins.length) {
+      grantedPermissions = [...new Set([...grantedPermissions, DASHBOARD_NETWORK_CAPABILITY])]
+    } else if (args.update.allowLiveData === false || !effectiveOrigins.length) {
+      grantedPermissions = grantedPermissions.filter((permission) => permission !== DASHBOARD_NETWORK_CAPABILITY)
+    }
+    const update: AppMetaUpdate = {
+      ...(args.update.name !== undefined ? { name: args.update.name } : {}),
+      ...(args.update.description !== undefined ? { description: args.update.description } : {}),
+      ...(args.update.icon !== undefined ? { iconKey: args.update.icon } : {}),
+      ...(endpoints !== undefined ? { endpoints } : {}),
+      ...(dataOrigins !== undefined ? { networkOrigins: dataOrigins } : {}),
+      requestedPermissions,
+      grantedPermissions,
+    }
     if (endpoints) {
       // Fail at authoring time, not at 2am when the dashboard calls it: an
       // endpoint must name a backend file that already exists.
@@ -441,6 +555,8 @@ export async function readDashboardForAgent(args: { tenantId: string; threadId: 
       name: found.app.name,
       description: found.app.description,
       endpoints: found.app.manifest?.endpoints ?? [],
+      dataOrigins: found.app.manifest?.network?.origins ?? [],
+      liveDataGranted: found.app.grantedPermissions.includes(DASHBOARD_NETWORK_CAPABILITY),
       files: contents,
       recentRuns: runs.map((run) => ({
         endpoint: run.endpoint,
@@ -462,11 +578,12 @@ const BRIDGE_CONTRACT = {
     { call: "appkit.records.list('thread.runs', { limit: 20 })", returns: 'Newest first: id, status, summary, at.' },
     { call: "appkit.records.list('thread.files', { limit: 20 })", returns: 'Newest first: id, filename, kind, size, at.' },
     { call: "appkit.records.list('thread.duties', {})", returns: "The agent's duties: slug, title, enabled, next run, run count." },
-    { call: 'appkit.callBackend(endpoint, payload)', returns: "Runs one of the dashboard's own backend endpoints (see endpoints above) in QuickJS with per-dashboard storage. Resolves { status, body } — read your values off response.body." },
+    { call: 'appkit.callBackend(endpoint, payload)', returns: "Runs one of the dashboard's own backend endpoints (see endpoints above) in QuickJS with per-dashboard storage. A backend with declared and operator-granted public origins may call appkit.http.request({ url, method, body }). Resolves { status, body } — read your values off response.body." },
   ],
   rules: [
-    'No network, no cookies, no parent DOM — data arrives only through these calls.',
-    'Poll on an interval (15 seconds is the house rhythm) rather than rendering once.',
+    'No ambient iframe network, cookies, or parent DOM. Public data is available only through declared origins and the separately granted backend request function.',
+    'Poll on a source-appropriate interval rather than rendering once, and do not overlap refreshes.',
+    'Dashboard freshness belongs to its JavaScript. Never create or schedule a duty just to refresh it.',
     'Escape every value you render; the bridge hands you text, not markup.',
   ],
 } as const
@@ -623,6 +740,16 @@ export async function runDashboardBridge(args: {
         // boundary; the granted set on the app decides the rest.
         userCan: () => true,
         records: () => dashboardRecords(tenantId, threadId),
+        functions: ({ app: installedApp, granted }) => {
+          const functions: Record<string, { cost: number; handler: (args: unknown[]) => Promise<unknown> }> = {}
+          if (granted.has(DASHBOARD_NETWORK_CAPABILITY)) {
+            functions['http.request'] = {
+              cost: 50,
+              handler: ([request]) => requestDashboardData(installedApp.manifest?.network?.origins ?? [], request),
+            }
+          }
+          return functions
+        },
       },
     })
     if (!outcome.ok) throw new Error(outcome.error)

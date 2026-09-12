@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 // A conversation's dashboard: one governed app per chat thread, authored by
 // the agent, rendered in the Dashboard tab, editable by the operator. These
 // tests pin the contracts that keep it scoped — the key derivation, the path
-// jail, the size ceilings, the read-only capability set, and the places the
+// jail, the size ceilings, the governed capability set, and the places the
 // tab, the tools, and the tables meet. Database behaviour (provisioning,
 // RLS, the bridge) runs against the real platform behind these shapes.
 
@@ -47,6 +47,8 @@ const {
   dashboardAppKey,
   dashboardPathError,
   toAppEndpoints,
+  dashboardDataRequestError,
+  normalizeDashboardOrigins,
   DASHBOARD_CAPABILITIES,
   DASHBOARD_MAX_FILE_CHARS,
 } = await import('../src/lib/chat-dashboard')
@@ -94,14 +96,28 @@ test('endpoint updates validate loudly and default honestly', () => {
   assert.ok(lib.includes('reclassifies every endpoint file to backend'), 'registering an endpoint re-saves its file under the new manifest, so a backend file saved first still executes')
 })
 
+test('live data requests are dashboard-agnostic and exact-origin scoped', () => {
+  assert.deepEqual(normalizeDashboardOrigins([' https://api.example.com/ ', 'https://api.example.com']), ['https://api.example.com'])
+  assert.equal(dashboardDataRequestError(['https://api.example.com'], { url: 'https://api.example.com/v1/items?q=1' }), null)
+  assert.equal(dashboardDataRequestError(['https://api.example.com'], { url: 'https://api.example.com/v1/items', method: 'POST', body: { page: 1 } }), null)
+  assert.match(dashboardDataRequestError(['https://api.example.com'], { url: 'https://other.example.com/v1/items' }) ?? '', /not a declared/)
+  assert.match(dashboardDataRequestError(['https://api.example.com'], { url: 'http://api.example.com/v1/items' }) ?? '', /HTTPS/)
+  assert.match(dashboardDataRequestError(['https://api.example.com'], { url: 'https://user:pass@api.example.com/v1/items' }) ?? '', /credentials/)
+  assert.match(dashboardDataRequestError(['https://api.example.com'], { url: 'https://api.example.com/v1/items', method: 'DELETE' }) ?? '', /GET and POST/)
+  assert.throws(() => normalizeDashboardOrigins(['https://api.example.com/private']), /exact HTTPS origin/)
+})
+
 // --- capability set --------------------------------------------------------------
-test('a conversation dashboard can only ever read its conversation', () => {
-  assert.deepEqual(DASHBOARD_CAPABILITIES.map((capability) => capability.key), ['records.read'])
-  assert.ok(lib.includes("grantedPermissions: ['records.read']"), 'provisioning grants exactly that set')
+test('a conversation dashboard gets scoped records and separately governed public data', () => {
+  assert.deepEqual(DASHBOARD_CAPABILITIES.map((capability) => capability.key), ['records.read', 'network.read'])
+  assert.ok(lib.includes("grantedPermissions: ['records.read']"), 'provisioning grants records but never network access')
+  assert.ok(lib.includes("'http.request'"), 'the backend receives one generic public-data function')
+  assert.ok(lib.includes('maxRedirects: 0'), 'public-data requests cannot escape the declared origin through redirects')
   assert.ok(
     lib.includes('Unknown records collection'),
     'the bridge fails closed on collections it was never offered',
   )
+  assert.ok(abilities.includes('Never create or schedule a duty merely to refresh a dashboard'), 'agents are explicitly told that dashboard JavaScript owns freshness')
   for (const collection of ['thread.overview', 'thread.messages', 'thread.runs', 'thread.files', 'thread.duties']) {
     assert.ok(lib.includes(`'${collection}'`), `the bridge offers ${collection}`)
   }
@@ -158,7 +174,9 @@ test('the Dashboard tab renders the sandbox and manages it in place', () => {
   assert.ok(stage.includes('<TabContent tabKey={activeTab}'), 'swapping surfaces crossfades instead of cutting')
   assert.ok(panel.includes('<AppFrame'), 'the dashboard renders through the opaque-origin app frame')
   assert.ok(panel.includes('dashboardBridgeAction'), 'the frame reaches its conversation through the bridge action')
-  assert.ok(panel.includes('No network, no cookies, no parent DOM') || panel.includes('no network'), 'the sandbox model is stated where it runs')
+  assert.ok(panel.includes('no ambient network'), 'the sandbox model is stated where it runs')
+  assert.ok(panel.includes('Live public data'), 'operators can configure exact public-data origins and the grant')
+  assert.ok(panel.includes('<Switch'), 'the public-data grant is an explicit operator control')
   assert.ok(panel.includes('CodeMirror'), 'the operator edits real files, not a form standing in for them')
   assert.ok(panel.includes('Backend endpoints'), 'endpoints are managed beside the files that serve them')
   assert.ok(panel.includes('Every backend call'), 'the run record is visible where the dashboard is edited')
