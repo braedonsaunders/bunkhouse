@@ -738,23 +738,12 @@ export async function getThread(
   if (deps.store) return { thread, messages }
 
   const dispatchIds = [...new Set(messages.flatMap((message) => message.dispatchId ? [message.dispatchId] : []))]
-  // The run a turn came from, claimed by the FIRST agent message carrying it,
-  // so shared runs attribute their work once.
-  const activityHost = new Map<string, string>()
-  for (const message of messages) {
-    if (message.role !== 'agent' || !message.runId) continue
-    if (!activityHost.has(message.runId)) activityHost.set(message.runId, message.id)
-  }
-
-  const [grouped, activity] = await Promise.all([
+  const [grouped, replay] = await Promise.all([
     dispatchIds.length > 0
       ? import('./chat-attachments').then(({ chatAttachmentsByDispatch }) =>
           chatAttachmentsByDispatch(tenantId, dispatchIds))
       : Promise.resolve(new Map<string, ChatAttachmentView[]>()),
-    activityHost.size > 0
-      ? import('./chat-activity').then(({ chatActivityByRun }) =>
-          chatActivityByRun(tenantId, [...activityHost.keys()]))
-      : Promise.resolve(new Map<string, ChatMessageActivity[]>()),
+    import('./chat-activity').then(({ chatReplayByMessage }) => chatReplayByMessage(tenantId, messages)),
   ])
 
   return {
@@ -764,12 +753,7 @@ export async function getThread(
       ...(message.role === 'user' && message.dispatchId && grouped.has(message.dispatchId)
         ? { attachments: grouped.get(message.dispatchId) }
         : {}),
-      ...(message.role === 'agent'
-        && message.runId
-        && activityHost.get(message.runId) === message.id
-        && activity.has(message.runId)
-        ? { activity: activity.get(message.runId) }
-        : {}),
+      ...(replay.get(message.id) ?? {}),
     })),
   }
 }

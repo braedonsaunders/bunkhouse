@@ -1,7 +1,8 @@
 import 'server-only'
-import { and, asc, desc, inArray, notInArray, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, lte, notInArray, or, sql } from 'drizzle-orm'
 import { runEvents, runs } from '../db/schema'
 import { db } from '../db/client'
+import { replayChatBody } from './chat-reply'
 
 /**
  * What an agent turn did, recovered from the run ledger for a reloaded
@@ -91,41 +92,73 @@ function foldRun(rows: EventRow[]): ChatMessageActivity[] {
  */
 export const __foldRunForTests = foldRun
 
-/**
- * Ordered activity for a set of runs, by run id.
- *
- * Bounded per read: a long agentic run can carry thousands of events, and a
- * conversation is a reading surface rather than the audit surface — the run
- * record replays the whole thing. Truncation drops the OLDEST events, because
- * the tail is what the final answer came out of.
- */
-const MAX_EVENTS_PER_THREAD = 600
+type RecordedMessage = { id: string; runId: string | null; role: string; body: string; at: string }
+type TimedEventRow = EventRow & { seq: number; createdAt: Date }
 
-export async function chatActivityByRun(
-  tenantId: string,
-  runIds: string[],
-): Promise<Map<string, ChatMessageActivity[]>> {
-  const grouped = new Map<string, ChatMessageActivity[]>()
-  if (runIds.length === 0) return grouped
+/** Never attach later work to an earlier post from the same run. */
+export function replayChatMessages(messages: RecordedMessage[], rows: TimedEventRow[]): Map<string, { body: string; activity: ChatMessageActivity[] }> {
+  const result = new Map<string, { body: string; activity: ChatMessageActivity[] }>()
+  const byRun = new Map<string, RecordedMessage[]>()
+  for (const message of messages) {
+    if (message.role !== 'agent' || !message.runId) continue
+    const group = byRun.get(message.runId) ?? []
+    group.push(message)
+    byRun.set(message.runId, group)
+  }
+  const byMessage = new Map<string, TimedEventRow[]>()
+  for (const row of rows) {
+    const host = byRun.get(row.runId)?.find((message) => new Date(message.at).getTime() >= row.createdAt.getTime())
+    if (!host) continue
+    const group = byMessage.get(host.id) ?? []
+    group.push(row)
+    byMessage.set(host.id, group)
+  }
+  for (const message of messages) {
+    const events = byMessage.get(message.id)
+    if (!events) continue
+    result.set(message.id, {
+      body: replayChatBody(events.filter((row) => row.kind === 'message')
+        .map((row) => typeof row.payload.text === 'string' ? row.payload.text : ''), message.body),
+      activity: foldRun(events),
+    })
+  }
+  return result
+}
+
+// Page through evidence rather than silently dropping everything after event 600.
+const EVENT_PAGE_SIZE = 600
+
+async function readChatEvents(tenantId: string, runIds: string[], through: Date): Promise<TimedEventRow[]> {
   const app = db()
-  const rows = await app.withTenantContext(tenantId, () =>
-    app.db
-      .select({ runId: runEvents.runId, kind: runEvents.kind, payload: runEvents.payload })
-      .from(runEvents)
-      .where(and(inArray(runEvents.runId, runIds), inArray(runEvents.kind, ['thought', 'tool_call', 'tool_result'])))
-      .orderBy(asc(runEvents.runId), asc(runEvents.seq))
-      .limit(MAX_EVENTS_PER_THREAD),
-  )
+  return app.withTenantContext(tenantId, async () => {
+    const rows: TimedEventRow[] = []
+    let cursor: TimedEventRow | undefined
+    for (;;) {
+      const page: TimedEventRow[] = await app.db
+        .select({ runId: runEvents.runId, seq: runEvents.seq, kind: runEvents.kind, payload: runEvents.payload, createdAt: runEvents.createdAt })
+        .from(runEvents)
+        .where(and(
+          inArray(runEvents.runId, runIds),
+          inArray(runEvents.kind, ['thought', 'tool_call', 'tool_result', 'message']),
+          lte(runEvents.createdAt, through),
+          cursor ? or(gt(runEvents.runId, cursor.runId), and(eq(runEvents.runId, cursor.runId), gt(runEvents.seq, cursor.seq))) : undefined,
+        ))
+        .orderBy(asc(runEvents.runId), asc(runEvents.seq))
+        .limit(EVENT_PAGE_SIZE)
+      rows.push(...page)
+      if (page.length < EVENT_PAGE_SIZE) return rows
+      cursor = page.at(-1)
+    }
+  })
+}
 
-  const byRun = new Map<string, EventRow[]>()
-  for (const row of rows as EventRow[]) {
-    byRun.set(row.runId, [...(byRun.get(row.runId) ?? []), row])
-  }
-  for (const [runId, runRows] of byRun) {
-    const folded = foldRun(runRows)
-    if (folded.length > 0) grouped.set(runId, folded)
-  }
-  return grouped
+/** Rebuild saved replies from the same utterances shown while the run worked. */
+export async function chatReplayByMessage(tenantId: string, messages: RecordedMessage[]): Promise<Map<string, { body: string; activity: ChatMessageActivity[] }>> {
+  const recorded = messages.filter((message) => message.role === 'agent' && message.runId)
+  const runIds = [...new Set(recorded.flatMap((message) => message.runId ? [message.runId] : []))]
+  if (runIds.length === 0) return new Map()
+  const through = new Date(Math.max(...recorded.map((message) => new Date(message.at).getTime())))
+  return replayChatMessages(recorded, await readChatEvents(tenantId, runIds, through))
 }
 
 /**
@@ -196,17 +229,7 @@ export async function chatLiveTurn(
     // `message` joins the folded kinds here: a completed step's prose is the
     // part of the answer that already exists, and withholding it until the run
     // ends is the very thing this fixes.
-    const rows = await app.db
-      .select({ runId: runEvents.runId, kind: runEvents.kind, payload: runEvents.payload })
-      .from(runEvents)
-      .where(
-        and(
-          inArray(runEvents.runId, [live.id]),
-          inArray(runEvents.kind, ['thought', 'tool_call', 'tool_result', 'message']),
-        ),
-      )
-      .orderBy(asc(runEvents.seq))
-      .limit(MAX_EVENTS_PER_THREAD)
+    const rows = await readChatEvents(tenantId, [live.id], new Date())
 
     const typed = rows as EventRow[]
     const text = typed

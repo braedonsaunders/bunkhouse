@@ -96,3 +96,26 @@ export function shouldAppendPersistedAnswer(streamedText: string, persistedAnswe
   if (!streamed) return true
   return !streamed.includes(persisted) && !persisted.includes(streamed)
 }
+
+/**
+ * Preserve every recorded utterance, including repeated sentences. Only the
+ * suffix already represented by the saved outcome is merged; an earlier
+ * occurrence is not evidence that the final answer was shown.
+ */
+export function replayChatBody(utterances: string[], outcome: string): string {
+  const spoken = utterances.map((text) => text.trim()).filter(Boolean)
+  const final = outcome.trim()
+  if (!final) return spoken.join('\n\n')
+  // A parked outcome can contain the final preamble plus a status paragraph.
+  // Replace that suffix with the full outcome so the status survives once.
+  const normalizedFinal = comparable(final)
+  let suffix = ''
+  let mergeFrom = spoken.length
+  for (let start = spoken.length - 1; start >= 0; start -= 1) {
+    suffix = [comparable(spoken[start]!), suffix].filter(Boolean).join(' ')
+    if (suffix.length > normalizedFinal.length) break
+    if (suffix === normalizedFinal || normalizedFinal.startsWith(`${suffix} `)) mergeFrom = start
+  }
+  if (mergeFrom < spoken.length) return [...spoken.slice(0, mergeFrom), final].join('\n\n')
+  return [...spoken, final].join('\n\n')
+}
