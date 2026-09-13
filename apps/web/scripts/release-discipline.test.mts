@@ -128,7 +128,16 @@ test('health diagnostics survive a Dokploy control-plane outage', async () => {
 
 test('manual Swarm recovery is bounded and proves the restored service', async () => {
   const deploy = await readRepo('.github/workflows/deploy.yml')
+  const ordinaryDeploy = deploy.slice(
+    deploy.indexOf('\n  deploy:'),
+    deploy.indexOf('\n  diagnose:'),
+  )
   const recovery = deploy.slice(deploy.indexOf('\n  recover:'))
+  assert.match(
+    ordinaryDeploy,
+    /inputs\.recoverSwarm != true/,
+    'a recovery dispatch must not continue into the ordinary Dokploy deployment',
+  )
   assert.match(recovery, /inputs\.recoverSwarm == true && inputs\.imageTag != ''/)
   assert.match(recovery, /\^\[0-9a-f\]\{40\}\$/, 'only an immutable commit image may be restored')
   assert.match(recovery, /docker container prune --force --filter until=24h/)
