@@ -2,108 +2,6 @@
   "version": 1,
   "runs": [
     {
-      "at": "2026-09-10T04:10:06.783Z",
-      "sha": "a2cd4fe93475d2e50c88e9f293b5a3c193879a62",
-      "pr": null,
-      "actor": "braedonsaunders",
-      "files": 492,
-      "functions": 1766,
-      "loc": 142855,
-      "languages": 14,
-      "topLanguages": [
-        {
-          "ext": "ts",
-          "pct": 38,
-          "lines": 54764
-        },
-        {
-          "ext": "tsx",
-          "pct": 24,
-          "lines": 33808
-        },
-        {
-          "ext": "json",
-          "pct": 19,
-          "lines": 26714
-        },
-        {
-          "ext": "yaml",
-          "pct": 12,
-          "lines": 17038
-        },
-        {
-          "ext": "sql",
-          "pct": 3,
-          "lines": 4309
-        }
-      ],
-      "dead": 45,
-      "deadPct": 2.5,
-      "circular": 1,
-      "godObjects": 1,
-      "avgCoupling": 3.2,
-      "securityIssues": 46,
-      "patterns": 7,
-      "duplicates": 14,
-      "layerViolations": 345,
-      "connections": 1569,
-      "avgFnLines": 15.5,
-      "longestFn": 16,
-      "testFiles": 4,
-      "testRatio": 0.8,
-      "topFolders": [
-        {
-          "name": "apps",
-          "count": 366
-        },
-        {
-          "name": "migrations",
-          "count": 73
-        },
-        {
-          "name": "packages",
-          "count": 28
-        },
-        {
-          "name": "root",
-          "count": 13
-        },
-        {
-          "name": "deploy",
-          "count": 11
-        }
-      ],
-      "folders": 5,
-      "grade": "D",
-      "score": 69,
-      "topBlast": {
-        "path": "apps/web/src/db/client.ts",
-        "direct": 102,
-        "transitive": 256,
-        "total": 358
-      },
-      "fragility": [
-        {
-          "path": "apps/web/src/db/client.ts",
-          "direct": 102,
-          "transitive": 256,
-          "total": 358
-        },
-        {
-          "path": "deploy/desk-image/agent/desk-guest-agent.mjs",
-          "direct": 49,
-          "transitive": 219,
-          "total": 268
-        },
-        {
-          "path": "deploy/desk-image/agent/atspi-dump.py",
-          "direct": 23,
-          "transitive": 233,
-          "total": 256
-        }
-      ]
-    },
-    {
       "at": "2026-09-10T13:14:41.090Z",
       "sha": "95e1f2553826c580b25f934475f71a4c7b23bdf1",
       "pr": null,
@@ -2962,6 +2860,108 @@
     {
       "at": "2026-09-12T18:42:04.226Z",
       "sha": "762a93557c14eda603494cd0f62dfa6351229d0f",
+      "pr": null,
+      "actor": "braedonsaunders",
+      "files": 505,
+      "functions": 1814,
+      "loc": 146064,
+      "languages": 14,
+      "topLanguages": [
+        {
+          "ext": "ts",
+          "pct": 39,
+          "lines": 56887
+        },
+        {
+          "ext": "tsx",
+          "pct": 24,
+          "lines": 34375
+        },
+        {
+          "ext": "json",
+          "pct": 18,
+          "lines": 26719
+        },
+        {
+          "ext": "yaml",
+          "pct": 12,
+          "lines": 17151
+        },
+        {
+          "ext": "sql",
+          "pct": 3,
+          "lines": 4593
+        }
+      ],
+      "dead": 45,
+      "deadPct": 2.5,
+      "circular": 1,
+      "godObjects": 1,
+      "avgCoupling": 3.4,
+      "securityIssues": 51,
+      "patterns": 7,
+      "duplicates": 15,
+      "layerViolations": 371,
+      "connections": 1703,
+      "avgFnLines": 15.5,
+      "longestFn": 16,
+      "testFiles": 4,
+      "testRatio": 0.8,
+      "topFolders": [
+        {
+          "name": "apps",
+          "count": 372
+        },
+        {
+          "name": "migrations",
+          "count": 79
+        },
+        {
+          "name": "packages",
+          "count": 28
+        },
+        {
+          "name": "root",
+          "count": 13
+        },
+        {
+          "name": "deploy",
+          "count": 11
+        }
+      ],
+      "folders": 5,
+      "grade": "D",
+      "score": 69,
+      "topBlast": {
+        "path": "apps/web/src/db/client.ts",
+        "direct": 104,
+        "transitive": 275,
+        "total": 379
+      },
+      "fragility": [
+        {
+          "path": "apps/web/src/db/client.ts",
+          "direct": 104,
+          "transitive": 275,
+          "total": 379
+        },
+        {
+          "path": "apps/web/src/lib/chat-dashboard.ts",
+          "direct": 84,
+          "transitive": 252,
+          "total": 336
+        },
+        {
+          "path": "deploy/desk-image/agent/desk-guest-agent.mjs",
+          "direct": 52,
+          "transitive": 249,
+          "total": 301
+        }
+      ]
+    },
+    {
+      "at": "2026-09-13T04:41:50.876Z",
+      "sha": "8f1bc3e43df301834ab0785eedaf86a75ebe2247",
       "pr": null,
       "actor": "braedonsaunders",
       "files": 505,
