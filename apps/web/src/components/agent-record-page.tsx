@@ -72,14 +72,27 @@ export function AgentRecordPage({
   sections: AgentPageSection[]
   initialSection?: string
 }) {
-  const [active, setActive] = React.useState(() => validSection(sections, initialSection))
+  const initialActive = validSection(sections, initialSection)
+  const [active, setActive] = React.useState(initialActive)
+  // Chat owns live client state that can be newer than the RSC snapshot which
+  // first rendered this employee record: arriving messages, a draft, scroll,
+  // and a turn being streamed. Keep that workspace mounted after its first
+  // visit so moving through the employee record cannot replace those facts
+  // with the page-load snapshot when the reader comes back.
+  const [chatMounted, setChatMounted] = React.useState(initialActive === 'chat')
   const current = sections.find((section) => section.key === active) ?? sections[0]
+  const chat = sections.find((section) => section.key === 'chat')
   const hasChat = sections.some((section) => section.key === 'chat')
   const fillsPage = current?.key === 'overview' || current?.key === 'chat' || current?.key === 'mail'
 
   const select = (key: string): void => {
+    if (key === 'chat') setChatMounted(true)
     setActive(key)
-    window.history.replaceState(null, '', `/organization/${encodeURIComponent(agentId)}?section=${key}`)
+    const currentUrl = new URL(window.location.href)
+    const params = new URLSearchParams({ section: key })
+    const threadId = currentUrl.searchParams.get('thread')
+    if (threadId) params.set('thread', threadId)
+    window.history.replaceState(null, '', `/organization/${encodeURIComponent(agentId)}?${params.toString()}`)
   }
 
   return (
@@ -138,8 +151,13 @@ export function AgentRecordPage({
       }
       className={fillsPage ? 'h-full min-h-0 p-0' : 'p-3 sm:p-4'}
     >
-      <div key={current?.key} className={fillsPage ? 'h-full min-h-0' : undefined}>
-        {current?.content}
+      <div className={fillsPage ? 'h-full min-h-0' : undefined}>
+        {chatMounted && chat ? (
+          <React.Activity mode={active === 'chat' ? 'visible' : 'hidden'}>
+            <div className="h-full min-h-0">{chat.content}</div>
+          </React.Activity>
+        ) : null}
+        {current?.key !== 'chat' ? <div key={current?.key}>{current?.content}</div> : null}
       </div>
     </DetailPageLayout>
   )
