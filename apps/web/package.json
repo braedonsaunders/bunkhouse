@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@braedonsaunders/appkit-agent-tools": "^0.2.0",
-    "@braedonsaunders/appkit-ai": "^2.0.1",
+    "@braedonsaunders/appkit-ai": "^2.0.2",
     "@braedonsaunders/appkit-api": "^0.1.2",
     "@braedonsaunders/appkit-apps": "^3.0.1",
     "@braedonsaunders/appkit-auth": "^0.1.3",

@@ -94,6 +94,37 @@ test('chat keeps its live client state across employee-record sections', async (
   await expect(composer).toHaveValue('A draft that exists only in this mounted chat')
 })
 
+test('a completed response remains visible while the durable transcript catches up', async ({ page }) => {
+  const responseText = 'The streamed reply stays visible while storage catches up.'
+  await page.route(`**/api/chat/${E2E_CONTINUED_THREAD_ID}`, async (route) => {
+    const chunks = [
+      { type: 'start' },
+      { type: 'text-start', id: 'answer-0' },
+      { type: 'text-delta', id: 'answer-0', delta: responseText },
+      { type: 'text-end', id: 'answer-0' },
+      { type: 'finish' },
+    ]
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      headers: { 'x-vercel-ai-ui-message-stream': 'v1' },
+      body: `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('')}data: [DONE]\n\n`,
+    })
+  })
+
+  await page.goto(chatUrl(E2E_CONTINUED_THREAD_ID))
+  const composer = page.getByRole('textbox', { name: 'Message Avery Chen…' })
+  await composer.fill('Show me the completed response.')
+  await composer.press('Enter')
+
+  await expect(page.getByText(responseText, { exact: true })).toBeVisible()
+  // The mocked host deliberately never persists this reply. Before the
+  // reconciliation guard, the stream's completion immediately replaced it with
+  // the older initial transcript and this assertion observed the empty gap.
+  await page.waitForTimeout(2_000)
+  await expect(page.getByText(responseText, { exact: true })).toBeVisible()
+})
+
 test('conversation queue components cover running, waiting, and recovery states', async ({ page }) => {
   await page.goto(chatUrl(E2E_QUEUE_THREAD_ID))
   const queue = page.getByRole('region', { name: 'Up next' })
