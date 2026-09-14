@@ -1039,8 +1039,10 @@ async function resolveChatAttachments(
 }
 
 /** How much of the conversation rides into the run's instruction. */
-const HISTORY_TURNS = 10
+const HISTORY_RECENT_MESSAGES = 10
+const HISTORY_USER_MESSAGES = 4
 const HISTORY_CHARS = 6_000
+const HISTORY_MESSAGE_CHARS = 1_000
 
 /**
  * The message the agent is actually given: what was just said, with the recent
@@ -1053,13 +1055,48 @@ const HISTORY_CHARS = 6_000
  * message as though it were the first thing you had ever said to it.
  */
 function messageWithHistory(prior: ChatMessageView[], body: string): string {
-  const turns = prior
-    .filter((message) => message.role !== 'system')
-    .slice(-HISTORY_TURNS)
-    .map((message) => `${message.role === 'user' ? 'Them' : 'You'}: ${message.body.trim()}`)
-  if (turns.length === 0) return body
-  let block = turns.join('\n\n')
-  if (block.length > HISTORY_CHARS) block = `[…earlier messages trimmed]\n\n${block.slice(-HISTORY_CHARS)}`
+  const transcript = prior.filter((message) => message.role !== 'system')
+  if (transcript.length === 0) return body
+
+  // Scheduled work can post many updates between two things the operator says.
+  // Taking the last ten rows verbatim let those automatic reports evict the
+  // human's actual direction. Avery's active trading conversation produced ten
+  // duty reports overnight, so “what happened?” arrived without the request
+  // that defined what the loop was meant to do.
+  //
+  // Keep the ordinary recent window, then pin the last few human messages into
+  // it. Long reports are bounded per row and, if the total is still too large,
+  // older unpinned rows leave first. The newest message and the recent human
+  // direction therefore survive without turning every prompt into a transcript.
+  const pinnedUsers = transcript.filter((message) => message.role === 'user').slice(-HISTORY_USER_MESSAGES)
+  const pinnedUserIds = new Set(pinnedUsers.map((message) => message.id))
+  const selected = new Map<string, ChatMessageView>()
+  for (const message of transcript.slice(-HISTORY_RECENT_MESSAGES)) selected.set(message.id, message)
+  for (const message of pinnedUsers) selected.set(message.id, message)
+
+  let clipped = false
+  const turns = [...selected.values()]
+    .sort((left, right) => left.seq - right.seq)
+    .map((message) => {
+      const prose = message.body.trim()
+      if (prose.length <= HISTORY_MESSAGE_CHARS) return { message, text: prose }
+      clipped = true
+      return { message, text: `${prose.slice(0, HISTORY_MESSAGE_CHARS - 1)}…` }
+    })
+
+  const rendered = () => turns
+    .map(({ message, text }) => `${message.role === 'user' ? 'Them' : 'You'}: ${text}`)
+    .join('\n\n')
+  while (rendered().length > HISTORY_CHARS) {
+    const removable = turns.findIndex(({ message }, index) => (
+      index < turns.length - 1 && !pinnedUserIds.has(message.id)
+    ))
+    if (removable < 0) break
+    turns.splice(removable, 1)
+    clipped = true
+  }
+
+  const block = `${clipped || turns.length < transcript.length ? '[…earlier messages trimmed]\n\n' : ''}${rendered()}`
   return `Earlier in this conversation:\n\n${block}\n\n---\n\nThey have just said:\n\n${body}`
 }
 

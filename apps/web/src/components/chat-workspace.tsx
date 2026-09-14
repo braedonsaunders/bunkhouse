@@ -243,6 +243,7 @@ function toAgentMessage(
   return {
     id: message.id,
     role: message.role === 'user' ? 'user' : message.role === 'system' ? 'system' : 'assistant',
+    createdAt: message.at,
     parts: [
       // Ahead of the text: the work came before the answer, and a reader
       // scrolling a reloaded thread should meet it in that order.

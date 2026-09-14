@@ -572,6 +572,7 @@ export async function readDashboardForAgent(args: { tenantId: string; threadId: 
 const BRIDGE_CONTRACT = {
   globals: ['appkit'],
   calls: [
+    { call: 'appkit.theme', returns: "The host app's current 'light' or 'dark' theme. The sandbox also applies html.light/html.dark and html[data-theme] automatically, and dispatches appkit:themechange with event.detail.theme when it changes." },
     { call: "appkit.getContext()", returns: 'The dashboard, user, and tenant the frontend is running for.' },
     { call: "appkit.records.list('thread.overview', {})", returns: 'One row: title, status, agent, message/run/file/duty counts, last activity.' },
     { call: "appkit.records.list('thread.messages', { limit: 20 })", returns: 'Newest first: seq, role, body (500 chars), at.' },
@@ -584,6 +585,7 @@ const BRIDGE_CONTRACT = {
     'No ambient iframe network, cookies, or parent DOM. Public data is available only through declared origins and the separately granted backend request function.',
     'Poll on a source-appropriate interval rather than rendering once, and do not overlap refreshes.',
     'Dashboard freshness belongs to its JavaScript. Never create or schedule a duty just to refresh it.',
+    'Follow the host theme already applied to the dashboard document. Never render a theme selector or persist a dashboard-specific theme.',
     'Escape every value you render; the bridge hands you text, not markup.',
   ],
 } as const

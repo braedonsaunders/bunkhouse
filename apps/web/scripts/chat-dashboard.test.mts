@@ -187,6 +187,8 @@ test('the Dashboard tab renders the sandbox and manages it in place', () => {
   assert.ok(panel.includes('CodeMirror'), 'the operator edits real files, not a form standing in for them')
   assert.ok(panel.includes('Backend endpoints'), 'endpoints are managed beside the files that serve them')
   assert.ok(panel.includes('Every backend call'), 'the run record is visible where the dashboard is edited')
+  assert.ok(lib.includes('Never render a theme selector'), 'the bridge contract makes the host theme authoritative')
+  assert.ok(abilities.includes('never add a separate theme selector'), 'dashboard authors are told to use the inherited app theme')
 })
 
 // --- persistence ------------------------------------------------------------------
