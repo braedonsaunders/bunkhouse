@@ -631,6 +631,25 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     completion.indexOf('await refreshThread(threadId)') < completion.indexOf('router.refresh()'),
     'the server tree is refreshed only after the durable transcript has caught up',
   )
+  const recordPage = readFileSync(
+    fileURLToPath(new URL('../src/components/agent-record-page.tsx', import.meta.url)),
+    'utf8',
+  )
+  assert.match(
+    recordPage,
+    /chatMounted && chat[\s\S]*<React\.Activity mode=\{active === 'chat' \? 'visible' : 'hidden'\}>[\s\S]*chat\.content/,
+    'the live chat workspace stays mounted while another employee-record section is visible',
+  )
+  assert.equal(
+    recordPage.includes('<div key={current?.key} className='),
+    false,
+    'switching employee-record sections cannot key away and recreate the live chat workspace',
+  )
+  assert.match(
+    recordPage,
+    /const threadId = currentUrl\.searchParams\.get\('thread'\)[\s\S]*if \(threadId\) params\.set\('thread', threadId\)/,
+    'employee-record navigation retains the selected conversation in its URL',
+  )
   assert.ok(workspace.includes('headerActions={'), 'the work visibility control lives in AgentPanel’s main header')
   assert.equal(workspace.includes('Run records:'), false, 'internal run boundaries never accumulate above the transcript')
   assert.ok(workspace.includes('<ThreadNoticeBar'), 'only exceptional system notes occupy the transcript margin')

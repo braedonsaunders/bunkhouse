@@ -81,6 +81,19 @@ test('conversation components cover search, provenance, export, and archive stat
   await expect(page).toHaveURL(new RegExp(`thread=${E2E_SOURCE_THREAD_ID}$`))
 })
 
+test('chat keeps its live client state across employee-record sections', async ({ page }) => {
+  await page.goto(chatUrl(E2E_SOURCE_THREAD_ID))
+  const composer = page.getByRole('textbox', { name: 'Message Avery Chen…' })
+  await composer.fill('A draft that exists only in this mounted chat')
+
+  await page.getByRole('tab', { name: 'Profile', exact: true }).click()
+  await expect(page).toHaveURL(new RegExp(`section=profile&thread=${E2E_SOURCE_THREAD_ID}$`))
+
+  await page.getByRole('tab', { name: 'Chat', exact: true }).click()
+  await expect(page).toHaveURL(new RegExp(`section=chat&thread=${E2E_SOURCE_THREAD_ID}$`))
+  await expect(composer).toHaveValue('A draft that exists only in this mounted chat')
+})
+
 test('conversation queue components cover running, waiting, and recovery states', async ({ page }) => {
   await page.goto(chatUrl(E2E_QUEUE_THREAD_ID))
   const queue = page.getByRole('region', { name: 'Up next' })
