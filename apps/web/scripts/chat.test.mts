@@ -1102,6 +1102,40 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   console.log('chat: Markdown and JSON exports preserve readable transcript and audit joins')
 }
 
+// --- (b2) automatic duty chatter cannot evict the operator's direction ------
+{
+  const clock = () => new Date('2026-09-14T15:00:00.000Z')
+  const { store } = memoryChatStore(clock)
+  const { run, calls } = fakeRunner()
+  const deps = { store, run, now: clock }
+  const { threadId } = await startThread({ tenantId: TENANT, userId: USER, personId: AGENT }, deps)
+
+  await store.appendMessage({
+    tenantId: TENANT,
+    threadId,
+    role: 'user',
+    body: 'Keep the launch watcher active and evaluate new candidates before buying.',
+  })
+  for (let index = 1; index <= 12; index += 1) {
+    await store.appendMessage({
+      tenantId: TENANT,
+      threadId,
+      role: 'agent',
+      body: `Scheduled wake report ${index}: ${'candidate status '.repeat(100)}`,
+      runId: `duty-${index}`,
+    })
+  }
+
+  await sendMessage({ tenantId: TENANT, threadId, userId: USER, body: 'What happened overnight?' }, deps)
+  const input = calls[0]?.input
+  const message = input?.type === 'chat' ? input.message : ''
+  assert.match(message, /Keep the launch watcher active and evaluate new candidates before buying\./)
+  assert.match(message, /Scheduled wake report 12:/)
+  assert.doesNotMatch(message, /Scheduled wake report 1:/)
+  assert.ok(message.length < 7_000, 'the preserved operator context stays bounded')
+  console.log('chat: duty chatter cannot evict recent operator direction from run context')
+}
+
 // --- (c2) a name someone chose outlives the next message --------------------
 //
 // The auto-title exists so the list reads as topics; it must never be the

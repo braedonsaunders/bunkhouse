@@ -57,6 +57,15 @@ test('conversation components cover search, provenance, export, and archive stat
 
   await page.getByRole('button', { name: /Dawson receivable review Avery Chen/ }).click()
   await expect(page).toHaveURL(new RegExp(`thread=${E2E_SOURCE_THREAD_ID}$`))
+  const agentReply = page.getByText(
+    'The balance is $1,240. I drafted a concise reminder with the invoice details.',
+    { exact: true },
+  )
+  const agentTimestamp = page.locator('time[datetime]').first()
+  await expect(agentTimestamp).toHaveAttribute('datetime', /\d{4}-\d{2}-\d{2}T/)
+  await expect(agentTimestamp).toHaveCSS('opacity', '0')
+  await agentReply.hover()
+  await expect(agentTimestamp).toHaveCSS('opacity', '1')
   const desktopTab = page.getByRole('tab', { name: 'Desktop' })
   await expect(desktopTab).toHaveAttribute('aria-selected', 'true')
   await page.waitForTimeout(2_000)
