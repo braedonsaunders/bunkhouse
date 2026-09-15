@@ -359,17 +359,23 @@ export function ChatDashboard({
     )
   }
 
+  const publicDataStatus = bundle.app.liveDataGranted
+    ? { detail: 'Sandboxed · live public data', label: 'Live public data', variant: 'success' as const }
+    : bundle.app.dataOrigins.length > 0
+      ? { detail: 'Sandboxed · public data off', label: 'Public data off', variant: 'secondary' as const }
+      : { detail: 'Sandboxed · conversation data only', label: 'Conversation data', variant: 'secondary' as const }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-3 py-2">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-fg">{bundle.app.name}</p>
           <p className="truncate text-xs text-fg-muted">
-            {bundle.app.version ? `v${bundle.app.version} · ` : ''}Sandboxed · refreshes live
+            {bundle.app.version ? `v${bundle.app.version} · ` : ''}{publicDataStatus.detail}
           </p>
         </div>
-        <Badge variant={bundle.app.status === 'installed' ? 'success' : 'secondary'}>
-          {bundle.app.status === 'installed' ? 'Live' : bundle.app.status}
+        <Badge variant={publicDataStatus.variant}>
+          {publicDataStatus.label}
         </Badge>
         <Button
           type="button"
