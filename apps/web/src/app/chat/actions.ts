@@ -12,6 +12,7 @@ import { requireTenantPermission, type TenantAccess } from '../../lib/tenant'
 import {
   continueThread,
   getThread,
+  getThreadMessagePage,
   listThreads,
   renameThread,
   setThreadStatus,
@@ -128,14 +129,28 @@ export async function listThreadsAction(
   })
 }
 
-export async function getThreadAction(threadId: string): Promise<ChatThreadDetailView | null> {
-  if (!threadId) return null
+export async function getThreadAction(threadId: string, afterSeq?: number): Promise<ChatThreadDetailView | null> {
+  if (!threadId || (afterSeq !== undefined && (!Number.isSafeInteger(afterSeq) || afterSeq < 0))) return null
   const access = await requireTenantPermission('work.read')
   return chatThreadDetail({
     tenantId: access.tenantId,
     threadId,
     canDecideApprovals: access.user.isSuperAdmin || access.permissions.has('approvals.decide'),
+    ...(afterSeq === undefined ? {} : { afterSeq }),
   })
+}
+
+export async function getEarlierThreadMessagesAction(
+  threadId: string,
+  beforeSeq: number,
+): Promise<{ messages: ChatMessageView[]; hasOlderMessages: boolean }> {
+  if (!threadId || !Number.isSafeInteger(beforeSeq) || beforeSeq < 0) {
+    return { messages: [], hasOlderMessages: false }
+  }
+  const access = await requireTenantPermission('work.read')
+  const page = await getThreadMessagePage(access.tenantId, threadId, { beforeSeq })
+  if (!page) return { messages: [], hasOlderMessages: false }
+  return { messages: page.messages, hasOlderMessages: page.hasOlderMessages }
 }
 
 /**

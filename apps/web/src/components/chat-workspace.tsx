@@ -44,6 +44,7 @@ import {
 import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
 import {
   getThreadAction,
+  getEarlierThreadMessagesAction,
   finalizeChatUploadAction,
   continueThreadAction,
   editQueuedMessageAction,
@@ -170,6 +171,7 @@ export type ChatThreadDetail = {
     originMessageSeq: number | null
   }
   messages: ChatMessageRecord[]
+  hasOlderMessages: boolean
   dispatches: ChatDispatchRecord[]
   credentialRequests: ChatCredentialRequestRecord[]
   approvals: ChatApprovalRecord[]
@@ -181,6 +183,27 @@ export type ChatThreadDetail = {
     activity: NonNullable<ChatMessageRecord['activity']>
     text: string
   } | null
+}
+
+/** Keep pages the reader already fetched when a live refresh replaces the tail. */
+export function mergeChatThreadRefresh(
+  current: ChatThreadDetail,
+  loaded: ChatThreadDetail,
+): ChatThreadDetail {
+  if (current.thread.id !== loaded.thread.id) return loaded
+  const loadedFirstSeq = loaded.messages[0]?.seq
+  if (loadedFirstSeq === undefined) {
+    return current.messages.length === 0
+      ? loaded
+      : { ...loaded, messages: current.messages, hasOlderMessages: current.hasOlderMessages }
+  }
+  const retained = current.messages.filter((message) => message.seq < loadedFirstSeq)
+  if (retained.length === 0) return loaded
+  return {
+    ...loaded,
+    messages: [...retained, ...loaded.messages],
+    hasOlderMessages: current.hasOlderMessages,
+  }
 }
 
 /** An agent that can be talked to — one that has a brain assigned to think with. */
@@ -804,6 +827,10 @@ export function AgentChatWorkspace({
   const router = useRouter()
   const [threads, setThreads] = React.useState(initialThreads)
   const [detail, setDetail] = React.useState<ChatThreadDetail | null>(initialThread)
+  const detailRef = React.useRef(detail)
+  React.useEffect(() => {
+    detailRef.current = detail
+  }, [detail])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [deskChoice, setDeskChoice] = React.useState<boolean | null>(null)
@@ -932,14 +959,16 @@ export function AgentChatWorkspace({
   const refreshThread = React.useCallback(
     async (threadId: string) => {
       try {
-        const [loaded, list] = await Promise.all([getThreadAction(threadId), fetchThreads()])
+        const current = detailRef.current
+        const afterSeq = current?.thread.id === threadId ? current.messages.at(-1)?.seq : undefined
+        const [loaded, list] = await Promise.all([getThreadAction(threadId, afterSeq), fetchThreads()])
         setThreads(list)
         if (loaded === null) return
         // Only the record around the thread is taken: the panel holds the turn
         // that has just streamed, in far more detail than the stored bodies.
         setDetail((current) => {
           if (!current || current.thread.id !== threadId) return current
-          return loaded
+          return mergeChatThreadRefresh(current, loaded)
         })
       } catch {
         // The list simply stays as it was; nothing the reader did has been lost.
@@ -947,6 +976,23 @@ export function AgentChatWorkspace({
     },
     [fetchThreads],
   )
+
+  const earliestMessageSeq = detail?.messages[0]?.seq
+  const loadOlderMessages = React.useCallback(async () => {
+    const threadId = activeId
+    if (threadId === null || earliestMessageSeq === undefined) return
+    const page = await getEarlierThreadMessagesAction(threadId, earliestMessageSeq)
+    setDetail((current) => {
+      if (!current || current.thread.id !== threadId) return current
+      const messages = new Map<string, ChatMessageRecord>()
+      for (const message of [...page.messages, ...current.messages]) messages.set(message.id, message)
+      return {
+        ...current,
+        messages: [...messages.values()].sort((left, right) => left.seq - right.seq),
+        hasOlderMessages: page.hasOlderMessages,
+      }
+    })
+  }, [activeId, earliestMessageSeq])
 
   const send = React.useCallback(
     async (prompt: string, signal: AbortSignal): Promise<Response> => {
@@ -1146,11 +1192,13 @@ export function AgentChatWorkspace({
 
     const read = async () => {
       try {
-        const loaded = await getThreadAction(threadId)
+        const current = detailRef.current
+        const afterSeq = current?.thread.id === threadId ? current.messages.at(-1)?.seq : undefined
+        const loaded = await getThreadAction(threadId, afterSeq)
         if (stopped || !loaded) return
         setDetail((current) => {
           if (!current || current.thread.id !== threadId) return current
-          return loaded
+          return mergeChatThreadRefresh(current, loaded)
         })
       } catch {
         // The next read re-asks; a transient failure does not blank the pane.
@@ -1442,6 +1490,8 @@ export function AgentChatWorkspace({
                   parts: [{ type: 'text', text: queued.text }],
                 })),
             ]}
+            hasOlderMessages={detail.hasOlderMessages}
+            onLoadOlderMessages={loadOlderMessages}
             send={send}
             onSubmitSecretRequest={submitCredentialRequest}
             onCancelSecretRequest={cancelCredentialRequest}

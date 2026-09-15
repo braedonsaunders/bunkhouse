@@ -206,13 +206,15 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
  * and there must be no lookahead — B-frames and a frame-reordering delay would
  * put encoder latency on exactly the keystroke an operator is waiting to see.
  * The keyframe interval is the resync cost: a viewer that joins, or one that
- * fell behind, waits up to this many frames for a picture, and every keyframe
- * is a full-screen cost on a link that has none of them the rest of the time.
+ * fell behind, waits up to this long for a picture. Keep the interval in time,
+ * not frames, because the same encoder runs at 5fps while watched and 30fps
+ * while driven. A fixed 60-frame GOP made a late viewer wait up to 12 seconds
+ * on the normal watching rate.
  */
 const VIDEO_PRESET = 'ultrafast'
 const VIDEO_TUNE = 'zerolatency'
 const VIDEO_CRF = '28'
-const VIDEO_KEYFRAME_INTERVAL = '60'
+const VIDEO_KEYFRAME_INTERVAL_SECONDS = 1
 /** The rate bounds the host is held to, matching the frame path's. */
 const VIDEO_MIN_FPS = 1
 const VIDEO_MAX_FPS = 30
@@ -2061,12 +2063,13 @@ function createDesktopTier() {
    * the first fraction of a second deciding what x11grab is — which is the one
    * source it already knows everything about.
    *
-   * `-g` is NOT a latency control and is deliberately left where it is. There
-   * is no lookahead, so a keyframe interval buys nothing back in delay; it is
-   * the resync cost documented on VIDEO_KEYFRAME_INTERVAL, and shortening it
-   * would only spend bitrate.
+   * `-g` is the resync window rather than encoder latency. Deriving it from the
+   * requested frame rate keeps that window to one second at both watching and
+   * driving rates. `keyint_min` and disabled scene-cut detection make the
+   * boundary deterministic for a viewer waiting to start decoding.
    */
   function videoArgs(rate, geometry) {
+    const keyframeInterval = Math.max(1, Math.round(rate * VIDEO_KEYFRAME_INTERVAL_SECONDS))
     return [
       '-hide_banner',
       '-loglevel', 'error',
@@ -2089,7 +2092,9 @@ function createDesktopTier() {
       // yuv420p rather than the rgb x11grab hands over: it is the only pixel
       // format every browser decoder is required to accept.
       '-pix_fmt', 'yuv420p',
-      '-g', VIDEO_KEYFRAME_INTERVAL,
+      '-g', String(keyframeInterval),
+      '-keyint_min', String(keyframeInterval),
+      '-sc_threshold', '0',
       '-crf', VIDEO_CRF,
       '-f', 'mp4',
       '-movflags',
