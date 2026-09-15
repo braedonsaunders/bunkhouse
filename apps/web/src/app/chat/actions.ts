@@ -129,13 +129,14 @@ export async function listThreadsAction(
   })
 }
 
-export async function getThreadAction(threadId: string): Promise<ChatThreadDetailView | null> {
-  if (!threadId) return null
+export async function getThreadAction(threadId: string, afterSeq?: number): Promise<ChatThreadDetailView | null> {
+  if (!threadId || (afterSeq !== undefined && (!Number.isSafeInteger(afterSeq) || afterSeq < 0))) return null
   const access = await requireTenantPermission('work.read')
   return chatThreadDetail({
     tenantId: access.tenantId,
     threadId,
     canDecideApprovals: access.user.isSuperAdmin || access.permissions.has('approvals.decide'),
+    ...(afterSeq === undefined ? {} : { afterSeq }),
   })
 }
 

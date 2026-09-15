@@ -827,6 +827,10 @@ export function AgentChatWorkspace({
   const router = useRouter()
   const [threads, setThreads] = React.useState(initialThreads)
   const [detail, setDetail] = React.useState<ChatThreadDetail | null>(initialThread)
+  const detailRef = React.useRef(detail)
+  React.useEffect(() => {
+    detailRef.current = detail
+  }, [detail])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [deskChoice, setDeskChoice] = React.useState<boolean | null>(null)
@@ -955,7 +959,9 @@ export function AgentChatWorkspace({
   const refreshThread = React.useCallback(
     async (threadId: string) => {
       try {
-        const [loaded, list] = await Promise.all([getThreadAction(threadId), fetchThreads()])
+        const current = detailRef.current
+        const afterSeq = current?.thread.id === threadId ? current.messages.at(-1)?.seq : undefined
+        const [loaded, list] = await Promise.all([getThreadAction(threadId, afterSeq), fetchThreads()])
         setThreads(list)
         if (loaded === null) return
         // Only the record around the thread is taken: the panel holds the turn
@@ -1186,7 +1192,9 @@ export function AgentChatWorkspace({
 
     const read = async () => {
       try {
-        const loaded = await getThreadAction(threadId)
+        const current = detailRef.current
+        const afterSeq = current?.thread.id === threadId ? current.messages.at(-1)?.seq : undefined
+        const loaded = await getThreadAction(threadId, afterSeq)
         if (stopped || !loaded) return
         setDetail((current) => {
           if (!current || current.thread.id !== threadId) return current

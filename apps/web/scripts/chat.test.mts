@@ -26,6 +26,7 @@ const {
   listThreads,
   getThread,
   getThreadMessagePage,
+  getThreadMessagesAfter,
   renameThread,
   sendMessage,
   setThreadStatus,
@@ -133,10 +134,11 @@ function memoryChatStore(clock: () => Date) {
         originMessageSeq: thread.originMessageSeq,
       }
     },
-    async readMessages({ threadId, beforeSeq, limit }) {
+    async readMessages({ threadId, beforeSeq, afterSeq, limit }) {
       const rows = messages
         .filter((message) => message.threadId === threadId)
         .filter((message) => beforeSeq === undefined || message.seq < beforeSeq)
+        .filter((message) => afterSeq === undefined || message.seq > afterSeq)
         .sort((a, b) => a.seq - b.seq)
       return (limit === undefined ? rows : rows.slice(-limit))
         .map((message) => ({
@@ -250,6 +252,9 @@ function memoryChatStore(clock: () => Date) {
   const oldest = await getThreadMessagePage(TENANT, threadId, { beforeSeq: middle?.messages[0]?.seq }, { store })
   assert.deepEqual(oldest?.messages.map((message) => message.seq), [0, 1, 2, 3, 4])
   assert.equal(oldest?.hasOlderMessages, false)
+
+  const appended = await getThreadMessagesAfter(TENANT, threadId, 29, { store })
+  assert.deepEqual(appended?.messages.map((message) => message.seq), Array.from({ length: 35 }, (_, index) => index + 30))
   console.log('chat: long transcripts page backward without loading the whole ledger')
 }
 
@@ -889,6 +894,11 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     chatWorkspace.includes('wantedThreadRef') &&
       chatWorkspace.includes('if (wantedThreadRef.current !== threadId) return'),
     'a thread read that resolves after a newer one was asked for is dropped',
+  )
+  assert.ok(
+    chatWorkspace.includes('current.messages.at(-1)?.seq') &&
+      chatWorkspace.includes('getThreadAction(threadId, afterSeq)'),
+    'live refreshes request the complete appended tail instead of skipping gaps behind the newest page',
   )
   const workSurfaceLib = readFileSync(
     fileURLToPath(new URL('../src/lib/chat-work-surface.ts', import.meta.url)),

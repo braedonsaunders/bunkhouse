@@ -6,6 +6,7 @@ import { listChatDispatches, type ChatDispatchView } from './chat-dispatch'
 import {
   conversationIdFor,
   getThreadMessagePage,
+  getThreadMessagesAfter,
   type ChatMessageView,
   type ChatThreadView,
 } from './chat-threads'
@@ -36,8 +37,12 @@ export async function chatThreadDetail(args: {
   tenantId: string
   threadId: string
   canDecideApprovals: boolean
+  /** When present, return the complete durable tail after this sequence. */
+  afterSeq?: number
 }): Promise<ChatThreadDetailView | null> {
-  const detail = await getThreadMessagePage(args.tenantId, args.threadId)
+  const detail = args.afterSeq === undefined
+    ? await getThreadMessagePage(args.tenantId, args.threadId)
+    : await getThreadMessagesAfter(args.tenantId, args.threadId, args.afterSeq)
   if (!detail) return null
   // Runs already attributed to a recorded message: the transcript recovers their
   // work through its own activity, so the live view must not repeat it.

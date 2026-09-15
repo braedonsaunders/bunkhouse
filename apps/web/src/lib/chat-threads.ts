@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, asc, desc, eq, gte, lt, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, gte, lt, or, sql } from 'drizzle-orm'
 import { followDurableCursor } from '@braedonsaunders/appkit-events'
 import type { ChatRequester, RunInput, RunInputAttachment, RunOutcome } from '@bunkhouse/runtime'
 import { chatMessages, chatThreads, people, runEvents, runs, type RunTrigger } from '../db/schema'
@@ -111,6 +111,8 @@ export type ChatThreadStore = {
     threadId: string
     /** Read messages strictly before this sequence number. */
     beforeSeq?: number
+    /** Read messages strictly after this sequence number. */
+    afterSeq?: number
     /** When present, return the newest `limit` matching rows in ascending order. */
     limit?: number
   }): Promise<ChatMessageView[]>
@@ -272,7 +274,7 @@ export function dbChatThreadStore(): ChatThreadStore {
       )
       return row ? { ...row, title: row.title ?? UNTITLED_THREAD, titled: row.title !== null } : null
     },
-    async readMessages({ tenantId, threadId, beforeSeq, limit }) {
+    async readMessages({ tenantId, threadId, beforeSeq, afterSeq, limit }) {
       const app = db()
       const rows = await app.withTenantContext(tenantId, () =>
         {
@@ -290,6 +292,7 @@ export function dbChatThreadStore(): ChatThreadStore {
           .where(and(
             eq(chatMessages.threadId, threadId),
             beforeSeq === undefined ? undefined : lt(chatMessages.seq, beforeSeq),
+            afterSeq === undefined ? undefined : gt(chatMessages.seq, afterSeq),
           ))
           return limit === undefined
             ? query.orderBy(asc(chatMessages.seq))
@@ -754,6 +757,26 @@ export const CHAT_MESSAGE_PAGE_SIZE = 30
 export type ChatMessagePage = {
   messages: ChatMessageView[]
   hasOlderMessages: boolean
+}
+
+/** Read every message appended after the UI's durable tail. */
+export async function getThreadMessagesAfter(
+  tenantId: string,
+  threadId: string,
+  afterSeq: number,
+  deps: ChatThreadDeps = {},
+): Promise<({ thread: ChatThreadView } & ChatMessagePage) | null> {
+  const store = storeOf(deps)
+  const thread = await store.readThread({ tenantId, threadId })
+  if (!thread) return null
+  const messages = await store.readMessages({ tenantId, threadId, afterSeq })
+  return {
+    thread,
+    messages: await enrichThreadMessages(tenantId, messages, deps),
+    // A refresh only projects the appended tail. The caller retains the
+    // history state it already owns when it merges this result.
+    hasOlderMessages: true,
+  }
 }
 
 /**
