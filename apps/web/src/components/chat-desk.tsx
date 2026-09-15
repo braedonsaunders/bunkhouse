@@ -103,6 +103,8 @@ type DeskFrame = { src: string }
 const STATUS_POLL_MS = 5_000
 /** A closed screen is transient while an agent is booting its desktop. */
 const STATUS_DISCOVERY_POLL_MS = 750
+/** Keep the rapid discovery beat to the period immediately after this tab mounts. */
+const STATUS_DISCOVERY_BURST_MS = 30_000
 
 /** How long a still frame stream may go quiet before the "live" dot stands down. */
 const FRAME_STALE_MS = 8_000
@@ -226,6 +228,9 @@ const FRAME_RATE_RETRY_MS = 750
  * collapses ordinary typing into a handful of messages.
  */
 const TYPE_FLUSH_MS = 160
+
+/** Matching clicks inside this window may travel together as one native click burst. */
+const DOUBLE_CLICK_WINDOW_MS = 400
 
 /** Two Escapes inside this window hand control back — see the driving note. */
 const RELEASE_CHORD_MS = 500
@@ -1038,6 +1043,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   React.useEffect(() => {
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
+    const discoveryUntil = Date.now() + STATUS_DISCOVERY_BURST_MS
     // Chained rather than on an interval so a slow status read never overlaps
     // the next one. While the screen is closed, check quickly enough to catch
     // the agent finishing its desktop boot; once it is open, the video stream
@@ -1052,7 +1058,12 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
         setStatus(answer.status)
         setStatusError(null)
         if (!answer.status.screenRunning) {
-          if (answer.status.supported && answer.status.desk && answer.status.desktop) {
+          if (
+            Date.now() < discoveryUntil &&
+            answer.status.supported &&
+            answer.status.desk &&
+            answer.status.desktop
+          ) {
             nextPollMs = STATUS_DISCOVERY_POLL_MS
           }
           setDriving(false)
@@ -1101,27 +1112,50 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
    * them, is the only ordering the guest can be given.
    */
   const queueRef = React.useRef<Promise<void>>(Promise.resolve())
-  const sendInput = React.useCallback(
-    (action: DesktopInput) => {
-      queueRef.current = queueRef.current.then(async () => {
-        try {
-          const result = await postDesktopInput(personId, action)
-          setControlError('error' in result ? result.error : null)
-        } catch (error) {
-          setControlError(error instanceof Error ? error.message : 'That input did not reach the desk.')
-        }
-      })
-    },
-    [personId],
-  )
+  const clickBurstRef = React.useRef<{
+    x: number
+    y: number
+    at: number
+    barrier: Promise<void>
+    deliveries: Promise<void>[]
+  } | null>(null)
+  const deliverInput = React.useCallback(async (action: DesktopInput) => {
+    try {
+      const result = await postDesktopInput(personId, action)
+      setControlError('error' in result ? result.error : null)
+    } catch (error) {
+      setControlError(error instanceof Error ? error.message : 'That input did not reach the desk.')
+    }
+  }, [personId])
+  const sendInput = React.useCallback((action: DesktopInput) => {
+    // A non-click closes the click burst. It also waits for every click in the
+    // burst, so typing can never overtake the click that focused its field.
+    clickBurstRef.current = null
+    queueRef.current = queueRef.current.then(() => deliverInput(action))
+  }, [deliverInput])
 
-  // Deliver each click as soon as the pointer comes up. Two quick clicks stay
-  // ordered by sendInput's queue and the guest desktop recognizes them as its
-  // native double-click; delaying every ordinary click to decide whether a
-  // second one follows made the whole desktop feel 260ms behind the pointer.
+  // Deliver the first click as soon as the pointer comes up. A matching second
+  // click starts behind the SAME predecessor instead of waiting for the first
+  // POST's audit write to finish, preserving the person's native double-click
+  // cadence without holding every ordinary click for a gesture timer. Any
+  // different click remains on the ordered queue.
   const commitClick = React.useCallback((click: { x: number; y: number; button: 'left' | 'middle' | 'right' }) => {
-    sendInput({ action: 'click', ...click, clicks: 1 })
-  }, [sendInput])
+    const at = Date.now()
+    const recent = clickBurstRef.current
+    const matches =
+      click.button === 'left' &&
+      recent !== null &&
+      at - recent.at < DOUBLE_CLICK_WINDOW_MS &&
+      Math.abs(click.x - recent.x) < DRAG_THRESHOLD_PX &&
+      Math.abs(click.y - recent.y) < DRAG_THRESHOLD_PX
+    const barrier = matches && recent ? recent.barrier : queueRef.current
+    const delivery = barrier.then(() => deliverInput({ action: 'click', ...click, clicks: 1 }))
+    const deliveries = matches && recent ? [...recent.deliveries, delivery] : [delivery]
+    clickBurstRef.current = click.button === 'left'
+      ? { x: click.x, y: click.y, at, barrier, deliveries }
+      : null
+    queueRef.current = Promise.all(deliveries).then(() => undefined)
+  }, [deliverInput])
 
   // Typed characters, gathered and then sent as one. The buffer is flushed
   // ahead of anything that is not a character so the guest never sees a

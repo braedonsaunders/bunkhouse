@@ -782,13 +782,21 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
   )
   assert.ok(
     desk.includes('STATUS_DISCOVERY_POLL_MS = 750') &&
+      desk.includes('STATUS_DISCOVERY_BURST_MS = 30_000') &&
+      desk.includes('Date.now() < discoveryUntil') &&
       desk.includes('nextPollMs = STATUS_DISCOVERY_POLL_MS'),
-    'a desktop that finishes booting is discovered in under a second',
+    'a desktop that finishes booting is discovered quickly without leaving an idle chat on the rapid poll',
   )
   assert.equal(
     desk.includes('pendingClickRef') || desk.includes('setTimeout(() => flushPendingClick(), 260)'),
     false,
     'ordinary clicks have no gesture-window delay',
+  )
+  assert.ok(
+    desk.includes('clickBurstRef') &&
+      desk.includes('const barrier = matches && recent ? recent.barrier : queueRef.current') &&
+      desk.includes('Promise.all(deliveries)'),
+    'matching clicks share a predecessor so audit latency cannot break a native double-click',
   )
   const deskGuest = readFileSync(
     fileURLToPath(new URL('../../../deploy/desk-image/agent/desk-guest-agent.mjs', import.meta.url)),
