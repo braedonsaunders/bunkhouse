@@ -44,6 +44,7 @@ import {
 import { ComposedAvatar } from '@braedonsaunders/appkit-avatars/react'
 import {
   getThreadAction,
+  getEarlierThreadMessagesAction,
   finalizeChatUploadAction,
   continueThreadAction,
   editQueuedMessageAction,
@@ -170,6 +171,7 @@ export type ChatThreadDetail = {
     originMessageSeq: number | null
   }
   messages: ChatMessageRecord[]
+  hasOlderMessages: boolean
   dispatches: ChatDispatchRecord[]
   credentialRequests: ChatCredentialRequestRecord[]
   approvals: ChatApprovalRecord[]
@@ -181,6 +183,27 @@ export type ChatThreadDetail = {
     activity: NonNullable<ChatMessageRecord['activity']>
     text: string
   } | null
+}
+
+/** Keep pages the reader already fetched when a live refresh replaces the tail. */
+export function mergeChatThreadRefresh(
+  current: ChatThreadDetail,
+  loaded: ChatThreadDetail,
+): ChatThreadDetail {
+  if (current.thread.id !== loaded.thread.id) return loaded
+  const loadedFirstSeq = loaded.messages[0]?.seq
+  if (loadedFirstSeq === undefined) {
+    return current.messages.length === 0
+      ? loaded
+      : { ...loaded, messages: current.messages, hasOlderMessages: current.hasOlderMessages }
+  }
+  const retained = current.messages.filter((message) => message.seq < loadedFirstSeq)
+  if (retained.length === 0) return loaded
+  return {
+    ...loaded,
+    messages: [...retained, ...loaded.messages],
+    hasOlderMessages: current.hasOlderMessages,
+  }
 }
 
 /** An agent that can be talked to — one that has a brain assigned to think with. */
@@ -939,7 +962,7 @@ export function AgentChatWorkspace({
         // that has just streamed, in far more detail than the stored bodies.
         setDetail((current) => {
           if (!current || current.thread.id !== threadId) return current
-          return loaded
+          return mergeChatThreadRefresh(current, loaded)
         })
       } catch {
         // The list simply stays as it was; nothing the reader did has been lost.
@@ -947,6 +970,23 @@ export function AgentChatWorkspace({
     },
     [fetchThreads],
   )
+
+  const earliestMessageSeq = detail?.messages[0]?.seq
+  const loadOlderMessages = React.useCallback(async () => {
+    const threadId = activeId
+    if (threadId === null || earliestMessageSeq === undefined) return
+    const page = await getEarlierThreadMessagesAction(threadId, earliestMessageSeq)
+    setDetail((current) => {
+      if (!current || current.thread.id !== threadId) return current
+      const messages = new Map<string, ChatMessageRecord>()
+      for (const message of [...page.messages, ...current.messages]) messages.set(message.id, message)
+      return {
+        ...current,
+        messages: [...messages.values()].sort((left, right) => left.seq - right.seq),
+        hasOlderMessages: page.hasOlderMessages,
+      }
+    })
+  }, [activeId, earliestMessageSeq])
 
   const send = React.useCallback(
     async (prompt: string, signal: AbortSignal): Promise<Response> => {
@@ -1150,7 +1190,7 @@ export function AgentChatWorkspace({
         if (stopped || !loaded) return
         setDetail((current) => {
           if (!current || current.thread.id !== threadId) return current
-          return loaded
+          return mergeChatThreadRefresh(current, loaded)
         })
       } catch {
         // The next read re-asks; a transient failure does not blank the pane.
@@ -1442,6 +1482,8 @@ export function AgentChatWorkspace({
                   parts: [{ type: 'text', text: queued.text }],
                 })),
             ]}
+            hasOlderMessages={detail.hasOlderMessages}
+            onLoadOlderMessages={loadOlderMessages}
             send={send}
             onSubmitSecretRequest={submitCredentialRequest}
             onCancelSecretRequest={cancelCredentialRequest}

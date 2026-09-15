@@ -12,6 +12,7 @@ import { requireTenantPermission, type TenantAccess } from '../../lib/tenant'
 import {
   continueThread,
   getThread,
+  getThreadMessagePage,
   listThreads,
   renameThread,
   setThreadStatus,
@@ -136,6 +137,19 @@ export async function getThreadAction(threadId: string): Promise<ChatThreadDetai
     threadId,
     canDecideApprovals: access.user.isSuperAdmin || access.permissions.has('approvals.decide'),
   })
+}
+
+export async function getEarlierThreadMessagesAction(
+  threadId: string,
+  beforeSeq: number,
+): Promise<{ messages: ChatMessageView[]; hasOlderMessages: boolean }> {
+  if (!threadId || !Number.isSafeInteger(beforeSeq) || beforeSeq < 0) {
+    return { messages: [], hasOlderMessages: false }
+  }
+  const access = await requireTenantPermission('work.read')
+  const page = await getThreadMessagePage(access.tenantId, threadId, { beforeSeq })
+  if (!page) return { messages: [], hasOlderMessages: false }
+  return { messages: page.messages, hasOlderMessages: page.hasOlderMessages }
 }
 
 /**

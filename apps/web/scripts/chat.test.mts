@@ -25,6 +25,7 @@ const {
   conversationIdFor,
   listThreads,
   getThread,
+  getThreadMessagePage,
   renameThread,
   sendMessage,
   setThreadStatus,
@@ -132,10 +133,12 @@ function memoryChatStore(clock: () => Date) {
         originMessageSeq: thread.originMessageSeq,
       }
     },
-    async readMessages({ threadId }) {
-      return messages
+    async readMessages({ threadId, beforeSeq, limit }) {
+      const rows = messages
         .filter((message) => message.threadId === threadId)
+        .filter((message) => beforeSeq === undefined || message.seq < beforeSeq)
         .sort((a, b) => a.seq - b.seq)
+      return (limit === undefined ? rows : rows.slice(-limit))
         .map((message) => ({
           id: message.id,
           seq: message.seq,
@@ -220,6 +223,34 @@ function memoryChatStore(clock: () => Date) {
     },
   }
   return { store, threads, messages }
+}
+
+// --- long transcripts arrive newest-first by page, while each page reads in order
+{
+  const clock = () => new Date('2026-08-17T12:00:00.000Z')
+  const { store } = memoryChatStore(clock)
+  const { threadId } = await startThread({ tenantId: TENANT, userId: USER, personId: AGENT }, { store, now: clock })
+  for (let index = 0; index < 65; index += 1) {
+    await store.appendMessage({
+      tenantId: TENANT,
+      threadId,
+      role: index % 2 === 0 ? 'user' : 'agent',
+      body: `Message ${index}`,
+    })
+  }
+
+  const newest = await getThreadMessagePage(TENANT, threadId, {}, { store })
+  assert.deepEqual(newest?.messages.map((message) => message.seq), Array.from({ length: 30 }, (_, index) => index + 35))
+  assert.equal(newest?.hasOlderMessages, true)
+
+  const middle = await getThreadMessagePage(TENANT, threadId, { beforeSeq: newest?.messages[0]?.seq }, { store })
+  assert.deepEqual(middle?.messages.map((message) => message.seq), Array.from({ length: 30 }, (_, index) => index + 5))
+  assert.equal(middle?.hasOlderMessages, true)
+
+  const oldest = await getThreadMessagePage(TENANT, threadId, { beforeSeq: middle?.messages[0]?.seq }, { store })
+  assert.deepEqual(oldest?.messages.map((message) => message.seq), [0, 1, 2, 3, 4])
+  assert.equal(oldest?.hasOlderMessages, false)
+  console.log('chat: long transcripts page backward without loading the whole ledger')
 }
 
 /** A stand-in for `executeAgentRun` that records exactly how it was called. */
@@ -748,6 +779,26 @@ function fakeRunner(summary = 'Booked the appointment and emailed the confirmati
     desk.includes('setInterval(() => void tick(), STATUS_POLL_MS)'),
     false,
     'the desk status poll chains too, so it cannot queue ahead of desktop input',
+  )
+  assert.ok(
+    desk.includes('STATUS_DISCOVERY_POLL_MS = 750') &&
+      desk.includes('nextPollMs = STATUS_DISCOVERY_POLL_MS'),
+    'a desktop that finishes booting is discovered in under a second',
+  )
+  assert.equal(
+    desk.includes('pendingClickRef') || desk.includes('setTimeout(() => flushPendingClick(), 260)'),
+    false,
+    'ordinary clicks have no gesture-window delay',
+  )
+  const deskGuest = readFileSync(
+    fileURLToPath(new URL('../../../deploy/desk-image/agent/desk-guest-agent.mjs', import.meta.url)),
+    'utf8',
+  )
+  assert.ok(
+    deskGuest.includes('rate * VIDEO_KEYFRAME_INTERVAL_SECONDS') &&
+      deskGuest.includes("'-keyint_min', String(keyframeInterval)") &&
+      deskGuest.includes("'-sc_threshold', '0'"),
+    'video viewers get a deterministic one-second keyframe resync window at every frame rate',
   )
 
   // Pointer input and the status poll are routes, not server actions. Actions

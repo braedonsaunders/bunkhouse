@@ -1,5 +1,5 @@
 import 'server-only'
-import { and, asc, desc, eq, gte, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, lt, or, sql } from 'drizzle-orm'
 import { followDurableCursor } from '@braedonsaunders/appkit-events'
 import type { ChatRequester, RunInput, RunInputAttachment, RunOutcome } from '@bunkhouse/runtime'
 import { chatMessages, chatThreads, people, runEvents, runs, type RunTrigger } from '../db/schema'
@@ -106,7 +106,14 @@ export type ChatThreadStore = {
     query?: string
   }): Promise<ChatThreadSummary[]>
   readThread(args: { tenantId: string; threadId: string }): Promise<ChatThreadView | null>
-  readMessages(args: { tenantId: string; threadId: string }): Promise<ChatMessageView[]>
+  readMessages(args: {
+    tenantId: string
+    threadId: string
+    /** Read messages strictly before this sequence number. */
+    beforeSeq?: number
+    /** When present, return the newest `limit` matching rows in ascending order. */
+    limit?: number
+  }): Promise<ChatMessageView[]>
   /** The agent's display name, or null when the person is not a live agent here. */
   agentName(args: { tenantId: string; personId: string }): Promise<string | null>
   createThread(args: {
@@ -265,10 +272,11 @@ export function dbChatThreadStore(): ChatThreadStore {
       )
       return row ? { ...row, title: row.title ?? UNTITLED_THREAD, titled: row.title !== null } : null
     },
-    async readMessages({ tenantId, threadId }) {
+    async readMessages({ tenantId, threadId, beforeSeq, limit }) {
       const app = db()
       const rows = await app.withTenantContext(tenantId, () =>
-        app.db
+        {
+          const query = app.db
           .select({
             id: chatMessages.id,
             seq: chatMessages.seq,
@@ -279,10 +287,16 @@ export function dbChatThreadStore(): ChatThreadStore {
             dispatchId: chatMessages.dispatchId,
           })
           .from(chatMessages)
-          .where(eq(chatMessages.threadId, threadId))
-          .orderBy(asc(chatMessages.seq)),
+          .where(and(
+            eq(chatMessages.threadId, threadId),
+            beforeSeq === undefined ? undefined : lt(chatMessages.seq, beforeSeq),
+          ))
+          return limit === undefined
+            ? query.orderBy(asc(chatMessages.seq))
+            : query.orderBy(desc(chatMessages.seq)).limit(limit)
+        },
       )
-      return rows.map(messageView)
+      return (limit === undefined ? rows : rows.reverse()).map(messageView)
     },
     async agentName({ tenantId, personId }) {
       const app = db()
@@ -732,10 +746,54 @@ export async function getThread(
   const thread = await store.readThread({ tenantId, threadId })
   if (!thread) return null
   const messages = await store.readMessages({ tenantId, threadId })
+  return { thread, messages: await enrichThreadMessages(tenantId, messages, deps) }
+}
+
+export const CHAT_MESSAGE_PAGE_SIZE = 30
+
+export type ChatMessagePage = {
+  messages: ChatMessageView[]
+  hasOlderMessages: boolean
+}
+
+/**
+ * Read the newest page before a cursor, preserving ascending transcript order.
+ * The extra row is only an existence probe; it never reaches the UI.
+ */
+export async function getThreadMessagePage(
+  tenantId: string,
+  threadId: string,
+  options: { beforeSeq?: number; limit?: number } = {},
+  deps: ChatThreadDeps = {},
+): Promise<({ thread: ChatThreadView } & ChatMessagePage) | null> {
+  const store = storeOf(deps)
+  const thread = await store.readThread({ tenantId, threadId })
+  if (!thread) return null
+  const limit = Math.min(100, Math.max(1, Math.floor(options.limit ?? CHAT_MESSAGE_PAGE_SIZE)))
+  const rows = await store.readMessages({
+    tenantId,
+    threadId,
+    limit: limit + 1,
+    ...(options.beforeSeq === undefined ? {} : { beforeSeq: options.beforeSeq }),
+  })
+  const hasOlderMessages = rows.length > limit
+  const messages = hasOlderMessages ? rows.slice(1) : rows
+  return {
+    thread,
+    messages: await enrichThreadMessages(tenantId, messages, deps),
+    hasOlderMessages,
+  }
+}
+
+async function enrichThreadMessages(
+  tenantId: string,
+  messages: ChatMessageView[],
+  deps: ChatThreadDeps,
+): Promise<ChatMessageView[]> {
   // An injected store is a hermetic test: it has no database behind it, so
   // neither of the enrichments below can run and neither is essential to what
   // a thread IS.
-  if (deps.store) return { thread, messages }
+  if (deps.store) return messages
 
   const dispatchIds = [...new Set(messages.flatMap((message) => message.dispatchId ? [message.dispatchId] : []))]
   const [grouped, replay] = await Promise.all([
@@ -746,16 +804,13 @@ export async function getThread(
     import('./chat-activity').then(({ chatReplayByMessage }) => chatReplayByMessage(tenantId, messages)),
   ])
 
-  return {
-    thread,
-    messages: messages.map((message) => ({
-      ...message,
-      ...(message.role === 'user' && message.dispatchId && grouped.has(message.dispatchId)
-        ? { attachments: grouped.get(message.dispatchId) }
-        : {}),
-      ...(replay.get(message.id) ?? {}),
-    })),
-  }
+  return messages.map((message) => ({
+    ...message,
+    ...(message.role === 'user' && message.dispatchId && grouped.has(message.dispatchId)
+      ? { attachments: grouped.get(message.dispatchId) }
+      : {}),
+    ...(replay.get(message.id) ?? {}),
+  }))
 }
 
 // ---------------------------------------------------------------------------

@@ -3,7 +3,12 @@ import { chatLiveTurn, type ChatLiveTurn } from './chat-activity'
 import { threadDutyIds } from './duty-conversation'
 import { listThreadApprovals, type ChatApprovalView } from './chat-approvals'
 import { listChatDispatches, type ChatDispatchView } from './chat-dispatch'
-import { conversationIdFor, getThread, type ChatMessageView, type ChatThreadView } from './chat-threads'
+import {
+  conversationIdFor,
+  getThreadMessagePage,
+  type ChatMessageView,
+  type ChatThreadView,
+} from './chat-threads'
 import { listThreadSystemCredentialRequests, type SystemCredentialRequestView } from './system-credential-requests'
 
 /**
@@ -18,6 +23,7 @@ import { listThreadSystemCredentialRequests, type SystemCredentialRequestView } 
 export type ChatThreadDetailView = {
   thread: ChatThreadView
   messages: ChatMessageView[]
+  hasOlderMessages: boolean
   dispatches: ChatDispatchView[]
   credentialRequests: SystemCredentialRequestView[]
   approvals: ChatApprovalView[]
@@ -31,7 +37,7 @@ export async function chatThreadDetail(args: {
   threadId: string
   canDecideApprovals: boolean
 }): Promise<ChatThreadDetailView | null> {
-  const detail = await getThread(args.tenantId, args.threadId)
+  const detail = await getThreadMessagePage(args.tenantId, args.threadId)
   if (!detail) return null
   // Runs already attributed to a recorded message: the transcript recovers their
   // work through its own activity, so the live view must not repeat it.

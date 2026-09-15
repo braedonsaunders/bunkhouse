@@ -101,6 +101,8 @@ type DeskFrame = { src: string }
  * notice a screen that appeared while somebody was reading.
  */
 const STATUS_POLL_MS = 5_000
+/** A closed screen is transient while an agent is booting its desktop. */
+const STATUS_DISCOVERY_POLL_MS = 750
 
 /** How long a still frame stream may go quiet before the "live" dot stands down. */
 const FRAME_STALE_MS = 8_000
@@ -1036,25 +1038,28 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
   React.useEffect(() => {
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
-    // Chained rather than on an interval, for the same reason as the work
-    // surface's own poll: this is a server action, desktop input is a server
-    // action, and they share one queue per client. A status read that outlasts
-    // its interval put another in line ahead of the next thing the person
-    // driving the screen did.
+    // Chained rather than on an interval so a slow status read never overlaps
+    // the next one. While the screen is closed, check quickly enough to catch
+    // the agent finishing its desktop boot; once it is open, the video stream
+    // carries the live state and the status read can return to its quiet beat.
     const tick = async () => {
       const answer = await readDeskStatus(personId)
       if (cancelled) return
+      let nextPollMs = STATUS_POLL_MS
       if ('error' in answer) {
         setStatusError(answer.error)
       } else {
         setStatus(answer.status)
         setStatusError(null)
         if (!answer.status.screenRunning) {
+          if (answer.status.supported && answer.status.desk && answer.status.desktop) {
+            nextPollMs = STATUS_DISCOVERY_POLL_MS
+          }
           setDriving(false)
           setExpanded(false)
         }
       }
-      if (!cancelled) timer = setTimeout(() => void tick(), STATUS_POLL_MS)
+      if (!cancelled) timer = setTimeout(() => void tick(), nextPollMs)
     }
     void tick()
     return () => {
@@ -1110,50 +1115,13 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     [personId],
   )
 
-  // One complete server action per double-click. Sending two independent
-  // requests makes network latency part of the guest's double-click cadence,
-  // which is why opening an icon felt random. Hold an ordinary left click for
-  // one short gesture window; a matching second click becomes one ordered
-  // input whose two presses happen together beside the VM.
-  const pendingClickRef = React.useRef<{
-    x: number
-    y: number
-    button: 'left'
-    timer: ReturnType<typeof setTimeout>
-  } | null>(null)
-  const flushPendingClick = React.useCallback(() => {
-    const pending = pendingClickRef.current
-    if (!pending) return
-    clearTimeout(pending.timer)
-    pendingClickRef.current = null
-    sendInput({ action: 'click', x: pending.x, y: pending.y, button: pending.button, clicks: 1 })
-  }, [sendInput])
+  // Deliver each click as soon as the pointer comes up. Two quick clicks stay
+  // ordered by sendInput's queue and the guest desktop recognizes them as its
+  // native double-click; delaying every ordinary click to decide whether a
+  // second one follows made the whole desktop feel 260ms behind the pointer.
   const commitClick = React.useCallback((click: { x: number; y: number; button: 'left' | 'middle' | 'right' }) => {
-    const pending = pendingClickRef.current
-    const matches =
-      click.button === 'left' &&
-      pending !== null &&
-      Math.abs(click.x - pending.x) < DRAG_THRESHOLD_PX &&
-      Math.abs(click.y - pending.y) < DRAG_THRESHOLD_PX
-    if (matches && pending) {
-      clearTimeout(pending.timer)
-      pendingClickRef.current = null
-      sendInput({ action: 'click', x: click.x, y: click.y, button: 'left', clicks: 2 })
-      return
-    }
-    flushPendingClick()
-    if (click.button !== 'left') {
-      sendInput({ action: 'click', ...click, clicks: 1 })
-      return
-    }
-    const timer = setTimeout(() => flushPendingClick(), 260)
-    pendingClickRef.current = { ...click, button: 'left', timer }
-  }, [flushPendingClick, sendInput])
-
-  React.useEffect(() => () => {
-    const pending = pendingClickRef.current
-    if (pending) clearTimeout(pending.timer)
-  }, [])
+    sendInput({ action: 'click', ...click, clicks: 1 })
+  }, [sendInput])
 
   // Typed characters, gathered and then sent as one. The buffer is flushed
   // ahead of anything that is not a character so the guest never sees a
@@ -1489,7 +1457,6 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
     const state = scrollRef.current
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
-      flushPendingClick()
       const point = framePoint(view, event.clientX, event.clientY)
       if (!point) return
       const { dx, dy } = wheelPixels(event)
@@ -1519,7 +1486,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
         state.timer = null
       }
     }
-  }, [drivingNow, flushPendingClick, sendInput, surface, view])
+  }, [drivingNow, sendInput, surface, view])
 
   const pressRef = React.useRef<{ x: number; y: number; button: 'left' | 'middle' | 'right' } | null>(null)
   const escapeRef = React.useRef(0)
@@ -1556,7 +1523,6 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!drivingNow) return
-    flushPendingClick()
     const { key } = event
     if (key === 'Shift' || key === 'Control' || key === 'Alt' || key === 'Meta') return
     event.preventDefault()
@@ -1649,7 +1615,7 @@ export function ChatDesk({ personId, personName }: { personId: string; personNam
       onContextMenu={(event) => {
         if (drivingNow) event.preventDefault()
       }}
-      onBlur={() => { flushPendingClick(); flushTyping() }}
+      onBlur={flushTyping}
       // The ORDINARY ARROW while driving, deliberately. The guest's own pointer
       // is not in the picture — the capture composites no cursor, by design, so
       // there are never two pointers a frame's latency apart — which makes the
