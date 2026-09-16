@@ -4,6 +4,7 @@ import * as React from 'react'
 import {
   Activity,
   ArrowLeft,
+  Database,
   CheckCircle2,
   Eye,
   FileCode2,
@@ -26,12 +27,16 @@ import { javascript } from '@codemirror/lang-javascript'
 import { json } from '@codemirror/lang-json'
 import {
   dashboardBundleAction,
+  dashboardDatasetsAction,
   dashboardFileAction,
   dashboardFilesAction,
   dashboardRunsAction,
+  deleteDashboardDatasetAction,
   deleteDashboardFileAction,
   ensureDashboardAction,
+  refreshDashboardDatasetAction,
   saveDashboardFileAction,
+  setDashboardDatasetProducerEnabledAction,
   updateDashboardAction,
 } from '../app/chat/actions'
 import type { ChatDashboardSummary } from '../lib/chat-work-surface'
@@ -58,6 +63,26 @@ type BundleView = {
 
 type FileRow = { path: string; kind: string; contentType: string; size: number; isBinary: boolean }
 type RunRow = { endpoint: string; status: string; error: string | null; at: string }
+type DatasetRow = {
+  name: string
+  label: string | null
+  columns: { name: string; type: string }[]
+  rowCount: number
+  source: string | null
+  revision: number
+  lastRefreshAt: string | null
+  lastError: string | null
+  producer: { command: string; path: string; staleAfterMinutes: number; enabled: boolean } | null
+}
+
+function refreshedLabel(at: string | null): string {
+  if (!at) return 'never refreshed'
+  const minutes = Math.round((Date.now() - Date.parse(at)) / 60_000)
+  if (minutes < 1) return 'refreshed just now'
+  if (minutes < 60) return `refreshed ${minutes}m ago`
+  if (minutes < 1_440) return `refreshed ${Math.round(minutes / 60)}h ago`
+  return `refreshed ${Math.round(minutes / 1_440)}d ago`
+}
 
 function extensionsFor(path: string) {
   if (path.endsWith('.html')) return [html()]
@@ -92,7 +117,7 @@ export function ChatDashboard({
   const [bundleState, setBundleState] = React.useState<'loading' | 'ready' | 'empty' | 'error'>('loading')
   const [bundleError, setBundleError] = React.useState<string | null>(null)
   const [reloadToken, setReloadToken] = React.useState(0)
-  const [editTab, setEditTab] = React.useState<'files' | 'settings' | 'runs'>('files')
+  const [editTab, setEditTab] = React.useState<'files' | 'data' | 'settings' | 'runs'>('files')
   const [files, setFiles] = React.useState<FileRow[] | null>(null)
   const [filesToken, setFilesToken] = React.useState(0)
   const [selectedPath, setSelectedPath] = React.useState<string | null>(null)
@@ -101,6 +126,8 @@ export function ChatDashboard({
   const [binarySelected, setBinarySelected] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [runs, setRuns] = React.useState<RunRow[] | null>(null)
+  const [datasets, setDatasets] = React.useState<DatasetRow[] | null>(null)
+  const [busyDataset, setBusyDataset] = React.useState<string | null>(null)
   const [meta, setMeta] = React.useState<{ name: string; description: string; icon: string; dataOrigins: string[]; allowLiveData: boolean } | null>(null)
   const [endpoints, setEndpoints] = React.useState<Array<{ name: string; file: string; method: string }>>([])
   const [notice, setNotice] = React.useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
@@ -146,10 +173,15 @@ export function ChatDashboard({
     let stopped = false
     const load = async () => {
       try {
-        const [found, runRows] = await Promise.all([dashboardFilesAction(threadId), dashboardRunsAction(threadId)])
+        const [found, runRows, datasetRows] = await Promise.all([
+          dashboardFilesAction(threadId),
+          dashboardRunsAction(threadId),
+          dashboardDatasetsAction(threadId).catch(() => [] as DatasetRow[]),
+        ])
         if (stopped) return
         setFiles(found?.files ?? [])
         setRuns(runRows)
+        setDatasets(datasetRows)
       } catch {
         if (stopped) return
         setFiles([])
@@ -428,6 +460,7 @@ export function ChatDashboard({
               onSelect={(tab) => setEditTab(tab as typeof editTab)}
               tabs={[
                 { key: 'files', label: <span className="flex items-center gap-1"><FileCode2 aria-hidden className="size-3.5" />Files</span> },
+                { key: 'data', label: <span className="flex items-center gap-1"><Database aria-hidden className="size-3.5" />Data</span> },
                 { key: 'settings', label: <span className="flex items-center gap-1"><Settings2 aria-hidden className="size-3.5" />Settings</span> },
                 { key: 'runs', label: <span className="flex items-center gap-1"><Activity aria-hidden className="size-3.5" />Runs</span> },
               ]}
@@ -515,6 +548,107 @@ export function ChatDashboard({
                   Save
                 </Button>
               </div>
+            </div>
+          ) : editTab === 'data' ? (
+            <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-xs text-fg-muted">
+                  Data {personName} published for this dashboard. The frontend reads it with records.list; a producer regenerates it on {personName}&rsquo;s machine without a run.
+                </p>
+                <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 px-2" onClick={() => setFilesToken((token) => token + 1)}>
+                  <RefreshCw aria-hidden className="size-3.5" />Reload
+                </Button>
+              </div>
+              {datasets === null ? (
+                <div className="grid place-items-center py-8"><Loader2 aria-label="Loading datasets" className="size-5 animate-spin text-fg-muted" /></div>
+              ) : datasets.length === 0 ? (
+                <div className="grid place-items-center px-6 py-8 text-center text-sm text-fg-muted">
+                  No datasets yet. {personName} publishes one with publish_dataset — usually straight from a file on its machine — and the dashboard reads it live instead of carrying a pasted copy.
+                </div>
+              ) : (
+                <ul className="space-y-2">
+                  {datasets.map((dataset) => (
+                    <li key={dataset.name} className="rounded-md border border-border-subtle px-3 py-2.5 text-xs">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="flex items-center gap-1.5 font-medium text-fg">
+                            <Database aria-hidden className="size-3.5 shrink-0 text-fg-muted" />
+                            <span className="truncate">{dataset.label || dataset.name}</span>
+                            <code className="shrink-0 rounded bg-bg-subtle px-1 py-0.5 font-mono text-[0.65rem] text-fg-muted">dataset.{dataset.name}</code>
+                          </p>
+                          <p className="mt-1 text-fg-subtle">
+                            {dataset.rowCount.toLocaleString()} {dataset.rowCount === 1 ? 'row' : 'rows'} · {dataset.columns.length} {dataset.columns.length === 1 ? 'column' : 'columns'} · v{dataset.revision} · {refreshedLabel(dataset.lastRefreshAt)}
+                            {dataset.source ? <> · from <span className="font-mono">{dataset.source}</span></> : null}
+                          </p>
+                          <p className="mt-1 truncate text-fg-subtle">{dataset.columns.map((column) => `${column.name}:${column.type}`).join('  ')}</p>
+                          {dataset.producer ? (
+                            <p className="mt-1 truncate text-fg-subtle">
+                              <span className="font-mono">{dataset.producer.command}</span>
+                              {' · '}
+                              {dataset.producer.staleAfterMinutes > 0 ? `every ${dataset.producer.staleAfterMinutes}m` : 'on request only'}
+                              {dataset.producer.enabled ? '' : ' · paused'}
+                            </p>
+                          ) : null}
+                          {dataset.lastError ? <p className="mt-1 text-danger">{dataset.lastError}</p> : null}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          {dataset.producer ? (
+                            <>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2"
+                                disabled={busyDataset === dataset.name}
+                                onClick={async () => {
+                                  setBusyDataset(dataset.name)
+                                  const outcome = await refreshDashboardDatasetAction(threadId, dataset.name)
+                                  setBusyDataset(null)
+                                  setNotice('error' in outcome
+                                    ? { tone: 'error', text: outcome.error }
+                                    : { tone: 'ok', text: `${dataset.name} refreshed — ${outcome.rows.toLocaleString()} rows.` })
+                                  setFilesToken((token) => token + 1)
+                                }}
+                              >
+                                {busyDataset === dataset.name
+                                  ? <Loader2 aria-hidden className="size-3.5 animate-spin" />
+                                  : <RefreshCw aria-hidden className="size-3.5" />}
+                                Refresh
+                              </Button>
+                              <Switch
+                                checked={dataset.producer.enabled}
+                                aria-label={`Automatic refresh for ${dataset.name}`}
+                                onChange={async (event) => {
+                                  const outcome = await setDashboardDatasetProducerEnabledAction(threadId, dataset.name, event.target.checked)
+                                  if ('error' in outcome) setNotice({ tone: 'error', text: outcome.error })
+                                  setFilesToken((token) => token + 1)
+                                }}
+                              />
+                            </>
+                          ) : null}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-danger hover:text-danger"
+                            aria-label={`Delete ${dataset.name}`}
+                            disabled={busyDataset === dataset.name}
+                            onClick={async () => {
+                              const outcome = await deleteDashboardDatasetAction(threadId, dataset.name)
+                              setNotice('error' in outcome
+                                ? { tone: 'error', text: outcome.error }
+                                : { tone: 'ok', text: `${dataset.name} deleted. Anything on the dashboard still reading it will show an error.` })
+                              setFilesToken((token) => token + 1)
+                            }}
+                          >
+                            <Trash2 aria-hidden className="size-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           ) : editTab === 'settings' ? (
             <div className="app-scroll min-h-0 flex-1 space-y-4 overflow-y-auto p-4">

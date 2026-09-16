@@ -454,6 +454,57 @@ export async function deleteDashboardFileAction(threadId: string, path: string):
   }
 }
 
+/** The datasets the agent published for this dashboard, newest state first. */
+export async function dashboardDatasetsAction(threadId: string) {
+  const access = await requireTenantPermission('work.manage')
+  const { listDashboardDatasets } = await import('../../lib/chat-dashboard')
+  return listDashboardDatasets(access.tenantId, threadId)
+}
+
+/** Re-run a dataset's producer now, rather than waiting for it to go stale. */
+export async function refreshDashboardDatasetAction(
+  threadId: string,
+  name: string,
+): Promise<{ refreshed: true; rows: number } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  try {
+    const { refreshDashboardDataset } = await import('../../lib/chat-dashboard')
+    const summary = await refreshDashboardDataset(access.tenantId, threadId, name)
+    return { refreshed: true, rows: summary.rowCount }
+  } catch (reason) {
+    return { error: reason instanceof Error ? reason.message : 'That dataset could not be refreshed.' }
+  }
+}
+
+/** Pause or resume a dataset's producer without discarding the rows it made. */
+export async function setDashboardDatasetProducerEnabledAction(
+  threadId: string,
+  name: string,
+  enabled: boolean,
+): Promise<{ updated: true } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  try {
+    const { listDashboardDatasets, setDashboardDatasetProducer } = await import('../../lib/chat-dashboard')
+    const dataset = (await listDashboardDatasets(access.tenantId, threadId)).find((candidate) => candidate.name === name)
+    if (!dataset?.producer) return { error: 'That dataset has no producer to pause.' }
+    await setDashboardDatasetProducer(access.tenantId, threadId, name, { ...dataset.producer, enabled })
+    return { updated: true }
+  } catch (reason) {
+    return { error: reason instanceof Error ? reason.message : 'That producer could not be changed.' }
+  }
+}
+
+export async function deleteDashboardDatasetAction(threadId: string, name: string): Promise<{ deleted: true } | { error: string }> {
+  const access = await requireTenantPermission('work.manage')
+  try {
+    const { deleteDashboardDataset } = await import('../../lib/chat-dashboard')
+    await deleteDashboardDataset(access.tenantId, threadId, name)
+    return { deleted: true }
+  } catch (reason) {
+    return { error: reason instanceof Error ? reason.message : 'That dataset could not be deleted.' }
+  }
+}
+
 /** Provision the conversation's starter dashboard without waiting for the agent. */
 export async function ensureDashboardAction(threadId: string): Promise<{ provisioned: true } | { error: string }> {
   const access = await requireTenantPermission('work.manage')

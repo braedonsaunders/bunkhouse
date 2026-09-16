@@ -1133,7 +1133,7 @@ export function dashboardAbilities(args: {
     defineAbility({
       name: 'save_dashboard_file',
       description:
-        'Write one file on this conversation\'s Dashboard tab — frontend/index.html, frontend/styles.css, frontend/app.js, a backend/*.js endpoint, or anything under assets/. The sandboxed frontend reads conversation data through appkit.records.list, calls its own backend with appkit.callBackend, and refreshes itself on an interval. It automatically inherits the Bunkhouse light/dark theme through html.light/html.dark, html[data-theme], appkit.theme, and the appkit:themechange event; never add a separate theme selector or save a dashboard-specific theme. Backend endpoints may call appkit.http.request({ url, method, body }) only after update_dashboard declares that exact HTTPS origin and an operator grants live public-data access. Keep every file under 200 KB; put data over the bridge instead of pasting snapshots. Never create or schedule a duty merely to refresh a dashboard; freshness belongs to the dashboard JavaScript. The tab updates the moment you save.',
+        'Write one file on this conversation\'s Dashboard tab — frontend/index.html, frontend/styles.css, frontend/app.js, a backend/*.js endpoint, or anything under assets/. The sandboxed frontend reads conversation data through appkit.records.list, calls its own backend with appkit.callBackend, and refreshes itself on an interval. It automatically inherits the Bunkhouse light/dark theme through html.light/html.dark, html[data-theme], appkit.theme, and the appkit:themechange event; never add a separate theme selector or save a dashboard-specific theme. Backend endpoints may call appkit.http.request({ url, method, body }) only after update_dashboard declares that exact HTTPS origin and an operator grants live public-data access. Keep every file under 200 KB. Never paste your own data into a file as a literal — data you produced on your machine goes in a dataset with publish_dataset, and the frontend reads it with appkit.records.list(\'dataset.<name>\', { limit }) exactly like any other collection. Never create or schedule a duty merely to refresh a dashboard; freshness belongs to the dashboard JavaScript and to dataset producers, which regenerate data with no model call. The tab updates the moment you save.',
       category: 'file_write',
       inputSchema: z.object({
         path: z.string().min(1).max(240),
@@ -1198,6 +1198,107 @@ export function dashboardAbilities(args: {
           runId,
         })
         return { deleted: path }
+      },
+    }),
+    defineAbility({
+      name: 'publish_dataset',
+      description:
+        'Put data you produced onto this conversation\'s dashboard, as named rows the frontend reads with appkit.records.list(\'dataset.<name>\', { limit }). This is how your own working data reaches the dashboard: publish the file your script already writes (fromFile: "trades.csv" — CSV, TSV, JSON, or NDJSON, header row required for the delimited ones), or pass rows directly for a short list you already hold. Publishing replaces the dataset by default; use mode "append" with keyColumns to add rows and correct ones you have already sent. Attach a producer — the shell command that regenerates the file — and the dashboard re-runs it on its own whenever the rows go stale, with no run and no model call, so you never hand-edit numbers into a file again.',
+      category: 'file_write',
+      inputSchema: z.object({
+        name: z.string().trim().min(1).max(48).describe('Lowercase name for the dataset, e.g. "trades"'),
+        label: z.string().trim().max(120).optional().describe('Human title shown to the operator'),
+        fromFile: z.string().max(400).optional().describe('A file on your machine to publish, e.g. "trades.csv"'),
+        rows: z.array(z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))).max(5_000).optional()
+          .describe('Rows to publish directly, when the data is not already in a file'),
+        format: z.enum(['csv', 'tsv', 'json', 'ndjson']).optional().describe('Defaults to the file extension'),
+        mode: z.enum(['replace', 'append']).optional(),
+        keyColumns: z.array(z.string()).max(8).optional().describe('For append: the columns that identify a row, so re-sending it corrects rather than duplicates'),
+        producer: z
+          .object({
+            command: z.string().min(1).max(2_000).describe('Shell command that rewrites the file, run on your machine'),
+            cwd: z.string().max(400).optional(),
+            staleAfterMinutes: z.number().int().min(0).max(10_080).describe('Re-run when the rows are older than this; 0 never re-runs'),
+            enabled: z.boolean().optional(),
+          })
+          .optional(),
+      }),
+      execute: async ({ name, label, fromFile, rows, format, mode, keyColumns, producer }) => {
+        const { publishDashboardDataset, datasetFormatFor } = await import('./chat-dashboard')
+        if (producer && !fromFile) {
+          return { published: false, reason: 'A producer regenerates a file, so publish fromFile when you attach one.' }
+        }
+        const summary = await publishDashboardDataset({
+          tenantId,
+          threadId: chatThreadId,
+          name,
+          label: label ?? null,
+          fromFile: fromFile ?? null,
+          rows,
+          format: format ?? null,
+          mode,
+          keyColumns,
+          publishedBy: person.name,
+          producer: producer
+            ? {
+                command: producer.command,
+                cwd: producer.cwd ?? null,
+                path: fromFile!,
+                format: datasetFormatFor(fromFile!, format ?? null),
+                staleAfterMinutes: producer.staleAfterMinutes,
+                enabled: producer.enabled ?? true,
+              }
+            : undefined,
+        })
+        return {
+          published: true,
+          name: summary.name,
+          rows: summary.rowCount,
+          columns: summary.columns.map((column) => column.name),
+          revision: summary.revision,
+          read: `appkit.records.list('dataset.${summary.name}', { limit: 50 })`,
+          note: summary.producer
+            ? `It refreshes itself every ${summary.producer.staleAfterMinutes} minutes from ${summary.producer.path}. Read it from the dashboard instead of writing the numbers into a file.`
+            : 'Read it from the dashboard instead of writing the numbers into a file.',
+        }
+      },
+    }),
+    defineAbility({
+      name: 'list_datasets',
+      description:
+        'List the datasets on this conversation\'s dashboard: name, columns, row count, where each came from, when it last refreshed, and any producer error. Check here before publishing so you extend a dataset instead of starting a second one beside it.',
+      category: null,
+      inputSchema: z.object({}),
+      execute: async () => {
+        const { listDashboardDatasets } = await import('./chat-dashboard')
+        const datasets = await listDashboardDatasets(tenantId, chatThreadId)
+        return {
+          datasets: datasets.map((dataset) => ({
+            name: dataset.name,
+            label: dataset.label,
+            columns: dataset.columns.map((column) => `${column.name}:${column.type}`),
+            rows: dataset.rowCount,
+            source: dataset.source,
+            revision: dataset.revision,
+            lastRefreshAt: dataset.lastRefreshAt,
+            lastError: dataset.lastError,
+            producer: dataset.producer
+              ? { command: dataset.producer.command, everyMinutes: dataset.producer.staleAfterMinutes, enabled: dataset.producer.enabled }
+              : null,
+          })),
+        }
+      },
+    }),
+    defineAbility({
+      name: 'delete_dataset',
+      description:
+        'Remove one dataset from this conversation\'s dashboard. Do this only when nothing on the dashboard still reads it — a frontend calling records.list for a dataset that is gone will show its error instead of its panel.',
+      category: 'file_write',
+      inputSchema: z.object({ name: z.string().trim().min(1).max(48) }),
+      execute: async ({ name }) => {
+        const { deleteDashboardDataset } = await import('./chat-dashboard')
+        await deleteDashboardDataset(tenantId, chatThreadId, name)
+        return { deleted: name }
       },
     }),
   ]

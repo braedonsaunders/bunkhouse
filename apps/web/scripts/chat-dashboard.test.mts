@@ -136,8 +136,8 @@ test('dashboard tools exist, read freely, and write under the file dial', () => 
   assert.ok(block.includes("category: null"), 'reading the dashboard is ungoverned like reading the conversation')
   assert.equal(
     (block.match(/category: 'file_write'/g) ?? []).length,
-    3,
-    'saving, reconfiguring, and deleting files all ride the file-writes dial',
+    5,
+    'saving, reconfiguring and deleting files, and publishing and deleting datasets, all ride the file-writes dial',
   )
   assert.ok(
     abilities.includes('dashboardAbilities({ tenantId, person, runId, chatThreadId: args.chatThreadId })'),
@@ -210,4 +210,122 @@ test('the platform tables land with tenant isolation', () => {
     migration.includes('deployment-owned marketplace catalogue'),
     'the migration says why listings carry no tenant policy',
   )
+})
+
+// --- datasets ---------------------------------------------------------------------
+// The dashboard could read this conversation's records and, with a grant,
+// declared public origins. Neither covered the data the agent produced itself,
+// so agents pasted snapshots into frontend source and hand-edited them. These
+// pin the fourth plane: published rows, read over the records bridge the
+// frontend already speaks, refreshed by a command instead of by a model.
+test('datasets reach the frontend through records, not a new sandbox surface', () => {
+  assert.ok(lib.includes("isDatasetType(typeKey)"), 'the records adapter routes dataset collections')
+  assert.ok(
+    lib.includes("appkit.records.list('dataset.<name>', { limit: 50 })"),
+    'the bridge contract advertises dataset reads as ordinary records calls',
+  )
+  assert.ok(lib.includes("appkit.records.list('datasets', {})"), 'the dataset index is discoverable from the frontend')
+  assert.ok(
+    !lib.includes('BRIDGE_METHODS') && !lib.includes("method === 'datasets."),
+    'datasets add no bridge method of their own',
+  )
+  assert.ok(
+    lib.includes('datasets, and dataset.<name>'),
+    'the unknown-collection error names the dataset collections it will serve',
+  )
+})
+
+test('dataset storage is app-scoped, so one conversation cannot read another', () => {
+  assert.ok(lib.includes('async function dashboardStorage('), 'datasets resolve through a single scoped helper')
+  assert.ok(
+    lib.includes('store.getApp(tenantId, dashboardAppKey(threadId))'),
+    'the storage handle is bound to this thread’s app, not chosen by the caller',
+  )
+  assert.ok(lib.includes('withTenantContext'), 'dataset reads and writes run inside the tenant context')
+})
+
+test('publishing reads the agent machine host-side and stays bounded', () => {
+  assert.ok(lib.includes('DATASET_SOURCE_MAX_BYTES'), 'a source file ceiling exists')
+  assert.ok(lib.includes('file.truncated'), 'an oversized source is refused rather than silently cut')
+  assert.ok(
+    lib.includes("await import('./desk')"),
+    'the host reaches into the machine; the machine never reaches out',
+  )
+  assert.ok(
+    lib.includes('Publish a dataset either from a file on your machine (fromFile) or with rows.'),
+    'publishing needs a real source',
+  )
+})
+
+test('a producer refreshes data without a run or a model call', () => {
+  assert.ok(lib.includes('runDeskCommandHeadless'), 'the producer command runs headless')
+  assert.ok(lib.includes('claimDatasetRefresh'), 'concurrent pollers do not all run the command')
+  assert.ok(lib.includes('datasetIsStale'), 'staleness decides when a producer runs')
+  assert.ok(
+    lib.includes('refreshDatasetIfStale(tenantId, threadId, String('),
+    'the dashboard poll is the clock that drives refresh',
+  )
+  assert.ok(
+    lib.includes('recordDatasetError'),
+    'a failed producer is recorded instead of blanking the panel',
+  )
+})
+
+test('a failed refresh keeps the last good rows', () => {
+  const refresh = lib.slice(lib.indexOf('export async function refreshDashboardDataset'))
+  assert.ok(refresh.includes('recordDatasetError'), 'the error lands on the dataset')
+  assert.ok(
+    !refresh.includes('deleteStoredDataset') && !refresh.includes('rows: []'),
+    'nothing clears the rows on failure',
+  )
+})
+
+test('the agent is told to publish data instead of pasting it', () => {
+  assert.ok(abilities.includes("name: 'publish_dataset'"), 'the publish tool exists')
+  assert.ok(abilities.includes("name: 'list_datasets'"), 'the agent can see what it already published')
+  assert.ok(abilities.includes("name: 'delete_dataset'"), 'the agent can retire a dataset')
+  assert.ok(
+    abilities.includes('Never paste your own data into a file as a literal'),
+    'the file-writing tool forbids the snapshot habit outright',
+  )
+  assert.ok(
+    lib.includes('Never paste your own data into a file as a literal.'),
+    'the bridge contract carries the same rule the tool does',
+  )
+  assert.ok(
+    abilities.includes('with no model call'),
+    'the refresh rule explains why a producer is not a duty',
+  )
+})
+
+test('dataset writes ride the file dial and reads stay ungoverned', () => {
+  const publish = abilities.slice(abilities.indexOf("name: 'publish_dataset'"))
+  assert.ok(publish.slice(0, 2_000).includes("category: 'file_write'"), 'publishing is a governed write')
+  const listing = abilities.slice(abilities.indexOf("name: 'list_datasets'"))
+  assert.ok(listing.slice(0, 1_200).includes('category: null'), 'listing the agent’s own datasets is a read')
+  const removal = abilities.slice(abilities.indexOf("name: 'delete_dataset'"))
+  assert.ok(removal.slice(0, 1_200).includes("category: 'file_write'"), 'deleting a dataset is a governed write')
+})
+
+test('the operator can see and control every dataset', () => {
+  assert.ok(panel.includes("key: 'data'"), 'the management surface has a Data tab')
+  assert.ok(panel.includes('dashboardDatasetsAction'), 'the tab lists what was published')
+  assert.ok(panel.includes('refreshDashboardDatasetAction'), 'an operator can refresh on demand')
+  assert.ok(panel.includes('setDashboardDatasetProducerEnabledAction'), 'an operator can pause a producer')
+  assert.ok(panel.includes('deleteDashboardDatasetAction'), 'an operator can delete a dataset')
+  assert.ok(panel.includes('dataset.lastError'), 'the last producer error is visible, not buried in logs')
+  assert.ok(panel.includes('refreshedLabel'), 'freshness is shown in words an operator reads')
+  for (const action of [
+    'dashboardDatasetsAction',
+    'refreshDashboardDatasetAction',
+    'setDashboardDatasetProducerEnabledAction',
+    'deleteDashboardDatasetAction',
+  ]) {
+    assert.ok(actions.includes(`export async function ${action}`), `${action} is a real server action`)
+    const body = actions.slice(actions.indexOf(`export async function ${action}`))
+    assert.ok(
+      body.slice(0, 900).includes("requireTenantPermission('work.manage')"),
+      `${action} checks the same permission as the rest of the surface`,
+    )
+  }
 })
