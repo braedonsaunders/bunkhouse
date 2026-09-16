@@ -21,7 +21,7 @@ import { db } from '../db/client'
 import { saveFile } from './files'
 import { AGENT_SCREEN_HEIGHT, AGENT_SCREEN_WATCHING_FPS, AGENT_SCREEN_WIDTH } from './agent-screen'
 import { startDeskCast, stopDeskCast } from './desk-cast'
-import { getDeskPolicy, type DeskFeatures, type DeskPolicy } from './desk-policy'
+import { getDeskPolicy, resolveDeskFeatures, type DeskFeatures, type DeskPolicy } from './desk-policy'
 import { deskIdentity } from './desk-security'
 import { collectMarks, drawMarks, markLegend, type DeskMark } from './desk-marks'
 import { pgJsonSafe } from './pg-json'
@@ -1246,6 +1246,70 @@ async function tenantShellPolicy(tenantId: string): Promise<ShellExecutionPolicy
   )
   const stored = row?.value as Partial<WorkspacePolicySettings> | undefined
   return resolveShellExecutionPolicy(stored?.shell)
+}
+
+/**
+ * Read a text file off an agent's machine outside any run.
+ *
+ * `read_workspace_file` does this for the model; this does it for the host, so
+ * a surface that needs the agent's own data — a dashboard dataset refreshing
+ * itself — can fetch it without a model call. Same guest, same path gate, no
+ * ledger entry: nothing here is an agent action.
+ */
+export async function readDeskFile(args: {
+  tenantId: string
+  personId: string
+  path: string
+  maxBytes?: number
+}): Promise<{ found: boolean; text: string; truncated: boolean; reason: string | null }> {
+  const features = await resolveDeskFeatures(args.tenantId)
+  if (!features.desk) return { found: false, text: '', truncated: false, reason: 'The employee machine is disabled for this company.' }
+  const cap = args.maxBytes ?? READ_CAP_BYTES
+  const target = guestWorkspacePath(args.path)
+  const { deskId } = await ensurePersonDesk({ tenantId: args.tenantId, personId: args.personId })
+  const outcome = await execOnDesk({
+    deskId,
+    command: ['/usr/bin/head', '-c', String(cap + 1), target],
+    cwd: GUEST_HOME,
+    timeoutMs: 30_000,
+    outputLimitKb: Math.ceil((cap + 1) / 1_024) + 8,
+  })
+  if (outcome.status !== 'completed') {
+    return { found: false, text: '', truncated: false, reason: outcome.output.trim() || 'No such file on the machine.' }
+  }
+  return { found: true, text: outcome.output.slice(0, cap), truncated: outcome.output.length > cap, reason: null }
+}
+
+/**
+ * Run one command on an agent's machine outside any run, under the tenant's own
+ * shell limits. This is how a recorded producer regenerates its data: the
+ * command the agent already authored, re-executed on a timer, with no model in
+ * the loop — refreshing a dashboard must cost machine time, never salary.
+ */
+export async function runDeskCommandHeadless(args: {
+  tenantId: string
+  personId: string
+  command: string
+  cwd?: string
+}): Promise<{ status: 'completed' | 'failed' | 'timeout'; exitCode: number | null; output: string }> {
+  const features = await resolveDeskFeatures(args.tenantId)
+  if (!features.desk) return { status: 'failed', exitCode: null, output: 'The employee machine is disabled for this company.' }
+  const shell = await tenantShellPolicy(args.tenantId)
+  const cwd = guestWorkspacePath(args.cwd ?? '.')
+  const { deskId } = await ensurePersonDesk({ tenantId: args.tenantId, personId: args.personId })
+  const outcome = await execOnDesk({
+    deskId,
+    command: ['/bin/sh', '-lc', args.command],
+    cwd,
+    timeoutMs: shell.timeoutSeconds * 1_000,
+    outputLimitKb: shell.outputLimitKb,
+  })
+  const cap = shell.outputLimitKb * 1_024
+  const capped = outcome.output.length > cap ? outcome.output.slice(0, cap) : outcome.output
+  const output = SPAWN_ENOENT.test(capped)
+    ? `${capped}\n(The working folder ${cwd} does not exist on the machine.)`
+    : capped
+  return { status: outcome.status, exitCode: outcome.exitCode, output }
 }
 
 function deskContext(args: {

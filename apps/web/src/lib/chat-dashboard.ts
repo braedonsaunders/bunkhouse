@@ -10,6 +10,24 @@ import {
   type InstalledApp,
 } from '@braedonsaunders/appkit-apps'
 import { createDrizzleAppStore } from '@braedonsaunders/appkit-apps/drizzle'
+import {
+  claimDatasetRefresh,
+  datasetIsStale,
+  datasetRecords,
+  deleteDataset as deleteStoredDataset,
+  isDatasetType,
+  listDatasets,
+  parseDatasetContent,
+  putDataset,
+  readDataset,
+  recordDatasetError,
+  setDatasetProducer,
+  type DatasetFormat,
+  type DatasetProducer,
+  type DatasetRow,
+  type DatasetSummary,
+  type DatasetWriteMode,
+} from '@braedonsaunders/appkit-apps/datasets'
 import { auditLog } from '@braedonsaunders/appkit-db'
 import { appFiles } from '@braedonsaunders/appkit-apps/schema'
 import { secureFetch } from '@braedonsaunders/appkit-egress-proxy/secure-fetch'
@@ -96,6 +114,17 @@ function storeFor(tenantDb: { db: unknown }): Store {
   // The handle here is the tenant-scoped one, so every platform read and
   // write runs under the tenant's RLS context.
   return createDrizzleAppStore(tenantDb.db as NodePgDatabase<Record<string, never>>)
+}
+
+/** The dataset store for a conversation's dashboard, inside an open tenant
+ *  context. Datasets are app storage, so they are already tenant-scoped and
+ *  app-scoped; naming the app here is what keeps one conversation's data out
+ *  of another's. */
+async function dashboardStorage(app: ReturnType<typeof db>, tenantId: string, threadId: string) {
+  const store = storeFor(app)
+  const installed = await store.getApp(tenantId, dashboardAppKey(threadId))
+  if (!installed) throw new Error('This conversation does not have a dashboard yet.')
+  return store.storage(tenantId, installed.id)
 }
 
 const STARTER_CSS = `:root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;background:Canvas;color:CanvasText;font-family:ui-sans-serif,system-ui,-apple-system,sans-serif}main{max-width:56rem;margin:auto;padding:clamp(1.5rem,5vw,3rem) 1.25rem}header p{margin:0}.eyebrow{color:GrayText;font-size:.7rem;font-weight:800;letter-spacing:.16em}.eyebrow.live{color:FieldText;background:SelectedItem;border-radius:999px;padding:.15rem .6rem}h1{margin:.6rem 0 .25rem;font-size:clamp(1.6rem,4.5vw,2.6rem);letter-spacing:-.03em;line-height:1.05}.sub{color:GrayText;font-size:.9rem}section{margin-top:1.5rem}.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.75rem}.tile{border:1px solid GrayText;border-radius:.9rem;padding:.9rem 1rem}.tile span{display:block;font-size:.68rem;font-weight:700;letter-spacing:.1em;color:GrayText}.tile strong{display:block;margin-top:.3rem;font-size:1.5rem;font-variant-numeric:tabular-nums}ul{list-style:none;margin:.75rem 0 0;padding:0;display:grid;gap:.5rem}li{border:1px solid GrayText;border-radius:.7rem;padding:.6rem .8rem;font-size:.83rem}li .meta{display:block;margin-top:.2rem;color:GrayText;font-size:.72rem}.error{border-color:SelectedItem}.hint{margin-top:1.5rem;color:GrayText;font-size:.8rem}`
@@ -579,12 +608,15 @@ const BRIDGE_CONTRACT = {
     { call: "appkit.records.list('thread.runs', { limit: 20 })", returns: 'Newest first: id, status, summary, at.' },
     { call: "appkit.records.list('thread.files', { limit: 20 })", returns: 'Newest first: id, filename, kind, size, at.' },
     { call: "appkit.records.list('thread.duties', {})", returns: "The agent's duties: slug, title, enabled, next run, run count." },
+    { call: "appkit.records.list('datasets', {})", returns: 'Every dataset the agent published for this dashboard: name, label, columns, rowCount, source, revision, lastRefreshAt, lastError. Never the rows.' },
+    { call: "appkit.records.list('dataset.<name>', { limit: 50 })", returns: "One dataset's rows, in published order. Also accepts offset, and an equality filter on any column: { sym: 'PILLY' }." },
     { call: 'appkit.callBackend(endpoint, payload)', returns: "Runs one of the dashboard's own backend endpoints (see endpoints above) in QuickJS with per-dashboard storage. A backend with declared and operator-granted public origins may call appkit.http.request({ url, method, body }). Resolves { status, body } — read your values off response.body." },
   ],
   rules: [
     'No ambient iframe network, cookies, or parent DOM. Public data is available only through declared origins and the separately granted backend request function.',
     'Poll on a source-appropriate interval rather than rendering once, and do not overlap refreshes.',
-    'Dashboard freshness belongs to its JavaScript. Never create or schedule a duty just to refresh it.',
+    'Never paste your own data into a file as a literal. Data you produced on your machine belongs in a dataset (publish_dataset), which this frontend reads with records.list like any other collection.',
+    'Dashboard freshness belongs to its JavaScript and to dataset producers. Never create or schedule a duty just to refresh a dashboard — a producer regenerates a dataset with no model call, which a duty cannot.',
     'Follow the host theme already applied to the dashboard document. Never render a theme selector or persist a dashboard-specific theme.',
     'Escape every value you render; the bridge hands you text, not markup.',
   ],
@@ -600,6 +632,9 @@ export function dashboardRecords(tenantId: string, threadId: string) {
   return {
     async list(typeKey: string, filters: Record<string, unknown>): Promise<unknown[]> {
       return app.withTenantContext(tenantId, async () => {
+        if (isDatasetType(typeKey)) {
+          return datasetRecords(await dashboardStorage(app, tenantId, threadId)).list(typeKey, filters)
+        }
         const context = await threadContext(tenantId, threadId)
         if (!context) throw new Error('That conversation is no longer here.')
         const limit = Math.min(Math.max(Number(filters.limit ?? 20) || 20, 1), 100)
@@ -703,10 +738,15 @@ export function dashboardRecords(tenantId: string, threadId: string) {
             .limit(limit)
           return rows.map((row) => ({ ...row, nextDueAt: row.nextDueAt?.toISOString() ?? null }))
         }
-        throw new Error(`Unknown records collection: ${typeKey}. This dashboard can read thread.overview, thread.messages, thread.runs, thread.files, and thread.duties.`)
+        throw new Error(`Unknown records collection: ${typeKey}. This dashboard can read thread.overview, thread.messages, thread.runs, thread.files, thread.duties, datasets, and dataset.<name>.`)
       })
     },
     async get(typeKey: string, id: string): Promise<unknown> {
+      if (isDatasetType(typeKey)) {
+        return app.withTenantContext(tenantId, async () =>
+          datasetRecords(await dashboardStorage(app, tenantId, threadId)).get(typeKey, id),
+        )
+      }
       const rows = await dashboardRecords(tenantId, threadId).list(typeKey, { limit: 100 })
       const found = (rows as Array<{ id?: unknown; seq?: unknown }>)
         .find((row) => String(row.id ?? row.seq ?? '') === id)
@@ -755,6 +795,198 @@ export async function runDashboardBridge(args: {
       },
     })
     if (!outcome.ok) throw new Error(outcome.error)
+    // The poll that just served rows is also the clock that keeps them fresh.
+    // Started after the result is in hand and never awaited: a dataset whose
+    // producer is slow must not slow the panel that reads it.
+    if (method === 'records.list' && payload && typeof payload === 'object') {
+      refreshDatasetIfStale(tenantId, threadId, String((payload as { typeKey?: unknown }).typeKey ?? ''))
+    }
     return outcome.result
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Datasets — the agent's own data, on the dashboard
+// ---------------------------------------------------------------------------
+
+/**
+ * A dashboard can read this conversation's records and, with an operator grant,
+ * declared public origins. Neither covers the thing an agent most often wants
+ * to show: data it produced itself on its own machine. Without somewhere to put
+ * that, the only place left is the dashboard's own source, so agents pasted
+ * snapshots and then hand-edited them — a list that is wrong the moment the
+ * next trade closes, and a file that grows a changelog in its comments.
+ *
+ * A dataset is that missing place. The agent publishes rows (usually straight
+ * out of a file on its machine); the frontend reads them with the same
+ * `records.list` it already uses. A dataset may also record the command that
+ * regenerates it, so the rows refresh without a model call — the agent's
+ * machine does the work on a timer, and its salary is not spent restating data
+ * it already produced.
+ */
+
+/** Largest file we will pull off a machine to publish as a dataset. Matched to
+ *  the store's own ceiling: a file above this cannot fit once it is rows, so
+ *  refusing it here costs one failed read instead of a 2 MB round trip that
+ *  was always going to be rejected. */
+const DATASET_SOURCE_MAX_BYTES = 1024 * 1024
+
+export const DATASET_FORMATS = ['csv', 'tsv', 'json', 'ndjson'] as const
+
+/** Guess the format from a file name so the agent rarely has to say it. */
+export function datasetFormatFor(path: string, declared?: DatasetFormat | null): DatasetFormat {
+  if (declared) return declared
+  const lower = path.toLowerCase()
+  if (lower.endsWith('.tsv')) return 'tsv'
+  if (lower.endsWith('.ndjson') || lower.endsWith('.jsonl')) return 'ndjson'
+  if (lower.endsWith('.json')) return 'json'
+  return 'csv'
+}
+
+async function threadPersonId(tenantId: string, threadId: string): Promise<string> {
+  const context = await threadContext(tenantId, threadId)
+  if (!context) throw new Error('That conversation is no longer here.')
+  return context.thread.personId
+}
+
+export async function listDashboardDatasets(tenantId: string, threadId: string): Promise<DatasetSummary[]> {
+  const app = db()
+  return app.withTenantContext(tenantId, async () => listDatasets(await dashboardStorage(app, tenantId, threadId)))
+}
+
+export async function deleteDashboardDataset(tenantId: string, threadId: string, name: string): Promise<void> {
+  const app = db()
+  await app.withTenantContext(tenantId, async () => deleteStoredDataset(await dashboardStorage(app, tenantId, threadId), name))
+}
+
+export async function setDashboardDatasetProducer(
+  tenantId: string,
+  threadId: string,
+  name: string,
+  producer: DatasetProducer | null,
+): Promise<DatasetSummary> {
+  const app = db()
+  return app.withTenantContext(tenantId, async () => setDatasetProducer(await dashboardStorage(app, tenantId, threadId), name, producer))
+}
+
+/**
+ * Publish rows onto the dashboard, either from a file on the agent's machine or
+ * from rows the agent already holds. Reading the file is the same base64 hop
+ * `publish_workspace_file` uses, so the machine stays a place the host reaches
+ * into rather than one that reaches out.
+ */
+export async function publishDashboardDataset(args: {
+  tenantId: string
+  threadId: string
+  name: string
+  label?: string | null
+  fromFile?: string | null
+  rows?: DatasetRow[]
+  format?: DatasetFormat | null
+  mode?: DatasetWriteMode
+  keyColumns?: string[]
+  publishedBy?: string | null
+  producer?: DatasetProducer | null
+}): Promise<DatasetSummary> {
+  const app = db()
+  const personId = await threadPersonId(args.tenantId, args.threadId)
+  let rows: DatasetRow[]
+  let source: string | null = null
+  if (args.fromFile) {
+    const format = datasetFormatFor(args.fromFile, args.format)
+    const { readDeskFile } = await import('./desk')
+    const file = await readDeskFile({
+      tenantId: args.tenantId,
+      personId,
+      path: args.fromFile,
+      maxBytes: DATASET_SOURCE_MAX_BYTES,
+    })
+    if (!file.found) throw new Error(file.reason ?? `Could not read ${args.fromFile} on the machine.`)
+    if (file.truncated) {
+      throw new Error(`${args.fromFile} is larger than ${Math.round(DATASET_SOURCE_MAX_BYTES / 1024)} KB. Summarize or filter it on the machine first, then publish the smaller file.`)
+    }
+    rows = parseDatasetContent(file.text, format)
+    source = args.fromFile
+  } else if (args.rows) {
+    rows = args.rows
+  } else {
+    throw new Error('Publish a dataset either from a file on your machine (fromFile) or with rows.')
+  }
+  return app.withTenantContext(args.tenantId, async () =>
+    putDataset(await dashboardStorage(app, args.tenantId, args.threadId), {
+      name: args.name,
+      label: args.label ?? null,
+      rows,
+      mode: args.mode,
+      keyColumns: args.keyColumns,
+      source,
+      publishedBy: args.publishedBy ?? null,
+      producer: args.producer,
+    }),
+  )
+}
+
+/**
+ * Re-run one dataset's producer and republish what it wrote. No model call: the
+ * command is the one the agent already authored, and this only re-executes it.
+ * A failure is recorded on the dataset and the last good rows are left standing
+ * — a dashboard that shows yesterday's number and says so beats a blank panel.
+ */
+export async function refreshDashboardDataset(tenantId: string, threadId: string, name: string): Promise<DatasetSummary> {
+  const app = db()
+  const stored = await app.withTenantContext(tenantId, async () => readDataset(await dashboardStorage(app, tenantId, threadId), name))
+  if (!stored) throw new Error(`There is no dataset named "${name}" on this dashboard.`)
+  const producer = stored.producer
+  if (!producer) throw new Error(`"${name}" has no producer, so there is nothing to re-run. Publish it again instead.`)
+  const personId = await threadPersonId(tenantId, threadId)
+  try {
+    const { runDeskCommandHeadless } = await import('./desk')
+    const outcome = await runDeskCommandHeadless({
+      tenantId,
+      personId,
+      command: producer.command,
+      cwd: producer.cwd ?? '.',
+    })
+    if (outcome.status !== 'completed' || (outcome.exitCode ?? 0) !== 0) {
+      throw new Error(`The producer command ${outcome.status === 'timeout' ? 'timed out' : `exited ${outcome.exitCode ?? 'abnormally'}`}: ${outcome.output.trim().slice(0, 300) || 'no output'}`)
+    }
+    return await publishDashboardDataset({
+      tenantId,
+      threadId,
+      name,
+      fromFile: producer.path,
+      format: producer.format,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    await app.withTenantContext(tenantId, async () => recordDatasetError(await dashboardStorage(app, tenantId, threadId), name, message))
+    throw error
+  }
+}
+
+/**
+ * Refresh a dataset if its producer is due, without making the caller wait.
+ *
+ * The dashboard already polls; that poll is the clock. Refreshing here rather
+ * than on a schedule means a producer runs when somebody is actually looking,
+ * and an idle conversation never wakes a machine. The claim is a lease, so
+ * concurrent pollers do not all run the command, and a refresh cut short by the
+ * request ending is retried once the lease lapses.
+ */
+export function refreshDatasetIfStale(tenantId: string, threadId: string, typeKey: string): void {
+  const name = typeKey.startsWith('dataset.') ? typeKey.slice('dataset.'.length) : null
+  if (!name) return
+  const app = db()
+  void (async () => {
+    const claimed = await app.withTenantContext(tenantId, async () => {
+      const storage = await dashboardStorage(app, tenantId, threadId)
+      const dataset = await readDataset(storage, name)
+      if (!dataset || !datasetIsStale(dataset)) return false
+      return claimDatasetRefresh(storage, name)
+    })
+    if (!claimed) return
+    await refreshDashboardDataset(tenantId, threadId, name)
+  })().catch((error: unknown) => {
+    console.error(`[dashboard] dataset "${name}" did not refresh:`, error)
   })
 }
