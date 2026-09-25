@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { connect as tcpConnect } from 'node:net'
 import { join } from 'node:path'
@@ -2376,6 +2376,29 @@ async function reclaimStaleTaps(): Promise<void> {
 }
 
 /**
+ * Delete every VMM socket left in the runtime directory before probing.
+ *
+ * Same failure as a stale tap, one layer over. The directory lives in the
+ * container's writable layer, so a container *restart* (dockerd restarting,
+ * the host resuming from a saved state) keeps it while killing every VMM.
+ * Cloud Hypervisor will not bind over an existing path, so the next boot of
+ * that desk dies with `CreateVsockBackend(UnixBind(AddrInUse))` — reported,
+ * again, as "the VMM exited before the guest agent came up" — and keeps dying
+ * that way for that one desk until someone removes the file by hand.
+ *
+ * The VMMs are this container's own children and cannot outlive it, so any
+ * socket here now is debris. The `.lock` files are left alone.
+ */
+async function reclaimStaleSockets(): Promise<void> {
+  const entries = await readdir(DEFAULT_RUNTIME_DIR).catch(() => [] as string[])
+  for (const name of entries) {
+    if (!name.endsWith('.vsock') && !name.endsWith('.api.sock')) continue
+    await rm(join(DEFAULT_RUNTIME_DIR, name), { force: true }).catch(() => undefined)
+    console.log(`[desk-runner] reclaimed a stale VMM socket left by an earlier run: ${name}`)
+  }
+}
+
+/**
  * Probe the host until it answers, rather than once and forever.
  *
  * The probe boots a real microVM and waits for a guest that is still coming
@@ -2413,6 +2436,7 @@ server.listen(PORT, () => {
       // agent came up".
       await mkdir(DEFAULT_RUNTIME_DIR, { recursive: true })
       await reclaimStaleTaps()
+      await reclaimStaleSockets()
       return verifyWithRetries(() =>
         verifyDeskHost({
         kernelPath: join(DISKS_ROOT, 'vmlinux'),
