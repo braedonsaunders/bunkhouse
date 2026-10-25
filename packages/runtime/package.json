@@ -14,9 +14,9 @@
     "@bunkhouse/acp": "workspace:*",
     "@ai-sdk/mcp": "^1.0.64",
     "@braedonsaunders/appkit-ai": "^1.4.1",
-    "@modelcontextprotocol/sdk": "^1.21.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "ai": "^6.0.224",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "typescript": "^5.9.3"
