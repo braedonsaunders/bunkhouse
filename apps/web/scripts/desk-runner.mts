@@ -249,6 +249,8 @@ type DeskEntry = {
   browserPath: string | null
   /** Stable per-desk index; the guest address and the tap derive from it. */
   index: number
+  /** Host time the guest's clock was last set from ours; see syncGuestClock. */
+  clockSyncedAt: number
 }
 
 type BufferedEvent = { seq: number; kind: string; at: string; detail: Record<string, unknown> }
@@ -590,6 +592,42 @@ async function configureGuestNetwork(entry: DeskEntry): Promise<void> {
   }
 }
 
+/** How long a resident desk's clock is trusted before the next call re-asserts it. */
+const CLOCK_RESYNC_MS = 60 * 60_000
+
+/**
+ * Set the guest's wall clock from the host's. A VM's clock stops whenever it
+ * is parked — suspended, restored from a snapshot, or paused underneath us by
+ * the hypervisor this host runs on — and picks up where it stopped. The guest
+ * cannot correct itself: NTP never leaves through the egress filter. Measured
+ * in production: a desk 33h47m behind after weeks of park/resume cycles, every
+ * timestamp its agent wrote and every certificate it checked judged against
+ * the wrong day. Over the exec channel, like the network, because the host is
+ * the one clock both sides already agree to trust.
+ */
+async function syncGuestClock(entry: DeskEntry): Promise<void> {
+  const seconds = (Date.now() / 1000).toFixed(3)
+  const snapshot = await entry.handle.exec({
+    command: '/bin/sh',
+    args: ['-c', `date -u -s @${seconds} > /dev/null`],
+    timeoutMs: 5_000,
+  })
+  if (snapshot.exitCode !== 0) {
+    throw new Error(`The guest's clock could not be set: ${snapshot.stderr.trim() || 'no reason given'}`)
+  }
+  entry.clockSyncedAt = Date.now()
+}
+
+/**
+ * A wrong clock is not an unreachable desk, so unlike the network this never
+ * fails the call it precedes; it is logged, and retried on the next one.
+ */
+async function resyncGuestClock(deskId: string, entry: DeskEntry): Promise<void> {
+  await syncGuestClock(entry).catch((error: unknown) => {
+    console.warn(`[desk-runner] clock sync failed on desk ${deskId}: ${describe(error)}`)
+  })
+}
+
 /**
  * Boot-time proof that this process can actually do the above. Without
  * NET_ADMIN the tap and the rules are impossible, and a desk booted anyway
@@ -638,6 +676,8 @@ async function ensureDesk(
   if (existing) {
     try {
       if (options.leaseMs) existing.handle.renewLease(options.leaseMs)
+      // A resident desk still loses the time it spends paused beneath us.
+      if (Date.now() - existing.clockSyncedAt > CLOCK_RESYNC_MS) await resyncGuestClock(deskId, existing)
       return existing
     } catch {
       // The host suspended it out from under us; fall through and re-lease.
@@ -685,6 +725,7 @@ async function ensureDesk(
     handoverTimer: null,
     browserPath: null,
     index,
+    clockSyncedAt: 0,
   }
   try {
     await configureGuestNetwork(entry)
@@ -705,6 +746,7 @@ async function ensureDesk(
     await host.suspend(deskId).catch(() => undefined)
     throw error
   }
+  await resyncGuestClock(deskId, entry)
   desks.set(deskId, entry)
   return entry
 }
