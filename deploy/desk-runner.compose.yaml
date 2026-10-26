@@ -282,7 +282,89 @@ services:
     # Not `networks:` — the two are mutually exclusive, and the namespace is
     # the point. No ports either: guests reach it only through the DNAT rules
     # the desk-runner installs, and nothing else needs to reach it at all.
+    #
+    # Docker joins this to the namespace the runner has AT THE MOMENT THIS
+    # STARTS, and never again. Every runner restart replaces that namespace, so
+    # `restart: always` alone is not enough: see egress-keeper below.
     network_mode: service:desk-runner
     depends_on:
       - desk-runner
     restart: always
+
+  # Keeps the egress proxy inside the runner's CURRENT network namespace.
+  #
+  # A container that shares another's namespace is bound to the namespace,
+  # not to the container. Whenever the runner restarts — a crash, a host
+  # reboot, dockerd restarting it under `restart: always` — it comes back in a
+  # NEW namespace, and Docker does nothing about the proxy. Two outcomes, both
+  # seen on a real desk host:
+  #
+  #   - the proxy keeps running in the old, now empty namespace. Every
+  #     container reports Up and the runner reports healthy, but nothing
+  #     answers the DNAT target, so every desk has silently lost the internet;
+  #   - or the proxy is restarted while the runner is still down, fails with
+  #     "cannot join network namespace of a non running container", and
+  #     Docker never retries a container whose start failed. It stays Exited
+  #     (128) until someone notices that agents cannot reach anything.
+  #
+  # Either way the guest's egress is down while the rules that confine it are
+  # intact — closed rather than open, which is the right failure, but an
+  # outage nobody is told about. Compose cannot express "restart B whenever A
+  # restarts" for anything but its own operations, so this service enforces
+  # it: every ten seconds it compares the two containers, and restarts the
+  # proxy whenever it is not running or last started before the runner did,
+  # which is exactly when it cannot be in the runner's current namespace.
+  #
+  # WHY THIS ONE SERVICE HOLDS THE DOCKER SOCKET, AND WHY THAT IS BOUNDED:
+  #
+  # Restarting a container is a Docker API call, and the socket is root on the
+  # host — the widest grant in this file. It is given to the one process that
+  # takes no input at all: no network (`network_mode: none`, so nothing can
+  # reach it and it can reach nothing), no ports, a read-only root filesystem,
+  # and a fixed script that only inspects and restarts the two services of
+  # its own Compose project, which it identifies from its own labels. A guest
+  # cannot talk to it, and neither can the runner or the proxy.
+  egress-keeper:
+    image: docker:29-cli
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      # The CLI writes its config directory on first use; the root filesystem
+      # is read-only, so point it at the tmpfs.
+      DOCKER_CONFIG: /tmp/docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: always
+    command:
+      - sh
+      - -c
+      - |
+        set -u
+        project="$$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$$(hostname)")"
+        member() {
+          docker ps -aq --filter "label=com.docker.compose.project=$$project" --filter "label=com.docker.compose.service=$$1" | head -n 1
+        }
+        # Docker reports start times in RFC 3339 with the trailing zeros of the
+        # nanoseconds trimmed, so compare them padded to a fixed width. Compose
+        # starts the two in the same second; whole seconds would read that as
+        # stale and drop every in-flight flow after each deploy.
+        started_after() {
+          awk -v a="$$1" -v b="$$2" 'function at(t, part) { split(t, part, /[.Z]/); return part[1] "." substr(part[2] "000000000", 1, 9) } BEGIN { exit !(at(a) > at(b)) }'
+        }
+        echo "[egress-keeper] keeping egress-proxy in desk-runner's namespace for project $$project"
+        while :; do
+          runner="$$(member desk-runner)"
+          proxy="$$(member egress-proxy)"
+          if [ -n "$$runner" ] && [ -n "$$proxy" ] && [ "$$(docker inspect -f '{{.State.Running}}' "$$runner")" = true ]; then
+            runner_started="$$(docker inspect -f '{{.State.StartedAt}}' "$$runner")"
+            proxy_running="$$(docker inspect -f '{{.State.Running}}' "$$proxy")"
+            proxy_started="$$(docker inspect -f '{{.State.StartedAt}}' "$$proxy")"
+            if [ "$$proxy_running" != true ] || ! started_after "$$proxy_started" "$$runner_started"; then
+              echo "[egress-keeper] egress-proxy is not in desk-runner's current namespace (running=$$proxy_running, started $$proxy_started; runner started $$runner_started); restarting it"
+              docker restart -t 10 "$$proxy" >/dev/null || echo "[egress-keeper] restart failed; retrying on the next pass"
+            fi
+          fi
+          sleep 10
+        done

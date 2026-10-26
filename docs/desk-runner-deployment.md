@@ -109,3 +109,16 @@ curl -s http://<desk-host>:8080/health
 `ok`, `kvm`, and `vsock` should all be true, `lastError` null. `docker port` on
 the container should show the port published on the LAN address rather than on
 `127.0.0.1` — that one has broken twice.
+
+The runner can be healthy while every desk is offline. The egress proxy shares
+the runner's network namespace, and a runner restart replaces that namespace
+without telling the proxy. That is what `egress-keeper` exists for, and its log
+is where to look first when agents report that nothing on the internet answers:
+
+```sh
+docker logs --tail 20 <project>-egress-keeper-1
+```
+
+A line saying it restarted `egress-proxy` after a reboot or a runner restart is
+the keeper doing its job. To confirm the two share a namespace, compare
+`readlink /proc/<pid>/ns/net` for each container's `.State.Pid`. They must match.

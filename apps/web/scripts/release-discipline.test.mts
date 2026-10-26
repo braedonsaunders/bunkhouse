@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { parse } from 'yaml'
 import webPackage from '../package.json' with { type: 'json' }
 
 const repo = new URL('../../../', import.meta.url)
@@ -86,6 +87,44 @@ test('the desk runner is a CI artifact, not something built on its own host', as
   // And the gap that remains must stay loud rather than passing quietly.
   assert.match(deploy, /Desk runner is drifting/)
   assert.match(deploy, /docs\/desk-runner-deployment\.md/, 'pointing at how to close it')
+})
+
+type ComposeService = {
+  network_mode?: string
+  read_only?: boolean
+  ports?: unknown
+  restart?: string
+  volumes?: string[]
+  command?: string[]
+}
+
+test('the egress proxy is kept in the desk runner\'s current network namespace', async () => {
+  const { services } = parse(await readRepo('deploy/desk-runner.compose.yaml')) as { services: Record<string, ComposeService> }
+
+  // Guest egress is enforced by DNAT to an address inside the runner's
+  // namespace, so the proxy has to live in it.
+  assert.equal(services['egress-proxy']?.network_mode, 'service:desk-runner')
+
+  // Docker binds that to the namespace the runner had when the proxy started,
+  // and a runner restart replaces it. Without the keeper, a restart leaves the
+  // proxy running in an empty namespace, or exited after a failed start that
+  // Docker never retries, and every desk silently loses the internet.
+  const keeper = services['egress-keeper']
+  assert.ok(keeper, 'a keeper re-joins the proxy whenever the runner restarts')
+  assert.equal(keeper.restart, 'always')
+
+  // It holds the Docker socket, so it must be reachable by nothing.
+  assert.ok(keeper.volumes?.includes('/var/run/docker.sock:/var/run/docker.sock'))
+  assert.equal(keeper.network_mode, 'none', 'no network: nothing can reach the process holding the socket')
+  assert.equal(keeper.read_only, true)
+  assert.equal(keeper.ports, undefined)
+
+  // It finds the two by Compose service name, so a rename here would leave it
+  // watching nothing while the outage it exists to repair comes back.
+  const script = (keeper.command ?? []).join('\n')
+  const watched = [...script.matchAll(/\$\$\(member ([a-z-]+)\)/g)].map((match) => match[1]!)
+  assert.deepEqual([...watched].sort(), ['desk-runner', 'egress-proxy'])
+  for (const name of watched) assert.ok(services[name], `the keeper watches ${name}, a service in this file`)
 })
 
 test('the deploy waits for Dokploy before racing it', async () => {
