@@ -1,4 +1,4 @@
-import { createJobs } from '@braedonsaunders/appkit-jobs'
+import { createJobs, Queue } from '@braedonsaunders/appkit-jobs'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { schema as identity } from '@braedonsaunders/appkit-db'
 import { db } from '../src/db/client'
@@ -736,11 +736,37 @@ type DeepWorkJob =
   /** A run another run launched and is waiting on. `id` is the child's run id. */
   | { kind: 'child'; tenantId: string; id: string }
 
+// BullMQ keeps every finished job forever unless told otherwise, and
+// `jobs.defineQueue` sets no retention. With a ten-second heartbeat that grew
+// the shared Redis by ~20 MB a day: 1.74 M completed ticks (1.6 GB) had piled up
+// by November 2026. Ticks are worthless once done, so only the most recent hour
+// is kept. Deep work keeps a day: every deep-work job is swept from a durable
+// row that is marked done when it finishes, so the jobId only has to stop a
+// second tick from re-queuing it while it is still pending or running — a day
+// of history is a generous margin for that, and for debugging. Failures are
+// kept a week so they can still be inspected. The scheduler templates below
+// inherit these defaults (BullMQ merges them on every upsert).
+const DAY_S = 86_400
+const deepWorkRetention = {
+  removeOnComplete: { age: DAY_S },
+  removeOnFail: { age: 7 * DAY_S },
+}
+const heartbeatRetention = {
+  removeOnComplete: { age: 3_600, count: 1_000 },
+  removeOnFail: { age: 7 * DAY_S, count: 5_000 },
+}
+
 // Deep work — assignment runs and approval continuations — gets its own queue
 // and worker so a multi-minute deliverable never blocks the heartbeat.
-const deepWork = jobs.defineQueue<DeepWorkJob>('bunkhouse-deep-work')
+const deepWork = new Queue<DeepWorkJob>('bunkhouse-deep-work', {
+  connection: jobs.getConnection(),
+  defaultJobOptions: deepWorkRetention,
+})
 
-const heartbeat = jobs.defineQueue<{ pass: HeartbeatPass }>('bunkhouse-heartbeat')
+const heartbeat = new Queue<{ pass: HeartbeatPass }>('bunkhouse-heartbeat', {
+  connection: jobs.getConnection(),
+  defaultJobOptions: heartbeatRetention,
+})
 await heartbeat.upsertJobScheduler('mailbox', { every: 120_000 }, { name: 'tick', data: { pass: 'mailbox' } })
 await heartbeat.upsertJobScheduler('duties', { every: 60_000 }, { name: 'tick', data: { pass: 'duties' } })
 await heartbeat.upsertJobScheduler('approvals', { every: 30_000 }, { name: 'tick', data: { pass: 'approvals' } })
