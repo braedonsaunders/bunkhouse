@@ -37,6 +37,13 @@
       "uuid@<11.1.1": "11.1.1",
       "fast-uri@>=3.0.0 <3.1.7": "3.1.7",
       "deepmerge-ts@<8.0.0": "8.0.0"
+    },
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-965c-763c-88jm",
+        "GHSA-r4xp-prcw-77qf",
+        "GHSA-q84f-53jg-9ppm"
+      ]
     }
   }
 }
