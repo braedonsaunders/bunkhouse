@@ -438,69 +438,6 @@ jobs:
           done <<< "$domain_ids"
           echo "Removed obsolete Dokploy HTTP route: $turn_host"
 
-      # The agent desk runner is a second application on the dedicated desk
-      # host VM (see deploy/desk-runner.compose.yaml for why it cannot live
-      # on this one). It runs the same image, so it has to move with it —
-      # pinned to whatever tag it was created with, it would quietly drift a
-      # version behind the app it serves and stay there.
-      - name: Point the desk runner at the same image
-        env:
-          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
-          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
-          DESK_COMPOSE_ID: ${{ secrets.DOKPLOY_DESK_COMPOSE_ID }}
-          DESK_URL: ${{ vars.BUNKHOUSE_DESK_URL }}
-          NEW_TAG: ${{ inputs.imageTag || needs.build.outputs.tag }}
-        run: |
-          set -euo pipefail
-          # Checked here rather than in an `if:` — the secrets context is not
-          # available to step conditions, and using it there does not warn, it
-          # makes the whole workflow invalid so no job runs at all.
-          if [ -z "${DESK_COMPOSE_ID:-}" ]; then
-            # Two different situations, and only one of them is fine.
-            #
-            # No desk at all: the app fails closed, agents simply have no
-            # machine, and there is nothing to update. Say so and move on.
-            #
-            # A desk the APP is pointed at but this pipeline cannot deploy: the
-            # runner is pinned to whatever tag it was built with and drifts a
-            # version further behind on every deploy. It did exactly that for
-            # three weeks — the app moved, the runner did not, and the only
-            # notice anybody got was this line scrolling past in a green job.
-            # A fix to scripts/desk-runner.mts merged in that window was live
-            # nowhere. Drift this consequential must not be silent, so it is a
-            # warning annotation now rather than a log line.
-            if [ -n "${DESK_URL:-}" ]; then
-              echo "::warning title=Desk runner is drifting::The app is configured with BUNKHOUSE_DESK_URL=${DESK_URL} but DOKPLOY_DESK_COMPOSE_ID is unset, so the desk runner was NOT moved to ${NEW_TAG}. Changes to apps/web/scripts/desk-runner.mts are not live. The image exists — ${IMAGE_NAME}:${NEW_TAG}${DESK_TAG_SUFFIX} was just pushed — so all that is missing is a Dokploy compose application on the desk host and its id in DOKPLOY_DESK_COMPOSE_ID. See docs/desk-runner-deployment.md."
-            else
-              echo "No desk runner configured (DOKPLOY_DESK_COMPOSE_ID unset, no BUNKHOUSE_DESK_URL) — nothing to update."
-            fi
-            exit 0
-          fi
-          base="${DOKPLOY_URL%/}"
-          current="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
-            -G "$base/api/compose.one" --data-urlencode "composeId=$DESK_COMPOSE_ID")"
-          new_env="$(echo "$current" | jq -r '.env // ""')"
-          # BUNKHOUSE_DESK_TOKEN is deliberately not touched: it is a shared
-          # secret set once on both ends, and rewriting it here would break the
-          # agreement every deploy.
-          upsert() {
-            if printf '%s\n' "$new_env" | grep -q "^$1="; then
-              new_env="$(printf '%s\n' "$new_env" | sed "s|^$1=.*|$1=$2|")"
-            else
-              new_env="$(printf '%s\n%s=%s\n' "$new_env" "$1" "$2")"
-            fi
-          }
-          upsert BUNKHOUSE_TAG "$NEW_TAG"
-          compose_file="$(cat deploy/desk-runner.compose.yaml)"
-          jq -n --arg id "$DESK_COMPOSE_ID" --arg env "$new_env" --arg composeFile "$compose_file" \
-            '{composeId:$id, env:$env, composeFile:$composeFile}' \
-            | curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
-                -H 'content-type: application/json' \
-                -X POST "$base/api/compose.update" --data @- > /dev/null
-          curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" -H 'content-type: application/json' \
-            -X POST "$base/api/compose.deploy" --data "{\"composeId\":\"$DESK_COMPOSE_ID\"}"
-          echo "Desk runner pointed at ${NEW_TAG}"
-
       - name: Trigger deployment
         env:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
@@ -625,7 +562,9 @@ jobs:
             #
             # This used to give up after one minute. Dokploy routinely takes
             # longer than that to start a queued deployment — measured at 4m49s
-            # on a two-application project — so the common case became: bail at
+            # on a two-application project, which was this app queued behind the
+            # desk runner's deployment (the desk now deploys after the app; see
+            # the last step of this job) — so the common case became: bail at
             # 60s, update the swarm services directly, and then wait for an image
             # to become healthy while Dokploy is concurrently deploying the same
             # stack. Both finished successfully and the step still reported
@@ -744,6 +683,80 @@ jobs:
           done
           echo "::error::The LiveKit media plane did not become stable."
           exit 1
+
+      # The agent desk runner is a second application on the dedicated desk
+      # host VM (see deploy/desk-runner.compose.yaml for why it cannot live
+      # on this one). It runs the same image, so it has to move with it —
+      # pinned to whatever tag it was created with, it would quietly drift a
+      # version behind the app it serves and stay there.
+      #
+      # It moves LAST, once the app is live and its gates have passed. Dokploy
+      # runs one deployment at a time, and the desk's deployment pulls two
+      # multi-gigabyte images onto the desk VM (9 minutes on 2026-11-05). When
+      # this step ran before "Trigger deployment", the app's own 8-second
+      # deployment sat queued behind it, the wait below gave up after seven
+      # minutes and fell back to updating the services itself, and Dokploy then
+      # ran the queued deployment anyway — restarting everything a second time
+      # and failing the gate over a deployment that had succeeded. Ordered this
+      # way the app never waits on the desk, and a failed app deployment leaves
+      # the desk on the version that matched the last good one.
+      - name: Point the desk runner at the same image
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
+          DESK_COMPOSE_ID: ${{ secrets.DOKPLOY_DESK_COMPOSE_ID }}
+          DESK_URL: ${{ vars.BUNKHOUSE_DESK_URL }}
+          NEW_TAG: ${{ inputs.imageTag || needs.build.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Checked here rather than in an `if:` — the secrets context is not
+          # available to step conditions, and using it there does not warn, it
+          # makes the whole workflow invalid so no job runs at all.
+          if [ -z "${DESK_COMPOSE_ID:-}" ]; then
+            # Two different situations, and only one of them is fine.
+            #
+            # No desk at all: the app fails closed, agents simply have no
+            # machine, and there is nothing to update. Say so and move on.
+            #
+            # A desk the APP is pointed at but this pipeline cannot deploy: the
+            # runner is pinned to whatever tag it was built with and drifts a
+            # version further behind on every deploy. It did exactly that for
+            # three weeks — the app moved, the runner did not, and the only
+            # notice anybody got was this line scrolling past in a green job.
+            # A fix to scripts/desk-runner.mts merged in that window was live
+            # nowhere. Drift this consequential must not be silent, so it is a
+            # warning annotation now rather than a log line.
+            if [ -n "${DESK_URL:-}" ]; then
+              echo "::warning title=Desk runner is drifting::The app is configured with BUNKHOUSE_DESK_URL=${DESK_URL} but DOKPLOY_DESK_COMPOSE_ID is unset, so the desk runner was NOT moved to ${NEW_TAG}. Changes to apps/web/scripts/desk-runner.mts are not live. The image exists — ${IMAGE_NAME}:${NEW_TAG}${DESK_TAG_SUFFIX} was just pushed — so all that is missing is a Dokploy compose application on the desk host and its id in DOKPLOY_DESK_COMPOSE_ID. See docs/desk-runner-deployment.md."
+            else
+              echo "No desk runner configured (DOKPLOY_DESK_COMPOSE_ID unset, no BUNKHOUSE_DESK_URL) — nothing to update."
+            fi
+            exit 0
+          fi
+          base="${DOKPLOY_URL%/}"
+          current="$(curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+            -G "$base/api/compose.one" --data-urlencode "composeId=$DESK_COMPOSE_ID")"
+          new_env="$(echo "$current" | jq -r '.env // ""')"
+          # BUNKHOUSE_DESK_TOKEN is deliberately not touched: it is a shared
+          # secret set once on both ends, and rewriting it here would break the
+          # agreement every deploy.
+          upsert() {
+            if printf '%s\n' "$new_env" | grep -q "^$1="; then
+              new_env="$(printf '%s\n' "$new_env" | sed "s|^$1=.*|$1=$2|")"
+            else
+              new_env="$(printf '%s\n%s=%s\n' "$new_env" "$1" "$2")"
+            fi
+          }
+          upsert BUNKHOUSE_TAG "$NEW_TAG"
+          compose_file="$(cat deploy/desk-runner.compose.yaml)"
+          jq -n --arg id "$DESK_COMPOSE_ID" --arg env "$new_env" --arg composeFile "$compose_file" \
+            '{composeId:$id, env:$env, composeFile:$composeFile}' \
+            | curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" \
+                -H 'content-type: application/json' \
+                -X POST "$base/api/compose.update" --data @- > /dev/null
+          curl -sS --fail -H "x-api-key: $DOKPLOY_TOKEN" -H 'content-type: application/json' \
+            -X POST "$base/api/compose.deploy" --data "{\"composeId\":\"$DESK_COMPOSE_ID\"}"
+          echo "Desk runner pointed at ${NEW_TAG}"
 
   diagnose:
     if: ${{ inputs.diagnosticsOnly == true }}
